@@ -38,7 +38,7 @@ type sshTestEnv struct {
 	logs        *observer.ObservedLogs
 }
 
-func setupSSHGateway(t *testing.T, user *token.User, gatewayPort int) *sshTestEnv {
+func setupSSHGateway(t *testing.T, user *token.User, sshCAConfig gatewayconfig.SSHCAConfig, gatewayPort int) *sshTestEnv {
 	t.Helper()
 
 	containerID, sshServerPort := testutil.SetupSSHServer(t, sshUsername)
@@ -63,11 +63,7 @@ func setupSSHGateway(t *testing.T, user *token.User, gatewayPort int) *sshTestEn
 			Gateway: gatewayconfig.SSHGatewayConfig{
 				Username: sshUsername,
 			},
-			CA: gatewayconfig.SSHCAConfig{
-				Manual: &gatewayconfig.SSHCAManualConfig{
-					PrivateKeyFile: "../data/ssh/ca/ca",
-				},
-			},
+			CA: sshCAConfig,
 			Upstreams: []gatewayconfig.SSHUpstream{
 				{Name: "ssh-server", Address: sshServerAddress},
 			},
@@ -120,6 +116,10 @@ func TestSSH(t *testing.T) {
 		ID:       "user-ssh-1",
 		Username: "alex@acme.com",
 		Groups:   []string{"OnCall", "Engineering"},
+	}, gatewayconfig.SSHCAConfig{
+		Manual: &gatewayconfig.SSHCAManualConfig{
+			PrivateKeyFile: "../data/ssh/ca/ca",
+		},
 	}, gatewayPort)
 
 	// Test `ssh 127.0.0.1 -l admin -p 2222 "whoami"`
@@ -160,7 +160,7 @@ func TestSSH(t *testing.T) {
 	fileContent, err := os.ReadFile(tmpFile)
 	require.NoErrorf(t, err, "failed to read file %s", tmpFile)
 
-	assert.Equal(t, "test file copy\n", string(fileContent))
+	require.Equal(t, "test file copy\n", string(fileContent))
 
 	// Wait for logs to be flushed
 	time.Sleep(100 * time.Millisecond)
@@ -172,6 +172,69 @@ func TestSSH(t *testing.T) {
 		"target": "upstream",
 	}
 	testutil.AssertLogsForSSH(t, env.logs, expectedUser, expectedRequest)
+}
+
+// TestSSHVault tests SSH proxying through the gateway using Vault as the CA backend.
+func TestSSHVault(t *testing.T) {
+	const gatewayPort = 8448
+
+	vaultContainerID, vaultPort := testutil.SetupVaultServer(t)
+	vaultAddress := fmt.Sprintf("http://127.0.0.1:%d", vaultPort)
+
+	tests := []struct {
+		name      string
+		authSetup func(t *testing.T) gatewayconfig.SSHCAVaultAuthConfig
+	}{
+		{
+			name: "token",
+			authSetup: func(t *testing.T) gatewayconfig.SSHCAVaultAuthConfig {
+				t.Helper()
+
+				return gatewayconfig.SSHCAVaultAuthConfig{
+					Token: testutil.SetupVaultToken(t, vaultContainerID),
+				}
+			},
+		},
+		{
+			name: "approle",
+			authSetup: func(t *testing.T) gatewayconfig.SSHCAVaultAuthConfig {
+				t.Helper()
+
+				roleID, secretID := testutil.SetupVaultAppRole(t, vaultContainerID)
+
+				return gatewayconfig.SSHCAVaultAuthConfig{
+					AppRole: &gatewayconfig.SSHCAVaultAppRoleConfig{
+						RoleID:   roleID,
+						SecretID: secretID,
+					},
+				}
+			},
+		},
+	}
+
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			auth := tt.authSetup(t)
+			env := setupSSHGateway(t, &token.User{
+				ID:       "user-ssh-1",
+				Username: "alex@acme.com",
+				Groups:   []string{"OnCall", "Engineering"},
+			}, gatewayconfig.SSHCAConfig{
+				Vault: &gatewayconfig.SSHCAVaultConfig{
+					Address: vaultAddress,
+					Mount:   "ssh",
+					Role:    "gateway-signer",
+					Auth:    auth,
+				},
+			}, gatewayPort+i)
+
+			// Test `ssh 127.0.0.1 -l admin -p 2222 "whoami"`
+			output, err := env.user.SSH.Command("whoami")
+			require.NoError(t, err, "failed to execute 'whoami' command")
+
+			assert.Equalf(t, sshUsername+"\n", string(output), "whoami should return '%s'", sshUsername)
+		})
+	}
 }
 
 // TestSSHLocalPortForwarding tests that local port forwarding (-L) works through the gateway.
@@ -187,6 +250,10 @@ func TestSSHLocalPortForwarding(t *testing.T) {
 		ID:       "user-ssh-local-fwd",
 		Username: "alex@acme.com",
 		Groups:   []string{"Engineering"},
+	}, gatewayconfig.SSHCAConfig{
+		Manual: &gatewayconfig.SSHCAManualConfig{
+			PrivateKeyFile: "../data/ssh/ca/ca",
+		},
 	}, gatewayPort)
 
 	testutil.SetupRemoteEchoServer(t, env.containerID, echoServerPort)
@@ -268,6 +335,10 @@ func TestSSHRemotePortForwarding(t *testing.T) {
 		ID:       "user-ssh-remote-fwd",
 		Username: "alex@acme.com",
 		Groups:   []string{"Engineering"},
+	}, gatewayconfig.SSHCAConfig{
+		Manual: &gatewayconfig.SSHCAManualConfig{
+			PrivateKeyFile: "../data/ssh/ca/ca",
+		},
 	}, gatewayPort)
 
 	testutil.SetupLocalEchoServer(t, localEchoPort)
