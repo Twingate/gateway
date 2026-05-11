@@ -6,7 +6,6 @@ package config
 import (
 	"errors"
 	"fmt"
-	"net"
 	"os"
 	"strings"
 	"time"
@@ -19,8 +18,6 @@ var (
 	ErrRequired          = errors.New("required field is missing")
 	ErrInvalidPort       = errors.New("invalid port number")
 	ErrDuplicateUpstream = errors.New("duplicate upstream name")
-	ErrMultipleInCluster = errors.New("only one in-cluster upstream is allowed")
-	ErrInvalidAddress    = errors.New("invalid address format")
 	ErrInvalidSSHKeyType = errors.New("invalid SSH key type")
 	ErrNegativeTTL       = errors.New("TTL must be non-negative")
 )
@@ -64,7 +61,6 @@ type KubernetesConfig struct {
 
 type KubernetesUpstream struct {
 	Name            string `yaml:"name"`
-	InCluster       bool   `yaml:"inCluster,omitempty"`
 	Address         string `yaml:"address,omitempty"`
 	BearerToken     string `yaml:"bearerToken,omitempty"`
 	BearerTokenFile string `yaml:"bearerTokenFile,omitempty"`
@@ -72,9 +68,8 @@ type KubernetesUpstream struct {
 }
 
 type SSHConfig struct {
-	Gateway   SSHGatewayConfig `yaml:"gateway"`
-	CA        SSHCAConfig      `yaml:"ca"`
-	Upstreams []SSHUpstream    `yaml:"upstreams"`
+	Gateway SSHGatewayConfig `yaml:"gateway"`
+	CA      SSHCAConfig      `yaml:"ca"`
 }
 
 type SSHGatewayConfig struct {
@@ -164,12 +159,6 @@ type SSHCAVaultAWSConfig struct {
 	Nonce         string `yaml:"nonce,omitempty"`
 }
 
-type SSHUpstream struct {
-	Name     string `yaml:"name"`
-	Address  string `yaml:"address"`
-	Username string `yaml:"user,omitempty"` // Optional override for username
-}
-
 func newDefaultConfig() *Config {
 	return &Config{
 		Port:        defaultPort,
@@ -249,13 +238,7 @@ func (t *TLSConfig) Validate() error {
 }
 
 func (k *KubernetesConfig) Validate() error {
-	if len(k.Upstreams) == 0 {
-		return fmt.Errorf("%w: at least one upstream is required", ErrRequired)
-	}
-
-	// Check for duplicate upstream names and multiple in-cluster upstreams
 	upstreamNames := make(map[string]struct{})
-	hasInCluster := false
 
 	for i, upstream := range k.Upstreams {
 		if err := upstream.Validate(); err != nil {
@@ -267,14 +250,6 @@ func (k *KubernetesConfig) Validate() error {
 		}
 
 		upstreamNames[upstream.Name] = struct{}{}
-
-		if upstream.InCluster {
-			if hasInCluster {
-				return fmt.Errorf("%w: %q", ErrMultipleInCluster, upstream.Name)
-			}
-
-			hasInCluster = true
-		}
 	}
 
 	return nil
@@ -285,12 +260,8 @@ func (k *KubernetesUpstream) Validate() error {
 		return fmt.Errorf("%w: name", ErrRequired)
 	}
 
-	if !k.InCluster && k.Address == "" {
-		return fmt.Errorf("%w: address is required when inCluster is false", ErrRequired)
-	}
-
-	if !k.InCluster && k.BearerToken == "" && k.BearerTokenFile == "" {
-		return fmt.Errorf("%w: either bearerToken or bearerTokenFile is required when inCluster is false", ErrRequired)
+	if k.BearerToken == "" && k.BearerTokenFile == "" {
+		return fmt.Errorf("%w: either bearerToken or bearerTokenFile is required", ErrRequired)
 	}
 
 	return nil
@@ -303,25 +274,6 @@ func (s *SSHConfig) Validate() error {
 
 	if err := s.CA.Validate(); err != nil {
 		return fmt.Errorf("ca: %w", err)
-	}
-
-	if len(s.Upstreams) == 0 {
-		return fmt.Errorf("%w: at least one upstream is required", ErrRequired)
-	}
-
-	// Check for duplicate upstream names within ssh
-	upstreamNames := make(map[string]struct{})
-
-	for i, upstream := range s.Upstreams {
-		if err := upstream.Validate(); err != nil {
-			return fmt.Errorf("upstreams[%d] (name: %q): %w", i, upstream.Name, err)
-		}
-
-		if _, exists := upstreamNames[upstream.Name]; exists {
-			return fmt.Errorf("%w: %q", ErrDuplicateUpstream, upstream.Name)
-		}
-
-		upstreamNames[upstream.Name] = struct{}{}
 	}
 
 	return nil
@@ -656,43 +608,10 @@ func (v *SSHCAVaultConfig) GetUpstreamHostCAMount() string {
 	return defaultVaultSSHMount
 }
 
-func (s *SSHUpstream) Validate() error {
-	if s.Name == "" {
-		return fmt.Errorf("%w: name", ErrRequired)
-	}
-
-	if s.Address == "" {
-		return fmt.Errorf("%w: address", ErrRequired)
-	}
-
-	if err := validateAddress(s.Address); err != nil {
-		return fmt.Errorf("address: %w", err)
-	}
-
-	return nil
-}
-
 func validatePort(port int, fieldName string) error {
 	// Allow port 0 for dynamic port assignment in testing.
 	if port < 0 || port > 65535 {
 		return fmt.Errorf("%w: %s must be between 0 and 65535", ErrInvalidPort, fieldName)
-	}
-
-	return nil
-}
-
-func validateAddress(address string) error {
-	host, port, err := net.SplitHostPort(address)
-	if err != nil {
-		return fmt.Errorf("%w: %w", ErrInvalidAddress, err)
-	}
-
-	if host == "" {
-		return fmt.Errorf("%w: host cannot be empty", ErrInvalidAddress)
-	}
-
-	if port == "" {
-		return fmt.Errorf("%w: port cannot be empty", ErrInvalidAddress)
 	}
 
 	return nil

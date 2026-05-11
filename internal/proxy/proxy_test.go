@@ -51,12 +51,6 @@ var fullConfig = gatewayconfig.Config{
 			UserCertificate: gatewayconfig.SSHCertificateConfig{},
 		},
 		CA: gatewayconfig.SSHCAConfig{},
-		Upstreams: []gatewayconfig.SSHUpstream{
-			{
-				Name:    "ssh-server",
-				Address: "127.0.0.1:22",
-			},
-		},
 	},
 }
 

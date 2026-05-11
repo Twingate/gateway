@@ -54,12 +54,12 @@ type upstream struct {
 }
 
 type Config struct {
-	caConfig           *caConfig
-	gatewaySigner      ssh.Signer
-	gatewayPublicKey   ssh.PublicKey
-	hostCertTTL        time.Duration
-	userCertTTL        time.Duration
-	upstreamsByAddress map[string]upstream
+	caConfig         *caConfig
+	gatewaySigner    ssh.Signer
+	gatewayPublicKey ssh.PublicKey
+	hostCertTTL      time.Duration
+	userCertTTL      time.Duration
+	gatewayUsername  string
 
 	auditLog *config.AuditLogConfig
 	logger   *zap.Logger
@@ -97,27 +97,13 @@ func NewConfig(auditLogConfig *config.AuditLogConfig, sshCfg *config.SSHConfig, 
 		userCertTTL = defaultUserCertTTL
 	}
 
-	upstreams := make(map[string]upstream, len(sshCfg.Upstreams))
-	for _, u := range sshCfg.Upstreams {
-		// Use upstream-specific username if provided, otherwise use gateway default
-		username := sshCfg.Gateway.Username
-		if u.Username != "" {
-			username = u.Username
-		}
-
-		upstreams[u.Address] = upstream{
-			address:  u.Address,
-			username: username,
-		}
-	}
-
 	return &Config{
-		caConfig:           caConfig,
-		gatewaySigner:      gatewaySigner,
-		gatewayPublicKey:   gatewayPublicKey,
-		hostCertTTL:        hostCertTTL,
-		userCertTTL:        userCertTTL,
-		upstreamsByAddress: upstreams,
+		caConfig:         caConfig,
+		gatewaySigner:    gatewaySigner,
+		gatewayPublicKey: gatewayPublicKey,
+		hostCertTTL:      hostCertTTL,
+		userCertTTL:      userCertTTL,
+		gatewayUsername:  sshCfg.Gateway.Username,
 
 		auditLog: auditLogConfig,
 		logger:   logger,
