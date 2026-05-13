@@ -25,7 +25,7 @@ require (
 	k8s.io/api v0.36.0
 	k8s.io/apimachinery v0.36.0
 	k8s.io/client-go v0.36.0
-	k8s.io/streaming v0.36.0
+	k8s.io/streaming v0.36.1
 	sigs.k8s.io/kind v0.31.0
 )
 
