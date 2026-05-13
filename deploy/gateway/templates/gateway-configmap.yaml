@@ -28,13 +28,12 @@ data:
     {{- $resourceEnabled := and .Values.twingate.resource .Values.twingate.resource.enabled -}}
     {{- $k8sEnabled := and .Values.kubernetes .Values.kubernetes.enabled }}
 
-    {{ if or $resourceEnabled $k8sEnabled -}}
+    {{ if and $k8sEnabled .Values.kubernetes.upstreams -}}
     kubernetes:
-      {{- if and $k8sEnabled .Values.kubernetes.upstreams }}
       upstreams:
         {{- .Values.kubernetes.upstreams | toYaml | nindent 8 }}
-      {{- else }} {}
-      {{- end }}
+    {{ else if or $resourceEnabled $k8sEnabled -}}
+    kubernetes: {}
     {{ end -}}
 
     {{ with .Values.ssh -}}

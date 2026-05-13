@@ -72,7 +72,7 @@ type SSHConfig struct {
 }
 
 type SSHGatewayConfig struct {
-	Username        string               `yaml:"username"` // Default username for upstream connections
+	Username        string               `yaml:"username"` // username for upstream connections
 	Key             SSHKeyConfig         `yaml:"key"`
 	HostCertificate SSHCertificateConfig `yaml:"hostCertificate"`
 	UserCertificate SSHCertificateConfig `yaml:"userCertificate"`
