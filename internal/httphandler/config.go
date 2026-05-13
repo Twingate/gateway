@@ -40,13 +40,6 @@ func NewConfig(auditLogConfig *config.AuditLogConfig, k8sConfig *config.Kubernet
 	cfg.bearerTokenFile = upstream.BearerTokenFile
 	cfg.caFile = upstream.CAFile
 
-	if upstream.Address != "" {
-		logger.Warn("kubernetes.upstreams[].address is ignored; upstream routing comes from the GAT",
-			zap.String("upstream", upstream.Name),
-			zap.String("address", upstream.Address),
-		)
-	}
-
 	return cfg, nil
 }
 

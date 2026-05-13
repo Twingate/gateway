@@ -61,7 +61,6 @@ func TestKubernetes(t *testing.T) {
 			Upstreams: []gatewayconfig.KubernetesUpstream{
 				{
 					Name:        "kind-cluster",
-					Address:     kindURL.Host,
 					BearerToken: kindBearerToken,
 					CAFile:      "../data/api_server/tls.crt",
 				},

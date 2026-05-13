@@ -61,7 +61,6 @@ type KubernetesConfig struct {
 
 type KubernetesUpstream struct {
 	Name            string `yaml:"name"`
-	Address         string `yaml:"address,omitempty"`
 	BearerToken     string `yaml:"bearerToken,omitempty"`
 	BearerTokenFile string `yaml:"bearerTokenFile,omitempty"`
 	CAFile          string `yaml:"caFile,omitempty"`

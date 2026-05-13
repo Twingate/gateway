@@ -21,12 +21,11 @@ func TestNewConfig(t *testing.T) {
 	}
 	registry := prometheus.NewRegistry()
 
-	t.Run("Success with external upstream credentials (address ignored)", func(t *testing.T) {
+	t.Run("Success with external upstream credentials", func(t *testing.T) {
 		k8sConfig := &config.KubernetesConfig{
 			Upstreams: []config.KubernetesUpstream{
 				{
 					Name:        "test-upstream",
-					Address:     "k8s.example.com:6443",
 					BearerToken: "test-token",
 					CAFile:      "/path/to/ca.crt",
 				},
