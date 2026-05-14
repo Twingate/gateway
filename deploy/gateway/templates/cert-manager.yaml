@@ -10,15 +10,7 @@ metadata:
     {{- include "gateway.labels" . | nindent 4 }}
 spec:
   secretName: {{ include "gateway.tlsSecretName" . }}
-  duration: {{ $cm.duration }}
-  renewBefore: {{ $cm.renewBefore }}
   commonName: {{ $fullname }}
-  subject:
-    organizations:
-      - Twingate
-  privateKey:
-    algorithm: {{ $cm.keyAlgorithm }}
-    size: {{ $cm.keySize }}
   dnsNames:
     - kubernetes
     - kubernetes.default
@@ -37,6 +29,7 @@ spec:
     {{- end }}
   {{- end }}
   issuerRef:
-    name: {{ printf "%s-ca-issuer" $fullname }}
-    kind: Issuer
+    name: {{ $cm.issuerRef.name }}
+    kind: {{ $cm.issuerRef.kind }}
+    group: {{ $cm.issuerRef.group }}
 {{- end }}
