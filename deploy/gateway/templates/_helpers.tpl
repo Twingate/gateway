@@ -106,7 +106,7 @@ true
 {{- end -}}
 
 {{/*
-Return "true" when the chart should render cert-manager Issuer/Certificate resources.
+Return "true" when the chart should render cert-manager Certificate resources.
 */}}
 {{- define "gateway.createCertificate" -}}
 {{- if and (not .Values.tls.existingSecret) (eq (include "gateway.tlsEngine" .) "cert-manager") -}}
