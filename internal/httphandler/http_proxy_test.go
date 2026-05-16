@@ -20,7 +20,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
-	"gateway/internal/config"
 	"gateway/internal/connect"
 	"gateway/internal/token"
 	"gateway/test/data"
@@ -65,13 +64,10 @@ func TestProxy_ForwardRequest(t *testing.T) {
 
 	// Create HTTP proxy
 	cfg := Config{
-		registry: prometheus.NewRegistry(),
-		upstream: &config.KubernetesUpstream{
-			Address:     apiServerAddress,
-			CAFile:      "../../test/data/api_server/tls.crt",
-			BearerToken: "mock-token",
-		},
-		logger: zap.NewNop(),
+		registry:    prometheus.NewRegistry(),
+		caFile:      "../../test/data/api_server/tls.crt",
+		bearerToken: "mock-token",
+		logger:      zap.NewNop(),
 	}
 
 	httpProxy, err := NewProxy(cfg)
@@ -95,7 +91,7 @@ func TestProxy_ForwardRequest(t *testing.T) {
 			Username: "user@acme.com",
 			Groups:   []string{"Everyone", "Engineering"},
 		},
-		Resource: token.Resource{ID: "resource-1", Address: apiServerAddress},
+		Resource: token.Resource{ID: "resource-1", Type: token.ResourceTypeKubernetes, Address: apiServerAddress},
 	}
 
 	// Use NewProxyConn to properly initialize internal fields (tracker)

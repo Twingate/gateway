@@ -126,10 +126,7 @@ should render with Kubernetes enabled:
           certificateFile: "/etc/gateway/tls/tls.crt"
           privateKeyFile: "/etc/gateway/tls/tls.key"
 
-        kubernetes:
-          upstreams:
-            - inCluster: true
-              name: k8s api server
+        kubernetes: {}
     kind: ConfigMap
     metadata:
       labels:
@@ -309,10 +306,6 @@ should render with SSH enabled:
               ttl: "24h"
             userCertificate:
               ttl: "5m"
-
-          upstreams:
-            - address: 10.0.0.1:22
-              name: ssh-server
     kind: ConfigMap
     metadata:
       labels:

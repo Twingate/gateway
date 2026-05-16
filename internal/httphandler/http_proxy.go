@@ -44,7 +44,7 @@ func NewProxy(cfg Config) (*Proxy, error) {
 	logger := cfg.logger
 
 	// create TLS configuration for upstream
-	caCert, err := os.ReadFile(cfg.upstream.CAFile)
+	caCert, err := os.ReadFile(cfg.caFile)
 	if err != nil {
 		return nil, err
 	}
@@ -60,8 +60,8 @@ func NewProxy(cfg Config) (*Proxy, error) {
 	}
 
 	transport, err := k8stransport.NewBearerAuthWithRefreshRoundTripper(
-		cfg.upstream.BearerToken,
-		cfg.upstream.BearerTokenFile,
+		cfg.bearerToken,
+		cfg.bearerTokenFile,
 		&http.Transport{
 			TLSClientConfig: upstreamTLSConfig,
 		},
@@ -81,7 +81,7 @@ func NewProxy(cfg Config) (*Proxy, error) {
 
 			targetURL := &url.URL{
 				Scheme: "https",
-				Host:   cfg.upstream.Address,
+				Host:   conn.GetAddress(),
 			}
 			r.SetURL(targetURL)
 

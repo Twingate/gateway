@@ -7,7 +7,6 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"net"
 	"sync"
 	"time"
@@ -69,10 +68,7 @@ func (f *defaultConnPairFactory) NewConnPair(logger *zap.Logger, sshCtx *sshCont
 	return NewSSHConnPair(logger, sshCtx, downstreamConn, downstreamChannels, downstreamRequests, upstreamConn, upstreamChannels, upstreamRequests)
 }
 
-var (
-	errUnknownUpstream = errors.New("unknown upstream")
-	errShuttingDown    = errors.New("shutting down")
-)
+var errShuttingDown = errors.New("shutting down")
 
 // Timeout for connecting to the upstream SSH server.
 const upstreamConnTimeout = 10 * time.Second
@@ -203,13 +199,9 @@ func (p *SSHProxy) serveConn(ctx context.Context, conn connect.Conn) error {
 		zap.String("conn_id", conn.GetID()),
 	)
 
-	upstream, exists := p.config.upstreamsByAddress[conn.GetAddress()]
-	if !exists {
-		logger.Error("Unknown SSH upstream", zap.String("address", conn.GetAddress()))
-
-		_ = conn.Close()
-
-		return fmt.Errorf("%w: %s", errUnknownUpstream, conn.GetAddress())
+	upstream := upstream{
+		address:  conn.GetAddress(),
+		username: p.config.gatewayUsername,
 	}
 
 	// Give the proxyconn.ProxyConn TCP connection to the SSH server to start the SSH handshake

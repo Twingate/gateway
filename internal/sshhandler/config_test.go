@@ -21,7 +21,6 @@ func TestNewConfig_Success(t *testing.T) {
 		FlushSizeThreshold: 2000,
 	}
 
-	user1 := "user1"
 	sshConfig := &gatewayconfig.SSHConfig{
 		Gateway: gatewayconfig.SSHGatewayConfig{
 			Username:        "gateway",
@@ -30,30 +29,14 @@ func TestNewConfig_Success(t *testing.T) {
 			UserCertificate: gatewayconfig.SSHCertificateConfig{TTL: 5 * time.Minute},
 		},
 		CA: gatewayconfig.SSHCAConfig{},
-		Upstreams: []gatewayconfig.SSHUpstream{
-			{Name: "server1", Address: "10.0.0.1:22", Username: user1},
-			{Name: "server2", Address: "10.0.0.2:22"},
-		},
 	}
 
 	config, err := NewConfig(auditLog, sshConfig, zap.NewNop())
 	require.NoError(t, err)
 	require.NotNil(t, config)
 
-	// Verify config
 	assert.Equal(t, auditLog, config.auditLog)
-	assert.Len(t, config.upstreamsByAddress, 2)
-
-	// Verify upstreams
-	server1, ok := config.upstreamsByAddress["10.0.0.1:22"]
-	require.True(t, ok)
-	assert.Equal(t, "10.0.0.1:22", server1.address)
-	assert.Equal(t, "user1", server1.username)
-
-	server2, ok := config.upstreamsByAddress["10.0.0.2:22"]
-	require.True(t, ok)
-	assert.Equal(t, "10.0.0.2:22", server2.address)
-	assert.Equal(t, "gateway", server2.username) // Uses gateway default username
+	assert.Equal(t, "gateway", config.gatewayUsername)
 }
 
 func TestNewConfig_WithManualCA(t *testing.T) {
@@ -71,7 +54,6 @@ func TestNewConfig_WithManualCA(t *testing.T) {
 				PrivateKeyFile: "../../test/data/ssh/ca/ca",
 			},
 		},
-		Upstreams: []gatewayconfig.SSHUpstream{{Name: "test", Address: "localhost:22"}},
 	}
 
 	config, err := NewConfig(auditLog, sshConfig, zap.NewNop())
@@ -94,7 +76,6 @@ func TestNewConfig_InvalidManualCA(t *testing.T) {
 				PrivateKeyFile: "nonexistent.key",
 			},
 		},
-		Upstreams: []gatewayconfig.SSHUpstream{{Name: "test", Address: "localhost:22"}},
 	}
 
 	config, err := NewConfig(auditLog, sshConfig, zap.NewNop())

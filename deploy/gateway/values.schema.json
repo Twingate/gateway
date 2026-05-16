@@ -63,23 +63,14 @@
         },
         "upstreams": {
           "type": "array",
-          "description": "List of Kubernetes API server upstreams.",
+          "description": "External-cluster credentials (testing only). Leave empty to use the pod's service account.",
           "items": {
             "type": "object",
-            "required": ["name"],
+            "required": ["name", "caFile"],
             "properties": {
               "name": {
                 "type": "string",
                 "description": "Name of the upstream."
-              },
-              "inCluster": {
-                "type": "boolean",
-                "description": "Use in-cluster service account for authentication to the local Kubernetes API server.",
-                "default": false
-              },
-              "address": {
-                "type": "string",
-                "description": "Address of the Kubernetes API server (host:port)."
               },
               "bearerToken": {
                 "type": "string",
@@ -94,18 +85,10 @@
                 "description": "Path to CA certificate file for verifying the Kubernetes API server's TLS certificate."
               }
             },
-            "if": {
-              "properties": {
-                "inCluster": { "const": false }
-              }
-            },
-            "then": {
-              "required": ["address", "caFile"],
-              "oneOf": [
-                {"required": ["bearerToken"]},
-                {"required": ["bearerTokenFile"]}
-              ]
-            },
+            "oneOf": [
+              {"required": ["bearerToken"]},
+              {"required": ["bearerTokenFile"]}
+            ],
             "additionalProperties": false
           }
         }
@@ -126,7 +109,7 @@
           "properties": {
             "username": {
               "type": "string",
-              "description": "Default username for upstream SSH connections (can be overridden per-upstream)."
+              "description": "Username used for all upstream SSH connections."
             },
             "key": {
               "type": "object",
@@ -318,29 +301,6 @@
           },
           "maxProperties": 1,
           "additionalProperties": false
-        },
-        "upstreams": {
-          "type": "array",
-          "description": "List of SSH server upstreams.",
-          "items": {
-            "type": "object",
-            "required": ["name", "address"],
-            "properties": {
-              "name": {
-                "type": "string",
-                "description": "Name of the upstream."
-              },
-              "address": {
-                "type": "string",
-                "description": "Address of the SSH server (host:port)."
-              },
-              "user": {
-                "type": "string",
-                "description": "Optional username override for this upstream."
-              }
-            },
-            "additionalProperties": false
-          }
         }
       },
       "additionalProperties": false
