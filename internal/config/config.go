@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hashicorp/go-retryablehttp"
 	"go.yaml.in/yaml/v4"
 	"golang.org/x/crypto/ssh"
 )
@@ -184,6 +185,27 @@ func newDefaultConfig() *Config {
 	}
 }
 
+func extractHost(hostname, network string) string {
+	prefix := network + "."
+
+	return strings.TrimPrefix(hostname, prefix)
+}
+
+func resolveTwingateHostname(targetURL, defaultHost string, timeout time.Duration, retryMax int) string {
+	client := retryablehttp.NewClient()
+	client.HTTPClient.Timeout = timeout
+	client.RetryMax = retryMax
+	client.Logger = nil
+
+	resp, err := client.Head(targetURL)
+	if err != nil {
+		return defaultHost
+	}
+	defer resp.Body.Close()
+
+	return resp.Request.URL.Hostname()
+}
+
 func Load(path string) (*Config, error) {
 	// #nosec G304 -- file path is from trusted operator configuration
 	data, err := os.ReadFile(path)
@@ -195,6 +217,10 @@ func Load(path string) (*Config, error) {
 	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
+
+	targetURL := fmt.Sprintf("https://%s.%s/api/v1/jwk/ec", cfg.Twingate.Network, cfg.Twingate.Host)
+	resolvedHostname := resolveTwingateHostname(targetURL, cfg.Twingate.Host, 10*time.Second, 3)
+	cfg.Twingate.Host = extractHost(resolvedHostname, cfg.Twingate.Network)
 
 	return cfg, nil
 }

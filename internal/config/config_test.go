@@ -4,6 +4,8 @@
 package config
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -12,6 +14,65 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestExtractHost(t *testing.T) {
+	tests := []struct {
+		name     string
+		hostname string
+		network  string
+		expected string
+	}{
+		{name: "sharded host", hostname: "acme.us1.test.com", network: "acme", expected: "us1.test.com"},
+		{name: "non-sharded host", hostname: "acme.test.com", network: "acme", expected: "test.com"},
+		{name: "no network prefix", hostname: "test.com", network: "acme", expected: "test.com"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, extractHost(tt.hostname, tt.network))
+		})
+	}
+}
+
+func TestResolveTwingateHostname(t *testing.T) {
+	t.Run("follows redirect and returns final hostname", func(t *testing.T) {
+		shardServerCalled := false
+
+		shardServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			shardServerCalled = true
+
+			w.WriteHeader(http.StatusOK)
+		}))
+		t.Cleanup(shardServer.Close)
+
+		redirectServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, shardServer.URL+r.URL.Path, http.StatusPermanentRedirect)
+		}))
+		t.Cleanup(redirectServer.Close)
+
+		result := resolveTwingateHostname(redirectServer.URL+"/api/v1/jwk/ec", "test.com", 5*time.Second, 0)
+
+		assert.True(t, shardServerCalled)
+		assert.Equal(t, "127.0.0.1", result)
+	})
+
+	t.Run("returns server hostname when no redirect", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+		t.Cleanup(server.Close)
+
+		result := resolveTwingateHostname(server.URL+"/api/v1/jwk/ec", "test.com", 5*time.Second, 0)
+
+		assert.Equal(t, "127.0.0.1", result)
+	})
+
+	t.Run("returns default host on connection error", func(t *testing.T) {
+		result := resolveTwingateHostname("http://127.0.0.1:1/api/v1/jwk/ec", "test.com", 2*time.Second, 0)
+
+		assert.Equal(t, "test.com", result)
+	})
+}
 
 func TestLoad_Kubernetes(t *testing.T) {
 	yaml := `
