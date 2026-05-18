@@ -218,6 +218,33 @@ ssh:
 	assert.Equal(t, "ssh-upstream-host", v.GetUpstreamHostCAMount())
 }
 
+func TestConfig_ResolveTwingateHost(t *testing.T) {
+	shardServerCalled := make(chan struct{}, 1)
+
+	shardServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		shardServerCalled <- struct{}{}
+
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(shardServer.Close)
+
+	redirectServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, shardServer.URL+r.URL.Path, http.StatusPermanentRedirect)
+	}))
+	t.Cleanup(redirectServer.Close)
+
+	cfg := &Config{
+		Twingate: TwingateConfig{
+			Network: "acme",
+			Host:    "twingate.com",
+		},
+	}
+
+	cfg.ResolveTwingateHost()
+
+	assert.Equal(t, "twingate.com", cfg.Twingate.Host)
+}
+
 func TestLoad_UseDefaultValues(t *testing.T) {
 	yaml := `
 twingate:

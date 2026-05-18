@@ -185,6 +185,21 @@ func newDefaultConfig() *Config {
 	}
 }
 
+func Load(path string) (*Config, error) {
+	// #nosec G304 -- file path is from trusted operator configuration
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read config file: %w", err)
+	}
+
+	cfg := newDefaultConfig()
+	if err := yaml.Unmarshal(data, cfg); err != nil {
+		return nil, fmt.Errorf("failed to parse config file: %w", err)
+	}
+
+	return cfg, nil
+}
+
 func stripNetworkPrefix(hostname, network string) string {
 	return strings.TrimPrefix(hostname, network+".")
 }
@@ -204,25 +219,11 @@ func resolveTwingateHostname(targetURL, defaultHost string, timeout time.Duratio
 	return resp.Request.URL.Hostname()
 }
 
-func Load(path string) (*Config, error) {
-	// #nosec G304 -- file path is from trusted operator configuration
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read config file: %w", err)
-	}
+func (c *Config) ResolveTwingateHost() {
+	targetURL := fmt.Sprintf("https://%s.%s/api/v1/jwk/ec", c.Twingate.Network, c.Twingate.Host)
+	resolvedHostname := resolveTwingateHostname(targetURL, c.Twingate.Host, 10*time.Second, 3)
 
-	cfg := newDefaultConfig()
-	if err := yaml.Unmarshal(data, cfg); err != nil {
-		return nil, fmt.Errorf("failed to parse config file: %w", err)
-	}
-
-	if cfg.Twingate.Network != "" {
-		targetURL := fmt.Sprintf("https://%s.%s/api/v1/jwk/ec", cfg.Twingate.Network, cfg.Twingate.Host)
-		resolvedHostname := resolveTwingateHostname(targetURL, cfg.Twingate.Host, 10*time.Second, 3)
-		cfg.Twingate.Host = stripNetworkPrefix(resolvedHostname, cfg.Twingate.Network)
-	}
-
-	return cfg, nil
+	c.Twingate.Host = stripNetworkPrefix(resolvedHostname, c.Twingate.Network)
 }
 
 func (c *Config) Validate() error {
