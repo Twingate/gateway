@@ -6,6 +6,7 @@ package token
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/MicahParks/keyfunc/v3"
 	"github.com/golang-jwt/jwt/v5"
@@ -20,6 +21,16 @@ var allowedIssuerByHost = map[string]string{
 	"dev.opstg.com": "twingate-dev",
 	"stg.opstg.com": "twingate-stg",
 	"twingate.com":  "twingate",
+}
+
+func issuerForHost(host string) string {
+	for domain, issuer := range allowedIssuerByHost {
+		if host == domain || strings.HasSuffix(host, "."+domain) {
+			return issuer
+		}
+	}
+
+	return ""
 }
 
 type ClaimsWithHeaderType interface {
@@ -55,7 +66,7 @@ func NewParser(config ParserConfig) (*Parser, error) {
 	return &Parser{
 		parser: jwt.NewParser(
 			jwt.WithValidMethods(allowedSigningMethods),
-			jwt.WithIssuer(allowedIssuerByHost[config.Host]),
+			jwt.WithIssuer(issuerForHost(config.Host)),
 			jwt.WithAudience(config.Network),
 			jwt.WithIssuedAt(),
 			jwt.WithExpirationRequired(),

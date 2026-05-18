@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hashicorp/go-retryablehttp"
 	"go.yaml.in/yaml/v4"
 	"golang.org/x/crypto/ssh"
 )
@@ -197,6 +198,32 @@ func Load(path string) (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func stripNetworkPrefix(hostname, network string) string {
+	return strings.TrimPrefix(hostname, network+".")
+}
+
+func resolveTwingateHostname(targetURL, defaultHost string, timeout time.Duration, retryMax int) string {
+	client := retryablehttp.NewClient()
+	client.HTTPClient.Timeout = timeout
+	client.RetryMax = retryMax
+	client.Logger = nil
+
+	resp, err := client.Head(targetURL)
+	if err != nil {
+		return defaultHost
+	}
+	defer resp.Body.Close()
+
+	return resp.Request.URL.Hostname()
+}
+
+func (c *Config) ResolveTwingateHost() {
+	targetURL := fmt.Sprintf("https://%s.%s/api/v1/jwk/ec", c.Twingate.Network, c.Twingate.Host)
+	resolvedHostname := resolveTwingateHostname(targetURL, c.Twingate.Host, 10*time.Second, 3)
+
+	c.Twingate.Host = stripNetworkPrefix(resolvedHostname, c.Twingate.Network)
 }
 
 func (c *Config) Validate() error {
