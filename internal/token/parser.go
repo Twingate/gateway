@@ -24,12 +24,8 @@ var allowedIssuerByHost = map[string]string{
 }
 
 func issuerForHost(host string) string {
-	if issuer, ok := allowedIssuerByHost[host]; ok {
-		return issuer
-	}
-
 	for domain, issuer := range allowedIssuerByHost {
-		if strings.HasSuffix(host, domain) {
+		if host == domain || strings.HasSuffix(host, "."+domain) {
 			return issuer
 		}
 	}

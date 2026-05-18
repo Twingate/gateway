@@ -215,7 +215,7 @@ func TestIssuerForHost(t *testing.T) {
 	}{
 		{name: "exact match", host: "twingate.com", issuer: "twingate"},
 		{name: "sharded host", host: "us1.twingate.com", issuer: "twingate"},
-		{name: "unknown host", host: "example.com", issuer: ""},
+		{name: "unknown host", host: "unknown-dev.opstg.com", issuer: ""},
 	}
 
 	for _, tt := range tests {

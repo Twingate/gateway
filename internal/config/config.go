@@ -185,10 +185,8 @@ func newDefaultConfig() *Config {
 	}
 }
 
-func extractHost(hostname, network string) string {
-	prefix := network + "."
-
-	return strings.TrimPrefix(hostname, prefix)
+func stripNetworkPrefix(hostname, network string) string {
+	return strings.TrimPrefix(hostname, network+".")
 }
 
 func resolveTwingateHostname(targetURL, defaultHost string, timeout time.Duration, retryMax int) string {
@@ -220,7 +218,7 @@ func Load(path string) (*Config, error) {
 
 	targetURL := fmt.Sprintf("https://%s.%s/api/v1/jwk/ec", cfg.Twingate.Network, cfg.Twingate.Host)
 	resolvedHostname := resolveTwingateHostname(targetURL, cfg.Twingate.Host, 10*time.Second, 3)
-	cfg.Twingate.Host = extractHost(resolvedHostname, cfg.Twingate.Network)
+	cfg.Twingate.Host = stripNetworkPrefix(resolvedHostname, cfg.Twingate.Network)
 
 	return cfg, nil
 }

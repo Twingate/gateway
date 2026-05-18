@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestExtractHost(t *testing.T) {
+func TestStripNetworkPrefix(t *testing.T) {
 	tests := []struct {
 		name     string
 		hostname string
@@ -29,7 +29,7 @@ func TestExtractHost(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, extractHost(tt.hostname, tt.network))
+			assert.Equal(t, tt.expected, stripNetworkPrefix(tt.hostname, tt.network))
 		})
 	}
 }
