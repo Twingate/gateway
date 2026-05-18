@@ -216,9 +216,11 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
 
-	targetURL := fmt.Sprintf("https://%s.%s/api/v1/jwk/ec", cfg.Twingate.Network, cfg.Twingate.Host)
-	resolvedHostname := resolveTwingateHostname(targetURL, cfg.Twingate.Host, 10*time.Second, 3)
-	cfg.Twingate.Host = stripNetworkPrefix(resolvedHostname, cfg.Twingate.Network)
+	if cfg.Twingate.Network != "" {
+		targetURL := fmt.Sprintf("https://%s.%s/api/v1/jwk/ec", cfg.Twingate.Network, cfg.Twingate.Host)
+		resolvedHostname := resolveTwingateHostname(targetURL, cfg.Twingate.Host, 10*time.Second, 3)
+		cfg.Twingate.Host = stripNetworkPrefix(resolvedHostname, cfg.Twingate.Network)
+	}
 
 	return cfg, nil
 }

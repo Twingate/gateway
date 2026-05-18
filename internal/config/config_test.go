@@ -25,6 +25,7 @@ func TestStripNetworkPrefix(t *testing.T) {
 		{name: "sharded host", hostname: "acme.us1.test.com", network: "acme", expected: "us1.test.com"},
 		{name: "non-sharded host", hostname: "acme.test.com", network: "acme", expected: "test.com"},
 		{name: "no network prefix", hostname: "test.com", network: "acme", expected: "test.com"},
+		{name: "empty network", hostname: "us1.twingate.com", network: "", expected: "us1.twingate.com"},
 	}
 
 	for _, tt := range tests {
@@ -36,10 +37,10 @@ func TestStripNetworkPrefix(t *testing.T) {
 
 func TestResolveTwingateHostname(t *testing.T) {
 	t.Run("follows redirect and returns final hostname", func(t *testing.T) {
-		shardServerCalled := false
+		shardServerCalled := make(chan struct{}, 1)
 
 		shardServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			shardServerCalled = true
+			shardServerCalled <- struct{}{}
 
 			w.WriteHeader(http.StatusOK)
 		}))
@@ -52,7 +53,7 @@ func TestResolveTwingateHostname(t *testing.T) {
 
 		result := resolveTwingateHostname(redirectServer.URL+"/api/v1/jwk/ec", "test.com", 5*time.Second, 0)
 
-		assert.True(t, shardServerCalled)
+		assert.Len(t, shardServerCalled, 1)
 		assert.Equal(t, "127.0.0.1", result)
 	})
 
