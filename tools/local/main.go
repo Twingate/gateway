@@ -203,7 +203,6 @@ tls:
 kubernetes:
   upstreams:
     - name: local-kind-cluster
-      address: %s:%d
       bearerToken: %s
       caFile: ./test/data/api_server/tls.crt
 ssh:
@@ -218,12 +217,9 @@ ssh:
   ca:
     manual:
       privateKeyFile: ./test/data/ssh/ca/ca
-  upstreams:
-    - name: local-ssh-server
-      address: %s:%d
 `
 
-	config := fmt.Sprintf(configTemplate, network, gatewayPort, gatewayHost, kindPort, kindBearerToken, sshUsername, gatewayHost, sshPort)
+	config := fmt.Sprintf(configTemplate, network, gatewayPort, kindBearerToken, sshUsername)
 
 	err := os.WriteFile(gatewayConfigFile, []byte(config), 0600)
 	if err != nil {

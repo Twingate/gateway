@@ -37,7 +37,6 @@ var fullConfig = gatewayconfig.Config{
 		Upstreams: []gatewayconfig.KubernetesUpstream{
 			{
 				Name:        "k8s-cluster",
-				Address:     "127.0.0.1:6443",
 				BearerToken: "token",
 				CAFile:      "../../test/data/api_server/tls.crt",
 			},
@@ -51,12 +50,6 @@ var fullConfig = gatewayconfig.Config{
 			UserCertificate: gatewayconfig.SSHCertificateConfig{},
 		},
 		CA: gatewayconfig.SSHCAConfig{},
-		Upstreams: []gatewayconfig.SSHUpstream{
-			{
-				Name:    "ssh-server",
-				Address: "127.0.0.1:22",
-			},
-		},
 	},
 }
 

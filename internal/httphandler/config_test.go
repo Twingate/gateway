@@ -21,16 +21,13 @@ func TestNewConfig(t *testing.T) {
 	}
 	registry := prometheus.NewRegistry()
 
-	t.Run("Success with non in-cluster upstream", func(t *testing.T) {
+	t.Run("Success with external upstream credentials", func(t *testing.T) {
 		k8sConfig := &config.KubernetesConfig{
 			Upstreams: []config.KubernetesUpstream{
 				{
-					Name:            "test-upstream",
-					InCluster:       false,
-					Address:         "k8s.example.com:6443",
-					BearerToken:     "test-token",
-					BearerTokenFile: "",
-					CAFile:          "/path/to/ca.crt",
+					Name:        "test-upstream",
+					BearerToken: "test-token",
+					CAFile:      "/path/to/ca.crt",
 				},
 			},
 		}
@@ -42,21 +39,15 @@ func TestNewConfig(t *testing.T) {
 
 		assert.Equal(t, auditLogConfig, cfg.auditLog)
 		assert.Equal(t, registry, cfg.registry)
-		assert.Equal(t, &k8sConfig.Upstreams[0], cfg.upstream)
+		assert.Equal(t, "test-token", cfg.bearerToken)
+		assert.Empty(t, cfg.bearerTokenFile)
+		assert.Equal(t, "/path/to/ca.crt", cfg.caFile)
 	})
 
-	t.Run("Error when GetInClusterConfig fails", func(t *testing.T) {
-		// Clear environment to force in-cluster config to fail
+	t.Run("Error when in-cluster discovery fails (no upstreams)", func(t *testing.T) {
 		t.Setenv("KUBERNETES_SERVICE_HOST", "")
 
-		k8sConfig := &config.KubernetesConfig{
-			Upstreams: []config.KubernetesUpstream{
-				{
-					Name:      "in-cluster-fail",
-					InCluster: true,
-				},
-			},
-		}
+		k8sConfig := &config.KubernetesConfig{}
 
 		cfg, err := NewConfig(auditLogConfig, k8sConfig, registry, zap.NewNop())
 
@@ -64,83 +55,4 @@ func TestNewConfig(t *testing.T) {
 		assert.Contains(t, err.Error(), "unable to load in-cluster configuration")
 		assert.Nil(t, cfg)
 	})
-}
-
-func TestGetInClusterConfig(t *testing.T) {
-	tests := []struct {
-		name          string
-		upstream      *config.KubernetesUpstream
-		setupEnv      func(t *testing.T)
-		expectError   bool
-		errorContains string
-		validate      func(t *testing.T, result *config.KubernetesUpstream)
-	}{
-		{
-			name: "Non in-cluster upstream returns unchanged",
-			upstream: &config.KubernetesUpstream{
-				Name:        "external",
-				InCluster:   false,
-				Address:     "k8s.internal:6443",
-				BearerToken: "external-token",
-				CAFile:      "/path/to/ca.crt",
-			},
-			setupEnv:    func(_ *testing.T) {},
-			expectError: false,
-			validate: func(t *testing.T, result *config.KubernetesUpstream) {
-				t.Helper()
-
-				assert.Equal(t, "external", result.Name)
-				assert.False(t, result.InCluster)
-				assert.Equal(t, "k8s.internal:6443", result.Address)
-				assert.Equal(t, "external-token", result.BearerToken)
-				assert.Equal(t, "/path/to/ca.crt", result.CAFile)
-			},
-		},
-		{
-			name: "In-cluster upstream preserves original upstream on error",
-			upstream: &config.KubernetesUpstream{
-				Name:      "in-cluster-preserve",
-				InCluster: true,
-				Address:   "original-address",
-			},
-			setupEnv: func(t *testing.T) {
-				t.Helper()
-
-				t.Setenv("KUBERNETES_SERVICE_HOST", "0.0.0.0")
-			},
-			expectError:   true,
-			errorContains: "unable to load in-cluster configuration",
-			validate: func(t *testing.T, result *config.KubernetesUpstream) {
-				t.Helper()
-
-				// Even on error, the function returns the original upstream
-				assert.Equal(t, "in-cluster-preserve", result.Name)
-				assert.Equal(t, "original-address", result.Address)
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			tt.setupEnv(t)
-
-			result, err := GetInClusterConfig(tt.upstream)
-
-			if tt.expectError {
-				require.Error(t, err)
-
-				if tt.errorContains != "" {
-					assert.Contains(t, err.Error(), tt.errorContains)
-				}
-			} else {
-				require.NoError(t, err)
-			}
-
-			require.NotNil(t, result)
-
-			if tt.validate != nil {
-				tt.validate(t, result)
-			}
-		})
-	}
 }

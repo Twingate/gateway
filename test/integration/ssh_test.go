@@ -64,9 +64,6 @@ func setupSSHGateway(t *testing.T, user *token.User, sshCAConfig gatewayconfig.S
 				Username: sshUsername,
 			},
 			CA: sshCAConfig,
-			Upstreams: []gatewayconfig.SSHUpstream{
-				{Name: "ssh-server", Address: sshServerAddress},
-			},
 		},
 	}
 

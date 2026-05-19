@@ -12,43 +12,46 @@ import (
 )
 
 type Config struct {
-	auditLog *config.AuditLogConfig
-	registry *prometheus.Registry
-	upstream *config.KubernetesUpstream
-	logger   *zap.Logger
+	auditLog        *config.AuditLogConfig
+	registry        *prometheus.Registry
+	bearerToken     string
+	bearerTokenFile string
+	caFile          string
+	logger          *zap.Logger
 }
 
 func NewConfig(auditLogConfig *config.AuditLogConfig, k8sConfig *config.KubernetesConfig, registry *prometheus.Registry, logger *zap.Logger) (*Config, error) {
-	// Multiple upstreams support will be added soon!
-	upstream, err := GetInClusterConfig(&k8sConfig.Upstreams[0])
-	if err != nil {
-		return nil, err
-	}
-
-	return &Config{
+	cfg := &Config{
 		auditLog: auditLogConfig,
 		registry: registry,
-		upstream: upstream,
 		logger:   logger,
-	}, nil
+	}
+
+	if len(k8sConfig.Upstreams) == 0 {
+		if err := cfg.loadInClusterCredentials(); err != nil {
+			return nil, err
+		}
+
+		return cfg, nil
+	}
+
+	upstream := k8sConfig.Upstreams[0]
+	cfg.bearerToken = upstream.BearerToken
+	cfg.bearerTokenFile = upstream.BearerTokenFile
+	cfg.caFile = upstream.CAFile
+
+	return cfg, nil
 }
 
-const inClusterKubernetesServiceAddress = "kubernetes.default.svc.cluster.local:443"
-
-func GetInClusterConfig(upstream *config.KubernetesUpstream) (*config.KubernetesUpstream, error) {
-	if !upstream.InCluster {
-		return upstream, nil
-	}
-
-	inClusterConfig, err := rest.InClusterConfig()
+func (c *Config) loadInClusterCredentials() error {
+	inCluster, err := rest.InClusterConfig()
 	if err != nil {
-		return upstream, err
+		return err
 	}
 
-	upstream.Address = inClusterKubernetesServiceAddress
-	upstream.BearerToken = inClusterConfig.BearerToken
-	upstream.BearerTokenFile = inClusterConfig.BearerTokenFile
-	upstream.CAFile = inClusterConfig.CAFile
+	c.bearerToken = inCluster.BearerToken
+	c.bearerTokenFile = inCluster.BearerTokenFile
+	c.caFile = inCluster.CAFile
 
-	return upstream, nil
+	return nil
 }
