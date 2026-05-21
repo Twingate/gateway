@@ -170,9 +170,6 @@ twingate:
 
 kubernetes:
   enabled: true
-  upstreams:
-    - name: "In-cluster k8s cluster"
-      inCluster: true
 
 image:
   repository: twingate/gateway

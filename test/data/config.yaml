@@ -11,6 +11,5 @@ tls:
 kubernetes:
   upstreams:
     - name: "k8s-cluster"
-      address: "127.0.0.1:6443"
       bearerToken: "token"
       caFile: "../test/data/api_server/tls.crt"
