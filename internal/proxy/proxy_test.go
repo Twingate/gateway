@@ -18,6 +18,7 @@ import (
 	gatewayconfig "gateway/internal/config"
 	"gateway/internal/connect"
 	"gateway/internal/httphandler"
+	"gateway/internal/httpproxy"
 	"gateway/internal/metrics"
 	"gateway/internal/sshhandler"
 )
@@ -131,16 +132,17 @@ func TestShutdown_ClosesAllComponents(t *testing.T) {
 	// Create and attach a real HTTP proxy
 	registry := prometheus.NewRegistry()
 
-	httpConfig, err := httphandler.NewConfig(
-		&gatewayconfig.AuditLogConfig{},
-		fullConfig.Kubernetes,
-		registry,
-		zap.NewNop(),
-	)
+	k8sConfig, err := httphandler.NewConfig(&gatewayconfig.AuditLogConfig{}, fullConfig.Kubernetes, metrics.RegisterRoundTripperMetrics(registry), zap.NewNop())
 	require.NoError(t, err)
 
-	httpProxy, err := httphandler.NewProxy(*httpConfig)
+	k8sHandler, err := httphandler.NewKubernetesHandler(*k8sConfig)
 	require.NoError(t, err)
+
+	httpProxy := httpproxy.NewProxy(httpproxy.Config{
+		Handler:  k8sHandler,
+		Registry: registry,
+		Logger:   zap.NewNop(),
+	})
 
 	p.httpProxy = httpProxy
 

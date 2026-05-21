@@ -1,10 +1,11 @@
 // Copyright (c) Twingate Inc.
 // SPDX-License-Identifier: MPL-2.0
 
-package httphandler
+package httpproxy
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"net"
 	"net/http"
@@ -72,16 +73,19 @@ func (rw *responseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 var _ http.Flusher = &responseWriter{}  // Support HTTP streaming
 var _ http.Hijacker = &responseWriter{} // Support WebSocket streaming
 
-type handlerWithAuditLogger func(w http.ResponseWriter, r *http.Request, conn *connect.ProxyConn, auditLogger *zap.Logger)
+type auditLoggerKey struct{}
 
-type auditMiddlewareConfig struct {
-	next   handlerWithAuditLogger
-	logger *zap.Logger
+func AuditLoggerFromContext(ctx context.Context) *zap.Logger {
+	if logger, ok := ctx.Value(auditLoggerKey{}).(*zap.Logger); ok {
+		return logger
+	}
+
+	return zap.NewNop()
 }
 
-func auditMiddleware(config auditMiddlewareConfig) http.Handler {
+func auditMiddleware(next http.Handler, logger *zap.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		auditLogger := config.logger.Named("audit").With(
+		auditLogger := logger.Named("audit").With(
 			zap.String("request_id", uuid.New().String()),
 			zap.Time("requested_at", time.Now()),
 			zap.String("method", r.Method),
@@ -98,8 +102,8 @@ func auditMiddleware(config auditMiddlewareConfig) http.Handler {
 		}
 
 		auditLogger = auditLogger.With(
-			zap.Object("user", conn.Claims.User),
-			zap.String("conn_id", conn.ID),
+			zap.Object("user", conn.GATClaims().User),
+			zap.String("conn_id", conn.GetID()),
 		)
 
 		rw := &responseWriter{ResponseWriter: w}
@@ -138,6 +142,7 @@ func auditMiddleware(config auditMiddlewareConfig) http.Handler {
 			}
 		}()
 
-		config.next(rw, r, conn, auditLogger)
+		ctx := context.WithValue(r.Context(), auditLoggerKey{}, auditLogger)
+		next.ServeHTTP(rw, r.WithContext(ctx))
 	})
 }

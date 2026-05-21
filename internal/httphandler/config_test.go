@@ -6,7 +6,6 @@ package httphandler
 import (
 	"testing"
 
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -19,7 +18,6 @@ func TestNewConfig(t *testing.T) {
 		FlushInterval:      60,
 		FlushSizeThreshold: 1000,
 	}
-	registry := prometheus.NewRegistry()
 
 	t.Run("Success with external upstream credentials", func(t *testing.T) {
 		k8sConfig := &config.KubernetesConfig{
@@ -32,13 +30,9 @@ func TestNewConfig(t *testing.T) {
 			},
 		}
 
-		cfg, err := NewConfig(auditLogConfig, k8sConfig, registry, zap.NewNop())
+		cfg, err := NewConfig(auditLogConfig, k8sConfig, nil, zap.NewNop())
 
 		require.NoError(t, err)
-		require.NotNil(t, cfg)
-
-		assert.Equal(t, auditLogConfig, cfg.auditLog)
-		assert.Equal(t, registry, cfg.registry)
 		assert.Equal(t, "test-token", cfg.bearerToken)
 		assert.Empty(t, cfg.bearerTokenFile)
 		assert.Equal(t, "/path/to/ca.crt", cfg.caFile)
@@ -49,7 +43,7 @@ func TestNewConfig(t *testing.T) {
 
 		k8sConfig := &config.KubernetesConfig{}
 
-		cfg, err := NewConfig(auditLogConfig, k8sConfig, registry, zap.NewNop())
+		cfg, err := NewConfig(auditLogConfig, k8sConfig, nil, zap.NewNop())
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "unable to load in-cluster configuration")

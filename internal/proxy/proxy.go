@@ -21,6 +21,7 @@ import (
 	gatewayconfig "gateway/internal/config"
 	"gateway/internal/connect"
 	"gateway/internal/httphandler"
+	"gateway/internal/httpproxy"
 	"gateway/internal/metrics"
 	"gateway/internal/sessionrecorder"
 	"gateway/internal/sshhandler"
@@ -33,7 +34,7 @@ type Proxy struct {
 	registry *prometheus.Registry
 	logger   *zap.Logger
 
-	httpProxy     *httphandler.Proxy
+	httpProxy     *httpproxy.Proxy
 	sshProxy      *sshhandler.SSHProxy
 	metricsServer *metrics.Server
 
@@ -42,18 +43,26 @@ type Proxy struct {
 }
 
 func NewProxy(config *gatewayconfig.Config, registry *prometheus.Registry, logger *zap.Logger) (*Proxy, error) {
-	var httpProxy *httphandler.Proxy
+	var httpProxy *httpproxy.Proxy
+
+	roundTripperCollectors := metrics.RegisterRoundTripperMetrics(registry)
 
 	if config.Kubernetes != nil {
-		httpConfig, err := httphandler.NewConfig(&config.AuditLog, config.Kubernetes, registry, logger)
+		k8sConfig, err := httphandler.NewConfig(&config.AuditLog, config.Kubernetes, roundTripperCollectors, logger)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create Kubernetes config %w", err)
 		}
 
-		httpProxy, err = httphandler.NewProxy(*httpConfig)
+		k8sHandler, err := httphandler.NewKubernetesHandler(*k8sConfig)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create HTTP proxy: %w", err)
+			return nil, fmt.Errorf("failed to create Kubernetes handler: %w", err)
 		}
+
+		httpProxy = httpproxy.NewProxy(httpproxy.Config{
+			Handler:  k8sHandler,
+			Registry: registry,
+			Logger:   logger,
+		})
 	}
 
 	var sshProxy *sshhandler.SSHProxy

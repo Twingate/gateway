@@ -16,17 +16,16 @@ import (
 	"gateway/internal/metrics/testutil"
 )
 
-func TestRoundTripper(t *testing.T) {
+func TestInstrumentRoundTripper(t *testing.T) {
 	testRegistry := prometheus.NewRegistry()
+
+	collectors := RegisterRoundTripperMetrics(testRegistry)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 
-	transport := RoundTripper(RoundTripperConfig{
-		Registry: testRegistry,
-		Next: promhttp.RoundTripperFunc(func(r *http.Request) (*http.Response, error) {
-			return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody, Request: r}, nil
-		}),
-	})
+	transport := InstrumentRoundTripper(collectors, promhttp.RoundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody, Request: r}, nil
+	}))
 
 	resp, err := transport.RoundTrip(req)
 	require.NoError(t, err)
@@ -53,4 +52,30 @@ func TestRoundTripper(t *testing.T) {
 		},
 	}
 	assert.Equal(t, expectedLabels, labelsByMetric)
+}
+
+func TestInstrumentRoundTripper_MultipleTransports(t *testing.T) {
+	testRegistry := prometheus.NewRegistry()
+
+	collectors := RegisterRoundTripperMetrics(testRegistry)
+
+	mockTransport := promhttp.RoundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody, Request: r}, nil
+	})
+
+	// Instrumenting multiple transports should not panic
+	transport1 := InstrumentRoundTripper(collectors, mockTransport)
+	transport2 := InstrumentRoundTripper(collectors, mockTransport)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+
+	resp1, err := transport1.RoundTrip(req)
+	require.NoError(t, err)
+
+	defer resp1.Body.Close()
+
+	resp2, err := transport2.RoundTrip(req)
+	require.NoError(t, err)
+
+	defer resp2.Body.Close()
 }
