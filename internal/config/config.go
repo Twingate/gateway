@@ -209,7 +209,7 @@ func resolveTwingateHostname(targetURL, defaultHost string, timeout time.Duratio
 
 func (c *Config) ResolveTwingateHost() {
 	targetURL := fmt.Sprintf("https://%s.%s/api/v1/jwk/ec", c.Twingate.Network, c.Twingate.Host)
-	resolvedHostname := resolveTwingateHostname(targetURL, c.Twingate.Host, 10*time.Second, 3)
+	resolvedHostname := resolveTwingateHostname(targetURL, c.Twingate.Host, 3*time.Second, 3)
 
 	c.Twingate.Host = stripNetworkPrefix(resolvedHostname, c.Twingate.Network)
 }
