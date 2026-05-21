@@ -49,6 +49,10 @@ linters:
         # golang.org/x/crypto/ssh
         - Signer
         - PublicKey
+    nolintlint:
+      # Workaround for golangci-lint cache bug that causes false "unused nolint" reports.
+      # See: https://github.com/golangci/golangci-lint/issues/3228
+      allow-unused: true
     goheader:
       template: |-
         Copyright (c) Twingate Inc.
