@@ -193,9 +193,9 @@ func stripNetworkPrefix(hostname, network string) string {
 	return strings.TrimPrefix(hostname, network+".")
 }
 
-func resolveTwingateHostname(targetURL, defaultHost string, timeout time.Duration, retryMax int) string {
+func resolveTwingateHostname(targetURL, defaultHost string, retryMax int) string {
 	client := retryablehttp.NewClient()
-	client.HTTPClient.Timeout = timeout
+	client.HTTPClient.Timeout = 1 * time.Second
 	client.HTTPClient.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
 		return http.ErrUseLastResponse
 	}
@@ -222,7 +222,7 @@ func resolveTwingateHostname(targetURL, defaultHost string, timeout time.Duratio
 
 func (c *Config) ResolveTwingateHost() {
 	targetURL := fmt.Sprintf("https://%s.%s/api/v1/jwk/ec", c.Twingate.Network, c.Twingate.Host)
-	resolvedHostname := resolveTwingateHostname(targetURL, c.Twingate.Host, 1*time.Second, 3)
+	resolvedHostname := resolveTwingateHostname(targetURL, c.Twingate.Host, 3)
 
 	c.Twingate.Host = stripNetworkPrefix(resolvedHostname, c.Twingate.Network)
 }

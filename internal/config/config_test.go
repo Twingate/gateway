@@ -43,8 +43,7 @@ func TestResolveTwingateHostname(t *testing.T) {
 		}))
 		t.Cleanup(server.Close)
 
-		result := resolveTwingateHostname(server.URL+"/api/v1/jwk/ec", "twingate.com", 1*time.Second, 0)
-
+		result := resolveTwingateHostname(server.URL+"/api/v1/jwk/ec", "twingate.com", 0)
 		assert.Equal(t, "acme.us1.twingate.com", result)
 	})
 
@@ -55,7 +54,7 @@ func TestResolveTwingateHostname(t *testing.T) {
 		}))
 		t.Cleanup(server.Close)
 
-		result := resolveTwingateHostname(server.URL+"/api/v1/jwk/ec", "twingate.com", 1*time.Second, 0)
+		result := resolveTwingateHostname(server.URL+"/api/v1/jwk/ec", "twingate.com", 0)
 
 		assert.Equal(t, "twingate.com", result)
 	})
@@ -66,7 +65,7 @@ func TestResolveTwingateHostname(t *testing.T) {
 		}))
 		t.Cleanup(server.Close)
 
-		result := resolveTwingateHostname(server.URL+"/api/v1/jwk/ec", "twingate.com", 1*time.Second, 0)
+		result := resolveTwingateHostname(server.URL+"/api/v1/jwk/ec", "twingate.com", 0)
 
 		assert.Equal(t, "twingate.com", result)
 	})
@@ -76,6 +75,7 @@ func TestResolveTwingateHostname(t *testing.T) {
 
 		shardServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			shardServerCalled = true
+
 			w.WriteHeader(http.StatusOK)
 		}))
 		t.Cleanup(shardServer.Close)
@@ -85,13 +85,13 @@ func TestResolveTwingateHostname(t *testing.T) {
 		}))
 		t.Cleanup(redirectServer.Close)
 
-		resolveTwingateHostname(redirectServer.URL+"/api/v1/jwk/ec", "twingate.com", 1*time.Second, 0)
+		resolveTwingateHostname(redirectServer.URL+"/api/v1/jwk/ec", "twingate.com", 0)
 
 		assert.False(t, shardServerCalled, "should not follow redirect to shard server")
 	})
 
 	t.Run("returns default host on connection error", func(t *testing.T) {
-		result := resolveTwingateHostname("http://127.0.0.1:1/api/v1/jwk/ec", "twingate.com", 1*time.Second, 0)
+		result := resolveTwingateHostname("http://127.0.0.1:1/api/v1/jwk/ec", "twingate.com", 0)
 
 		assert.Equal(t, "twingate.com", result)
 	})
