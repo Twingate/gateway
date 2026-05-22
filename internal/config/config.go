@@ -6,6 +6,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -195,6 +196,9 @@ func stripNetworkPrefix(hostname, network string) string {
 func resolveTwingateHostname(targetURL, defaultHost string, timeout time.Duration, retryMax int) string {
 	client := retryablehttp.NewClient()
 	client.HTTPClient.Timeout = timeout
+	client.HTTPClient.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
 	client.RetryMax = retryMax
 	client.Logger = nil
 
@@ -204,7 +208,16 @@ func resolveTwingateHostname(targetURL, defaultHost string, timeout time.Duratio
 	}
 	defer resp.Body.Close()
 
-	return resp.Request.URL.Hostname()
+	if resp.StatusCode != http.StatusPermanentRedirect {
+		return defaultHost
+	}
+
+	location, err := resp.Location()
+	if err != nil {
+		return defaultHost
+	}
+
+	return location.Hostname()
 }
 
 func (c *Config) ResolveTwingateHost() {
