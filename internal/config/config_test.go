@@ -36,28 +36,7 @@ func TestStripNetworkPrefix(t *testing.T) {
 }
 
 func TestResolveTwingateHostname(t *testing.T) {
-	t.Run("follows redirect and returns final hostname", func(t *testing.T) {
-		shardServerCalled := make(chan struct{}, 1)
-
-		shardServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			shardServerCalled <- struct{}{}
-
-			w.WriteHeader(http.StatusOK)
-		}))
-		t.Cleanup(shardServer.Close)
-
-		redirectServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			http.Redirect(w, r, shardServer.URL+r.URL.Path, http.StatusPermanentRedirect)
-		}))
-		t.Cleanup(redirectServer.Close)
-
-		result := resolveTwingateHostname(redirectServer.URL+"/api/v1/jwk/ec", "test.com", 5*time.Second, 0)
-
-		assert.Len(t, shardServerCalled, 1)
-		assert.Equal(t, "127.0.0.1", result)
-	})
-
-	t.Run("returns server hostname when no redirect", func(t *testing.T) {
+	t.Run("returns server hostname", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		}))

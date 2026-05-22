@@ -23,9 +23,9 @@ var allowedIssuerByHost = map[string]string{
 	"twingate.com":  "twingate",
 }
 
-func issuerForHost(host string) string {
-	for domain, issuer := range allowedIssuerByHost {
-		if host == domain || strings.HasSuffix(host, "."+domain) {
+func getIssuer(host string) string {
+	for globalHost, issuer := range allowedIssuerByHost {
+		if globalHost == host || strings.HasSuffix(host, "."+globalHost) {
 			return issuer
 		}
 	}
@@ -66,7 +66,7 @@ func NewParser(config ParserConfig) (*Parser, error) {
 	return &Parser{
 		parser: jwt.NewParser(
 			jwt.WithValidMethods(allowedSigningMethods),
-			jwt.WithIssuer(issuerForHost(config.Host)),
+			jwt.WithIssuer(getIssuer(config.Host)),
 			jwt.WithAudience(config.Network),
 			jwt.WithIssuedAt(),
 			jwt.WithExpirationRequired(),
