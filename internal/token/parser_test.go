@@ -207,7 +207,7 @@ func TestNewParser(t *testing.T) {
 	}
 }
 
-func TestIssuerForHost(t *testing.T) {
+func TestGetIssuer(t *testing.T) {
 	tests := []struct {
 		name   string
 		host   string

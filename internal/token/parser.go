@@ -16,7 +16,7 @@ var errInvalidTokenType = errors.New("token type is invalid")
 
 var allowedSigningMethods = []string{jwt.SigningMethodES256.Alg()}
 
-var allowedIssuerByHost = map[string]string{
+var allowedIssuerByDomain = map[string]string{
 	"test":          "twingate-local",
 	"dev.opstg.com": "twingate-dev",
 	"stg.opstg.com": "twingate-stg",
@@ -24,8 +24,8 @@ var allowedIssuerByHost = map[string]string{
 }
 
 func getIssuer(host string) string {
-	for globalHost, issuer := range allowedIssuerByHost {
-		if globalHost == host || strings.HasSuffix(host, "."+globalHost) {
+	for baseDomain, issuer := range allowedIssuerByDomain {
+		if baseDomain == host || strings.HasSuffix(host, "."+baseDomain) {
 			return issuer
 		}
 	}
