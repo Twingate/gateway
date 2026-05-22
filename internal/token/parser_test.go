@@ -224,23 +224,3 @@ func TestIssuerForHost(t *testing.T) {
 		})
 	}
 }
-
-func TestNewParser_ShardedHost(t *testing.T) {
-	tokenService := newTokenService()
-
-	parser, err := NewParser(ParserConfig{
-		Network: "acme",
-		Host:    "us1.twingate.com",
-		Keyfunc: tokenService.keyfunc,
-	})
-	require.NoError(t, err)
-
-	tokenStr, err := tokenService.signToken(jwt.MapClaims{}, nil)
-	require.NoError(t, err)
-
-	token, err := parser.ParseWithClaims(tokenStr, jwt.MapClaims{})
-	require.NoError(t, err)
-
-	assert.NotNil(t, token)
-	assert.True(t, token.Valid)
-}

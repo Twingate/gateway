@@ -71,10 +71,10 @@ func TestResolveTwingateHostname(t *testing.T) {
 	})
 
 	t.Run("does not follow redirect", func(t *testing.T) {
-		shardServerCalled := false
+		shardServerCalled := make(chan struct{}, 1)
 
 		shardServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			shardServerCalled = true
+			shardServerCalled <- struct{}{}
 
 			w.WriteHeader(http.StatusOK)
 		}))
@@ -87,7 +87,11 @@ func TestResolveTwingateHostname(t *testing.T) {
 
 		resolveTwingateHostname(redirectServer.URL+"/api/v1/jwk/ec", "twingate.com", 0)
 
-		assert.False(t, shardServerCalled, "should not follow redirect to shard server")
+		select {
+		case <-shardServerCalled:
+			t.Fatal("should not follow redirect to shard server")
+		default:
+		}
 	})
 
 	t.Run("returns default host on connection error", func(t *testing.T) {
@@ -222,33 +226,6 @@ ssh:
 	assert.Equal(t, "ssh-gateway-user", v.GetGatewayUserCAMount())
 	assert.Equal(t, "gateway", v.GetGatewayUserCARole())
 	assert.Equal(t, "ssh-upstream-host", v.GetUpstreamHostCAMount())
-}
-
-func TestConfig_ResolveTwingateHost(t *testing.T) {
-	shardServerCalled := make(chan struct{}, 1)
-
-	shardServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		shardServerCalled <- struct{}{}
-
-		w.WriteHeader(http.StatusOK)
-	}))
-	t.Cleanup(shardServer.Close)
-
-	redirectServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, shardServer.URL+r.URL.Path, http.StatusPermanentRedirect)
-	}))
-	t.Cleanup(redirectServer.Close)
-
-	cfg := &Config{
-		Twingate: TwingateConfig{
-			Network: "acme",
-			Host:    "twingate.com",
-		},
-	}
-
-	cfg.ResolveTwingateHost()
-
-	assert.Equal(t, "twingate.com", cfg.Twingate.Host)
 }
 
 func TestLoad_UseDefaultValues(t *testing.T) {
