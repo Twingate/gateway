@@ -32,7 +32,10 @@ type Proxy struct {
 func NewProxy(cfg Config) *Proxy {
 	handler := metrics.HTTPMiddleware(metrics.HTTPMiddlewareConfig{
 		Registry: cfg.Registry,
-		Next:     auditMiddleware(cfg.Handler, cfg.Logger),
+		Next: auditMiddleware(auditMiddlewareConfig{
+			next:   cfg.Handler,
+			logger: cfg.Logger,
+		}),
 	})
 
 	mux := http.NewServeMux()

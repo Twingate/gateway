@@ -45,9 +45,9 @@ type Proxy struct {
 func NewProxy(config *gatewayconfig.Config, registry *prometheus.Registry, logger *zap.Logger) (*Proxy, error) {
 	var httpProxy *httpproxy.Proxy
 
-	roundTripperCollectors := metrics.RegisterRoundTripperMetrics(registry)
-
 	if config.Kubernetes != nil {
+		roundTripperCollectors := metrics.RegisterRoundTripperMetrics(registry)
+
 		k8sConfig, err := httphandler.NewConfig(&config.AuditLog, config.Kubernetes, roundTripperCollectors, logger)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create Kubernetes config %w", err)

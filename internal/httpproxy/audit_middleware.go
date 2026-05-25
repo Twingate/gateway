@@ -83,9 +83,14 @@ func AuditLoggerFromContext(ctx context.Context) *zap.Logger {
 	return zap.NewNop()
 }
 
-func auditMiddleware(next http.Handler, logger *zap.Logger) http.Handler {
+type auditMiddlewareConfig struct {
+	next   http.Handler
+	logger *zap.Logger
+}
+
+func auditMiddleware(config auditMiddlewareConfig) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		auditLogger := logger.Named("audit").With(
+		auditLogger := config.logger.Named("audit").With(
 			zap.String("request_id", uuid.New().String()),
 			zap.Time("requested_at", time.Now()),
 			zap.String("method", r.Method),
@@ -102,8 +107,8 @@ func auditMiddleware(next http.Handler, logger *zap.Logger) http.Handler {
 		}
 
 		auditLogger = auditLogger.With(
-			zap.Object("user", conn.GATClaims().User),
-			zap.String("conn_id", conn.GetID()),
+			zap.Object("user", conn.Claims.User),
+			zap.String("conn_id", conn.ID),
 		)
 
 		rw := &responseWriter{ResponseWriter: w}
@@ -143,6 +148,6 @@ func auditMiddleware(next http.Handler, logger *zap.Logger) http.Handler {
 		}()
 
 		ctx := context.WithValue(r.Context(), auditLoggerKey{}, auditLogger)
-		next.ServeHTTP(rw, r.WithContext(ctx))
+		config.next.ServeHTTP(rw, r.WithContext(ctx))
 	})
 }

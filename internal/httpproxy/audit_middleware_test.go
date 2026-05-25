@@ -122,7 +122,10 @@ func TestAuditMiddleware(t *testing.T) {
 					_ = recover()
 				}()
 
-				auditMiddleware(tt.handler, logger).ServeHTTP(recorder, request)
+				auditMiddleware(auditMiddlewareConfig{
+					next:   tt.handler,
+					logger: logger,
+				}).ServeHTTP(recorder, request)
 			}()
 
 			assert.Len(t, logs.All(), 1)
@@ -166,7 +169,10 @@ func TestAuditMiddleware_FailedToRetrieveProxyConn(t *testing.T) {
 	core, logs := observer.New(zap.DebugLevel)
 	logger := zap.New(core)
 
-	auditMiddleware(handler, logger).ServeHTTP(recorder, request)
+	auditMiddleware(auditMiddlewareConfig{
+		next:   handler,
+		logger: logger,
+	}).ServeHTTP(recorder, request)
 
 	response := recorder.Result()
 	assert.Equal(t, http.StatusInternalServerError, response.StatusCode)
