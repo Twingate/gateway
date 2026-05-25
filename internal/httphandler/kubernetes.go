@@ -62,16 +62,19 @@ func NewKubernetesHandler(cfg Config) (*KubernetesHandler, error) {
 }
 
 func (h *KubernetesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	auditLogger := httpproxy.AuditLoggerFromContext(r.Context())
+
 	conn, ok := r.Context().Value(httpproxy.ConnContextKey).(*connect.ProxyConn)
 	if !ok {
+		auditLogger.Error("Failed to retrieve proxy connection from context")
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+
 		return
 	}
 
 	switch {
 	case wsstream.IsWebSocketRequest(r) && !shouldSkipWebSocketRequest(r):
 		// Audit Websocket streaming session
-		auditLogger := httpproxy.AuditLoggerFromContext(r.Context())
-
 		recorderFactory := func() sessionrecorder.Recorder {
 			return sessionrecorder.NewRecorder(
 				auditLogger,

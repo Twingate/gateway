@@ -98,6 +98,29 @@ func TestKubernetesHandler_ServeHTTP(t *testing.T) {
 	assert.Equal(t, "Upstream API Server Response!", string(body))
 }
 
+func TestKubernetesHandler_FailedToRetrieveProxyConn(t *testing.T) {
+	handler := &KubernetesHandler{
+		proxy: http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+			t.Fatal("proxy should not be called")
+		}),
+		auditLog: &config.AuditLogConfig{},
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/pods", nil)
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, request)
+
+	resp := recorder.Result()
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	assert.Equal(t, "Internal server error\n", string(body))
+}
+
 func TestRewrite(t *testing.T) {
 	connMetrics := connect.CreateProxyConnMetrics(prometheus.NewRegistry())
 	conn := connect.NewProxyConn(nil, nil, nil, zap.NewNop(), connMetrics)
