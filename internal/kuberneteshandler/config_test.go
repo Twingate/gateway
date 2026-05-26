@@ -1,7 +1,7 @@
 // Copyright (c) Twingate Inc.
 // SPDX-License-Identifier: MPL-2.0
 
-package httphandler
+package kuberneteshandler
 
 import (
 	"testing"

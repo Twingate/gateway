@@ -1,7 +1,7 @@
 // Copyright (c) Twingate Inc.
 // SPDX-License-Identifier: MPL-2.0
 
-package httphandler
+package kuberneteshandler
 
 import (
 	"context"
@@ -26,7 +26,7 @@ import (
 	"gateway/test/data"
 )
 
-func TestKubernetesHandler_ServeHTTP(t *testing.T) {
+func TestHandler_ServeHTTP(t *testing.T) {
 	// Create mock upstream API server with TLS
 	apiServer := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "user@acme.com", r.Header.Get("Impersonate-User"))
@@ -52,7 +52,7 @@ func TestKubernetesHandler_ServeHTTP(t *testing.T) {
 
 	apiServerAddress := strings.TrimPrefix(apiServer.URL, "https://")
 
-	handler, err := NewKubernetesHandler(Config{
+	handler, err := NewHandler(Config{
 		bearerToken:            "mock-token",
 		caFile:                 "../../test/data/api_server/tls.crt",
 		auditLog:               &config.AuditLogConfig{},
@@ -98,8 +98,8 @@ func TestKubernetesHandler_ServeHTTP(t *testing.T) {
 	assert.Equal(t, "Upstream API Server Response!", string(body))
 }
 
-func TestKubernetesHandler_FailedToRetrieveProxyConn(t *testing.T) {
-	handler := &KubernetesHandler{
+func TestHandler_FailedToRetrieveProxyConn(t *testing.T) {
+	handler := &Handler{
 		proxy: http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 			t.Fatal("proxy should not be called")
 		}),

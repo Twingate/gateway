@@ -1,7 +1,7 @@
 // Copyright (c) Twingate Inc.
 // SPDX-License-Identifier: MPL-2.0
 
-package httphandler
+package kuberneteshandler
 
 import (
 	"crypto/tls"
@@ -20,20 +20,20 @@ import (
 
 	"gateway/internal/config"
 	"gateway/internal/connect"
-	"gateway/internal/httphandler/wshijacker"
 	"gateway/internal/httpproxy"
+	"gateway/internal/kuberneteshandler/wshijacker"
 	"gateway/internal/metrics"
 	"gateway/internal/sessionrecorder"
 )
 
 var errUpstreamTLSConfigFailed = errors.New("failed to create upstream TLS config")
 
-type KubernetesHandler struct {
+type Handler struct {
 	proxy    http.Handler
 	auditLog *config.AuditLogConfig
 }
 
-func NewKubernetesHandler(cfg Config) (*KubernetesHandler, error) {
+func NewHandler(cfg Config) (*Handler, error) {
 	transport, err := createTransport(cfg.bearerToken, cfg.bearerTokenFile, cfg.caFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create kubernetes transport: %w", err)
@@ -53,7 +53,7 @@ func NewKubernetesHandler(cfg Config) (*KubernetesHandler, error) {
 		Transport: metrics.InstrumentRoundTripper(cfg.roundTripperCollectors, transport),
 	}
 
-	handler := &KubernetesHandler{
+	handler := &Handler{
 		proxy:    proxy,
 		auditLog: cfg.auditLog,
 	}
@@ -61,7 +61,7 @@ func NewKubernetesHandler(cfg Config) (*KubernetesHandler, error) {
 	return handler, nil
 }
 
-func (h *KubernetesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	auditLogger := httpproxy.AuditLoggerFromContext(r.Context())
 
 	conn, ok := r.Context().Value(httpproxy.ConnContextKey).(*connect.ProxyConn)

@@ -20,8 +20,8 @@ import (
 
 	gatewayconfig "gateway/internal/config"
 	"gateway/internal/connect"
-	"gateway/internal/httphandler"
 	"gateway/internal/httpproxy"
+	"gateway/internal/kuberneteshandler"
 	"gateway/internal/metrics"
 	"gateway/internal/sessionrecorder"
 	"gateway/internal/sshhandler"
@@ -48,12 +48,12 @@ func NewProxy(config *gatewayconfig.Config, registry *prometheus.Registry, logge
 	if config.Kubernetes != nil {
 		roundTripperCollectors := metrics.RegisterRoundTripperMetrics(registry)
 
-		k8sConfig, err := httphandler.NewConfig(&config.AuditLog, config.Kubernetes, roundTripperCollectors, logger)
+		k8sConfig, err := kuberneteshandler.NewConfig(&config.AuditLog, config.Kubernetes, roundTripperCollectors, logger)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create Kubernetes config %w", err)
 		}
 
-		k8sHandler, err := httphandler.NewKubernetesHandler(*k8sConfig)
+		k8sHandler, err := kuberneteshandler.NewHandler(*k8sConfig)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create Kubernetes handler: %w", err)
 		}
