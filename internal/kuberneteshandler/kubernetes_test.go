@@ -53,15 +53,14 @@ func TestHandler_ServeHTTP(t *testing.T) {
 	apiServerAddress := strings.TrimPrefix(apiServer.URL, "https://")
 
 	handler, err := NewHandler(Config{
-		bearerToken:            "mock-token",
-		caFile:                 "../../test/data/api_server/tls.crt",
-		auditLog:               &config.AuditLogConfig{},
-		roundTripperCollectors: metrics.RegisterRoundTripperMetrics(prometheus.NewRegistry()),
-		logger:                 zap.NewNop(),
+		bearerToken:         "mock-token",
+		caFile:              "../../test/data/api_server/tls.crt",
+		auditLog:            &config.AuditLogConfig{},
+		roundTripperMetrics: metrics.RegisterRoundTripperMetrics(prometheus.NewRegistry()),
+		logger:              zap.NewNop(),
 	})
 	require.NoError(t, err)
 
-	// Create a ProxyConn in context so both Rewrite (connect.Conn) and ServeHTTP (*connect.ProxyConn) work
 	claims := &token.GATClaims{
 		User: token.User{
 			ID:       "user-1",
@@ -82,7 +81,8 @@ func TestHandler_ServeHTTP(t *testing.T) {
 	request.Header.Set("Impersonate-Uid", "should-be-stripped")
 	request.Header.Set("Impersonate-Extra-Scopes", "should-be-stripped")
 
-	ctx := context.WithValue(request.Context(), httpproxy.ConnContextKey, proxyConn)
+	ctx := context.WithValue(request.Context(), httpproxy.AuditLoggerKey{}, zap.NewNop())
+	ctx = context.WithValue(ctx, httpproxy.ConnContextKey{}, proxyConn)
 	request = request.WithContext(ctx)
 
 	recorder := httptest.NewRecorder()
@@ -96,29 +96,6 @@ func TestHandler_ServeHTTP(t *testing.T) {
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 	assert.Equal(t, "Upstream API Server Response!", string(body))
-}
-
-func TestHandler_FailedToRetrieveProxyConn(t *testing.T) {
-	handler := &Handler{
-		proxy: http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
-			t.Fatal("proxy should not be called")
-		}),
-		auditLog: &config.AuditLogConfig{},
-	}
-
-	request := httptest.NewRequest(http.MethodGet, "/api/v1/pods", nil)
-	recorder := httptest.NewRecorder()
-
-	handler.ServeHTTP(recorder, request)
-
-	resp := recorder.Result()
-	defer resp.Body.Close()
-
-	assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
-
-	body, err := io.ReadAll(resp.Body)
-	require.NoError(t, err)
-	assert.Equal(t, "Internal server error\n", string(body))
 }
 
 func TestRewrite(t *testing.T) {

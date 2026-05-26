@@ -41,16 +41,10 @@ func NewHandler(cfg Config) (*Handler, error) {
 
 	proxy := &httputil.ReverseProxy{
 		Rewrite: func(r *httputil.ProxyRequest) {
-			conn, ok := r.In.Context().Value(httpproxy.ConnContextKey).(*connect.ProxyConn)
-			if !ok {
-				cfg.logger.Error("Failed to retrieve net.Conn from context")
-
-				return
-			}
-
+			conn := httpproxy.ProxyConnFromContext(r.In.Context())
 			rewrite(r, conn)
 		},
-		Transport: metrics.InstrumentRoundTripper(cfg.roundTripperCollectors, transport),
+		Transport: metrics.InstrumentRoundTripper(cfg.roundTripperMetrics, transport),
 	}
 
 	handler := &Handler{
@@ -64,13 +58,7 @@ func NewHandler(cfg Config) (*Handler, error) {
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	auditLogger := httpproxy.AuditLoggerFromContext(r.Context())
 
-	conn, ok := r.Context().Value(httpproxy.ConnContextKey).(*connect.ProxyConn)
-	if !ok {
-		auditLogger.Error("Failed to retrieve proxy connection from context")
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-
-		return
-	}
+	conn := httpproxy.ProxyConnFromContext(r.Context())
 
 	switch {
 	case wsstream.IsWebSocketRequest(r) && !shouldSkipWebSocketRequest(r):

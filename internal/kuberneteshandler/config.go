@@ -12,8 +12,8 @@ import (
 )
 
 type Config struct {
-	auditLog               *config.AuditLogConfig
-	roundTripperCollectors *metrics.RoundTripperCollectors
+	auditLog            *config.AuditLogConfig
+	roundTripperMetrics *metrics.RoundTripperMetrics
 
 	bearerToken     string
 	bearerTokenFile string
@@ -21,11 +21,11 @@ type Config struct {
 	logger          *zap.Logger
 }
 
-func NewConfig(auditLogConfig *config.AuditLogConfig, k8sConfig *config.KubernetesConfig, collectors *metrics.RoundTripperCollectors, logger *zap.Logger) (*Config, error) {
+func NewConfig(auditLogConfig *config.AuditLogConfig, k8sConfig *config.KubernetesConfig, roundTripperMetrics *metrics.RoundTripperMetrics, logger *zap.Logger) (*Config, error) {
 	cfg := &Config{
-		auditLog:               auditLogConfig,
-		roundTripperCollectors: collectors,
-		logger:                 logger,
+		auditLog:            auditLogConfig,
+		roundTripperMetrics: roundTripperMetrics,
+		logger:              logger,
 	}
 
 	if len(k8sConfig.Upstreams) == 0 {

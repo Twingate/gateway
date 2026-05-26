@@ -29,6 +29,22 @@ func (r *responseRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	return nil, nil, nil
 }
 
+func TestAuditLoggerFromContext(t *testing.T) {
+	t.Run("Returns logger from context", func(t *testing.T) {
+		expected := zap.NewNop()
+		ctx := context.WithValue(t.Context(), AuditLoggerKey{}, expected)
+
+		actual := AuditLoggerFromContext(ctx)
+		assert.Equal(t, expected, actual)
+	})
+
+	t.Run("Panics when logger is not in context", func(t *testing.T) {
+		assert.Panics(t, func() {
+			AuditLoggerFromContext(t.Context())
+		})
+	})
+}
+
 func TestAuditMiddleware(t *testing.T) {
 	tests := []struct {
 		name               string
@@ -106,7 +122,7 @@ func TestAuditMiddleware(t *testing.T) {
 				},
 			}
 			conn := &connect.ProxyConn{ID: "conn-id-1", Claims: claims}
-			ctx := context.WithValue(t.Context(), ConnContextKey, conn)
+			ctx := context.WithValue(t.Context(), ConnContextKey{}, conn)
 			request := httptest.NewRequestWithContext(ctx, "GET", "/api", nil)
 			request.Header.Set("Kubectl-Command", "kubectl exec")
 
@@ -156,39 +172,4 @@ func TestAuditMiddleware(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestAuditMiddleware_FailedToRetrieveProxyConn(t *testing.T) {
-	handler := http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
-		t.Fatal("handler should not be called")
-	})
-
-	request := httptest.NewRequest(http.MethodGet, "/api", nil)
-	recorder := httptest.NewRecorder()
-
-	core, logs := observer.New(zap.DebugLevel)
-	logger := zap.New(core)
-
-	auditMiddleware(auditMiddlewareConfig{
-		next:   handler,
-		logger: logger,
-	}).ServeHTTP(recorder, request)
-
-	response := recorder.Result()
-	assert.Equal(t, http.StatusInternalServerError, response.StatusCode)
-	assert.Equal(t, "Internal server error\n", recorder.Body.String())
-
-	assert.Len(t, logs.All(), 1)
-	log := logs.All()[0]
-	assert.Equal(t, zapcore.ErrorLevel, log.Level)
-	assert.Equal(t, "Failed to retrieve proxy connection from context", log.Message)
-
-	logContext := log.ContextMap()
-	assert.Subset(t, logContext, map[string]any{
-		"method":      "GET",
-		"url":         "/api",
-		"remote_addr": request.RemoteAddr,
-	})
-	assert.NotEmpty(t, logContext["request_id"])
-	assert.NotEmpty(t, logContext["requested_at"])
 }

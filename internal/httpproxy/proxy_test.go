@@ -38,6 +38,24 @@ func (l *mockConnListener) Accept() (net.Conn, error) {
 	return proxyConn, nil
 }
 
+func TestProxyConnFromContext(t *testing.T) {
+	t.Run("Returns ProxyConn from context", func(t *testing.T) {
+		connMetrics := connect.CreateProxyConnMetrics(prometheus.NewRegistry())
+		expected := connect.NewProxyConn(nil, nil, nil, zap.NewNop(), connMetrics)
+
+		ctx := context.WithValue(t.Context(), ConnContextKey{}, expected)
+
+		actual := ProxyConnFromContext(ctx)
+		assert.Equal(t, expected, actual)
+	})
+
+	t.Run("Panics when ProxyConn is not in context", func(t *testing.T) {
+		assert.Panics(t, func() {
+			ProxyConnFromContext(t.Context())
+		})
+	})
+}
+
 func TestProxy_ForwardRequest(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)

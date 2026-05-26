@@ -12,12 +12,20 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
 
+	"gateway/internal/connect"
 	"gateway/internal/metrics"
 )
 
-type connContextKey string
+type ConnContextKey struct{}
 
-const ConnContextKey connContextKey = "CONN_CONTEXT"
+func ProxyConnFromContext(ctx context.Context) *connect.ProxyConn {
+	conn, ok := ctx.Value(ConnContextKey{}).(*connect.ProxyConn)
+	if !ok {
+		panic("proxy connection not found in context: caller must use httpproxy server")
+	}
+
+	return conn
+}
 
 type Config struct {
 	Handler  http.Handler
@@ -45,12 +53,8 @@ func NewProxy(cfg Config) *Proxy {
 		// G112 - Protect against Slowloris attack
 		ReadHeaderTimeout: 5 * time.Second,
 		Handler:           mux,
-		// add the net.Conn to the context so we can track this connection, this context
-		// will be merged with and retrievable in the http.Request that is passed in to the Handler func and
-		// since our custom listener provided a wrapped net.Conn (ProxyConn), its fields will be
-		// available, specifically the identity information parsed from CONNECT
 		ConnContext: func(ctx context.Context, c net.Conn) context.Context {
-			return context.WithValue(ctx, ConnContextKey, c)
+			return context.WithValue(ctx, ConnContextKey{}, c)
 		},
 	}
 
