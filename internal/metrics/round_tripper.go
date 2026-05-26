@@ -10,14 +10,14 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-type RoundTripperCollectors struct {
+type RoundTripperMetrics struct {
 	requestsTotal   *prometheus.CounterVec
 	activeRequests  *prometheus.GaugeVec
 	requestDuration *prometheus.HistogramVec
 }
 
-func RegisterRoundTripperMetrics(registry *prometheus.Registry) *RoundTripperCollectors {
-	c := &RoundTripperCollectors{
+func RegisterRoundTripperMetrics(registry *prometheus.Registry) *RoundTripperMetrics {
+	c := &RoundTripperMetrics{
 		requestsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: Namespace,
 			Name:      "api_server_requests_total",
@@ -44,15 +44,15 @@ func RegisterRoundTripperMetrics(registry *prometheus.Registry) *RoundTripperCol
 	return c
 }
 
-func InstrumentRoundTripper(collectors *RoundTripperCollectors, next http.RoundTripper) promhttp.RoundTripperFunc {
+func InstrumentRoundTripper(metrics *RoundTripperMetrics, next http.RoundTripper) promhttp.RoundTripperFunc {
 	opts := promhttp.WithLabelFromCtx(labelRequestType, getRequestTypeFromContext)
 
 	base := promhttp.InstrumentRoundTripperCounter(
-		collectors.requestsTotal,
+		metrics.requestsTotal,
 		instrumentRoundTripperInFlight(
-			collectors.activeRequests,
+			metrics.activeRequests,
 			promhttp.InstrumentRoundTripperDuration(
-				collectors.requestDuration,
+				metrics.requestDuration,
 				next,
 				opts,
 			),
