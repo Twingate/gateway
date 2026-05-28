@@ -49,6 +49,8 @@ func newProxy(logger *zap.Logger) (*proxy.Proxy, error) {
 		return nil, fmt.Errorf("failed to validate config %w", err)
 	}
 
+	cfg.ResolveTwingateHost(logger)
+
 	registry := prometheus.NewRegistry()
 
 	p, err := proxy.NewProxy(cfg, registry, logger)
