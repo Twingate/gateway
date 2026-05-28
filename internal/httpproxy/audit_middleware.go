@@ -1,10 +1,11 @@
 // Copyright (c) Twingate Inc.
 // SPDX-License-Identifier: MPL-2.0
 
-package httphandler
+package httpproxy
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"net"
 	"net/http"
@@ -12,8 +13,6 @@ import (
 
 	"github.com/google/uuid"
 	"go.uber.org/zap"
-
-	"gateway/internal/connect"
 )
 
 var (
@@ -72,10 +71,19 @@ func (rw *responseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 var _ http.Flusher = &responseWriter{}  // Support HTTP streaming
 var _ http.Hijacker = &responseWriter{} // Support WebSocket streaming
 
-type handlerWithAuditLogger func(w http.ResponseWriter, r *http.Request, conn *connect.ProxyConn, auditLogger *zap.Logger)
+type AuditLoggerKey struct{}
+
+func AuditLoggerFromContext(ctx context.Context) *zap.Logger {
+	logger, ok := ctx.Value(AuditLoggerKey{}).(*zap.Logger)
+	if !ok {
+		panic("audit logger not found in context: caller must use httpproxy server")
+	}
+
+	return logger
+}
 
 type auditMiddlewareConfig struct {
-	next   handlerWithAuditLogger
+	next   http.Handler
 	logger *zap.Logger
 }
 
@@ -88,14 +96,7 @@ func auditMiddleware(config auditMiddlewareConfig) http.Handler {
 			zap.String("url", r.URL.String()),
 			zap.String("remote_addr", r.RemoteAddr),
 		)
-		conn, ok := r.Context().Value(ConnContextKey).(*connect.ProxyConn)
-
-		if !ok {
-			auditLogger.Error("Failed to retrieve proxy connection from context")
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
-
-			return
-		}
+		conn := ProxyConnFromContext(r.Context())
 
 		auditLogger = auditLogger.With(
 			zap.Object("user", conn.Claims.User),
@@ -138,6 +139,7 @@ func auditMiddleware(config auditMiddlewareConfig) http.Handler {
 			}
 		}()
 
-		config.next(rw, r, conn, auditLogger)
+		ctx := context.WithValue(r.Context(), AuditLoggerKey{}, auditLogger)
+		config.next.ServeHTTP(rw, r.WithContext(ctx))
 	})
 }

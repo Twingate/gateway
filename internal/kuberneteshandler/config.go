@@ -1,30 +1,31 @@
 // Copyright (c) Twingate Inc.
 // SPDX-License-Identifier: MPL-2.0
 
-package httphandler
+package kuberneteshandler
 
 import (
-	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
 	"k8s.io/client-go/rest"
 
 	"gateway/internal/config"
+	"gateway/internal/metrics"
 )
 
 type Config struct {
-	auditLog        *config.AuditLogConfig
-	registry        *prometheus.Registry
+	auditLog            *config.AuditLogConfig
+	roundTripperMetrics *metrics.RoundTripperMetrics
+
 	bearerToken     string
 	bearerTokenFile string
 	caFile          string
 	logger          *zap.Logger
 }
 
-func NewConfig(auditLogConfig *config.AuditLogConfig, k8sConfig *config.KubernetesConfig, registry *prometheus.Registry, logger *zap.Logger) (*Config, error) {
+func NewConfig(auditLogConfig *config.AuditLogConfig, k8sConfig *config.KubernetesConfig, roundTripperMetrics *metrics.RoundTripperMetrics, logger *zap.Logger) (*Config, error) {
 	cfg := &Config{
-		auditLog: auditLogConfig,
-		registry: registry,
-		logger:   logger,
+		auditLog:            auditLogConfig,
+		roundTripperMetrics: roundTripperMetrics,
+		logger:              logger,
 	}
 
 	if len(k8sConfig.Upstreams) == 0 {
