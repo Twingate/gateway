@@ -15,8 +15,8 @@ import (
 	"go.uber.org/zap"
 
 	"gateway/internal/connect"
+	"gateway/internal/httpproxy/utils/parser"
 	"gateway/internal/token"
-	"gateway/internal/utils/parser"
 )
 
 func mustParse(t *testing.T, templates map[string]string) map[string]*parser.Template {
@@ -25,7 +25,7 @@ func mustParse(t *testing.T, templates map[string]string) map[string]*parser.Tem
 	result := make(map[string]*parser.Template, len(templates))
 
 	for name, tmpl := range templates {
-		parsed, err := parser.New(tmpl)
+		parsed, err := parser.NewTemplate(tmpl)
 		require.NoError(t, err, "failed to parse template for header %q", name)
 
 		result[name] = parsed
@@ -90,11 +90,13 @@ func TestRewrite(t *testing.T) {
 			wantHeaders: map[string]string{"X-Geo": ""},
 		},
 		{
-			name:        "empty headers",
-			jwtToken:    "test-token",
-			claims:      baseClaims,
-			headers:     map[string]string{},
-			wantHeaders: map[string]string{},
+			name:     "empty headers",
+			jwtToken: "test-token",
+			claims:   baseClaims,
+			headers:  map[string]string{},
+			wantHeaders: map[string]string{
+				"Existing": "old-value",
+			},
 		},
 	}
 
@@ -119,7 +121,7 @@ func TestRewrite(t *testing.T) {
 			require.NoError(t, err)
 
 			for name, wantValue := range tt.wantHeaders {
-				assert.Equal(t, wantValue, proxyReq.Out.Header.Get(name), "header %q", name)
+				assert.Equal(t, wantValue, proxyReq.Out.Header.Get(name))
 			}
 		})
 	}

@@ -14,9 +14,9 @@ import (
 
 	"gateway/internal/connect"
 	"gateway/internal/httpproxy"
+	"gateway/internal/httpproxy/utils/parser"
 	"gateway/internal/metrics"
 	"gateway/internal/token"
-	"gateway/internal/utils/parser"
 )
 
 type Handler struct {
@@ -32,7 +32,7 @@ func NewHandler(cfg Config) *Handler {
 				cfg.logger.Error("failed to rewrite headers", zap.Error(err))
 			}
 		},
-		Transport: metrics.InstrumentRoundTripper(cfg.roundTripperMetrics, "webapp", http.DefaultTransport),
+		Transport: metrics.InstrumentRoundTripper(cfg.roundTripperMetrics, metrics.ResourceTypeWebApp, http.DefaultTransport),
 	}
 
 	return &Handler{proxy: proxy}
@@ -63,8 +63,8 @@ func rewrite(r *httputil.ProxyRequest, conn *connect.ProxyConn, headers map[stri
 		"clientGeoLoc": geoLoc,
 	}
 
-	for headerName, template := range headers {
-		headerValue, err := template.Evaluate(variables)
+	for headerName, tmpl := range headers {
+		headerValue, err := tmpl.Evaluate(variables)
 		if err != nil {
 			return fmt.Errorf("header %q: %w", headerName, err)
 		}

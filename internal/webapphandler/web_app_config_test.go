@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
-	"gateway/internal/utils/parser"
+	"gateway/internal/httpproxy/utils/parser"
 )
 
 func TestNewConfig(t *testing.T) {
@@ -22,21 +22,12 @@ func TestNewConfig(t *testing.T) {
 			name: "valid header templates",
 			headers: map[string]string{
 				"Authorization": "Bearer {{twingate.jwt}}",
-				"X-Username":    "{{twingate.username}}",
-				"X-Twingate":    "test",
 			},
-		},
-		{
-			name: "unsupported variable",
-			headers: map[string]string{
-				"X-Bad": "{{twingate.invalid}}",
-			},
-			wantErr: ErrUnsupportedVariable,
 		},
 		{
 			name: "invalid template syntax",
 			headers: map[string]string{
-				"X-Bad": "{{invalid}}",
+				"X-Invalid": "{{invalid}}",
 			},
 			wantErr: parser.ErrInvalidTemplate,
 		},

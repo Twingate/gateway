@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -15,6 +16,8 @@ import (
 	"go.uber.org/zap"
 	"go.yaml.in/yaml/v4"
 	"golang.org/x/crypto/ssh"
+
+	"gateway/internal/httpproxy/utils/parser"
 )
 
 var (
@@ -23,6 +26,7 @@ var (
 	ErrDuplicateUpstream = errors.New("duplicate upstream name")
 	ErrInvalidSSHKeyType = errors.New("invalid SSH key type")
 	ErrNegativeTTL       = errors.New("TTL must be non-negative")
+	ErrUnsupportedKey    = errors.New("unsupported key")
 )
 
 const (
@@ -273,6 +277,12 @@ func (c *Config) Validate() error {
 		}
 	}
 
+	if c.WebApp != nil {
+		if err := c.WebApp.Validate(); err != nil {
+			return fmt.Errorf("webApp config: %w", err)
+		}
+	}
+
 	// Check that at least one protocol is configured
 	if c.Kubernetes == nil && c.SSH == nil && c.WebApp == nil {
 		return fmt.Errorf("%w: at least one protocol (Kubernetes, SSH, or WebApp) must be configured", ErrRequired)
@@ -436,6 +446,26 @@ func (v *SSHCAVaultConfig) Validate() error {
 
 	if v.GetGatewayUserCARole() == "" {
 		return fmt.Errorf("%w: role is required (either at top level or in gatewayUserCA)", ErrRequired)
+	}
+
+	return nil
+}
+
+func (w *WebAppConfig) Validate() error {
+	allowedWebAppKeys := []string{
+		"jwt", "username", "groups", "clientGeoLoc",
+	}
+
+	for name, value := range w.Headers {
+		tmpl, err := parser.NewTemplate(value)
+		if err != nil {
+			return fmt.Errorf("header %q: %w", name, err)
+		}
+
+		key := tmpl.Key()
+		if key != "" && !slices.Contains(allowedWebAppKeys, key) {
+			return fmt.Errorf("header %q: %w %q", name, ErrUnsupportedKey, key)
+		}
 	}
 
 	return nil

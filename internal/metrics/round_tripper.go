@@ -11,6 +11,17 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
+// Metric label names.
+
+const labelResourceType = "resource_type"
+
+// Resource type values.
+
+const (
+	ResourceTypeKubernetes = "kubernetes"
+	ResourceTypeWebApp     = "web_app"
+)
+
 type RoundTripperMetrics struct {
 	requestsTotal   *prometheus.CounterVec
 	activeRequests  *prometheus.GaugeVec
@@ -23,13 +34,13 @@ func RegisterRoundTripperMetrics(registry *prometheus.Registry) *RoundTripperMet
 			Namespace: Namespace,
 			Name:      "api_server_requests_total",
 			Help:      "Total number of requests from Gateway to API Server processed",
-		}, []string{"resourceType", "type", "method", "code"}),
+		}, []string{labelResourceType, "type", "method", "code"}),
 
 		activeRequests: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: Namespace,
 			Name:      "api_server_active_requests",
 			Help:      "Number of currently active requests from Gateway to API Server",
-		}, []string{"resourceType", "type"}),
+		}, []string{labelResourceType, "type"}),
 
 		requestDuration: prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
@@ -37,7 +48,7 @@ func RegisterRoundTripperMetrics(registry *prometheus.Registry) *RoundTripperMet
 				Name:      "api_server_request_duration_seconds",
 				Help:      "Measures the initial HTTP request-response latency between Gateway and API Server in seconds. For HTTP streaming, WebSocket, and SPDY connections, this metric captures only the setup time and not the duration of the data transfer.",
 				Buckets:   prometheus.DefBuckets,
-			}, []string{"resourceType", "type", "method", "code"}),
+			}, []string{labelResourceType, "type", "method", "code"}),
 	}
 
 	registry.MustRegister(c.requestsTotal, c.activeRequests, c.requestDuration)

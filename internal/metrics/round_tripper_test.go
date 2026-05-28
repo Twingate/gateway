@@ -23,7 +23,7 @@ func TestInstrumentRoundTripper(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 
-	transport := InstrumentRoundTripper(collectors, "kubernetes", promhttp.RoundTripperFunc(func(r *http.Request) (*http.Response, error) {
+	transport := InstrumentRoundTripper(collectors, ResourceTypeKubernetes, promhttp.RoundTripperFunc(func(r *http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody, Request: r}, nil
 	}))
 
@@ -38,20 +38,20 @@ func TestInstrumentRoundTripper(t *testing.T) {
 	labelsByMetric := testutil.ExtractLabelsFromMetrics(metricFamilies)
 	expectedLabels := map[string]map[string]string{
 		"twingate_gateway_api_server_requests_total": {
-			"resourceType": "kubernetes",
-			"type":         "http",
-			"method":       "get",
-			"code":         "200",
+			"resource_type": "kubernetes",
+			"type":          "http",
+			"method":        "get",
+			"code":          "200",
 		},
 		"twingate_gateway_api_server_active_requests": {
-			"resourceType": "kubernetes",
-			"type":         "http",
+			"resource_type": "kubernetes",
+			"type":          "http",
 		},
 		"twingate_gateway_api_server_request_duration_seconds": {
-			"resourceType": "kubernetes",
-			"type":         "http",
-			"method":       "get",
-			"code":         "200",
+			"resource_type": "kubernetes",
+			"type":          "http",
+			"method":        "get",
+			"code":          "200",
 		},
 	}
 	assert.Equal(t, expectedLabels, labelsByMetric)
@@ -67,8 +67,8 @@ func TestInstrumentRoundTripper_MultipleTransports(t *testing.T) {
 	})
 
 	// Instrumenting multiple transports should not panic
-	k8sTransport := InstrumentRoundTripper(collectors, "kubernetes", mockTransport)
-	webAppTransport := InstrumentRoundTripper(collectors, "webapp", mockTransport)
+	k8sTransport := InstrumentRoundTripper(collectors, ResourceTypeKubernetes, mockTransport)
+	webAppTransport := InstrumentRoundTripper(collectors, ResourceTypeWebApp, mockTransport)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 

@@ -49,7 +49,10 @@ func NewProxy(config *gatewayconfig.Config, registry *prometheus.Registry, logge
 
 	handlers := make(map[string]http.Handler)
 
-	roundTripperMetrics := metrics.RegisterRoundTripperMetrics(registry)
+	var roundTripperMetrics *metrics.RoundTripperMetrics
+	if config.Kubernetes != nil || config.WebApp != nil {
+		roundTripperMetrics = metrics.RegisterRoundTripperMetrics(registry)
+	}
 
 	if config.Kubernetes != nil {
 		k8sConfig, err := kuberneteshandler.NewConfig(&config.AuditLog, config.Kubernetes, roundTripperMetrics, logger)

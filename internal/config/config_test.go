@@ -304,6 +304,9 @@ func TestConfig_Validate(t *testing.T) {
 					PrivateKeyFile:  "tls.key",
 				},
 				Kubernetes: &KubernetesConfig{},
+				WebApp: &WebAppConfig{
+					Headers: map[string]string{"Authorization": "Bearer {{twingate.jwt}}"},
+				},
 			},
 			wantErr: false,
 		},
@@ -364,6 +367,23 @@ func TestConfig_Validate(t *testing.T) {
 			},
 			wantErr:     true,
 			errContains: "at least one protocol",
+		},
+		{
+			name: "invalid WebApp header template",
+			config: &Config{
+				Twingate:    TwingateConfig{Network: "test"},
+				Port:        8443,
+				MetricsPort: 9090,
+				TLS: TLSConfig{
+					CertificateFile: "tls.crt",
+					PrivateKeyFile:  "tls.key",
+				},
+				WebApp: &WebAppConfig{
+					Headers: map[string]string{"Authorization": "Bearer {{twingate.jwt"},
+				},
+			},
+			wantErr:     true,
+			errContains: "webApp config",
 		},
 	}
 
@@ -1095,6 +1115,50 @@ func TestSSHCAVaultAWSConfig_Validate(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := tt.cfg.Validate()
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errContains)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestWebAppConfig_Validate(t *testing.T) {
+	tests := []struct {
+		name        string
+		config      WebAppConfig
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:    "empty headers",
+			config:  WebAppConfig{Headers: map[string]string{}},
+			wantErr: false,
+		},
+		{
+			name:    "valid template variable",
+			config:  WebAppConfig{Headers: map[string]string{"Authorization": "Bearer {{twingate.jwt}}"}},
+			wantErr: false,
+		},
+		{
+			name:        "invalid template",
+			config:      WebAppConfig{Headers: map[string]string{"X-Bad": "{{invalid"}},
+			wantErr:     true,
+			errContains: "invalid brackets syntax",
+		},
+		{
+			name:        "unsupported key",
+			config:      WebAppConfig{Headers: map[string]string{"X-Bad": "{{twingate.unknown}}"}},
+			wantErr:     true,
+			errContains: "unsupported key",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.config.Validate()
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.errContains)

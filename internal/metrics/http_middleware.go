@@ -17,8 +17,7 @@ import (
 
 // Metric label names.
 const (
-	labelRequestType  = "type"
-	labelResourceType = "resourceType"
+	labelRequestType = "type"
 )
 
 // Request type values.
