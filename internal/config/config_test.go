@@ -4,6 +4,8 @@
 package config
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -11,7 +13,94 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 )
+
+func TestStripNetworkPrefix(t *testing.T) {
+	tests := []struct {
+		name     string
+		hostname string
+		network  string
+		expected string
+	}{
+		{name: "sharded host", hostname: "acme.us1.test.com", network: "acme", expected: "us1.test.com"},
+		{name: "non-sharded host", hostname: "acme.test.com", network: "acme", expected: "test.com"},
+		{name: "no network prefix", hostname: "test.com", network: "acme", expected: "test.com"},
+		{name: "empty network", hostname: "us1.twingate.com", network: "", expected: "us1.twingate.com"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, stripNetworkPrefix(tt.hostname, tt.network))
+		})
+	}
+}
+
+func TestResolveTwingateHostname(t *testing.T) {
+	t.Run("returns location hostname on 308 status code", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Location", "https://acme.us1.twingate.com/api/v1/jwk/ec")
+			w.WriteHeader(http.StatusPermanentRedirect)
+		}))
+		t.Cleanup(server.Close)
+
+		result := resolveTwingateHostname(server.URL+"/api/v1/jwk/ec", "twingate.com", 0, zap.NewNop())
+		assert.Equal(t, "acme.us1.twingate.com", result)
+	})
+
+	t.Run("returns default host on empty location", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Location", "")
+			w.WriteHeader(http.StatusPermanentRedirect)
+		}))
+		t.Cleanup(server.Close)
+
+		result := resolveTwingateHostname(server.URL+"/api/v1/jwk/ec", "twingate.com", 0, zap.NewNop())
+
+		assert.Equal(t, "twingate.com", result)
+	})
+
+	t.Run("returns default host on non 308 status code", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+		t.Cleanup(server.Close)
+
+		result := resolveTwingateHostname(server.URL+"/api/v1/jwk/ec", "twingate.com", 0, zap.NewNop())
+
+		assert.Equal(t, "twingate.com", result)
+	})
+
+	t.Run("does not follow redirect", func(t *testing.T) {
+		shardServerCalled := make(chan struct{}, 1)
+
+		shardServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			shardServerCalled <- struct{}{}
+
+			w.WriteHeader(http.StatusOK)
+		}))
+		t.Cleanup(shardServer.Close)
+
+		redirectServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, shardServer.URL+r.URL.Path, http.StatusPermanentRedirect)
+		}))
+		t.Cleanup(redirectServer.Close)
+
+		resolveTwingateHostname(redirectServer.URL+"/api/v1/jwk/ec", "twingate.com", 0, zap.NewNop())
+
+		select {
+		case <-shardServerCalled:
+			t.Fatal("should not follow redirect to shard server")
+		default:
+		}
+	})
+
+	t.Run("returns default host on connection error", func(t *testing.T) {
+		result := resolveTwingateHostname("http://127.0.0.1:1/api/v1/jwk/ec", "twingate.com", 0, zap.NewNop())
+
+		assert.Equal(t, "twingate.com", result)
+	})
+}
 
 func TestLoad_Kubernetes(t *testing.T) {
 	yaml := `
