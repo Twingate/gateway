@@ -85,8 +85,21 @@ func (u User) MarshalLogObject(enc zapcore.ObjectEncoder) error {
 	return err
 }
 
+type GeoIP struct {
+	Lat     float64 `json:"lat"`
+	Lon     float64 `json:"lon"`
+	Country string  `json:"country,omitempty"`
+	Region  string  `json:"region,omitempty"`
+	City    string  `json:"city,omitempty"`
+}
+
+type DeviceLocation struct {
+	GeoIP GeoIP `json:"geoip"`
+}
+
 type Device struct {
-	ID string `json:"id"`
+	ID       string         `json:"id"`
+	Location DeviceLocation `json:"location,omitzero"`
 }
 
 type ResourceType = string
@@ -94,6 +107,7 @@ type ResourceType = string
 const (
 	ResourceTypeKubernetes = "KUBERNETES"
 	ResourceTypeSSH        = "SSH"
+	ResourceTypeWebApp     = "WEB_APP"
 )
 
 type Resource struct {

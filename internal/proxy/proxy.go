@@ -25,6 +25,8 @@ import (
 	"gateway/internal/metrics"
 	"gateway/internal/sessionrecorder"
 	"gateway/internal/sshhandler"
+	"gateway/internal/token"
+	"gateway/internal/webapphandler"
 )
 
 const shutdownTimeout = 30 * time.Second
@@ -45,9 +47,11 @@ type Proxy struct {
 func NewProxy(config *gatewayconfig.Config, registry *prometheus.Registry, logger *zap.Logger) (*Proxy, error) {
 	var httpProxy *httpproxy.Proxy
 
-	if config.Kubernetes != nil {
-		roundTripperMetrics := metrics.RegisterRoundTripperMetrics(registry)
+	handlers := make(map[string]http.Handler)
 
+	roundTripperMetrics := metrics.RegisterRoundTripperMetrics(registry)
+
+	if config.Kubernetes != nil {
 		k8sConfig, err := kuberneteshandler.NewConfig(&config.AuditLog, config.Kubernetes, roundTripperMetrics, logger)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create Kubernetes config: %w", err)
@@ -58,8 +62,22 @@ func NewProxy(config *gatewayconfig.Config, registry *prometheus.Registry, logge
 			return nil, fmt.Errorf("failed to create Kubernetes handler: %w", err)
 		}
 
+		handlers[token.ResourceTypeKubernetes] = k8sHandler
+	}
+
+	if config.WebApp != nil {
+		webAppCfg, err := webapphandler.NewConfig(config.WebApp.Headers, roundTripperMetrics, logger)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create web app config: %w", err)
+		}
+
+		webAppHandler := webapphandler.NewHandler(*webAppCfg)
+		handlers[token.ResourceTypeWebApp] = webAppHandler
+	}
+
+	if len(handlers) > 0 {
 		httpProxy = httpproxy.NewProxy(httpproxy.Config{
-			Handler:  k8sHandler,
+			Handlers: handlers,
 			Registry: registry,
 			Logger:   logger,
 		})

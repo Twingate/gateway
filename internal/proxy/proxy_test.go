@@ -21,6 +21,7 @@ import (
 	"gateway/internal/kuberneteshandler"
 	"gateway/internal/metrics"
 	"gateway/internal/sshhandler"
+	"gateway/internal/token"
 )
 
 var fullConfig = gatewayconfig.Config{
@@ -139,7 +140,7 @@ func TestShutdown_ClosesAllComponents(t *testing.T) {
 	require.NoError(t, err)
 
 	httpProxy := httpproxy.NewProxy(httpproxy.Config{
-		Handler:  k8sHandler,
+		Handlers: map[string]http.Handler{token.ResourceTypeKubernetes: k8sHandler},
 		Registry: registry,
 		Logger:   zap.NewNop(),
 	})

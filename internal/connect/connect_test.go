@@ -110,6 +110,7 @@ func TestConnectValidator_ParseConnect(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, *connectInfo.Claims, gatClaims)
 		assert.Equal(t, "conn-id", connectInfo.ConnID)
+		assert.Equal(t, signedToken, connectInfo.Token)
 	})
 
 	t.Run("Non-CONNECT method", func(t *testing.T) {
@@ -127,6 +128,7 @@ func TestConnectValidator_ParseConnect(t *testing.T) {
 		assert.Contains(t, httpErr.Error(), "expected CONNECT request")
 		assert.Nil(t, connectInfo.Claims)
 		assert.Empty(t, connectInfo.ConnID)
+		assert.Empty(t, connectInfo.Token)
 	})
 
 	t.Run("Missing auth header", func(t *testing.T) {

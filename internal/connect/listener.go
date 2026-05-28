@@ -183,8 +183,7 @@ func (l *Listener) Serve(ctx context.Context, listener net.Listener) error {
 				return
 			}
 
-			// For non-SSH protocols, upgrade to TLS
-			if tp != TransportSSH {
+			if proxyConn.ShouldUpgradeTLS() {
 				if err := proxyConn.UpgradeToTLS(); err != nil {
 					l.logger.Error("Failed to upgrade to TLS", zap.Error(err))
 

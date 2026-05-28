@@ -28,7 +28,7 @@ func ProxyConnFromContext(ctx context.Context) *connect.ProxyConn {
 }
 
 type Config struct {
-	Handler  http.Handler
+	Handlers map[string]http.Handler
 	Registry *prometheus.Registry
 	Logger   *zap.Logger
 }
@@ -37,11 +37,29 @@ type Proxy struct {
 	httpServer *http.Server
 }
 
+func newResourceRouter(handlers map[string]http.Handler, logger *zap.Logger) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn := ProxyConnFromContext(r.Context())
+		resourceType := conn.GATClaims().Resource.Type
+
+		handler, exists := handlers[resourceType]
+		if !exists {
+			logger.Error("No handler for resource type", zap.String("type", resourceType))
+			http.Error(w, "unsupported resource type", http.StatusNotFound)
+
+			return
+		}
+
+		handler.ServeHTTP(w, r)
+	})
+}
+
 func NewProxy(cfg Config) *Proxy {
+	router := newResourceRouter(cfg.Handlers, cfg.Logger)
 	handler := metrics.HTTPMiddleware(metrics.HTTPMiddlewareConfig{
 		Registry: cfg.Registry,
 		Next: auditMiddleware(auditMiddlewareConfig{
-			next:   cfg.Handler,
+			next:   router,
 			logger: cfg.Logger,
 		}),
 	})

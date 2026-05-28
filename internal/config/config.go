@@ -41,6 +41,11 @@ type Config struct {
 	TLS         TLSConfig         `yaml:"tls"`
 	Kubernetes  *KubernetesConfig `yaml:"kubernetes,omitempty"`
 	SSH         *SSHConfig        `yaml:"ssh,omitempty"`
+	WebApp      *WebAppConfig     `yaml:"webApp,omitempty"`
+}
+
+type WebAppConfig struct {
+	Headers map[string]string `yaml:"headers,omitempty"`
 }
 
 type TwingateConfig struct {
@@ -269,8 +274,8 @@ func (c *Config) Validate() error {
 	}
 
 	// Check that at least one protocol is configured
-	if c.Kubernetes == nil && c.SSH == nil {
-		return fmt.Errorf("%w: at least one protocol (Kubernetes or SSH) must be configured", ErrRequired)
+	if c.Kubernetes == nil && c.SSH == nil && c.WebApp == nil {
+		return fmt.Errorf("%w: at least one protocol (Kubernetes, SSH, or WebApp) must be configured", ErrRequired)
 	}
 
 	return nil

@@ -60,6 +60,10 @@ func (m *mockProxyConn) GetAddress() string {
 	return "mock"
 }
 
+func (m *mockProxyConn) GetToken() string {
+	return ""
+}
+
 func (m *mockProxyConn) Authenticate() error {
 	if m.isHealthz {
 		// write health check response
@@ -72,6 +76,10 @@ func (m *mockProxyConn) Authenticate() error {
 	}
 
 	return nil
+}
+
+func (m *mockProxyConn) ShouldUpgradeTLS() bool {
+	return m.TransportProtocol() == TransportTLS && m.GATClaims().Resource.Type != token.ResourceTypeWebApp
 }
 
 func (m *mockProxyConn) UpgradeToTLS() error {

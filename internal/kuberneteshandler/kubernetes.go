@@ -44,7 +44,7 @@ func NewHandler(cfg Config) (*Handler, error) {
 			conn := httpproxy.ProxyConnFromContext(r.In.Context())
 			rewrite(r, conn)
 		},
-		Transport: metrics.InstrumentRoundTripper(cfg.roundTripperMetrics, transport),
+		Transport: metrics.InstrumentRoundTripper(cfg.roundTripperMetrics, "kubernetes", transport),
 	}
 
 	handler := &Handler{

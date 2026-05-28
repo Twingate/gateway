@@ -47,8 +47,10 @@ type Conn interface {
 	GATClaims() *token.GATClaims
 	GetID() string
 	GetAddress() string
+	GetToken() string
 	Authenticate() error
 	TransportProtocol() TransportProtocol
+	ShouldUpgradeTLS() bool
 	UpgradeToTLS() error
 
 	Close() error
@@ -64,6 +66,7 @@ type ProxyConn struct {
 	ID      string
 	Address string
 	Claims  *token.GATClaims
+	Token   string
 
 	Timer *time.Timer
 	Mu    sync.Mutex
@@ -105,6 +108,10 @@ func (p *ProxyConn) TransportProtocol() TransportProtocol {
 	return TransportTLS
 }
 
+func (p *ProxyConn) ShouldUpgradeTLS() bool {
+	return p.TransportProtocol() == TransportTLS && p.GATClaims().Resource.Type != token.ResourceTypeWebApp
+}
+
 func (p *ProxyConn) GATClaims() *token.GATClaims {
 	return p.Claims
 }
@@ -115,6 +122,10 @@ func (p *ProxyConn) GetID() string {
 
 func (p *ProxyConn) GetAddress() string {
 	return p.Address
+}
+
+func (p *ProxyConn) GetToken() string {
+	return p.Token
 }
 
 // Authenticate sets up TLS and processes the CONNECT message for authentication.
@@ -225,7 +236,10 @@ func (p *ProxyConn) Authenticate() error {
 
 	p.tracker.RecordConnectMetrics(httpCode)
 
-	p.Logger.Info("Authenticated connection", zap.String("resource_address", connectInfo.Claims.Resource.Address))
+	p.Logger.Info("Authenticated connection",
+		zap.String("resource_type", connectInfo.Claims.Resource.Type),
+		zap.String("resource_address", connectInfo.Claims.Resource.Address),
+	)
 	p.setConnectInfo(connectInfo)
 
 	return nil
@@ -249,6 +263,7 @@ func (p *ProxyConn) setConnectInfo(connectInfo Info) {
 	p.ID = connectInfo.ConnID
 	p.Address = connectInfo.Address
 	p.Claims = connectInfo.Claims
+	p.Token = connectInfo.Token
 	p.Timer = time.AfterFunc(time.Until(connectInfo.Claims.ExpiresAt.Time), func() {
 		_ = p.Close()
 	})
