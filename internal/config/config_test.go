@@ -13,6 +13,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 )
 
 func TestStripNetworkPrefix(t *testing.T) {
@@ -43,7 +44,7 @@ func TestResolveTwingateHostname(t *testing.T) {
 		}))
 		t.Cleanup(server.Close)
 
-		result := resolveTwingateHostname(server.URL+"/api/v1/jwk/ec", "twingate.com", 0)
+		result := resolveTwingateHostname(server.URL+"/api/v1/jwk/ec", "twingate.com", 0, zap.NewNop())
 		assert.Equal(t, "acme.us1.twingate.com", result)
 	})
 
@@ -54,7 +55,7 @@ func TestResolveTwingateHostname(t *testing.T) {
 		}))
 		t.Cleanup(server.Close)
 
-		result := resolveTwingateHostname(server.URL+"/api/v1/jwk/ec", "twingate.com", 0)
+		result := resolveTwingateHostname(server.URL+"/api/v1/jwk/ec", "twingate.com", 0, zap.NewNop())
 
 		assert.Equal(t, "twingate.com", result)
 	})
@@ -65,7 +66,7 @@ func TestResolveTwingateHostname(t *testing.T) {
 		}))
 		t.Cleanup(server.Close)
 
-		result := resolveTwingateHostname(server.URL+"/api/v1/jwk/ec", "twingate.com", 0)
+		result := resolveTwingateHostname(server.URL+"/api/v1/jwk/ec", "twingate.com", 0, zap.NewNop())
 
 		assert.Equal(t, "twingate.com", result)
 	})
@@ -85,7 +86,7 @@ func TestResolveTwingateHostname(t *testing.T) {
 		}))
 		t.Cleanup(redirectServer.Close)
 
-		resolveTwingateHostname(redirectServer.URL+"/api/v1/jwk/ec", "twingate.com", 0)
+		resolveTwingateHostname(redirectServer.URL+"/api/v1/jwk/ec", "twingate.com", 0, zap.NewNop())
 
 		select {
 		case <-shardServerCalled:
@@ -95,7 +96,7 @@ func TestResolveTwingateHostname(t *testing.T) {
 	})
 
 	t.Run("returns default host on connection error", func(t *testing.T) {
-		result := resolveTwingateHostname("http://127.0.0.1:1/api/v1/jwk/ec", "twingate.com", 0)
+		result := resolveTwingateHostname("http://127.0.0.1:1/api/v1/jwk/ec", "twingate.com", 0, zap.NewNop())
 
 		assert.Equal(t, "twingate.com", result)
 	})

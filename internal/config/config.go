@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/go-retryablehttp"
+	"go.uber.org/zap"
 	"go.yaml.in/yaml/v4"
 	"golang.org/x/crypto/ssh"
 )
@@ -193,7 +194,9 @@ func stripNetworkPrefix(hostname, network string) string {
 	return strings.TrimPrefix(hostname, network+".")
 }
 
-func resolveTwingateHostname(targetURL, defaultHost string, retryMax int) string {
+func resolveTwingateHostname(targetURL, defaultHost string, retryMax int, logger *zap.Logger) string {
+	logger = logger.With(zap.String("url", targetURL), zap.String("defaultHost", defaultHost))
+
 	client := retryablehttp.NewClient()
 	client.HTTPClient.Timeout = 1 * time.Second
 	client.HTTPClient.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
@@ -204,25 +207,34 @@ func resolveTwingateHostname(targetURL, defaultHost string, retryMax int) string
 
 	resp, err := client.Head(targetURL)
 	if err != nil {
+		logger.Warn("Failed to resolve Twingate hostname", zap.Error(err))
+
 		return defaultHost
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusPermanentRedirect {
+		logger.Warn("No redirect received", zap.Int("statusCode", resp.StatusCode))
+
 		return defaultHost
 	}
 
 	location, err := resp.Location()
 	if err != nil {
+		logger.Warn("Failed to parse redirect location", zap.Error(err))
+
 		return defaultHost
 	}
 
-	return location.Hostname()
+	resolved := location.Hostname()
+	logger.Info("Resolved Twingate hostname", zap.String("hostname", resolved))
+
+	return resolved
 }
 
-func (c *Config) ResolveTwingateHost() {
+func (c *Config) ResolveTwingateHost(logger *zap.Logger) {
 	targetURL := fmt.Sprintf("https://%s.%s/api/v1/jwk/ec", c.Twingate.Network, c.Twingate.Host)
-	resolvedHostname := resolveTwingateHostname(targetURL, c.Twingate.Host, 2)
+	resolvedHostname := resolveTwingateHostname(targetURL, c.Twingate.Host, 2, logger)
 
 	c.Twingate.Host = stripNetworkPrefix(resolvedHostname, c.Twingate.Network)
 }
