@@ -11,7 +11,7 @@ permissions:
   packages: write
 
 env:
-  GOLANG_VERSION: 1.26.2
+  GOLANG_VERSION: 1.26.3
 
 jobs:
   goreleaser:
