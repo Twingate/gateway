@@ -50,7 +50,7 @@ func NewProxy(config *gatewayconfig.Config, registry *prometheus.Registry, logge
 
 		k8sConfig, err := kuberneteshandler.NewConfig(&config.AuditLog, config.Kubernetes, roundTripperMetrics, logger)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create Kubernetes config %w", err)
+			return nil, fmt.Errorf("failed to create Kubernetes config: %w", err)
 		}
 
 		k8sHandler, err := kuberneteshandler.NewHandler(*k8sConfig)
