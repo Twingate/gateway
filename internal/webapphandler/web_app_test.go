@@ -58,7 +58,7 @@ func TestRewrite(t *testing.T) {
 		wantHeaders map[string]string
 	}{
 		{
-			name:     "resolves all variables",
+			name:     "resolves all header templates",
 			jwtToken: "test-token",
 			claims:   baseClaims,
 			headers: map[string]string{

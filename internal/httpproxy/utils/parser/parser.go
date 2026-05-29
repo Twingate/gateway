@@ -21,13 +21,13 @@ var (
 )
 
 var templateRe = regexp.MustCompile(
-	`^(.*?)` + // prefix
+	`^([^{}]*)` + // prefix (no brackets allowed)
 		`{{\s*` + // opening braces
 		`([a-zA-Z0-9_-]+)` + // namespace
 		`\.` +
 		`([a-zA-Z0-9_-]+)` + // key
 		`\s*}}` + // closing braces
-		`(.*)$`, // suffix
+		`([^{}]*)$`, // suffix (no brackets allowed)
 )
 
 type Template struct {
@@ -42,7 +42,7 @@ func NewTemplate(s string) (*Template, error) {
 
 	if match == nil {
 		if strings.Contains(s, "{{") || strings.Contains(s, "}}") {
-			return nil, fmt.Errorf("%w: invalid brackets syntax", ErrInvalidTemplate)
+			return nil, fmt.Errorf("%w: invalid template format. Format must be <prefix> {{twingate.key}} <suffix>", ErrInvalidTemplate)
 		}
 
 		return &Template{prefix: s}, nil
@@ -52,10 +52,6 @@ func NewTemplate(s string) (*Template, error) {
 
 	if namespace != allowedNamespace {
 		return nil, fmt.Errorf("%w: unsupported namespace %q", ErrInvalidTemplate, namespace)
-	}
-
-	if templateRe.MatchString(suffix) {
-		return nil, fmt.Errorf("%w: multiple templates are not supported", ErrInvalidTemplate)
 	}
 
 	return &Template{

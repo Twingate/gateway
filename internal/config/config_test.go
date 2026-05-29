@@ -1146,7 +1146,7 @@ func TestWebAppConfig_Validate(t *testing.T) {
 			name:        "invalid template",
 			config:      WebAppConfig{Headers: map[string]string{"X-Bad": "{{invalid"}},
 			wantErr:     true,
-			errContains: "invalid brackets syntax",
+			errContains: "invalid template format",
 		},
 		{
 			name:        "unsupported key",
