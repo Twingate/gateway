@@ -42,10 +42,8 @@ func TestRewrite(t *testing.T) {
 			Groups:   []string{"Everyone", "Engineering"},
 		},
 		Device: token.Device{
-			ID: "device-1",
-			Location: token.DeviceLocation{
-				GeoIP: token.GeoIP{Lat: 37.5, Lon: -122.4},
-			},
+			ID:       "device-1",
+			Location: token.GeoIPLocation{Lat: 37.5, Lon: -122.4},
 		},
 	}
 

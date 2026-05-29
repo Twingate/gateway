@@ -29,14 +29,12 @@ func TestGATTokenClaims_Validate(t *testing.T) {
 		},
 		Device: Device{
 			ID: "device-1",
-			Location: DeviceLocation{
-				GeoIP: GeoIP{
-					Lat:     37.7749,
-					Lon:     -122.4194,
-					Country: "US",
-					Region:  "California",
-					City:    "San Francisco",
-				},
+			Location: GeoIPLocation{
+				Lat:     37.7749,
+				Lon:     -122.4194,
+				Country: "US",
+				Region:  "California",
+				City:    "San Francisco",
 			},
 		},
 		Resource: Resource{

@@ -42,7 +42,7 @@ func NewTemplate(s string) (*Template, error) {
 
 	if match == nil {
 		if strings.Contains(s, "{{") || strings.Contains(s, "}}") {
-			return nil, fmt.Errorf("%w: invalid template format. Format must be <prefix> {{twingate.key}} <suffix>", ErrInvalidTemplate)
+			return nil, fmt.Errorf("%w: unsupported syntax. Syntax must be <prefix> {{twingate.key}} <suffix>", ErrInvalidTemplate)
 		}
 
 		return &Template{prefix: s}, nil

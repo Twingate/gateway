@@ -52,8 +52,8 @@ func rewrite(r *httputil.ProxyRequest, conn *connect.ProxyConn, headers map[stri
 	claims := conn.GATClaims()
 
 	geoLoc := ""
-	if claims.Device.Location != (token.DeviceLocation{}) {
-		geoLoc = fmt.Sprintf("%v,%v", claims.Device.Location.GeoIP.Lat, claims.Device.Location.GeoIP.Lon)
+	if claims.Device.Location != (token.GeoIPLocation{}) {
+		geoLoc = fmt.Sprintf("%v,%v", claims.Device.Location.Lat, claims.Device.Location.Lon)
 	}
 
 	variables := map[string]string{
