@@ -8,7 +8,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/http/httptest"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -17,6 +16,7 @@ import (
 	"go.uber.org/zap"
 
 	"gateway/internal/connect"
+	"gateway/internal/metrics"
 	"gateway/internal/token"
 )
 
@@ -60,64 +60,6 @@ func TestProxyConnFromContext(t *testing.T) {
 	})
 }
 
-func TestResourceRouter_DispatchesToCorrectHandler(t *testing.T) {
-	var handledBy = ""
-
-	handlers := map[string]http.Handler{
-		token.ResourceTypeKubernetes: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			handledBy = "kubernetes"
-
-			w.WriteHeader(http.StatusOK)
-		}),
-		token.ResourceTypeSSH: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			handledBy = "ssh"
-
-			w.WriteHeader(http.StatusOK)
-		}),
-	}
-
-	connMetrics := connect.CreateProxyConnMetrics(prometheus.NewRegistry())
-	proxyConn := connect.NewProxyConn(nil, nil, nil, zap.NewNop(), connMetrics)
-	proxyConn.Claims = &token.GATClaims{
-		Resource: token.Resource{Type: token.ResourceTypeKubernetes},
-	}
-
-	recorder := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
-	ctx := context.WithValue(req.Context(), ConnContextKey{}, proxyConn)
-	req = req.WithContext(ctx)
-
-	router := newResourceRouter(handlers, zap.NewNop())
-	router.ServeHTTP(recorder, req)
-
-	assert.Equal(t, http.StatusOK, recorder.Code)
-	assert.Equal(t, "kubernetes", handledBy)
-}
-
-func TestResourceRouter_UnknownResource(t *testing.T) {
-	handlers := map[string]http.Handler{
-		token.ResourceTypeKubernetes: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(http.StatusOK)
-		}),
-	}
-
-	connMetrics := connect.CreateProxyConnMetrics(prometheus.NewRegistry())
-	proxyConn := connect.NewProxyConn(nil, nil, nil, zap.NewNop(), connMetrics)
-	proxyConn.Claims = &token.GATClaims{
-		Resource: token.Resource{Type: "unknown"},
-	}
-
-	recorder := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
-	ctx := context.WithValue(req.Context(), ConnContextKey{}, proxyConn)
-	req = req.WithContext(ctx)
-
-	router := newResourceRouter(handlers, zap.NewNop())
-	router.ServeHTTP(recorder, req)
-
-	assert.Equal(t, http.StatusNotFound, recorder.Code)
-}
-
 func TestProxy_ForwardRequest(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -127,9 +69,10 @@ func TestProxy_ForwardRequest(t *testing.T) {
 	require.NoError(t, err)
 
 	proxy := NewProxy(Config{
-		Registry: prometheus.NewRegistry(),
-		Handlers: map[string]http.Handler{token.ResourceTypeKubernetes: handler},
-		Logger:   zap.NewNop(),
+		Metrics:           metrics.RegisterHTTPMetrics(prometheus.NewRegistry()),
+		ResourceTypeLabel: metrics.ResourceTypeKubernetes,
+		Handler:           handler,
+		Logger:            zap.NewNop(),
 	})
 
 	go func() {
@@ -161,9 +104,10 @@ func TestProxy_Shutdown(t *testing.T) {
 	require.NoError(t, err)
 
 	proxy := NewProxy(Config{
-		Handlers: map[string]http.Handler{token.ResourceTypeKubernetes: handler},
-		Registry: prometheus.NewRegistry(),
-		Logger:   zap.NewNop(),
+		Metrics:           metrics.RegisterHTTPMetrics(prometheus.NewRegistry()),
+		ResourceTypeLabel: metrics.ResourceTypeKubernetes,
+		Handler:           handler,
+		Logger:            zap.NewNop(),
 	})
 
 	done := make(chan error, 1)

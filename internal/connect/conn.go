@@ -237,7 +237,7 @@ func (p *ProxyConn) Authenticate() error {
 	p.tracker.RecordConnectMetrics(httpCode)
 
 	p.Logger.Info("Authenticated connection",
-		zap.String("resource_type", connectInfo.Claims.Resource.Type),
+		zap.String("resource_type", string(connectInfo.Claims.Resource.Type)),
 		zap.String("resource_address", connectInfo.Claims.Resource.Address),
 	)
 	p.setConnectInfo(connectInfo)

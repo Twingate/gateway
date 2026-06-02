@@ -70,7 +70,7 @@ func (l *ProtocolListener) Addr() net.Addr {
 type ConnFactory func(net.Conn, *tls.Config, Validator, *zap.Logger) Conn
 
 type Listener struct {
-	channels map[TransportProtocol]chan<- Conn
+	channels map[token.ResourceType]chan<- Conn
 
 	tokenParser      *token.Parser
 	certReloader     *CertReloader
@@ -88,7 +88,7 @@ type Listener struct {
 func NewListener(
 	twingateConfig config.TwingateConfig,
 	tlsCfg config.TLSConfig,
-	channels map[TransportProtocol]chan<- Conn,
+	channels map[token.ResourceType]chan<- Conn,
 	registry *prometheus.Registry,
 	logger *zap.Logger,
 ) (*Listener, error) {
@@ -172,11 +172,11 @@ func (l *Listener) Serve(ctx context.Context, listener net.Listener) error {
 				return
 			}
 
-			tp := proxyConn.TransportProtocol()
-			channel, exists := l.channels[tp]
+			resourceType := proxyConn.GATClaims().Resource.Type
+			channel, exists := l.channels[resourceType]
 
 			if !exists {
-				l.logger.Error("Unsupported transport protocol", zap.Int("transport", int(tp)))
+				l.logger.Error("Unsupported resource type", zap.String("resource_type", string(resourceType)))
 
 				_ = proxyConn.Close()
 

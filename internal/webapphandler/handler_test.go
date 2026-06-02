@@ -4,6 +4,7 @@
 package webapphandler
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"net/http/httputil"
@@ -15,6 +16,8 @@ import (
 	"go.uber.org/zap"
 
 	"gateway/internal/connect"
+	"gateway/internal/httpproxy"
+	"gateway/internal/metrics"
 	"gateway/internal/token"
 	"gateway/internal/webapphandler/template"
 )
@@ -32,6 +35,31 @@ func mustParse(t *testing.T, templates map[string]string) map[string]*template.T
 	}
 
 	return result
+}
+
+func TestNewHandler_PanicsOnRewriteError(t *testing.T) {
+	connMetrics := connect.CreateProxyConnMetrics(prometheus.NewRegistry())
+	conn := connect.NewProxyConn(nil, nil, nil, zap.NewNop(), connMetrics)
+	conn.Claims = &token.GATClaims{
+		User: token.User{Username: "alice@acme.com"},
+	}
+
+	unknownKeyTemplate, err := template.New("{{twingate.nonexistent}}")
+	require.NoError(t, err)
+
+	handler := NewHandler(Config{
+		headers:             map[string]*template.Template{"X-Bad": unknownKeyTemplate},
+		roundTripperMetrics: metrics.RegisterRoundTripperMetrics(prometheus.NewRegistry()),
+		logger:              zap.NewNop(),
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "http://test/api", nil)
+	ctx := context.WithValue(req.Context(), httpproxy.ConnContextKey{}, conn)
+	req = req.WithContext(ctx)
+
+	assert.Panics(t, func() {
+		handler.ServeHTTP(httptest.NewRecorder(), req)
+	})
 }
 
 func TestRewrite(t *testing.T) {

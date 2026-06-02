@@ -98,12 +98,12 @@ type Device struct {
 	Location GeoIPLocation `json:"location,omitzero"`
 }
 
-type ResourceType = string
+type ResourceType string
 
 const (
-	ResourceTypeKubernetes = "KUBERNETES"
-	ResourceTypeSSH        = "SSH"
-	ResourceTypeWebApp     = "WEB_APP"
+	ResourceTypeKubernetes ResourceType = "KUBERNETES"
+	ResourceTypeSSH        ResourceType = "SSH"
+	ResourceTypeWebApp     ResourceType = "WEB_APP"
 )
 
 type Resource struct {

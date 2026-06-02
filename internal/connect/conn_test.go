@@ -99,7 +99,7 @@ func TestProxyConn_TransportProtocol(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.resourceType, func(t *testing.T) {
+		t.Run(string(tt.resourceType), func(t *testing.T) {
 			claims := &token.GATClaims{
 				Resource: token.Resource{Type: tt.resourceType},
 			}
