@@ -162,6 +162,8 @@ func (v *MessageValidator) ParseConnect(req *http.Request, ekm []byte) (connectI
 	}, nil
 }
 
+var validDNSLabel = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$`)
+
 // matchResourceAddress checks whether host matches the resource address pattern.
 // Supports exact match and RFC 6125 wildcard matching: *.example.com matches
 // api.example.com but not example.com or foo.bar.example.com.
@@ -174,13 +176,12 @@ func matchResourceAddress(pattern, host string) bool {
 		return false
 	}
 
-	leftMostLabel := "^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?"
-	suffix := regexp.QuoteMeta(pattern[1:]) + "$"
-
-	re, err := regexp.Compile("(?i)" + leftMostLabel + suffix)
-	if err != nil {
+	suffix := pattern[1:]
+	if len(host) <= len(suffix) || !strings.HasSuffix(strings.ToLower(host), strings.ToLower(suffix)) {
 		return false
 	}
 
-	return re.MatchString(host)
+	label := host[:len(host)-len(suffix)]
+
+	return validDNSLabel.MatchString(label)
 }

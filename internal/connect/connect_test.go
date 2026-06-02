@@ -384,6 +384,12 @@ func TestMatchResourceAddress(t *testing.T) {
 			want:    true,
 		},
 		{
+			name:    "wildcard reject non-matching suffix",
+			pattern: "*.example.com",
+			host:    "api.invalid.com",
+			want:    false,
+		},
+		{
 			name:    "wildcard reject invalid starting label",
 			pattern: "*.example.com",
 			host:    "-invalid.example.com",
