@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"gateway/internal/token"
@@ -142,7 +143,7 @@ func (v *MessageValidator) ParseConnect(req *http.Request, ekm []byte) (connectI
 			}
 	}
 
-	if !strings.EqualFold(host, gatClaims.Resource.Address) {
+	if !matchResourceAddress(gatClaims.Resource.Address, host) {
 		return Info{
 				Claims: gatClaims,
 				ConnID: connID,
@@ -159,4 +160,27 @@ func (v *MessageValidator) ParseConnect(req *http.Request, ekm []byte) (connectI
 		ConnID:  connID,
 		Token:   bearerToken,
 	}, nil
+}
+
+// matchResourceAddress checks whether host matches the resource address pattern.
+// Supports exact match and RFC 6125 wildcard matching: *.example.com matches
+// api.example.com but not example.com or foo.bar.example.com.
+func matchResourceAddress(pattern, host string) bool {
+	if strings.EqualFold(pattern, host) {
+		return true
+	}
+
+	if !strings.HasPrefix(pattern, "*.") {
+		return false
+	}
+
+	leftMostLabel := "^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?"
+	suffix := regexp.QuoteMeta(pattern[1:]) + "$"
+
+	re, err := regexp.Compile("(?i)" + leftMostLabel + suffix)
+	if err != nil {
+		return false
+	}
+
+	return re.MatchString(host)
 }
