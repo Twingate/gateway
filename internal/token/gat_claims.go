@@ -61,6 +61,10 @@ func (p GATClaims) Validate() error {
 	return nil
 }
 
+func (p GATClaims) ShouldUpgradeTLS() bool {
+	return p.Resource.Type == ResourceTypeKubernetes
+}
+
 func (p GATClaims) getHeaderType() string {
 	return "GAT"
 }

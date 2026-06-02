@@ -183,7 +183,7 @@ func (l *Listener) Serve(ctx context.Context, listener net.Listener) error {
 				return
 			}
 
-			if proxyConn.ShouldUpgradeTLS() {
+			if proxyConn.GATClaims().ShouldUpgradeTLS() {
 				if err := proxyConn.UpgradeToTLS(); err != nil {
 					l.logger.Error("Failed to upgrade to TLS", zap.Error(err))
 

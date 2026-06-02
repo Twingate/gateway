@@ -32,13 +32,6 @@ func httpResponseString(httpCode int) string {
 	return fmt.Sprintf("HTTP/1.1 %d %s\r\n\r\n", httpCode, http.StatusText(httpCode))
 }
 
-type TransportProtocol int
-
-const (
-	TransportTLS TransportProtocol = iota
-	TransportSSH
-)
-
 // Conn is a custom connection that wraps the underlying TCP net.Conn, handling downstream
 // proxy (Twingate Client)'s authentication via the initial CONNECT message. It handles 2 TLS
 // upgrades: with downstream proxy and then optionally with downstream client e.g. `kubectl`.
@@ -49,8 +42,6 @@ type Conn interface {
 	GetAddress() string
 	GetToken() string
 	Authenticate() error
-	TransportProtocol() TransportProtocol
-	ShouldUpgradeTLS() bool
 	UpgradeToTLS() error
 
 	Close() error
@@ -98,18 +89,6 @@ func (p *ProxyConn) Close() error {
 	}
 
 	return p.Conn.Close()
-}
-
-func (p *ProxyConn) TransportProtocol() TransportProtocol {
-	if p.GATClaims().Resource.Type == token.ResourceTypeSSH {
-		return TransportSSH
-	}
-
-	return TransportTLS
-}
-
-func (p *ProxyConn) ShouldUpgradeTLS() bool {
-	return p.TransportProtocol() == TransportTLS && p.GATClaims().Resource.Type != token.ResourceTypeWebApp
 }
 
 func (p *ProxyConn) GATClaims() *token.GATClaims {

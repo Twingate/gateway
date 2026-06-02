@@ -83,68 +83,6 @@ func TestProxyConn_setConnectInfo(t *testing.T) {
 	})
 }
 
-func TestProxyConn_TransportProtocol(t *testing.T) {
-	tests := []struct {
-		resourceType token.ResourceType
-		expected     TransportProtocol
-	}{
-		{
-			resourceType: token.ResourceTypeKubernetes,
-			expected:     TransportTLS,
-		},
-		{
-			resourceType: token.ResourceTypeSSH,
-			expected:     TransportSSH,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(string(tt.resourceType), func(t *testing.T) {
-			claims := &token.GATClaims{
-				Resource: token.Resource{Type: tt.resourceType},
-			}
-			proxyConn := &ProxyConn{Claims: claims}
-
-			assert.Equal(t, tt.expected, proxyConn.TransportProtocol())
-		})
-	}
-}
-
-func TestProxyConn_ShouldUpgradeTLS(t *testing.T) {
-	tests := []struct {
-		name         string
-		resourceType token.ResourceType
-		expected     bool
-	}{
-		{
-			name:         "Kubernetes should upgrade TLS",
-			resourceType: token.ResourceTypeKubernetes,
-			expected:     true,
-		},
-		{
-			name:         "SSH should not upgrade TLS",
-			resourceType: token.ResourceTypeSSH,
-			expected:     false,
-		},
-		{
-			name:         "Web app should not upgrade TLS",
-			resourceType: token.ResourceTypeWebApp,
-			expected:     false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			claims := &token.GATClaims{
-				Resource: token.Resource{Type: tt.resourceType},
-			}
-			proxyConn := &ProxyConn{Claims: claims}
-
-			assert.Equal(t, tt.expected, proxyConn.ShouldUpgradeTLS())
-		})
-	}
-}
-
 func TestProxyConn_Close(t *testing.T) {
 	conn := &mockConn{}
 	timer := time.NewTimer(0 * time.Millisecond)

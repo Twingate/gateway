@@ -25,8 +25,7 @@ import (
 type mockProxyConn struct {
 	net.Conn
 
-	transportProtocol TransportProtocol
-	Claims            *token.GATClaims
+	Claims *token.GATClaims
 
 	isClosed atomic.Bool
 
@@ -42,10 +41,6 @@ func (m *mockProxyConn) Close() error {
 
 func (m *mockProxyConn) IsClosed() bool {
 	return m.isClosed.Load()
-}
-
-func (m *mockProxyConn) TransportProtocol() TransportProtocol {
-	return m.transportProtocol
 }
 
 func (m *mockProxyConn) GATClaims() *token.GATClaims {
@@ -76,10 +71,6 @@ func (m *mockProxyConn) Authenticate() error {
 	}
 
 	return nil
-}
-
-func (m *mockProxyConn) ShouldUpgradeTLS() bool {
-	return m.TransportProtocol() == TransportTLS && m.GATClaims().Resource.Type != token.ResourceTypeWebApp
 }
 
 func (m *mockProxyConn) UpgradeToTLS() error {
@@ -162,9 +153,8 @@ func TestListener_Serve_HTTPS(t *testing.T) {
 
 	fixtures.listener.proxyConnFactory = func(conn net.Conn, _ *tls.Config, _ Validator, _ *zap.Logger) Conn {
 		return &mockProxyConn{
-			Conn:              conn,
-			transportProtocol: TransportTLS,
-			Claims:            kubernetesClaims,
+			Conn:   conn,
+			Claims: kubernetesClaims,
 		}
 	}
 
@@ -196,7 +186,6 @@ func TestListener_Serve_HTTPS(t *testing.T) {
 	select {
 	case conn := <-fixtures.httpChannel:
 		require.False(t, conn.(*mockProxyConn).IsClosed())
-		require.Equal(t, TransportTLS, conn.TransportProtocol())
 		require.Equal(t, kubernetesClaims, conn.GATClaims())
 	case <-time.After(1 * time.Second):
 		t.Fatal("timeout waiting for HTTP connection")
@@ -216,9 +205,8 @@ func TestListener_Serve_SSH(t *testing.T) {
 
 	fixtures.listener.proxyConnFactory = func(conn net.Conn, _ *tls.Config, _ Validator, _ *zap.Logger) Conn {
 		return &mockProxyConn{
-			Conn:              conn,
-			transportProtocol: TransportSSH,
-			Claims:            sshClaims,
+			Conn:   conn,
+			Claims: sshClaims,
 		}
 	}
 
@@ -416,9 +404,8 @@ func TestListener_Serve_GracefulShutdown(t *testing.T) {
 
 	listener.proxyConnFactory = func(conn net.Conn, _ *tls.Config, _ Validator, _ *zap.Logger) Conn {
 		return &mockProxyConn{
-			Conn:              conn,
-			transportProtocol: TransportTLS,
-			Claims:            kubernetesClaims,
+			Conn:   conn,
+			Claims: kubernetesClaims,
 		}
 	}
 
