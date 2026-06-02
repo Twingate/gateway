@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
-	"gateway/internal/httpproxy/utils/parser"
+	"gateway/internal/httpproxy/parser"
 )
 
 func TestNewConfig(t *testing.T) {

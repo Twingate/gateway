@@ -15,7 +15,7 @@ import (
 	"go.uber.org/zap"
 
 	"gateway/internal/connect"
-	"gateway/internal/httpproxy/utils/parser"
+	"gateway/internal/httpproxy/parser"
 	"gateway/internal/token"
 )
 

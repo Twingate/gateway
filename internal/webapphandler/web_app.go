@@ -14,7 +14,7 @@ import (
 
 	"gateway/internal/connect"
 	"gateway/internal/httpproxy"
-	"gateway/internal/httpproxy/utils/parser"
+	"gateway/internal/httpproxy/parser"
 	"gateway/internal/metrics"
 	"gateway/internal/token"
 )

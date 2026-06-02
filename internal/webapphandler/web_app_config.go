@@ -8,7 +8,7 @@ import (
 
 	"go.uber.org/zap"
 
-	"gateway/internal/httpproxy/utils/parser"
+	"gateway/internal/httpproxy/parser"
 	"gateway/internal/metrics"
 )
 

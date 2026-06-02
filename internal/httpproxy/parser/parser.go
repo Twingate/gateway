@@ -21,13 +21,13 @@ var (
 )
 
 var templateRe = regexp.MustCompile(
-	`^([^{}]*)` + // prefix (no brackets allowed)
+	`^([^{}]*)` + // prefix (no braces allowed)
 		`{{\s*` + // opening braces
 		`([a-zA-Z0-9_-]+)` + // namespace
 		`\.` +
 		`([a-zA-Z0-9_-]+)` + // key
 		`\s*}}` + // closing braces
-		`([^{}]*)$`, // suffix (no brackets allowed)
+		`([^{}]*)$`, // suffix (no braces allowed)
 )
 
 type Template struct {
@@ -37,6 +37,7 @@ type Template struct {
 }
 
 // NewTemplate parses a string like "<prefix> {{<namespace>.<key>}} <suffix>" into a Template.
+// If there is no template variable (just a static string), the key and suffix are empty and the prefix is the static string.
 func NewTemplate(s string) (*Template, error) {
 	match := templateRe.FindStringSubmatch(s)
 
@@ -45,7 +46,7 @@ func NewTemplate(s string) (*Template, error) {
 			return nil, fmt.Errorf("%w: unsupported syntax. Syntax must be <prefix> {{twingate.key}} <suffix>", ErrInvalidTemplate)
 		}
 
-		return &Template{prefix: s}, nil
+		return &Template{prefix: strings.TrimSpace(s)}, nil
 	}
 
 	prefix, namespace, key, suffix := match[1], match[2], match[3], match[4]

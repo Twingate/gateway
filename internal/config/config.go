@@ -17,7 +17,7 @@ import (
 	"go.yaml.in/yaml/v4"
 	"golang.org/x/crypto/ssh"
 
-	"gateway/internal/httpproxy/utils/parser"
+	"gateway/internal/httpproxy/parser"
 )
 
 var (
