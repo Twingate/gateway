@@ -17,7 +17,7 @@ import (
 	"go.yaml.in/yaml/v4"
 	"golang.org/x/crypto/ssh"
 
-	"gateway/internal/httpproxy/template"
+	"gateway/internal/webapphandler/template"
 )
 
 var (
@@ -459,7 +459,7 @@ func (w *WebAppConfig) Validate() error {
 		}
 
 		key := tmpl.Key()
-		if key != "" && !slices.Contains(allowedWebAppKeys, key) {
+		if key != "" && !slices.Contains(template.AllowedWebAppKeys, key) {
 			return fmt.Errorf("header %q: %w %q", name, ErrUnsupportedKey, key)
 		}
 	}

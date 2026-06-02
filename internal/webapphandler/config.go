@@ -8,8 +8,8 @@ import (
 
 	"go.uber.org/zap"
 
-	"gateway/internal/httpproxy/template"
 	"gateway/internal/metrics"
+	"gateway/internal/webapphandler/template"
 )
 
 type Config struct {

@@ -15,8 +15,8 @@ import (
 	"go.uber.org/zap"
 
 	"gateway/internal/connect"
-	"gateway/internal/httpproxy/template"
 	"gateway/internal/token"
+	"gateway/internal/webapphandler/template"
 )
 
 func mustParse(t *testing.T, templates map[string]string) map[string]*template.Template {
@@ -63,17 +63,17 @@ func TestRewrite(t *testing.T) {
 				"Authorization": "Bearer {{twingate.jwt}}",
 				"X-Username":    "{{twingate.username}}",
 				"X-Groups":      "{{twingate.groups}}",
-				"X-Geo":         "{{twingate.clientGeoLatLong}}",
-				"X-City":        "{{twingate.clientCity}}",
-				"X-Region":      "{{twingate.clientRegion}}",
-				"X-Country":     "{{twingate.clientCountry}}",
+				"X-LatLong":     "{{twingate.clientGeoLatLong}}",
+				"X-City":        "{{twingate.clientGeoCity}}",
+				"X-Region":      "{{twingate.clientGeoRegion}}",
+				"X-Country":     "{{twingate.clientGeoCountry}}",
 				"Existing":      "new-value",
 			},
 			wantHeaders: map[string]string{
 				"Authorization": "Bearer test-token",
 				"X-Username":    "alice@acme.com",
 				"X-Groups":      "Everyone,Engineering",
-				"X-Geo":         "37.5,-122.4",
+				"X-LatLong":     "37.5,-122.4",
 				"X-City":        "San Mateo",
 				"X-Region":      "CA",
 				"X-Country":     "US",
@@ -89,13 +89,13 @@ func TestRewrite(t *testing.T) {
 				Resource: baseClaims.Resource,
 			},
 			headers: map[string]string{
-				"X-Geo":     "{{twingate.clientGeoLatLong}}",
-				"X-City":    "{{twingate.clientCity}}",
-				"X-Region":  "{{twingate.clientRegion}}",
-				"X-Country": "{{twingate.clientCountry}}",
+				"X-LatLong": "{{twingate.clientGeoLatLong}}",
+				"X-City":    "{{twingate.clientGeoCity}}",
+				"X-Region":  "{{twingate.clientGeoRegion}}",
+				"X-Country": "{{twingate.clientGeoCountry}}",
 			},
 			wantHeaders: map[string]string{
-				"X-Geo":     "",
+				"X-LatLong": "",
 				"X-City":    "",
 				"X-Region":  "",
 				"X-Country": "",

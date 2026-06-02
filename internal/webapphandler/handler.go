@@ -12,12 +12,11 @@ import (
 
 	"go.uber.org/zap"
 
-	gatewayconfig "gateway/internal/config"
 	"gateway/internal/connect"
 	"gateway/internal/httpproxy"
-	"gateway/internal/httpproxy/template"
 	"gateway/internal/metrics"
 	"gateway/internal/token"
+	"gateway/internal/webapphandler/template"
 )
 
 type Handler struct {
@@ -31,6 +30,7 @@ func NewHandler(cfg Config) *Handler {
 
 			if err := rewrite(r, conn, cfg.headers); err != nil {
 				cfg.logger.Error("failed to rewrite headers", zap.Error(err))
+				panic(err)
 			}
 		},
 		Transport: metrics.InstrumentRoundTripper(cfg.roundTripperMetrics, metrics.ResourceTypeWebApp, http.DefaultTransport),
@@ -60,13 +60,13 @@ func rewrite(r *httputil.ProxyRequest, conn *connect.ProxyConn, headers map[stri
 	}
 
 	variables := map[string]string{
-		gatewayconfig.JWT:              conn.GetToken(),
-		gatewayconfig.Username:         claims.User.Username,
-		gatewayconfig.Groups:           strings.Join(claims.User.Groups, ","),
-		gatewayconfig.ClientGeoLatLong: clientGeoLatLong,
-		gatewayconfig.ClientCity:       clientLocation.City,
-		gatewayconfig.ClientRegion:     clientLocation.Region,
-		gatewayconfig.ClientCountry:    clientLocation.Country,
+		template.JWT:              conn.GetToken(),
+		template.Username:         claims.User.Username,
+		template.Groups:           strings.Join(claims.User.Groups, ","),
+		template.ClientGeoLatLong: clientGeoLatLong,
+		template.ClientGeoCity:    clientLocation.City,
+		template.ClientGeoRegion:  clientLocation.Region,
+		template.ClientGeoCountry: clientLocation.Country,
 	}
 
 	for headerName, tmpl := range headers {
