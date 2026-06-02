@@ -1,7 +1,7 @@
 // Copyright (c) Twingate Inc.
 // SPDX-License-Identifier: MPL-2.0
 
-package parser
+package template
 
 import (
 	"testing"
@@ -85,7 +85,7 @@ func TestParser_NewTemplate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			template, err := NewTemplate(tt.input)
+			template, err := New(tt.input)
 
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)

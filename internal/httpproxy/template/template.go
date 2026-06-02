@@ -1,7 +1,7 @@
 // Copyright (c) Twingate Inc.
 // SPDX-License-Identifier: MPL-2.0
 
-package parser
+package template
 
 import (
 	"errors"
@@ -36,9 +36,9 @@ type Template struct {
 	suffix string
 }
 
-// NewTemplate parses a string like "<prefix> {{<namespace>.<key>}} <suffix>" into a Template.
+// New parses a string like "<prefix> {{<namespace>.<key>}} <suffix>" into a Template.
 // If there is no template variable (just a static string), the key and suffix are empty and the prefix is the static string.
-func NewTemplate(s string) (*Template, error) {
+func New(s string) (*Template, error) {
 	match := templateRe.FindStringSubmatch(s)
 
 	if match == nil {

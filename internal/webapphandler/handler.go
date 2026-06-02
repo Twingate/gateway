@@ -15,7 +15,7 @@ import (
 	gatewayconfig "gateway/internal/config"
 	"gateway/internal/connect"
 	"gateway/internal/httpproxy"
-	"gateway/internal/httpproxy/parser"
+	"gateway/internal/httpproxy/template"
 	"gateway/internal/metrics"
 	"gateway/internal/token"
 )
@@ -43,7 +43,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.proxy.ServeHTTP(w, r)
 }
 
-func rewrite(r *httputil.ProxyRequest, conn *connect.ProxyConn, headers map[string]*parser.Template) error {
+func rewrite(r *httputil.ProxyRequest, conn *connect.ProxyConn, headers map[string]*template.Template) error {
 	targetURL := &url.URL{
 		Scheme: "http", // plain HTTP — no upstream TLS
 		Host:   conn.GetAddress(),

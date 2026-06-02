@@ -17,7 +17,7 @@ import (
 	"go.yaml.in/yaml/v4"
 	"golang.org/x/crypto/ssh"
 
-	"gateway/internal/httpproxy/parser"
+	"gateway/internal/httpproxy/template"
 )
 
 var (
@@ -453,7 +453,7 @@ func (v *SSHCAVaultConfig) Validate() error {
 
 func (w *WebAppConfig) Validate() error {
 	for name, value := range w.Headers {
-		tmpl, err := parser.NewTemplate(value)
+		tmpl, err := template.New(value)
 		if err != nil {
 			return fmt.Errorf("header %q: %w", name, err)
 		}

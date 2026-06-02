@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
-	"gateway/internal/httpproxy/parser"
+	"gateway/internal/httpproxy/template"
 )
 
 func TestNewConfig(t *testing.T) {
@@ -29,7 +29,7 @@ func TestNewConfig(t *testing.T) {
 			headers: map[string]string{
 				"X-Invalid": "{{invalid}}",
 			},
-			wantErr: parser.ErrInvalidTemplate,
+			wantErr: template.ErrInvalidTemplate,
 		},
 		{
 			name:    "empty headers",

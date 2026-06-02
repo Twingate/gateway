@@ -15,17 +15,17 @@ import (
 	"go.uber.org/zap"
 
 	"gateway/internal/connect"
-	"gateway/internal/httpproxy/parser"
+	"gateway/internal/httpproxy/template"
 	"gateway/internal/token"
 )
 
-func mustParse(t *testing.T, templates map[string]string) map[string]*parser.Template {
+func mustParse(t *testing.T, templates map[string]string) map[string]*template.Template {
 	t.Helper()
 
-	result := make(map[string]*parser.Template, len(templates))
+	result := make(map[string]*template.Template, len(templates))
 
 	for name, tmpl := range templates {
-		parsed, err := parser.NewTemplate(tmpl)
+		parsed, err := template.New(tmpl)
 		require.NoError(t, err, "failed to parse template for header %q", name)
 
 		result[name] = parsed

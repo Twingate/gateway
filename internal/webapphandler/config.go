@@ -8,21 +8,21 @@ import (
 
 	"go.uber.org/zap"
 
-	"gateway/internal/httpproxy/parser"
+	"gateway/internal/httpproxy/template"
 	"gateway/internal/metrics"
 )
 
 type Config struct {
-	headers             map[string]*parser.Template
+	headers             map[string]*template.Template
 	roundTripperMetrics *metrics.RoundTripperMetrics
 	logger              *zap.Logger
 }
 
 func NewConfig(configHeaders map[string]string, roundTripperMetrics *metrics.RoundTripperMetrics, logger *zap.Logger) (*Config, error) {
-	headers := make(map[string]*parser.Template, len(configHeaders))
+	headers := make(map[string]*template.Template, len(configHeaders))
 
 	for name, value := range configHeaders {
-		tmpl, err := parser.NewTemplate(value)
+		tmpl, err := template.New(value)
 		if err != nil {
 			return nil, fmt.Errorf("header %q: %w", name, err)
 		}
