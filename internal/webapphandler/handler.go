@@ -53,6 +53,7 @@ func rewrite(r *httputil.ProxyRequest, conn *connect.ProxyConn, headers map[stri
 	claims := conn.GATClaims()
 
 	clientLocation := claims.Device.Location
+
 	clientGeoLatLong := ""
 	if clientLocation != (token.GeoIPLocation{}) {
 		clientGeoLatLong = fmt.Sprintf("%v,%v", clientLocation.Lat, clientLocation.Lon)

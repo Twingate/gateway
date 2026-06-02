@@ -105,9 +105,9 @@ func TestParser_NewTemplate(t *testing.T) {
 
 func TestParser_Evaluate(t *testing.T) {
 	tests := []struct {
-		name     string
-		template Template
-		values   map[string]string
+		name      string
+		template  Template
+		values    map[string]string
 		want      string
 		wantErr   error
 		errSubstr string
