@@ -43,7 +43,7 @@ func TestRewrite(t *testing.T) {
 		},
 		Device: token.Device{
 			ID:       "device-1",
-			Location: token.GeoIPLocation{Lat: 37.5, Lon: -122.4},
+			Location: token.GeoIPLocation{Lat: 37.5, Lon: -122.4, Country: "US", Region: "CA", City: "San Mateo"},
 		},
 	}
 
@@ -63,7 +63,10 @@ func TestRewrite(t *testing.T) {
 				"Authorization": "Bearer {{twingate.jwt}}",
 				"X-Username":    "{{twingate.username}}",
 				"X-Groups":      "{{twingate.groups}}",
-				"X-Geo":         "{{twingate.clientGeoLoc}}",
+				"X-Geo":         "{{twingate.clientGeoLatLong}}",
+				"X-City":        "{{twingate.clientCity}}",
+				"X-Region":      "{{twingate.clientRegion}}",
+				"X-Country":     "{{twingate.clientCountry}}",
 				"Existing":      "new-value",
 			},
 			wantHeaders: map[string]string{
@@ -71,6 +74,9 @@ func TestRewrite(t *testing.T) {
 				"X-Username":    "alice@acme.com",
 				"X-Groups":      "Everyone,Engineering",
 				"X-Geo":         "37.5,-122.4",
+				"X-City":        "San Mateo",
+				"X-Region":      "CA",
+				"X-Country":     "US",
 				"Existing":      "new-value",
 			},
 		},
@@ -83,9 +89,18 @@ func TestRewrite(t *testing.T) {
 				Resource: baseClaims.Resource,
 			},
 			headers: map[string]string{
-				"X-Geo": "{{twingate.clientGeoLoc}}",
+				"X-Geo":     "{{twingate.clientGeoLatLong}}",
+				"X-City":    "{{twingate.clientCity}}",
+				"X-Region":  "{{twingate.clientRegion}}",
+				"X-Country": "{{twingate.clientCountry}}",
 			},
-			wantHeaders: map[string]string{"X-Geo": ""},
+			wantHeaders: map[string]string{
+				"X-Geo":     "",
+				"X-City":    "",
+				"X-Region":  "",
+				"X-Country": "",
+				"Existing":  "old-value",
+			},
 		},
 		{
 			name:     "empty headers",

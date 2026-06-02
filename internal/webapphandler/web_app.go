@@ -12,6 +12,7 @@ import (
 
 	"go.uber.org/zap"
 
+	gatewayconfig "gateway/internal/config"
 	"gateway/internal/connect"
 	"gateway/internal/httpproxy"
 	"gateway/internal/httpproxy/parser"
@@ -51,16 +52,20 @@ func rewrite(r *httputil.ProxyRequest, conn *connect.ProxyConn, headers map[stri
 
 	claims := conn.GATClaims()
 
-	geoLoc := ""
-	if claims.Device.Location != (token.GeoIPLocation{}) {
-		geoLoc = fmt.Sprintf("%v,%v", claims.Device.Location.Lat, claims.Device.Location.Lon)
+	clientLocation := claims.Device.Location
+	clientGeoLatLong := ""
+	if clientLocation != (token.GeoIPLocation{}) {
+		clientGeoLatLong = fmt.Sprintf("%v,%v", clientLocation.Lat, clientLocation.Lon)
 	}
 
 	variables := map[string]string{
-		"jwt":          conn.GetToken(),
-		"username":     claims.User.Username,
-		"groups":       strings.Join(claims.User.Groups, ","),
-		"clientGeoLoc": geoLoc,
+		gatewayconfig.JWT:              conn.GetToken(),
+		gatewayconfig.Username:         claims.User.Username,
+		gatewayconfig.Groups:           strings.Join(claims.User.Groups, ","),
+		gatewayconfig.ClientGeoLatLong: clientGeoLatLong,
+		gatewayconfig.ClientCity:       clientLocation.City,
+		gatewayconfig.ClientRegion:     clientLocation.Region,
+		gatewayconfig.ClientCountry:    clientLocation.Country,
 	}
 
 	for headerName, tmpl := range headers {

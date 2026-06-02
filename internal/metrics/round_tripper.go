@@ -33,20 +33,20 @@ func RegisterRoundTripperMetrics(registry *prometheus.Registry) *RoundTripperMet
 		requestsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: Namespace,
 			Name:      "api_server_requests_total",
-			Help:      "Total number of requests from Gateway to API Server processed",
+			Help:      "Total number of requests from Gateway to HTTP server processed",
 		}, []string{labelResourceType, "type", "method", "code"}),
 
 		activeRequests: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: Namespace,
 			Name:      "api_server_active_requests",
-			Help:      "Number of currently active requests from Gateway to API Server",
+			Help:      "Number of currently active requests from Gateway to HTTP server",
 		}, []string{labelResourceType, "type"}),
 
 		requestDuration: prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
 				Namespace: Namespace,
 				Name:      "api_server_request_duration_seconds",
-				Help:      "Measures the initial HTTP request-response latency between Gateway and API Server in seconds. For HTTP streaming, WebSocket, and SPDY connections, this metric captures only the setup time and not the duration of the data transfer.",
+				Help:      "Measures the initial HTTP request-response latency between Gateway and HTTP server in seconds. For HTTP streaming, WebSocket, and SPDY connections, this metric captures only the setup time and not the duration of the data transfer.",
 				Buckets:   prometheus.DefBuckets,
 			}, []string{labelResourceType, "type", "method", "code"}),
 	}

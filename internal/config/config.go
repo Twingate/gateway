@@ -452,10 +452,6 @@ func (v *SSHCAVaultConfig) Validate() error {
 }
 
 func (w *WebAppConfig) Validate() error {
-	allowedWebAppKeys := []string{
-		"jwt", "username", "groups", "clientGeoLoc",
-	}
-
 	for name, value := range w.Headers {
 		tmpl, err := parser.NewTemplate(value)
 		if err != nil {
