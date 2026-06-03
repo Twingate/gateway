@@ -82,6 +82,7 @@ func main() {
 
 	kubernetesClient := fake.NewClient(
 		user,
+		token.GeoIPLocation{},
 		fmt.Sprintf("%s:%d", gatewayHost, gatewayPort),
 		controller.URL,
 		fmt.Sprintf("%s:%d", gatewayHost, kindPort),
@@ -111,6 +112,7 @@ func main() {
 
 	sshClient := fake.NewClient(
 		user,
+		token.GeoIPLocation{},
 		fmt.Sprintf("%s:%d", gatewayHost, gatewayPort),
 		controller.URL,
 		fmt.Sprintf("%s:%d", gatewayHost, sshPort),
