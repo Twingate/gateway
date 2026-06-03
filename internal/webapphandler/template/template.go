@@ -38,6 +38,7 @@ var AllowedWebAppKeys = []string{
 var (
 	ErrInvalidTemplate = errors.New("invalid template")
 	ErrUnknownKey      = errors.New("unknown key")
+	ErrUnsupportedKey  = errors.New("unsupported key")
 )
 
 var templateRe = regexp.MustCompile(
