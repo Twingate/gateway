@@ -69,10 +69,10 @@ func TestProxy_ForwardRequest(t *testing.T) {
 	require.NoError(t, err)
 
 	proxy := NewProxy(Config{
-		Metrics:           metrics.RegisterHTTPMetrics(prometheus.NewRegistry()),
-		ResourceTypeLabel: metrics.ResourceTypeKubernetes,
-		Handler:           handler,
-		Logger:            zap.NewNop(),
+		Metrics:      metrics.RegisterHTTPMetrics(prometheus.NewRegistry()),
+		ResourceType: metrics.ResourceTypeKubernetes,
+		Handler:      handler,
+		Logger:       zap.NewNop(),
 	})
 
 	go func() {
@@ -104,10 +104,10 @@ func TestProxy_Shutdown(t *testing.T) {
 	require.NoError(t, err)
 
 	proxy := NewProxy(Config{
-		Metrics:           metrics.RegisterHTTPMetrics(prometheus.NewRegistry()),
-		ResourceTypeLabel: metrics.ResourceTypeKubernetes,
-		Handler:           handler,
-		Logger:            zap.NewNop(),
+		Metrics:      metrics.RegisterHTTPMetrics(prometheus.NewRegistry()),
+		ResourceType: metrics.ResourceTypeKubernetes,
+		Handler:      handler,
+		Logger:       zap.NewNop(),
 	})
 
 	done := make(chan error, 1)

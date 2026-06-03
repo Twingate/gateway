@@ -27,10 +27,10 @@ func ProxyConnFromContext(ctx context.Context) *connect.ProxyConn {
 }
 
 type Config struct {
-	Handler           http.Handler
-	Metrics           *metrics.HTTPMetrics
-	Logger            *zap.Logger
-	ResourceTypeLabel string
+	Handler      http.Handler
+	Metrics      *metrics.HTTPMetrics
+	Logger       *zap.Logger
+	ResourceType metrics.ResourceType
 }
 
 type Proxy struct {
@@ -38,7 +38,7 @@ type Proxy struct {
 }
 
 func NewProxy(cfg Config) *Proxy {
-	handler := metrics.HTTPMiddleware(cfg.Metrics, cfg.ResourceTypeLabel, auditMiddleware(auditMiddlewareConfig{
+	handler := metrics.HTTPMiddleware(cfg.Metrics, cfg.ResourceType, auditMiddleware(auditMiddlewareConfig{
 		next:   cfg.Handler,
 		logger: cfg.Logger,
 	}))

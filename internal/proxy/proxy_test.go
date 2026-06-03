@@ -144,10 +144,10 @@ func TestShutdown_ClosesAllComponents(t *testing.T) {
 	require.NoError(t, err)
 
 	httpProxy := httpproxy.NewProxy(httpproxy.Config{
-		Handler:           k8sHandler,
-		Metrics:           metrics.RegisterHTTPMetrics(registry),
-		ResourceTypeLabel: metrics.ResourceTypeKubernetes,
-		Logger:            zap.NewNop(),
+		Handler:      k8sHandler,
+		Metrics:      metrics.RegisterHTTPMetrics(registry),
+		ResourceType: metrics.ResourceTypeKubernetes,
+		Logger:       zap.NewNop(),
 	})
 
 	p.httpProxies = map[token.ResourceType]*httpproxy.Proxy{
