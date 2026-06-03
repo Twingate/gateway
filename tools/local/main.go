@@ -134,6 +134,32 @@ func main() {
 		logger.Info("Created SSH known_hosts file", zap.String("path", sshKnownHostFile))
 	}
 
+	echoServer := startEchoWebAppServer(logger)
+
+	defer func() {
+		if err := echoServer.server.Shutdown(ctx); err != nil {
+			logger.Error("Failed to shutdown echo server", zap.Error(err))
+		}
+	}()
+
+	webAppClient := fake.NewClient(
+		user,
+		token.GeoIPLocation{
+			Lat:     37.5,
+			Lon:     -122.4,
+			Country: "US",
+			Region:  "CA",
+			City:    "San Mateo",
+		},
+		fmt.Sprintf("%s:%d", gatewayHost, gatewayPort),
+		controller.URL,
+		echoServer.address,
+		token.ResourceTypeWebApp,
+	)
+	defer webAppClient.Close()
+
+	logger.Info("Web app fake Twingate client is serving at", zap.String("address", webAppClient.Address))
+
 	err = createLocalGatewayConfig(kindBearerToken)
 	if err != nil {
 		logger.Error("Failed to create local gateway config", zap.Error(err))
@@ -154,6 +180,7 @@ Twingate local dev environment running!
   User:                 %s
   Client (Kubernetes):  %s
   Client (SSH):         %s
+  Client (Webapp):      %s
 
 -----------------------------------------------------
 1. Start the Gateway (in a separate terminal):
@@ -177,13 +204,19 @@ Twingate local dev environment running!
   ssh -p %s -o UserKnownHostsFile=%s 127.0.0.1
 
 -----------------------------------------------------
+4. Test Web App header forwarding:
+
+  curl http://%s
+
+-----------------------------------------------------
 Press Ctrl+C to stop
 =====================================================
-`, controller.URL, user.Username, kubernetesClient.Address, sshClient.Address,
+`, controller.URL, user.Username, kubernetesClient.Address, sshClient.Address, webAppClient.Address,
 		gatewayRunCmd,
 		kubeConfigFile,
 		kubeConfigFile, kindClusterName,
 		sshClientPort, sshKnownHostFile,
+		webAppClient.Address,
 	)
 
 	//nolint:forbidigo
@@ -219,6 +252,15 @@ ssh:
   ca:
     manual:
       privateKeyFile: ./test/data/ssh/ca/ca
+webApp:
+  headers:
+    Authorization: "Bearer {{twingate.jwt}}"
+    X-Twingate-User: "{{twingate.username}}"
+    X-Twingate-Groups: "{{twingate.groups}}"
+    X-Twingate-Client-Geo-LatLong: "{{twingate.clientGeoLatLong}}"
+    X-Twingate-Client-Geo-City: "{{twingate.clientGeoCity}}"
+    X-Twingate-Client-Geo-Region: "{{twingate.clientGeoRegion}}"
+    X-Twingate-Client-Geo-Country: "{{twingate.clientGeoCountry}}"
 `
 
 	config := fmt.Sprintf(configTemplate, network, gatewayPort, kindBearerToken, sshUsername)
