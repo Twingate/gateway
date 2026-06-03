@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
@@ -88,7 +89,9 @@ func TestWebApp(t *testing.T) {
 	)
 	defer user.Close()
 
-	resp, err := http.Get(user.URL)
+	client := &http.Client{Timeout: 5 * time.Second}
+
+	resp, err := client.Get(user.URL)
 	require.NoError(t, err, "failed to make HTTP request")
 
 	defer resp.Body.Close()
