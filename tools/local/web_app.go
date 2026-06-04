@@ -31,12 +31,6 @@ func startEchoWebAppServer(logger *zap.Logger) *echoServer {
 			Headers: r.Header,
 		}
 
-		for key, values := range r.Header {
-			for _, v := range values {
-				w.Header().Add(key, v)
-			}
-		}
-
 		w.Header().Set("Content-Type", "application/json")
 
 		if err := json.NewEncoder(w).Encode(resp); err != nil {

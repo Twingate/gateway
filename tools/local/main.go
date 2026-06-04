@@ -137,7 +137,7 @@ func main() {
 	echoServer := startEchoWebAppServer(logger)
 
 	defer func() {
-		if err := echoServer.server.Shutdown(ctx); err != nil {
+		if err := echoServer.server.Shutdown(context.Background()); err != nil {
 			logger.Error("Failed to shutdown echo server", zap.Error(err))
 		}
 	}()
@@ -180,7 +180,7 @@ Twingate local dev environment running!
   User:                 %s
   Client (Kubernetes):  %s
   Client (SSH):         %s
-  Client (Webapp):      %s
+  Client (Web App):      %s
 
 -----------------------------------------------------
 1. Start the Gateway (in a separate terminal):
