@@ -217,6 +217,10 @@ func deployHelmChart(t *testing.T, clusterName, imageTag string) {
 	helmValuesYaml := fmt.Sprintf(helmValuesYamlTemplate, imageTag, caddyCAConfigMapKey, hostIP, nodePort, tlsCertStr, tlsKeyStr, tlsCertStr)
 	t.Log("Deploying Helm chart using the following values:\n", helmValuesYaml)
 
+	// Collect Gateway logs for troubleshooting before tearing down the cluster.
+	// Registered before install so it also captures pods that crashloop on deploy.
+	t.Cleanup(func() { printGatewayLogs(t) })
+
 	cmd := exec.Command("helm", "install", "gateway", "../../deploy/gateway", "--wait", "-f", "-")
 	cmd.Stdin = strings.NewReader(helmValuesYaml)
 	output, err := testutil.RunCommand(cmd)
@@ -244,4 +248,19 @@ func getKindHostAccessIP(t *testing.T, clusterName string) string {
 	require.NoError(t, err, "failed to get host IP")
 
 	return strings.TrimSpace(string(output))
+}
+
+func printGatewayLogs(t *testing.T) {
+	t.Helper()
+
+	cmd := exec.Command("kubectl", "logs", "-l", "app.kubernetes.io/name=gateway", "--all-containers", "--tail=-1")
+
+	output, err := testutil.RunCommand(cmd)
+	if err != nil {
+		t.Log("Failed to fetch Gateway logs during cleanup:", err)
+
+		return
+	}
+
+	t.Log("Gateway logs:\n", string(output))
 }
