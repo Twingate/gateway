@@ -226,4 +226,6 @@ jobs:
       run: sudo caddy start
 
     - name: Run E2E Tests
-      run: make test-e2e
+      run: |
+        echo "kind CLI version: $(kind version)"
+        make test-e2e
