@@ -121,7 +121,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "13.0.1+security-01",
+      "pluginVersion": "13.0.2",
       "targets": [
         {
           "datasource": {
@@ -191,7 +191,7 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "pluginVersion": "13.0.1+security-01",
+      "pluginVersion": "13.0.2",
       "targets": [
         {
           "datasource": {
@@ -294,7 +294,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "13.0.1+security-01",
+      "pluginVersion": "13.0.2",
       "targets": [
         {
           "datasource": {
@@ -431,7 +431,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "13.0.1+security-01",
+      "pluginVersion": "13.0.2",
       "targets": [
         {
           "datasource": {
@@ -533,7 +533,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "13.0.1+security-01",
+      "pluginVersion": "13.0.2",
       "targets": [
         {
           "datasource": {
@@ -659,7 +659,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "13.0.1+security-01",
+      "pluginVersion": "13.0.2",
       "targets": [
         {
           "datasource": {
@@ -2824,6 +2824,6 @@
   "timezone": "browser",
   "title": "Twingate Gateway",
   "version": 1,
-  "uid": "63804d24-275c-4d8b-9d3c-7408d6898259",
+  "uid": "63804d24-275c-4d8b-9d3c-7408d68982591",
   "id": 4283892576251904
 }
