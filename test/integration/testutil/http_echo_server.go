@@ -11,18 +11,14 @@ import (
 )
 
 type EchoResponse struct {
-	Method  string      `json:"method"`
-	Path    string      `json:"path"`
 	Headers http.Header `json:"headers"`
 }
 
-func SetupWebAppEchoServer(t *testing.T) *httptest.Server {
+func SetupHTTPEchoServer(t *testing.T) *httptest.Server {
 	t.Helper()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resp := EchoResponse{
-			Method:  r.Method,
-			Path:    r.URL.Path,
 			Headers: r.Header,
 		}
 

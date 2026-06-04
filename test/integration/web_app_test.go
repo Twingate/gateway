@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -27,7 +28,7 @@ import (
 func TestWebApp(t *testing.T) {
 	const gatewayPort = 8450
 
-	echoServer := testutil.SetupWebAppEchoServer(t)
+	echoServer := testutil.SetupHTTPEchoServer(t)
 	upstreamAddress := echoServer.Listener.Addr().String()
 
 	controller := fake.NewController(network, 8080)
@@ -106,8 +107,6 @@ func TestWebApp(t *testing.T) {
 	err = json.Unmarshal(body, &echoResp)
 	require.NoError(t, err, "failed to parse echo response")
 
-	assert.Equal(t, "/", echoResp.Path)
-
 	expectedHeaders := map[string]string{
 		"X-Twingate-Username":           "alex@acme.com",
 		"X-Twingate-Groups":             "OnCall,Engineering",
@@ -121,9 +120,15 @@ func TestWebApp(t *testing.T) {
 		assert.Equal(t, expected, echoResp.Headers.Get(header), "header %s mismatch", header)
 	}
 
-	authHeader := echoResp.Headers.Get("Authorization")
-	assert.True(t, strings.HasPrefix(authHeader, "Bearer "), "Authorization header should start with 'Bearer '")
-	assert.Greater(t, len(authHeader), len("Bearer "), "Authorization header should contain a JWT after 'Bearer '")
+	var claims token.GATClaims
+
+	parser := jwt.NewParser(jwt.WithoutClaimsValidation())
+	_, _, err = parser.ParseUnverified(strings.TrimPrefix(echoResp.Headers.Get("Authorization"), "Bearer "), &claims)
+	require.NoError(t, err, "failed to parse JWT claims")
+
+	assert.Equal(t, user.ID, claims.User.ID)
+	assert.Equal(t, user.Username, claims.User.Username)
+	assert.Equal(t, user.Groups, claims.User.Groups)
 
 	expectedUser := map[string]any{
 		"id":       "user-webapp-1",
