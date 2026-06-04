@@ -272,24 +272,24 @@ metrics:
       # - alert: TwingateGatewayHighHTTPErrorRate
       #   expr: |
       #     max_over_time(
-      #       (sum by (code, method, type) (rate(twingate_gateway_http_requests_total{code=~"5[0-9][0-9]"}[5m])) > bool 0.8)[2m:30s]
+      #       (sum by (code, method, type, resource_type) (rate(twingate_gateway_http_requests_total{code=~"5[0-9][0-9]"}[5m])) > bool 0.8)[2m:30s]
       #     ) > 0
       #   for: 2m
       #   labels:
       #     severity: critical
       #   annotations:
-      #     description: Twingate Gateway HTTP {{ $labels.code }} error rate is above 0.8 requests/sec over last 2 minutes for method={{ $labels.method }}, type={{ $labels.type }}.
+      #     description: Twingate Gateway HTTP {{ $labels.code }} error rate is above 0.8 requests/sec over last 2 minutes for resource_type={{ $labels.resource_type }}, method={{ $labels.method }}, type={{ $labels.type }}.
 
       # - alert: TwingateGatewayHighAPIServerErrorRate
       #   expr: |
       #     max_over_time(
-      #       (sum by (code, method, type) (rate(twingate_gateway_api_server_requests_total{code=~"5[0-9][0-9]"}[5m])) > bool 0.8)[2m:30s]
+      #       (sum by (code, method, type, resource_type) (rate(twingate_gateway_api_server_requests_total{code=~"5[0-9][0-9]"}[5m])) > bool 0.8)[2m:30s]
       #     ) > 0
       #   for: 2m
       #   labels:
       #     severity: critical
       #   annotations:
-      #     description: Twingate Gateway API Server {{ $labels.code }} error rate is above 0.8 requests/sec over the last 2 minutes for method={{ $labels.method }}, type={{ $labels.type }}.
+      #     description: Twingate Gateway API Server {{ $labels.code }} error rate is above 0.8 requests/sec over the last 2 minutes for resource_type={{ $labels.resource_type }}, method={{ $labels.method }}, type={{ $labels.type }}.
 
       # # Authentication failures
       # - alert: TwingateGatewayHighAuthenticationFailures
