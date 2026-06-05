@@ -110,6 +110,7 @@ func TestConnectValidator_ParseConnect(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, *connectInfo.Claims, gatClaims)
 		assert.Equal(t, "conn-id", connectInfo.ConnID)
+		assert.Equal(t, signedToken, connectInfo.Token)
 	})
 
 	t.Run("Non-CONNECT method", func(t *testing.T) {
@@ -127,6 +128,7 @@ func TestConnectValidator_ParseConnect(t *testing.T) {
 		assert.Contains(t, httpErr.Error(), "expected CONNECT request")
 		assert.Nil(t, connectInfo.Claims)
 		assert.Empty(t, connectInfo.ConnID)
+		assert.Empty(t, connectInfo.Token)
 	})
 
 	t.Run("Missing auth header", func(t *testing.T) {
@@ -346,6 +348,106 @@ func TestHTTPError_Error(t *testing.T) {
 				Message: tt.message,
 			}
 			assert.Equal(t, tt.want, e.Error())
+		})
+	}
+}
+
+func TestMatchResourceAddress(t *testing.T) {
+	tests := []struct {
+		name    string
+		pattern string
+		host    string
+		want    bool
+	}{
+		{
+			name:    "exact match",
+			pattern: "api.example.com",
+			host:    "api.example.com",
+			want:    true,
+		},
+		{
+			name:    "exact match case insensitive",
+			pattern: "api.example.com",
+			host:    "Api.example.coM",
+			want:    true,
+		},
+		{
+			name:    "exact match mismatch",
+			pattern: "api.example.com",
+			host:    "other.example.com",
+			want:    false,
+		},
+		{
+			name:    "wildcard matches single label",
+			pattern: "*.example.com",
+			host:    "api.example.com",
+			want:    true,
+		},
+		{
+			name:    "wildcard reject non-matching suffix",
+			pattern: "*.example.com",
+			host:    "api.invalid.com",
+			want:    false,
+		},
+		{
+			name:    "wildcard reject invalid starting label",
+			pattern: "*.example.com",
+			host:    "-invalid.example.com",
+			want:    false,
+		},
+		{
+			name:    "wildcard reject invalid ending label",
+			pattern: "*.example.com",
+			host:    "invalid-.example.com",
+			want:    false,
+		},
+		{
+			name:    "wildcard with top-level domain",
+			pattern: "*.com",
+			host:    "twingate.com",
+			want:    true,
+		},
+		{
+			name:    "wildcard match case insensitive",
+			pattern: "*.Example.COM",
+			host:    "API.example.com",
+			want:    true,
+		},
+		{
+			name:    "wildcard does not match bare domain",
+			pattern: "*.example.com",
+			host:    "example.com",
+			want:    false,
+		},
+		{
+			name:    "wildcard does not match multi-level subdomain",
+			pattern: "*.example.com",
+			host:    "foo.bar.example.com",
+			want:    false,
+		},
+		{
+			name:    "non-leftmost wildcard rejected",
+			pattern: "api.*.com",
+			host:    "api.example.com",
+			want:    false,
+		},
+		{
+			name:    "bare wildcard rejected",
+			pattern: "*",
+			host:    "example.com",
+			want:    false,
+		},
+		{
+			name:    "wildcard without dot rejected",
+			pattern: "*example.com",
+			host:    "apiexample.com",
+			want:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, matchResourceAddress(tt.pattern, tt.host))
 		})
 	}
 }

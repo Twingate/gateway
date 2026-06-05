@@ -25,8 +25,7 @@ import (
 type mockProxyConn struct {
 	net.Conn
 
-	transportProtocol TransportProtocol
-	Claims            *token.GATClaims
+	Claims *token.GATClaims
 
 	isClosed atomic.Bool
 
@@ -44,10 +43,6 @@ func (m *mockProxyConn) IsClosed() bool {
 	return m.isClosed.Load()
 }
 
-func (m *mockProxyConn) TransportProtocol() TransportProtocol {
-	return m.transportProtocol
-}
-
 func (m *mockProxyConn) GATClaims() *token.GATClaims {
 	return m.Claims
 }
@@ -58,6 +53,10 @@ func (m *mockProxyConn) GetID() string {
 
 func (m *mockProxyConn) GetAddress() string {
 	return "mock"
+}
+
+func (m *mockProxyConn) GetToken() string {
+	return ""
 }
 
 func (m *mockProxyConn) Authenticate() error {
@@ -89,16 +88,20 @@ func createMockListener(t *testing.T) (net.Listener, string) {
 	return listener, addr
 }
 
-var listenerClaims = &token.GATClaims{
-	RegisteredClaims: jwt.RegisteredClaims{
-		ExpiresAt: jwt.NewNumericDate(time.Now().Add(1 * time.Hour)),
-	},
-	User: token.User{
-		ID:       "user-1",
-		Username: "user@acme.com",
-		Groups:   []string{"Everyone", "Engineering"},
-	},
-	Resource: token.Resource{ID: "resource-1", Type: token.ResourceTypeKubernetes, Address: "https://api.acme.com"},
+func createClaims(t *testing.T, resourceType token.ResourceType) *token.GATClaims {
+	t.Helper()
+
+	return &token.GATClaims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(1 * time.Hour)),
+		},
+		User: token.User{
+			ID:       "user-1",
+			Username: "user@acme.com",
+			Groups:   []string{"Everyone", "Engineering"},
+		},
+		Resource: token.Resource{ID: "resource-1", Type: resourceType, Address: "https://api.acme.com"},
+	}
 }
 
 type testListenerFixtures struct {
@@ -117,9 +120,9 @@ func createTestListenerWithChannels(t *testing.T) *testListenerFixtures {
 	// Create channels for testing
 	httpChannel := make(chan Conn, 1)
 	sshChannel := make(chan Conn, 1)
-	channels := map[TransportProtocol]chan<- Conn{
-		TransportTLS: httpChannel,
-		TransportSSH: sshChannel,
+	channels := map[token.ResourceType]chan<- Conn{
+		token.ResourceTypeKubernetes: httpChannel,
+		token.ResourceTypeSSH:        sshChannel,
 	}
 
 	registry := prometheus.NewRegistry()
@@ -146,11 +149,12 @@ func createTestListenerWithChannels(t *testing.T) *testListenerFixtures {
 func TestListener_Serve_HTTPS(t *testing.T) {
 	fixtures := createTestListenerWithChannels(t)
 
+	kubernetesClaims := createClaims(t, token.ResourceTypeKubernetes)
+
 	fixtures.listener.proxyConnFactory = func(conn net.Conn, _ *tls.Config, _ Validator, _ *zap.Logger) Conn {
 		return &mockProxyConn{
-			Conn:              conn,
-			transportProtocol: TransportTLS,
-			Claims:            listenerClaims,
+			Conn:   conn,
+			Claims: kubernetesClaims,
 		}
 	}
 
@@ -182,8 +186,7 @@ func TestListener_Serve_HTTPS(t *testing.T) {
 	select {
 	case conn := <-fixtures.httpChannel:
 		require.False(t, conn.(*mockProxyConn).IsClosed())
-		require.Equal(t, TransportTLS, conn.TransportProtocol())
-		require.Equal(t, listenerClaims, conn.GATClaims())
+		require.Equal(t, kubernetesClaims, conn.GATClaims())
 	case <-time.After(1 * time.Second):
 		t.Fatal("timeout waiting for HTTP connection")
 	}
@@ -198,11 +201,12 @@ func TestListener_Serve_HTTPS(t *testing.T) {
 func TestListener_Serve_SSH(t *testing.T) {
 	fixtures := createTestListenerWithChannels(t)
 
+	sshClaims := createClaims(t, token.ResourceTypeSSH)
+
 	fixtures.listener.proxyConnFactory = func(conn net.Conn, _ *tls.Config, _ Validator, _ *zap.Logger) Conn {
 		return &mockProxyConn{
-			Conn:              conn,
-			transportProtocol: TransportSSH,
-			Claims:            listenerClaims,
+			Conn:   conn,
+			Claims: sshClaims,
 		}
 	}
 
@@ -234,8 +238,7 @@ func TestListener_Serve_SSH(t *testing.T) {
 	select {
 	case conn := <-fixtures.sshChannel:
 		require.False(t, conn.(*mockProxyConn).IsClosed())
-		require.Equal(t, TransportSSH, conn.TransportProtocol())
-		require.Equal(t, listenerClaims, conn.GATClaims())
+		require.Equal(t, sshClaims, conn.GATClaims())
 	case <-time.After(1 * time.Second):
 		t.Fatal("timeout waiting for SSH connection")
 	}
@@ -321,13 +324,13 @@ func TestListener_Serve_Healthz(t *testing.T) {
 	waitGroup.Wait()
 }
 
-func TestListener_UnsupportedTransport(t *testing.T) {
+func TestListener_UnsupportedResourceType(t *testing.T) {
 	tcpListener, addr := createMockListener(t)
 
 	// Create channels but omit one transport type
 	httpChannel := make(chan Conn, 1)
-	channels := map[TransportProtocol]chan<- Conn{
-		TransportTLS: httpChannel,
+	channels := map[token.ResourceType]chan<- Conn{
+		token.ResourceTypeKubernetes: httpChannel,
 		// SSH not included - unsupported
 	}
 
@@ -342,13 +345,14 @@ func TestListener_UnsupportedTransport(t *testing.T) {
 		certReloader: certReloader,
 	}
 
+	sshClaims := createClaims(t, token.ResourceTypeSSH)
+
 	// Use a channel to safely pass the connection from the factory
 	connCreated := make(chan *mockProxyConn, 1)
 	listener.proxyConnFactory = func(conn net.Conn, _ *tls.Config, _ Validator, _ *zap.Logger) Conn {
 		mockConn := &mockProxyConn{
-			Conn:              conn,
-			transportProtocol: TransportSSH, // This transport is not supported
-			Claims:            listenerClaims,
+			Conn:   conn,
+			Claims: sshClaims,
 		}
 		connCreated <- mockConn
 
@@ -383,11 +387,13 @@ func TestListener_Serve_GracefulShutdown(t *testing.T) {
 
 	// Use unbuffered channel so the goroutine inside Serve blocks on send
 	httpChannel := make(chan Conn)
-	channels := map[TransportProtocol]chan<- Conn{
-		TransportTLS: httpChannel,
+	channels := map[token.ResourceType]chan<- Conn{
+		token.ResourceTypeKubernetes: httpChannel,
 	}
 
 	logger := zap.NewNop()
+
+	kubernetesClaims := createClaims(t, token.ResourceTypeKubernetes)
 
 	listener := &Listener{
 		channels:     channels,
@@ -398,9 +404,8 @@ func TestListener_Serve_GracefulShutdown(t *testing.T) {
 
 	listener.proxyConnFactory = func(conn net.Conn, _ *tls.Config, _ Validator, _ *zap.Logger) Conn {
 		return &mockProxyConn{
-			Conn:              conn,
-			transportProtocol: TransportTLS,
-			Claims:            listenerClaims,
+			Conn:   conn,
+			Claims: kubernetesClaims,
 		}
 	}
 
@@ -457,9 +462,10 @@ func TestProtocolListener(t *testing.T) {
 	assert.Equal(t, addr, protocolListener.Addr().String())
 
 	// Send a mock connection
+	kubernetesClaims := createClaims(t, token.ResourceTypeKubernetes)
+
 	mockConn := &mockProxyConn{
-		transportProtocol: TransportTLS,
-		Claims:            listenerClaims,
+		Claims: kubernetesClaims,
 	}
 	ch <- mockConn
 

@@ -108,14 +108,14 @@ func TestWithRequestType(t *testing.T) {
 
 func TestHTTPMiddleware(t *testing.T) {
 	testRegistry := prometheus.NewRegistry()
+	httpMetrics := RegisterHTTPMetrics(testRegistry)
 
 	server := httptest.NewServer(HTTPMiddleware(
-		HTTPMiddlewareConfig{
-			Registry: testRegistry,
-			Next: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				w.WriteHeader(http.StatusOK)
-			}),
-		},
+		httpMetrics,
+		ResourceTypeKubernetes,
+		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}),
 	))
 	defer server.Close()
 
@@ -133,27 +133,32 @@ func TestHTTPMiddleware(t *testing.T) {
 	labelsByMetric := testutil.ExtractLabelsFromMetrics(metricFamilies)
 	expectedLabels := map[string]map[string]string{
 		"twingate_gateway_http_requests_total": {
-			"type":   "http",
-			"method": "get",
-			"code":   "200",
+			"resource_type": "kubernetes",
+			"type":          "http",
+			"method":        "get",
+			"code":          "200",
 		},
 		"twingate_gateway_http_active_requests": {
-			"type": "http",
+			"resource_type": "kubernetes",
+			"type":          "http",
 		},
 		"twingate_gateway_http_request_duration_seconds": {
-			"type":   "http",
-			"method": "get",
-			"code":   "200",
+			"resource_type": "kubernetes",
+			"type":          "http",
+			"method":        "get",
+			"code":          "200",
 		},
 		"twingate_gateway_http_request_size_bytes": {
-			"type":   "http",
-			"method": "get",
-			"code":   "200",
+			"resource_type": "kubernetes",
+			"type":          "http",
+			"method":        "get",
+			"code":          "200",
 		},
 		"twingate_gateway_http_response_size_bytes": {
-			"type":   "http",
-			"method": "get",
-			"code":   "200",
+			"resource_type": "kubernetes",
+			"type":          "http",
+			"method":        "get",
+			"code":          "200",
 		},
 	}
 	assert.Equal(t, expectedLabels, labelsByMetric)

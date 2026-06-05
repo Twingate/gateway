@@ -26,9 +26,6 @@ var sshConfig = &gatewayconfig.SSHConfig{
 	Gateway: gatewayconfig.SSHGatewayConfig{
 		Username: "test-user",
 	},
-	Upstreams: []gatewayconfig.SSHUpstream{
-		{Name: "upstream", Address: upstreamAddress},
-	},
 }
 
 // Mock SSH connection factory, used for creating downstream and upstream SSH connections.
@@ -139,12 +136,12 @@ func (m *mockProtocolListener) Addr() net.Addr {
 }
 
 // Helper to create a mock ProxyConn for testing.
-func newTestProxyConn(claims *token.GATClaims, address string) *mockProxyConn {
+func newTestProxyConn(claims *token.GATClaims) *mockProxyConn {
 	mockProxyNetConn := &mockProxyNetConn{}
 	proxyConn := &connect.ProxyConn{
 		Conn:    mockProxyNetConn,
 		Claims:  claims,
-		Address: address,
+		Address: upstreamAddress,
 		ID:      "test-id",
 	}
 	mockProxyConn := &mockProxyConn{
@@ -226,7 +223,7 @@ func TestSSHProxy_Start_Success(t *testing.T) {
 
 	// Create a test proxy connection to be served
 	claims := &token.GATClaims{}
-	testConn := newTestProxyConn(claims, upstreamAddress)
+	testConn := newTestProxyConn(claims)
 	closed := make(chan struct{})
 
 	testConn.On("Close").Return(nil).Run(func(_ mock.Arguments) {
@@ -308,7 +305,7 @@ func TestSSHProxy_ServeConn_Success(t *testing.T) {
 
 	// Create a test proxy connection to be served
 	claims := &token.GATClaims{}
-	testConn := newTestProxyConn(claims, upstreamAddress)
+	testConn := newTestProxyConn(claims)
 
 	// Mock NewServerConn to return a new downstream SSH connection
 	downstreamSSHConn := &mockSSHConn{}
@@ -389,45 +386,6 @@ func TestSSHProxy_ServeConn_Success(t *testing.T) {
 	testConn.AssertExpectations(t)
 }
 
-func TestSSHProxy_ServeConn_UnknownUpstream(t *testing.T) {
-	mockProxySSHFactory := &mockProxySSHConnFactory{}
-	mockProxyDialer := &mockProxyNetDialer{}
-	mockProxyConnPairFactory := &mockProxySSHConnPairFactory{}
-
-	config, err := NewConfig(nil, sshConfig, zap.NewNop())
-	require.NoError(t, err)
-
-	downstreamConfig, err := config.GetDownstreamConfig(t.Context())
-	require.NoError(t, err)
-
-	sshProxy := NewProxy(*config)
-	sshProxy.downstreamConfig = downstreamConfig
-
-	// Set mock dependencies for testing
-	sshProxy.sshConnFactory = mockProxySSHFactory
-	sshProxy.netDialer = mockProxyDialer
-	sshProxy.connPairFactory = mockProxyConnPairFactory
-
-	// Create test proxy connection
-	claims := &token.GATClaims{}
-	testConn := newTestProxyConn(claims, "unknown-upstream:1234")
-
-	// Ensure that testConn is closed when serve returns due to error
-	testConn.On("Close").Return(nil)
-
-	// Call serve and expect it to fail
-	err = sshProxy.serveConn(t.Context(), testConn)
-
-	require.Error(t, err)
-	mockProxySSHFactory.AssertExpectations(t)
-	testConn.AssertExpectations(t)
-	assert.Empty(t, sshProxy.connsMap)
-
-	mockProxySSHFactory.AssertNotCalled(t, "NewServerConn")
-	mockProxyDialer.AssertNotCalled(t, "DialTimeout")
-	mockProxyConnPairFactory.AssertNotCalled(t, "NewConnPair")
-}
-
 func TestSSHProxy_ServeConn_DownstreamHandshakeFailure(t *testing.T) {
 	mockProxySSHFactory := &mockProxySSHConnFactory{}
 	mockProxyDialer := &mockProxyNetDialer{}
@@ -449,7 +407,7 @@ func TestSSHProxy_ServeConn_DownstreamHandshakeFailure(t *testing.T) {
 
 	// Create test proxy connection
 	claims := &token.GATClaims{}
-	testConn := newTestProxyConn(claims, upstreamAddress)
+	testConn := newTestProxyConn(claims)
 
 	// Mock NewServerConn to return an error (handshake failure)
 	mockProxySSHFactory.On("NewServerConn", testConn, downstreamConfig).Return(
@@ -496,7 +454,7 @@ func TestSSHProxy_ServeConn_UpstreamConnectionFailure(t *testing.T) {
 
 	// Create test proxy connection
 	claims := &token.GATClaims{}
-	testConn := newTestProxyConn(claims, upstreamAddress)
+	testConn := newTestProxyConn(claims)
 
 	// Mock successful downstream handshake
 	downstreamSSHConn := &mockSSHConn{}
@@ -558,7 +516,7 @@ func TestSSHProxy_ServeConn_UpstreamSSHHandshakeFailure(t *testing.T) {
 
 	// Create test proxy connection
 	claims := &token.GATClaims{}
-	testConn := newTestProxyConn(claims, upstreamAddress)
+	testConn := newTestProxyConn(claims)
 
 	// Mock successful downstream handshake
 	downstreamSSHConn := &mockSSHConn{}
@@ -633,7 +591,7 @@ func TestSSHProxy_Shutdown_WithActiveConnection(t *testing.T) {
 
 	// Create test proxy connection
 	claims := &token.GATClaims{}
-	testConn := newTestProxyConn(claims, upstreamAddress)
+	testConn := newTestProxyConn(claims)
 
 	// Mock successful downstream handshake
 	downstreamSSHConn := &mockSSHConn{}

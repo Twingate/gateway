@@ -26,24 +26,18 @@ data:
       privateKeyFile: "/etc/gateway/tls/tls.key"
 
     {{- $resourceEnabled := and .Values.twingate.resource .Values.twingate.resource.enabled -}}
-    {{- $k8sEnabled := and .Values.kubernetes .Values.kubernetes.enabled -}}
-    {{- $k8sUpstreams := list -}}
-    {{- if $resourceEnabled -}}
-      {{- $resourceUpstream := dict "name" (include "gateway.resourceInClusterUpstreamName" .) "inCluster" true -}}
-      {{- $k8sUpstreams = append $k8sUpstreams $resourceUpstream -}}
-    {{- end -}}
-    {{- if and $k8sEnabled .Values.kubernetes.upstreams -}}
-      {{- $k8sUpstreams = concat $k8sUpstreams .Values.kubernetes.upstreams -}}
-    {{- end }}
+    {{- $k8sEnabled := and .Values.kubernetes .Values.kubernetes.enabled }}
 
-    {{ if $k8sUpstreams -}}
+    {{ if and $k8sEnabled .Values.kubernetes.upstreams -}}
     kubernetes:
       upstreams:
-        {{- $k8sUpstreams | toYaml | nindent 8 }}
+        {{- .Values.kubernetes.upstreams | toYaml | nindent 8 }}
+    {{ else if or $resourceEnabled $k8sEnabled -}}
+    kubernetes: {}
     {{ end -}}
 
     {{ with .Values.ssh -}}
-    {{ if and .enabled .upstreams -}}
+    {{ if .enabled -}}
     ssh:
       {{- with .gateway }}
       gateway:
@@ -58,14 +52,14 @@ data:
         userCertificate:
           ttl: {{ .userCertificate.ttl | quote }}
       {{- end }}
+      {{- if and .ca .ca.manual }}
 
-      {{ if and .ca .ca.manual -}}
       ca:
         manual:
           privateKeyFile: "/etc/gateway/ssh/ca-private-key"
-      {{ end -}}
+      {{- end }}
+      {{- if and .ca .ca.vault }}
 
-      {{ if and .ca .ca.vault -}}
       ca:
         vault:
           address: {{ .ca.vault.address | quote }}
@@ -105,9 +99,18 @@ data:
             mount: {{ . | quote }}
             {{- end }}
           {{- end }}
-      {{ end -}}
+      {{- end }}
+    {{ end -}}
+    {{ end -}}
 
-      upstreams:
-        {{- .upstreams | toYaml | nindent 8 }}
+    {{ with .Values.webApp -}}
+    {{ if .enabled -}}
+    {{ with .headers -}}
+    webApp:
+      headers:
+        {{- . | toYaml | nindent 8 }}
+    {{ else -}}
+    webApp: {}
+    {{ end -}}
     {{ end -}}
     {{ end -}}

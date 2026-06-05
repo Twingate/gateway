@@ -19,8 +19,7 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
-  "id": 29,
-  "links": [],
+  "liveNow": false,
   "panels": [
     {
       "collapsed": false,
@@ -30,8 +29,7 @@
         "x": 0,
         "y": 0
       },
-      "id": 9,
-      "panels": [],
+      "id": 44,
       "title": "Gateway HTTP Requests",
       "type": "row"
     },
@@ -40,7 +38,7 @@
         "type": "prometheus",
         "uid": "$datasource"
       },
-      "description": "Total number of HTTP requests handled by the Gateway, grouped by request type, status code and request method.",
+      "description": "Total number of HTTP requests handled by the Gateway, grouped by resource type, request type, request method and status code.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -73,6 +71,7 @@
               "type": "linear"
             },
             "showPoints": "never",
+            "showValues": false,
             "spanNulls": false,
             "stacking": {
               "group": "A",
@@ -82,7 +81,6 @@
               "mode": "off"
             }
           },
-          "mappings": [],
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -97,8 +95,7 @@
             ]
           },
           "unit": "short"
-        },
-        "overrides": []
+        }
       },
       "gridPos": {
         "h": 7,
@@ -108,6 +105,10 @@
       },
       "id": 4,
       "options": {
+        "annotations": {
+          "clustering": -1,
+          "multiLane": false
+        },
         "legend": {
           "calcs": [],
           "displayMode": "list",
@@ -120,15 +121,19 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.1.0",
+      "pluginVersion": "13.0.2",
       "targets": [
         {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "sum by(code, method, type) (rate(twingate_gateway_http_requests_total[5m]))",
+          "expr": "sum by(code, method, type, resource_type) (rate(twingate_gateway_http_requests_total[5m]))",
           "fullMetaSearch": false,
           "includeNullMetadata": true,
-          "legendFormat": "{{type}} - {{method}} - {{code}}",
+          "legendFormat": "{{resource_type}}/{{type}} - {{method}} - {{code}}",
           "range": true,
           "refId": "A",
           "useBackend": false
@@ -149,8 +154,6 @@
             "fixedColor": "green",
             "mode": "fixed"
           },
-          "fieldMinMax": false,
-          "mappings": [],
           "min": 0,
           "noValue": "0",
           "thresholds": {
@@ -162,8 +165,7 @@
               }
             ]
           }
-        },
-        "overrides": []
+        }
       },
       "gridPos": {
         "h": 7,
@@ -189,15 +191,20 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "pluginVersion": "12.1.0",
+      "pluginVersion": "13.0.2",
       "targets": [
         {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "sum by(container) (twingate_gateway_http_active_requests{container=\"gateway\"})",
+          "expr": "sum by(container, resource_type) (twingate_gateway_http_active_requests{container=\"gateway\"})",
+          "format": "time_series",
           "fullMetaSearch": false,
           "includeNullMetadata": true,
-          "legendFormat": "__auto",
+          "legendFormat": "{{resource_type}}",
           "range": true,
           "refId": "A",
           "useBackend": false
@@ -211,7 +218,7 @@
         "type": "prometheus",
         "uid": "$datasource"
       },
-      "description": "Percentile duration of HTTP requests between Client and Gateway, grouped by request type.",
+      "description": "Percentile duration of HTTP requests between Client and Gateway, grouped by resource type and request type.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -241,6 +248,7 @@
               "type": "linear"
             },
             "showPoints": "never",
+            "showValues": false,
             "spanNulls": false,
             "stacking": {
               "group": "A",
@@ -250,7 +258,6 @@
               "mode": "off"
             }
           },
-          "mappings": [],
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -261,8 +268,7 @@
             ]
           },
           "unit": "s"
-        },
-        "overrides": []
+        }
       },
       "gridPos": {
         "h": 8,
@@ -272,6 +278,10 @@
       },
       "id": 6,
       "options": {
+        "annotations": {
+          "clustering": -1,
+          "multiLane": false
+        },
         "legend": {
           "calcs": [],
           "displayMode": "list",
@@ -284,7 +294,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.1.0",
+      "pluginVersion": "13.0.2",
       "targets": [
         {
           "datasource": {
@@ -293,23 +303,26 @@
           },
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "histogram_quantile(0.99, sum by(le, type) (rate(twingate_gateway_http_request_duration_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.99, sum by(le, type, resource_type) (rate(twingate_gateway_http_request_duration_seconds_bucket[5m])))",
           "fullMetaSearch": false,
-          "hide": false,
           "includeNullMetadata": true,
           "instant": false,
-          "legendFormat": "{{type}}/quantile=99",
+          "legendFormat": "{{resource_type}}/{{type}}/quantile=99",
           "range": true,
           "refId": "P99",
           "useBackend": false
         },
         {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "histogram_quantile(0.95, sum by(le, type) (rate(twingate_gateway_http_request_duration_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.95, sum by(le, type, resource_type) (rate(twingate_gateway_http_request_duration_seconds_bucket[5m])))",
           "fullMetaSearch": false,
           "includeNullMetadata": true,
-          "legendFormat": "{{type}}/quantile=95",
+          "legendFormat": "{{resource_type}}/{{type}}/quantile=95",
           "range": true,
           "refId": "P95",
           "useBackend": false
@@ -321,12 +334,11 @@
           },
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "histogram_quantile(0.5, sum by(le, type) (rate(twingate_gateway_http_request_duration_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.5, sum by(le, type, resource_type) (rate(twingate_gateway_http_request_duration_seconds_bucket[5m])))",
           "fullMetaSearch": false,
-          "hide": false,
           "includeNullMetadata": true,
           "instant": false,
-          "legendFormat": "{{type}}/quantile=50",
+          "legendFormat": "{{resource_type}}/{{type}}/quantile=50",
           "range": true,
           "refId": "P50",
           "useBackend": false
@@ -340,7 +352,7 @@
         "type": "prometheus",
         "uid": "$datasource"
       },
-      "description": "Average request durations between Client and Gateway, grouped by request type, status code and request method.",
+      "description": "Average request durations between Client and Gateway, grouped by resource type, request type, request method and status code.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -373,6 +385,7 @@
               "type": "linear"
             },
             "showPoints": "never",
+            "showValues": false,
             "spanNulls": false,
             "stacking": {
               "group": "A",
@@ -382,7 +395,6 @@
               "mode": "off"
             }
           },
-          "mappings": [],
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -393,8 +405,7 @@
             ]
           },
           "unit": "s"
-        },
-        "overrides": []
+        }
       },
       "gridPos": {
         "h": 8,
@@ -404,6 +415,10 @@
       },
       "id": 7,
       "options": {
+        "annotations": {
+          "clustering": -1,
+          "multiLane": false
+        },
         "legend": {
           "calcs": [],
           "displayMode": "list",
@@ -416,15 +431,19 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.1.0",
+      "pluginVersion": "13.0.2",
       "targets": [
         {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
           "disableTextWrap": false,
-          "editorMode": "code",
-          "expr": "sum by(code, type, method) (rate(twingate_gateway_http_request_duration_seconds_sum[5m])) / sum by(code, type, method) (rate(twingate_gateway_http_request_duration_seconds_count[5m]))",
+          "editorMode": "builder",
+          "expr": "sum by(code, type, method, resource_type) (rate(twingate_gateway_http_request_duration_seconds_sum[5m])) / (sum by(code, type, method, resource_type) (rate(twingate_gateway_http_request_duration_seconds_count[5m])))",
           "fullMetaSearch": false,
           "includeNullMetadata": true,
-          "legendFormat": "{{type}} - {{method}} - {{code}}",
+          "legendFormat": "{{resource_type}}/{{type}} - {{method}} - {{code}}",
           "range": true,
           "refId": "A",
           "useBackend": false
@@ -438,7 +457,7 @@
         "type": "prometheus",
         "uid": "$datasource"
       },
-      "description": "Percentile size of HTTP requests by Client, grouped by request type.",
+      "description": "Percentile size of HTTP requests by Client, grouped by resource type and request type.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -468,6 +487,7 @@
               "type": "linear"
             },
             "showPoints": "never",
+            "showValues": false,
             "spanNulls": false,
             "stacking": {
               "group": "A",
@@ -477,7 +497,6 @@
               "mode": "off"
             }
           },
-          "mappings": [],
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -488,8 +507,7 @@
             ]
           },
           "unit": "decbytes"
-        },
-        "overrides": []
+        }
       },
       "gridPos": {
         "h": 8,
@@ -499,6 +517,10 @@
       },
       "id": 13,
       "options": {
+        "annotations": {
+          "clustering": -1,
+          "multiLane": false
+        },
         "legend": {
           "calcs": [],
           "displayMode": "list",
@@ -511,7 +533,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.1.0",
+      "pluginVersion": "13.0.2",
       "targets": [
         {
           "datasource": {
@@ -520,20 +542,23 @@
           },
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "histogram_quantile(0.99, sum by(le, type) (rate(twingate_gateway_http_request_size_bytes_bucket[5m])))",
+          "expr": "histogram_quantile(0.99, sum by(le, type, resource_type) (rate(twingate_gateway_http_request_size_bytes_bucket[5m])))",
           "fullMetaSearch": false,
-          "hide": false,
           "includeNullMetadata": true,
           "instant": false,
-          "legendFormat": "{{type}}/quantile=99",
+          "legendFormat": "{{resource_type}}/{{type}}/quantile=99",
           "range": true,
           "refId": "P99",
           "useBackend": false
         },
         {
-          "editorMode": "code",
-          "expr": "histogram_quantile(0.95, sum by (le, type) (rate(twingate_gateway_http_request_size_bytes_bucket[5m])))",
-          "legendFormat": "{{type}}/quantile=95",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "editorMode": "builder",
+          "expr": "histogram_quantile(0.95, sum by(le, type, resource_type) (rate(twingate_gateway_http_request_size_bytes_bucket[5m])))",
+          "legendFormat": "{{resource_type}}/{{type}}/quantile=95",
           "range": true,
           "refId": "P95"
         },
@@ -542,11 +567,10 @@
             "type": "prometheus",
             "uid": "$datasource"
           },
-          "editorMode": "code",
-          "expr": "histogram_quantile(0.5, sum by (le, type) (rate(twingate_gateway_http_request_size_bytes_bucket[5m])))",
-          "hide": false,
+          "editorMode": "builder",
+          "expr": "histogram_quantile(0.5, sum by(le, type, resource_type) (rate(twingate_gateway_http_request_size_bytes_bucket[5m])))",
           "instant": false,
-          "legendFormat": "{{type}}/quantile=50",
+          "legendFormat": "{{resource_type}}/{{type}}/quantile=50",
           "range": true,
           "refId": "P50"
         }
@@ -559,7 +583,7 @@
         "type": "prometheus",
         "uid": "$datasource"
       },
-      "description": "Average size of HTTP requests by Client, grouped by request type, status code and request method.",
+      "description": "Average size of HTTP requests by Client, grouped by resource type, request type, request method and status code.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -589,6 +613,7 @@
               "type": "linear"
             },
             "showPoints": "never",
+            "showValues": false,
             "spanNulls": false,
             "stacking": {
               "group": "A",
@@ -598,7 +623,6 @@
               "mode": "off"
             }
           },
-          "mappings": [],
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -609,8 +633,7 @@
             ]
           },
           "unit": "decbytes"
-        },
-        "overrides": []
+        }
       },
       "gridPos": {
         "h": 8,
@@ -620,6 +643,10 @@
       },
       "id": 12,
       "options": {
+        "annotations": {
+          "clustering": -1,
+          "multiLane": false
+        },
         "legend": {
           "calcs": [],
           "displayMode": "list",
@@ -632,15 +659,19 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.1.0",
+      "pluginVersion": "13.0.2",
       "targets": [
         {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
           "disableTextWrap": false,
-          "editorMode": "code",
-          "expr": "sum by(code, method, type) (rate(twingate_gateway_http_request_size_bytes_sum[5m])) / sum by(code, method, type) (rate(twingate_gateway_http_request_size_bytes_count[5m]))",
+          "editorMode": "builder",
+          "expr": "sum by(code, method, type, resource_type) (rate(twingate_gateway_http_request_size_bytes_sum[5m])) / (sum by(code, method, type, resource_type) (rate(twingate_gateway_http_request_size_bytes_count[5m])))",
           "fullMetaSearch": false,
           "includeNullMetadata": true,
-          "legendFormat": "{{type}} - {{method}} - {{code}}",
+          "legendFormat": "{{resource_type}}/{{type}} - {{method}} - {{code}}",
           "range": true,
           "refId": "A",
           "useBackend": false
@@ -654,7 +685,7 @@
         "type": "prometheus",
         "uid": "$datasource"
       },
-      "description": "Percentile size of HTTP responses handled by Gateway, grouped by request type.",
+      "description": "Percentile size of HTTP responses handled by Gateway, grouped by resource type and request type.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -684,6 +715,7 @@
               "type": "linear"
             },
             "showPoints": "never",
+            "showValues": false,
             "spanNulls": false,
             "stacking": {
               "group": "A",
@@ -693,7 +725,6 @@
               "mode": "off"
             }
           },
-          "mappings": [],
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -704,8 +735,7 @@
             ]
           },
           "unit": "decbytes"
-        },
-        "overrides": []
+        }
       },
       "gridPos": {
         "h": 8,
@@ -715,6 +745,10 @@
       },
       "id": 20,
       "options": {
+        "annotations": {
+          "clustering": -1,
+          "multiLane": false
+        },
         "legend": {
           "calcs": [],
           "displayMode": "list",
@@ -727,7 +761,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.1.0",
+      "pluginVersion": "13.0.1+security-01",
       "targets": [
         {
           "datasource": {
@@ -735,22 +769,24 @@
             "uid": "$datasource"
           },
           "disableTextWrap": false,
-          "editorMode": "code",
-          "expr": "histogram_quantile(0.99, sum by(le, type) (rate(twingate_gateway_http_response_size_bytes_bucket[5m])))",
+          "editorMode": "builder",
+          "expr": "histogram_quantile(0.99, sum by(le, type, resource_type) (rate(twingate_gateway_http_response_size_bytes_bucket[5m])))",
           "fullMetaSearch": false,
-          "hide": false,
           "includeNullMetadata": true,
           "instant": false,
-          "legendFormat": "{{type}}/quantile=99",
+          "legendFormat": "{{resource_type}}/{{type}}/quantile=99",
           "range": true,
           "refId": "P99",
           "useBackend": false
         },
         {
-          "editorMode": "code",
-          "expr": "histogram_quantile(0.95, sum by (le, type) (rate(twingate_gateway_http_response_size_bytes_bucket[5m])))",
-          "hide": false,
-          "legendFormat": "{{type}}/quantile=95",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "editorMode": "builder",
+          "expr": "histogram_quantile(0.95, sum by(le, type, resource_type) (rate(twingate_gateway_http_response_size_bytes_bucket[5m])))",
+          "legendFormat": "{{resource_type}}/{{type}}/quantile=95",
           "range": true,
           "refId": "P95"
         },
@@ -760,13 +796,12 @@
             "uid": "$datasource"
           },
           "disableTextWrap": false,
-          "editorMode": "code",
-          "expr": "histogram_quantile(0.5, sum by(le, type) (rate(twingate_gateway_http_response_size_bytes_bucket[5m])))",
+          "editorMode": "builder",
+          "expr": "histogram_quantile(0.5, sum by(le, type, resource_type) (rate(twingate_gateway_http_response_size_bytes_bucket[5m])))",
           "fullMetaSearch": false,
-          "hide": false,
           "includeNullMetadata": true,
           "instant": false,
-          "legendFormat": "{{type}}/quantile=50",
+          "legendFormat": "{{resource_type}}/{{type}}/quantile=50",
           "range": true,
           "refId": "P50",
           "useBackend": false
@@ -780,7 +815,7 @@
         "type": "prometheus",
         "uid": "$datasource"
       },
-      "description": "Average size of HTTP response handled by Gateway, grouped by request type, status code and request method.",
+      "description": "Average size of HTTP response handled by Gateway, grouped by resource type, request type, request method and status code.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -810,6 +845,7 @@
               "type": "linear"
             },
             "showPoints": "never",
+            "showValues": false,
             "spanNulls": false,
             "stacking": {
               "group": "A",
@@ -819,7 +855,6 @@
               "mode": "off"
             }
           },
-          "mappings": [],
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -830,8 +865,7 @@
             ]
           },
           "unit": "decbytes"
-        },
-        "overrides": []
+        }
       },
       "gridPos": {
         "h": 8,
@@ -841,6 +875,10 @@
       },
       "id": 21,
       "options": {
+        "annotations": {
+          "clustering": -1,
+          "multiLane": false
+        },
         "legend": {
           "calcs": [],
           "displayMode": "list",
@@ -853,15 +891,19 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.1.0",
+      "pluginVersion": "13.0.1+security-01",
       "targets": [
         {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
           "disableTextWrap": false,
-          "editorMode": "code",
-          "expr": "sum by(code, method, type) (rate(twingate_gateway_http_response_size_bytes_sum[5m])) / sum by(code, method, type) (rate(twingate_gateway_http_response_size_bytes_count[5m]))",
+          "editorMode": "builder",
+          "expr": "sum by(code, method, type, resource_type) (rate(twingate_gateway_http_response_size_bytes_sum[5m])) / (sum by(code, method, type, resource_type) (rate(twingate_gateway_http_response_size_bytes_count[5m])))",
           "fullMetaSearch": false,
           "includeNullMetadata": true,
-          "legendFormat": "{{type}} - {{method}} - {{code}}",
+          "legendFormat": "{{resource_type}}/{{type}} - {{method}} - {{code}}",
           "range": true,
           "refId": "A",
           "useBackend": false
@@ -878,8 +920,7 @@
         "x": 0,
         "y": 32
       },
-      "id": 17,
-      "panels": [],
+      "id": 45,
       "title": "Kubernetes API Server Requests",
       "type": "row"
     },
@@ -921,6 +962,7 @@
               "type": "linear"
             },
             "showPoints": "never",
+            "showValues": false,
             "spanNulls": false,
             "stacking": {
               "group": "A",
@@ -930,7 +972,6 @@
               "mode": "off"
             }
           },
-          "mappings": [],
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -945,8 +986,7 @@
             ]
           },
           "unit": "short"
-        },
-        "overrides": []
+        }
       },
       "gridPos": {
         "h": 8,
@@ -956,6 +996,10 @@
       },
       "id": 15,
       "options": {
+        "annotations": {
+          "clustering": -1,
+          "multiLane": false
+        },
         "legend": {
           "calcs": [],
           "displayMode": "list",
@@ -968,12 +1012,16 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.1.0",
+      "pluginVersion": "13.0.1+security-01",
       "targets": [
         {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "sum by(code, method, type) (rate(twingate_gateway_api_server_requests_total[5m]))",
+          "expr": "sum by(code, method, type) (rate(twingate_gateway_api_server_requests_total{resource_type=\"kubernetes\"}[5m]))",
           "fullMetaSearch": false,
           "includeNullMetadata": true,
           "legendFormat": "{{type}} - {{method}} - {{code}}",
@@ -997,8 +1045,6 @@
             "fixedColor": "green",
             "mode": "fixed"
           },
-          "fieldMinMax": false,
-          "mappings": [],
           "min": 0,
           "noValue": "0",
           "thresholds": {
@@ -1010,8 +1056,7 @@
               }
             ]
           }
-        },
-        "overrides": []
+        }
       },
       "gridPos": {
         "h": 8,
@@ -1037,12 +1082,16 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "pluginVersion": "12.1.0",
+      "pluginVersion": "13.0.1+security-01",
       "targets": [
         {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "sum by(container) (twingate_gateway_api_server_active_requests{container=\"gateway\"})",
+          "expr": "sum by(container) (twingate_gateway_api_server_active_requests{container=\"gateway\", resource_type=\"kubernetes\"})",
           "fullMetaSearch": false,
           "includeNullMetadata": true,
           "legendFormat": "__auto",
@@ -1089,6 +1138,7 @@
               "type": "linear"
             },
             "showPoints": "never",
+            "showValues": false,
             "spanNulls": false,
             "stacking": {
               "group": "A",
@@ -1098,7 +1148,6 @@
               "mode": "off"
             }
           },
-          "mappings": [],
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -1109,8 +1158,7 @@
             ]
           },
           "unit": "s"
-        },
-        "overrides": []
+        }
       },
       "gridPos": {
         "h": 8,
@@ -1120,6 +1168,10 @@
       },
       "id": 18,
       "options": {
+        "annotations": {
+          "clustering": -1,
+          "multiLane": false
+        },
         "legend": {
           "calcs": [],
           "displayMode": "list",
@@ -1132,7 +1184,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.1.0",
+      "pluginVersion": "13.0.1+security-01",
       "targets": [
         {
           "datasource": {
@@ -1142,9 +1194,8 @@
           "disableTextWrap": false,
           "editorMode": "builder",
           "exemplar": false,
-          "expr": "histogram_quantile(0.99, sum by(le, type) (rate(twingate_gateway_api_server_request_duration_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.99, sum by(le, type) (rate(twingate_gateway_api_server_request_duration_seconds_bucket{resource_type=\"kubernetes\"}[5m])))",
           "fullMetaSearch": false,
-          "hide": false,
           "includeNullMetadata": true,
           "instant": false,
           "legendFormat": "{{type}}/quantile=99",
@@ -1153,8 +1204,12 @@
           "useBackend": false
         },
         {
-          "editorMode": "code",
-          "expr": "histogram_quantile(0.95, sum by (le, type) (rate(twingate_gateway_api_server_request_duration_seconds_bucket[5m])))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "editorMode": "builder",
+          "expr": "histogram_quantile(0.95, sum by(le, type) (rate(twingate_gateway_api_server_request_duration_seconds_bucket{resource_type=\"kubernetes\"}[5m])))",
           "legendFormat": "{{type}}/quantile=95",
           "range": true,
           "refId": "P95"
@@ -1164,9 +1219,8 @@
             "type": "prometheus",
             "uid": "$datasource"
           },
-          "editorMode": "code",
-          "expr": "histogram_quantile(0.5, sum by (le, type) (rate(twingate_gateway_api_server_request_duration_seconds_bucket[5m])))",
-          "hide": false,
+          "editorMode": "builder",
+          "expr": "histogram_quantile(0.5, sum by(le, type) (rate(twingate_gateway_api_server_request_duration_seconds_bucket{resource_type=\"kubernetes\"}[5m])))",
           "instant": false,
           "legendFormat": "{{type}}/quantile=50",
           "range": true,
@@ -1181,7 +1235,7 @@
         "type": "prometheus",
         "uid": "$datasource"
       },
-      "description": "Average request durations between Client and Gateway, grouped by request type, status code and request method.",
+      "description": "Average duration of HTTP requests to the Kubernetes API Server, grouped by request type, request method and status code.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -1214,6 +1268,7 @@
               "type": "linear"
             },
             "showPoints": "never",
+            "showValues": false,
             "spanNulls": false,
             "stacking": {
               "group": "A",
@@ -1223,7 +1278,6 @@
               "mode": "off"
             }
           },
-          "mappings": [],
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -1234,8 +1288,7 @@
             ]
           },
           "unit": "s"
-        },
-        "overrides": []
+        }
       },
       "gridPos": {
         "h": 8,
@@ -1245,6 +1298,10 @@
       },
       "id": 22,
       "options": {
+        "annotations": {
+          "clustering": -1,
+          "multiLane": false
+        },
         "legend": {
           "calcs": [],
           "displayMode": "list",
@@ -1257,12 +1314,16 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.1.0",
+      "pluginVersion": "13.0.1+security-01",
       "targets": [
         {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "sum by(code, type, method) (rate(twingate_gateway_api_server_request_duration_seconds_sum[5m])) / sum by(code, type, method) (rate(twingate_gateway_api_server_request_duration_seconds_count[5m]))",
+          "expr": "sum by(code, type, method) (rate(twingate_gateway_api_server_request_duration_seconds_sum{resource_type=\"kubernetes\"}[5m])) / (sum by(code, type, method) (rate(twingate_gateway_api_server_request_duration_seconds_count{resource_type=\"kubernetes\"}[5m])))",
           "fullMetaSearch": false,
           "includeNullMetadata": true,
           "legendFormat": "{{type}} - {{method}} - {{code}}",
@@ -1282,8 +1343,430 @@
         "x": 0,
         "y": 49
       },
-      "id": 23,
-      "panels": [],
+      "id": 46,
+      "title": "Web App Server Requests",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Total number of HTTP requests handled by the Web App Server, grouped by request type, method and status code.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineStyle": {
+              "fill": "solid"
+            },
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 19,
+        "x": 0,
+        "y": 50
+      },
+      "id": 40,
+      "options": {
+        "annotations": {
+          "clustering": -1,
+          "multiLane": false
+        },
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "13.0.1+security-01",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "disableTextWrap": false,
+          "editorMode": "builder",
+          "expr": "sum by(code, method, type) (rate(twingate_gateway_api_server_requests_total{resource_type=\"web_app\"}[5m]))",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "legendFormat": "{{type}} - {{method}} - {{code}}",
+          "range": true,
+          "refId": "A",
+          "useBackend": false
+        }
+      ],
+      "title": "Total Requests",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Number of currently active (in-progress) HTTP requests to the Web App server.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "green",
+            "mode": "fixed"
+          },
+          "min": 0,
+          "noValue": "0",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          }
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 5,
+        "x": 19,
+        "y": 50
+      },
+      "id": 41,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "13.0.1+security-01",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "disableTextWrap": false,
+          "editorMode": "builder",
+          "expr": "sum by(container) (twingate_gateway_api_server_active_requests{container=\"gateway\", resource_type=\"web_app\"})",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "legendFormat": "__auto",
+          "range": true,
+          "refId": "A",
+          "useBackend": false
+        }
+      ],
+      "title": "Active Requests",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Percentile duration of HTTP requests to the Web App Server, grouped by request type.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          },
+          "unit": "s"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 58
+      },
+      "id": 42,
+      "options": {
+        "annotations": {
+          "clustering": -1,
+          "multiLane": false
+        },
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "13.0.1+security-01",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "disableTextWrap": false,
+          "editorMode": "builder",
+          "exemplar": false,
+          "expr": "histogram_quantile(0.99, sum by(le, type) (rate(twingate_gateway_api_server_request_duration_seconds_bucket{resource_type=\"web_app\"}[5m])))",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": false,
+          "legendFormat": "{{type}}/quantile=99",
+          "range": true,
+          "refId": "P99",
+          "useBackend": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "editorMode": "builder",
+          "expr": "histogram_quantile(0.95, sum by(le, type) (rate(twingate_gateway_api_server_request_duration_seconds_bucket{resource_type=\"web_app\"}[5m])))",
+          "legendFormat": "{{type}}/quantile=95",
+          "range": true,
+          "refId": "P95"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "editorMode": "builder",
+          "expr": "histogram_quantile(0.5, sum by(le, type) (rate(twingate_gateway_api_server_request_duration_seconds_bucket{resource_type=\"web_app\"}[5m])))",
+          "instant": false,
+          "legendFormat": "{{type}}/quantile=50",
+          "range": true,
+          "refId": "P50"
+        }
+      ],
+      "title": "Request Duration (Percentile)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Average duration of HTTP requests to the Web App Server, grouped by request type, request method and status code.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineStyle": {
+              "fill": "solid"
+            },
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          },
+          "unit": "s"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 58
+      },
+      "id": 43,
+      "options": {
+        "annotations": {
+          "clustering": -1,
+          "multiLane": false
+        },
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "13.0.1+security-01",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "disableTextWrap": false,
+          "editorMode": "builder",
+          "expr": "sum by(code, type, method) (rate(twingate_gateway_api_server_request_duration_seconds_sum{resource_type=\"web_app\"}[5m])) / (sum by(code, type, method) (rate(twingate_gateway_api_server_request_duration_seconds_count{resource_type=\"web_app\"}[5m])))",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "legendFormat": "{{type}} - {{method}} - {{code}}",
+          "range": true,
+          "refId": "A",
+          "useBackend": false
+        }
+      ],
+      "title": "Request Duration (Average)",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 66
+      },
+      "id": 47,
       "title": "Recorded Session",
       "type": "row"
     },
@@ -1322,6 +1805,7 @@
               "type": "linear"
             },
             "showPoints": "never",
+            "showValues": false,
             "spanNulls": false,
             "stacking": {
               "group": "A",
@@ -1331,7 +1815,6 @@
               "mode": "off"
             }
           },
-          "mappings": [],
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -1342,17 +1825,20 @@
             ]
           },
           "unit": "s"
-        },
-        "overrides": []
+        }
       },
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 50
+        "y": 67
       },
       "id": 29,
       "options": {
+        "annotations": {
+          "clustering": -1,
+          "multiLane": false
+        },
         "legend": {
           "calcs": [],
           "displayMode": "list",
@@ -1365,7 +1851,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.1.0",
+      "pluginVersion": "13.0.1+security-01",
       "targets": [
         {
           "datasource": {
@@ -1377,7 +1863,6 @@
           "exemplar": false,
           "expr": "histogram_quantile(0.99, sum by(le) (rate(twingate_gateway_recorded_session_duration_seconds_bucket[5m])))",
           "fullMetaSearch": false,
-          "hide": false,
           "includeNullMetadata": true,
           "instant": false,
           "legendFormat": "quantile=99",
@@ -1386,6 +1871,10 @@
           "useBackend": false
         },
         {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
           "editorMode": "code",
           "expr": "histogram_quantile(0.95, sum by(le) (rate(twingate_gateway_recorded_session_duration_seconds_bucket[5m])))",
           "legendFormat": "quantile=95",
@@ -1399,7 +1888,6 @@
           },
           "editorMode": "code",
           "expr": "histogram_quantile(0.5, sum by(le) (rate(twingate_gateway_recorded_session_duration_seconds_bucket[5m])))",
-          "hide": false,
           "instant": false,
           "legendFormat": "quantile=50",
           "range": true,
@@ -1447,6 +1935,7 @@
               "type": "linear"
             },
             "showPoints": "never",
+            "showValues": false,
             "spanNulls": false,
             "stacking": {
               "group": "A",
@@ -1456,7 +1945,6 @@
               "mode": "off"
             }
           },
-          "mappings": [],
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -1467,17 +1955,20 @@
             ]
           },
           "unit": "s"
-        },
-        "overrides": []
+        }
       },
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 50
+        "y": 67
       },
       "id": 30,
       "options": {
+        "annotations": {
+          "clustering": -1,
+          "multiLane": false
+        },
         "legend": {
           "calcs": [],
           "displayMode": "list",
@@ -1490,9 +1981,13 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.1.0",
+      "pluginVersion": "13.0.1+security-01",
       "targets": [
         {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
           "disableTextWrap": false,
           "editorMode": "builder",
           "expr": "sum by(container) (rate(twingate_gateway_recorded_session_duration_seconds_sum[5m])) / sum by(container) (rate(twingate_gateway_recorded_session_duration_seconds_count[5m]))",
@@ -1513,10 +2008,9 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 58
+        "y": 75
       },
-      "id": 32,
-      "panels": [],
+      "id": 48,
       "title": "TCP Connections",
       "type": "row"
     },
@@ -1558,6 +2052,7 @@
               "type": "linear"
             },
             "showPoints": "never",
+            "showValues": false,
             "spanNulls": false,
             "stacking": {
               "group": "A",
@@ -1567,7 +2062,6 @@
               "mode": "off"
             }
           },
-          "mappings": [],
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -1582,17 +2076,20 @@
             ]
           },
           "unit": "short"
-        },
-        "overrides": []
+        }
       },
       "gridPos": {
         "h": 8,
         "w": 19,
         "x": 0,
-        "y": 59
+        "y": 76
       },
       "id": 33,
       "options": {
+        "annotations": {
+          "clustering": -1,
+          "multiLane": false
+        },
         "legend": {
           "calcs": [],
           "displayMode": "list",
@@ -1605,9 +2102,13 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.1.0",
+      "pluginVersion": "13.0.1+security-01",
       "targets": [
         {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
           "disableTextWrap": false,
           "editorMode": "builder",
           "expr": "sum by(connection_category) (rate(twingate_gateway_tcp_connections_total[5m]))",
@@ -1634,8 +2135,6 @@
             "fixedColor": "green",
             "mode": "fixed"
           },
-          "fieldMinMax": false,
-          "mappings": [],
           "min": 0,
           "noValue": "0",
           "thresholds": {
@@ -1647,14 +2146,13 @@
               }
             ]
           }
-        },
-        "overrides": []
+        }
       },
       "gridPos": {
         "h": 8,
         "w": 5,
         "x": 19,
-        "y": 59
+        "y": 76
       },
       "id": 34,
       "options": {
@@ -1674,9 +2172,13 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "pluginVersion": "12.1.0",
+      "pluginVersion": "13.0.1+security-01",
       "targets": [
         {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
           "disableTextWrap": false,
           "editorMode": "builder",
           "expr": "sum by(container) (twingate_gateway_active_tcp_connections{container=\"gateway\"})",
@@ -1726,6 +2228,7 @@
               "type": "linear"
             },
             "showPoints": "never",
+            "showValues": false,
             "spanNulls": false,
             "stacking": {
               "group": "A",
@@ -1735,7 +2238,6 @@
               "mode": "off"
             }
           },
-          "mappings": [],
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -1746,17 +2248,20 @@
             ]
           },
           "unit": "s"
-        },
-        "overrides": []
+        }
       },
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 67
+        "y": 84
       },
       "id": 35,
       "options": {
+        "annotations": {
+          "clustering": -1,
+          "multiLane": false
+        },
         "legend": {
           "calcs": [],
           "displayMode": "list",
@@ -1769,7 +2274,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.1.0",
+      "pluginVersion": "13.0.1+security-01",
       "targets": [
         {
           "datasource": {
@@ -1781,7 +2286,6 @@
           "exemplar": false,
           "expr": "histogram_quantile(0.99, sum by(le, connection_category) (rate(twingate_gateway_tcp_connection_duration_seconds_bucket[5m])))",
           "fullMetaSearch": false,
-          "hide": false,
           "includeNullMetadata": true,
           "instant": false,
           "legendFormat": "{{connection_category}}/quantile=99",
@@ -1790,6 +2294,10 @@
           "useBackend": false
         },
         {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
           "editorMode": "code",
           "expr": "histogram_quantile(0.95, sum by (le, connection_category) (rate(twingate_gateway_tcp_connection_duration_seconds_bucket[5m])))",
           "legendFormat": "{{connection_category}}/quantile=95",
@@ -1803,7 +2311,6 @@
           },
           "editorMode": "code",
           "expr": "histogram_quantile(0.5, sum by (le, connection_category) (rate(twingate_gateway_tcp_connection_duration_seconds_bucket[5m])))",
-          "hide": false,
           "instant": false,
           "legendFormat": "{{connection_category}}/quantile=50",
           "range": true,
@@ -1851,6 +2358,7 @@
               "type": "linear"
             },
             "showPoints": "never",
+            "showValues": false,
             "spanNulls": false,
             "stacking": {
               "group": "A",
@@ -1860,7 +2368,6 @@
               "mode": "off"
             }
           },
-          "mappings": [],
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -1871,17 +2378,20 @@
             ]
           },
           "unit": "s"
-        },
-        "overrides": []
+        }
       },
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 67
+        "y": 84
       },
       "id": 36,
       "options": {
+        "annotations": {
+          "clustering": -1,
+          "multiLane": false
+        },
         "legend": {
           "calcs": [],
           "displayMode": "list",
@@ -1894,9 +2404,13 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.1.0",
+      "pluginVersion": "13.0.1+security-01",
       "targets": [
         {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
           "disableTextWrap": false,
           "editorMode": "builder",
           "expr": "sum by(connection_category) (rate(twingate_gateway_tcp_connection_duration_seconds_sum[5m])) / sum by(connection_category) (rate(twingate_gateway_tcp_connection_duration_seconds_count[5m]))",
@@ -1917,10 +2431,9 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 75
+        "y": 92
       },
-      "id": 40,
-      "panels": [],
+      "id": 49,
       "title": "Authentication via HTTP Connect",
       "type": "row"
     },
@@ -1962,6 +2475,7 @@
               "type": "linear"
             },
             "showPoints": "never",
+            "showValues": false,
             "spanNulls": false,
             "stacking": {
               "group": "A",
@@ -1971,7 +2485,6 @@
               "mode": "off"
             }
           },
-          "mappings": [],
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -1986,17 +2499,20 @@
             ]
           },
           "unit": "short"
-        },
-        "overrides": []
+        }
       },
       "gridPos": {
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 76
+        "y": 93
       },
       "id": 37,
       "options": {
+        "annotations": {
+          "clustering": -1,
+          "multiLane": false
+        },
         "legend": {
           "calcs": [],
           "displayMode": "list",
@@ -2009,9 +2525,13 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.1.0",
+      "pluginVersion": "13.0.1+security-01",
       "targets": [
         {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
           "disableTextWrap": false,
           "editorMode": "builder",
           "expr": "sum by(code) (rate(twingate_gateway_client_authentication_total[5m]))",
@@ -2061,6 +2581,7 @@
               "type": "linear"
             },
             "showPoints": "never",
+            "showValues": false,
             "spanNulls": false,
             "stacking": {
               "group": "A",
@@ -2070,7 +2591,6 @@
               "mode": "off"
             }
           },
-          "mappings": [],
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -2081,17 +2601,20 @@
             ]
           },
           "unit": "s"
-        },
-        "overrides": []
+        }
       },
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 84
+        "y": 101
       },
       "id": 38,
       "options": {
+        "annotations": {
+          "clustering": -1,
+          "multiLane": false
+        },
         "legend": {
           "calcs": [],
           "displayMode": "list",
@@ -2104,7 +2627,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.1.0",
+      "pluginVersion": "13.0.1+security-01",
       "targets": [
         {
           "datasource": {
@@ -2116,7 +2639,6 @@
           "exemplar": false,
           "expr": "histogram_quantile(0.99, sum by(le) (rate(twingate_gateway_client_connection_duration_seconds_bucket[5m])))",
           "fullMetaSearch": false,
-          "hide": false,
           "includeNullMetadata": true,
           "instant": false,
           "legendFormat": "quantile=99",
@@ -2125,6 +2647,10 @@
           "useBackend": false
         },
         {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
           "editorMode": "code",
           "expr": "histogram_quantile(0.95, sum by (le) (rate(twingate_gateway_client_connection_duration_seconds_bucket[5m])))",
           "legendFormat": "quantile=95",
@@ -2138,7 +2664,6 @@
           },
           "editorMode": "code",
           "expr": "histogram_quantile(0.5, sum by (le) (rate(twingate_gateway_client_connection_duration_seconds_bucket[5m])))",
-          "hide": false,
           "instant": false,
           "legendFormat": "quantile=50",
           "range": true,
@@ -2186,6 +2711,7 @@
               "type": "linear"
             },
             "showPoints": "never",
+            "showValues": false,
             "spanNulls": false,
             "stacking": {
               "group": "A",
@@ -2195,7 +2721,6 @@
               "mode": "off"
             }
           },
-          "mappings": [],
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -2206,17 +2731,20 @@
             ]
           },
           "unit": "s"
-        },
-        "overrides": []
+        }
       },
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 84
+        "y": 101
       },
       "id": 39,
       "options": {
+        "annotations": {
+          "clustering": -1,
+          "multiLane": false
+        },
         "legend": {
           "calcs": [],
           "displayMode": "list",
@@ -2229,9 +2757,13 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.1.0",
+      "pluginVersion": "13.0.1+security-01",
       "targets": [
         {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
           "disableTextWrap": false,
           "editorMode": "builder",
           "expr": "sum by(code) (rate(twingate_gateway_client_connection_duration_seconds_sum[5m])) / sum by(code) (rate(twingate_gateway_client_connection_duration_seconds_count[5m]))",
@@ -2249,20 +2781,24 @@
   ],
   "preload": false,
   "refresh": "30s",
-  "schemaVersion": 41,
-  "tags": [],
+  "schemaVersion": 42,
   "templating": {
     "list": [
       {
+        "allowCustomValue": true,
         "current": {
           "text": "Prometheus",
           "value": "prometheus"
         },
+        "hide": 0,
+        "includeAll": false,
+        "multi": false,
         "name": "datasource",
         "options": [],
         "query": "prometheus",
         "refresh": 1,
         "regex": "",
+        "skipUrlSync": false,
         "type": "datasource"
       }
     ]
@@ -2271,9 +2807,23 @@
     "from": "now-6h",
     "to": "now"
   },
-  "timepicker": {},
+  "timepicker": {
+    "refresh_intervals": [
+      "5s",
+      "10s",
+      "30s",
+      "1m",
+      "5m",
+      "15m",
+      "30m",
+      "1h",
+      "2h",
+      "1d"
+    ]
+  },
   "timezone": "browser",
   "title": "Twingate Gateway",
-  "uid": "63804d24-275c-4d8b-9d3c-7408d6898259",
-  "version": 1
+  "version": 1,
+  "uid": "63804d24-275c-4d8b-9d3c-7408d68982591",
+  "id": 4283892576251904
 }

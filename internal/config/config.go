@@ -6,11 +6,13 @@ package config
 import (
 	"errors"
 	"fmt"
-	"net"
+	"net/http"
 	"os"
 	"strings"
 	"time"
 
+	"github.com/hashicorp/go-retryablehttp"
+	"go.uber.org/zap"
 	"go.yaml.in/yaml/v4"
 	"golang.org/x/crypto/ssh"
 )
@@ -19,8 +21,6 @@ var (
 	ErrRequired          = errors.New("required field is missing")
 	ErrInvalidPort       = errors.New("invalid port number")
 	ErrDuplicateUpstream = errors.New("duplicate upstream name")
-	ErrMultipleInCluster = errors.New("only one in-cluster upstream is allowed")
-	ErrInvalidAddress    = errors.New("invalid address format")
 	ErrInvalidSSHKeyType = errors.New("invalid SSH key type")
 	ErrNegativeTTL       = errors.New("TTL must be non-negative")
 )
@@ -41,6 +41,11 @@ type Config struct {
 	TLS         TLSConfig         `yaml:"tls"`
 	Kubernetes  *KubernetesConfig `yaml:"kubernetes,omitempty"`
 	SSH         *SSHConfig        `yaml:"ssh,omitempty"`
+	WebApp      *WebAppConfig     `yaml:"webApp,omitempty"`
+}
+
+type WebAppConfig struct {
+	Headers map[string]string `yaml:"headers,omitempty"`
 }
 
 type TwingateConfig struct {
@@ -64,21 +69,18 @@ type KubernetesConfig struct {
 
 type KubernetesUpstream struct {
 	Name            string `yaml:"name"`
-	InCluster       bool   `yaml:"inCluster,omitempty"`
-	Address         string `yaml:"address,omitempty"`
 	BearerToken     string `yaml:"bearerToken,omitempty"`
 	BearerTokenFile string `yaml:"bearerTokenFile,omitempty"`
 	CAFile          string `yaml:"caFile,omitempty"`
 }
 
 type SSHConfig struct {
-	Gateway   SSHGatewayConfig `yaml:"gateway"`
-	CA        SSHCAConfig      `yaml:"ca"`
-	Upstreams []SSHUpstream    `yaml:"upstreams"`
+	Gateway SSHGatewayConfig `yaml:"gateway"`
+	CA      SSHCAConfig      `yaml:"ca"`
 }
 
 type SSHGatewayConfig struct {
-	Username        string               `yaml:"username"` // Default username for upstream connections
+	Username        string               `yaml:"username"` // username for upstream connections
 	Key             SSHKeyConfig         `yaml:"key"`
 	HostCertificate SSHCertificateConfig `yaml:"hostCertificate"`
 	UserCertificate SSHCertificateConfig `yaml:"userCertificate"`
@@ -164,12 +166,6 @@ type SSHCAVaultAWSConfig struct {
 	Nonce         string `yaml:"nonce,omitempty"`
 }
 
-type SSHUpstream struct {
-	Name     string `yaml:"name"`
-	Address  string `yaml:"address"`
-	Username string `yaml:"user,omitempty"` // Optional override for username
-}
-
 func newDefaultConfig() *Config {
 	return &Config{
 		Port:        defaultPort,
@@ -197,6 +193,55 @@ func Load(path string) (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func stripNetworkPrefix(hostname, network string) string {
+	return strings.TrimPrefix(hostname, network+".")
+}
+
+func resolveTwingateHostname(targetURL, defaultHost string, retryMax int, logger *zap.Logger) string {
+	logger = logger.With(zap.String("url", targetURL), zap.String("defaultHost", defaultHost))
+
+	client := retryablehttp.NewClient()
+	client.HTTPClient.Timeout = 1 * time.Second
+	client.HTTPClient.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+	client.RetryMax = retryMax
+	client.Logger = nil
+
+	resp, err := client.Head(targetURL)
+	if err != nil {
+		logger.Warn("Failed to resolve Twingate hostname", zap.Error(err))
+
+		return defaultHost
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusPermanentRedirect {
+		logger.Warn("No redirect received", zap.Int("statusCode", resp.StatusCode))
+
+		return defaultHost
+	}
+
+	location, err := resp.Location()
+	if err != nil {
+		logger.Warn("Failed to parse redirect location", zap.Error(err))
+
+		return defaultHost
+	}
+
+	resolved := location.Hostname()
+	logger.Info("Resolved Twingate hostname", zap.String("hostname", resolved))
+
+	return resolved
+}
+
+func (c *Config) ResolveTwingateHost(logger *zap.Logger) {
+	targetURL := fmt.Sprintf("https://%s.%s/api/v1/jwk/ec", c.Twingate.Network, c.Twingate.Host)
+	resolvedHostname := resolveTwingateHostname(targetURL, c.Twingate.Host, 2, logger)
+
+	c.Twingate.Host = stripNetworkPrefix(resolvedHostname, c.Twingate.Network)
 }
 
 func (c *Config) Validate() error {
@@ -229,8 +274,8 @@ func (c *Config) Validate() error {
 	}
 
 	// Check that at least one protocol is configured
-	if c.Kubernetes == nil && c.SSH == nil {
-		return fmt.Errorf("%w: at least one protocol (Kubernetes or SSH) must be configured", ErrRequired)
+	if c.Kubernetes == nil && c.SSH == nil && c.WebApp == nil {
+		return fmt.Errorf("%w: at least one protocol (Kubernetes, SSH, or WebApp) must be configured", ErrRequired)
 	}
 
 	return nil
@@ -249,13 +294,7 @@ func (t *TLSConfig) Validate() error {
 }
 
 func (k *KubernetesConfig) Validate() error {
-	if len(k.Upstreams) == 0 {
-		return fmt.Errorf("%w: at least one upstream is required", ErrRequired)
-	}
-
-	// Check for duplicate upstream names and multiple in-cluster upstreams
 	upstreamNames := make(map[string]struct{})
-	hasInCluster := false
 
 	for i, upstream := range k.Upstreams {
 		if err := upstream.Validate(); err != nil {
@@ -267,14 +306,6 @@ func (k *KubernetesConfig) Validate() error {
 		}
 
 		upstreamNames[upstream.Name] = struct{}{}
-
-		if upstream.InCluster {
-			if hasInCluster {
-				return fmt.Errorf("%w: %q", ErrMultipleInCluster, upstream.Name)
-			}
-
-			hasInCluster = true
-		}
 	}
 
 	return nil
@@ -285,12 +316,8 @@ func (k *KubernetesUpstream) Validate() error {
 		return fmt.Errorf("%w: name", ErrRequired)
 	}
 
-	if !k.InCluster && k.Address == "" {
-		return fmt.Errorf("%w: address is required when inCluster is false", ErrRequired)
-	}
-
-	if !k.InCluster && k.BearerToken == "" && k.BearerTokenFile == "" {
-		return fmt.Errorf("%w: either bearerToken or bearerTokenFile is required when inCluster is false", ErrRequired)
+	if k.BearerToken == "" && k.BearerTokenFile == "" {
+		return fmt.Errorf("%w: either bearerToken or bearerTokenFile is required", ErrRequired)
 	}
 
 	return nil
@@ -303,25 +330,6 @@ func (s *SSHConfig) Validate() error {
 
 	if err := s.CA.Validate(); err != nil {
 		return fmt.Errorf("ca: %w", err)
-	}
-
-	if len(s.Upstreams) == 0 {
-		return fmt.Errorf("%w: at least one upstream is required", ErrRequired)
-	}
-
-	// Check for duplicate upstream names within ssh
-	upstreamNames := make(map[string]struct{})
-
-	for i, upstream := range s.Upstreams {
-		if err := upstream.Validate(); err != nil {
-			return fmt.Errorf("upstreams[%d] (name: %q): %w", i, upstream.Name, err)
-		}
-
-		if _, exists := upstreamNames[upstream.Name]; exists {
-			return fmt.Errorf("%w: %q", ErrDuplicateUpstream, upstream.Name)
-		}
-
-		upstreamNames[upstream.Name] = struct{}{}
 	}
 
 	return nil
@@ -656,43 +664,10 @@ func (v *SSHCAVaultConfig) GetUpstreamHostCAMount() string {
 	return defaultVaultSSHMount
 }
 
-func (s *SSHUpstream) Validate() error {
-	if s.Name == "" {
-		return fmt.Errorf("%w: name", ErrRequired)
-	}
-
-	if s.Address == "" {
-		return fmt.Errorf("%w: address", ErrRequired)
-	}
-
-	if err := validateAddress(s.Address); err != nil {
-		return fmt.Errorf("address: %w", err)
-	}
-
-	return nil
-}
-
 func validatePort(port int, fieldName string) error {
 	// Allow port 0 for dynamic port assignment in testing.
 	if port < 0 || port > 65535 {
 		return fmt.Errorf("%w: %s must be between 0 and 65535", ErrInvalidPort, fieldName)
-	}
-
-	return nil
-}
-
-func validateAddress(address string) error {
-	host, port, err := net.SplitHostPort(address)
-	if err != nil {
-		return fmt.Errorf("%w: %w", ErrInvalidAddress, err)
-	}
-
-	if host == "" {
-		return fmt.Errorf("%w: host cannot be empty", ErrInvalidAddress)
-	}
-
-	if port == "" {
-		return fmt.Errorf("%w: port cannot be empty", ErrInvalidAddress)
 	}
 
 	return nil

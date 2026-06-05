@@ -1,4 +1,4 @@
-should render leaf Certificate with default values:
+should render the leaf Certificate referencing the configured issuer:
   1: |
     apiVersion: cert-manager.io/v1
     kind: Certificate
@@ -17,15 +17,8 @@ should render leaf Certificate with default values:
         - kubernetes.default
         - kubernetes.default.svc
         - kubernetes.default.svc.cluster.local
-      duration: 2160h
       issuerRef:
-        kind: Issuer
-        name: RELEASE-NAME-gateway-ca-issuer
-      privateKey:
-        algorithm: RSA
-        size: 2048
-      renewBefore: 360h
+        group: cert-manager.io
+        kind: ClusterIssuer
+        name: my-pki
       secretName: RELEASE-NAME-gateway-tls
-      subject:
-        organizations:
-          - Twingate

@@ -1,7 +1,7 @@
 // Copyright (c) Twingate Inc.
 // SPDX-License-Identifier: MPL-2.0
 
-package httphandler
+package httpproxy
 
 import (
 	"bufio"
@@ -12,7 +12,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
@@ -20,14 +19,6 @@ import (
 	"gateway/internal/connect"
 	"gateway/internal/token"
 )
-
-type mockHandler struct {
-	mock.Mock
-}
-
-func (m *mockHandler) serveHTTP(w http.ResponseWriter, r *http.Request, conn *connect.ProxyConn, auditLogger *zap.Logger) {
-	m.Called(w, r, conn, auditLogger)
-}
 
 // Mock implementation of http.ResponseWriter that satisfies http.Hijacker.
 type responseRecorder struct {
@@ -38,10 +29,26 @@ func (r *responseRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	return nil, nil, nil
 }
 
+func TestAuditLoggerFromContext(t *testing.T) {
+	t.Run("Returns logger from context", func(t *testing.T) {
+		expected := zap.NewNop()
+		ctx := context.WithValue(t.Context(), AuditLoggerKey{}, expected)
+
+		actual := AuditLoggerFromContext(ctx)
+		assert.Equal(t, expected, actual)
+	})
+
+	t.Run("Panics when logger is not in context", func(t *testing.T) {
+		assert.Panics(t, func() {
+			AuditLoggerFromContext(t.Context())
+		})
+	})
+}
+
 func TestAuditMiddleware(t *testing.T) {
 	tests := []struct {
 		name               string
-		handlerFn          func(w http.ResponseWriter)
+		handler            http.Handler
 		expectedLogMessage string
 		expectedLogLevel   zapcore.Level
 		expectedStatusCode int
@@ -49,11 +56,10 @@ func TestAuditMiddleware(t *testing.T) {
 	}{
 		{
 			name: "Normal handler",
-			handlerFn: func(w http.ResponseWriter) {
-				// Simulate a successful response
+			handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(http.StatusAccepted)
 				_, _ = w.Write([]byte("Accepted"))
-			},
+			}),
 			expectedLogMessage: "API request completed",
 			expectedLogLevel:   zapcore.InfoLevel,
 			expectedStatusCode: http.StatusAccepted,
@@ -61,9 +67,9 @@ func TestAuditMiddleware(t *testing.T) {
 		},
 		{
 			name: "Handler without explicitly setting response header",
-			handlerFn: func(w http.ResponseWriter) {
+			handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				_, _ = w.Write([]byte("Response"))
-			},
+			}),
 			expectedLogMessage: "API request completed",
 			expectedLogLevel:   zapcore.InfoLevel,
 			expectedStatusCode: http.StatusOK,
@@ -71,10 +77,10 @@ func TestAuditMiddleware(t *testing.T) {
 		},
 		{
 			name: "Handler being hijacked",
-			handlerFn: func(w http.ResponseWriter) {
+			handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				hijacker, _ := w.(http.Hijacker)
 				_, _, _ = hijacker.Hijack()
-			},
+			}),
 			expectedLogMessage: "API request completed",
 			expectedLogLevel:   zapcore.InfoLevel,
 			expectedStatusCode: http.StatusSwitchingProtocols,
@@ -82,11 +88,11 @@ func TestAuditMiddleware(t *testing.T) {
 		},
 		{
 			name: "Handler panics with http.ErrAbortHandler",
-			handlerFn: func(w http.ResponseWriter) {
+			handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				_, _ = w.Write([]byte("Streaming..."))
 
 				panic(http.ErrAbortHandler)
-			},
+			}),
 			expectedLogMessage: "API request completed",
 			expectedLogLevel:   zapcore.InfoLevel,
 			expectedStatusCode: http.StatusOK,
@@ -94,11 +100,11 @@ func TestAuditMiddleware(t *testing.T) {
 		},
 		{
 			name: "Handler panics with other error",
-			handlerFn: func(w http.ResponseWriter) {
+			handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				_, _ = w.Write([]byte("Streaming..."))
 
 				panic("Something went wrong!")
-			},
+			}),
 			expectedLogMessage: "API request failed",
 			expectedLogLevel:   zapcore.ErrorLevel,
 			expectedStatusCode: http.StatusOK,
@@ -108,7 +114,6 @@ func TestAuditMiddleware(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockHandler := &mockHandler{}
 			claims := &token.GATClaims{
 				User: token.User{
 					ID:       "user-id-1",
@@ -117,19 +122,12 @@ func TestAuditMiddleware(t *testing.T) {
 				},
 			}
 			conn := &connect.ProxyConn{ID: "conn-id-1", Claims: claims}
-			ctx := context.WithValue(t.Context(), ConnContextKey, conn)
+			ctx := context.WithValue(t.Context(), ConnContextKey{}, conn)
 			request := httptest.NewRequestWithContext(ctx, "GET", "/api", nil)
 			request.Header.Set("Kubectl-Command", "kubectl exec")
 
 			recorder := &responseRecorder{ResponseRecorder: *httptest.NewRecorder()}
 			recorder.Header().Set("Audit-Id", "audit-id-1")
-
-			mockHandler.
-				On("serveHTTP", mock.Anything, request, conn, mock.Anything).
-				Run(func(args mock.Arguments) {
-					rw := args[0].(http.ResponseWriter)
-					tt.handlerFn(rw)
-				})
 
 			core, logs := observer.New(zap.DebugLevel)
 			logger := zap.New(core)
@@ -141,12 +139,10 @@ func TestAuditMiddleware(t *testing.T) {
 				}()
 
 				auditMiddleware(auditMiddlewareConfig{
-					next:   mockHandler.serveHTTP,
+					next:   tt.handler,
 					logger: logger,
 				}).ServeHTTP(recorder, request)
 			}()
-
-			mockHandler.AssertExpectations(t)
 
 			assert.Len(t, logs.All(), 1)
 			log := logs.All()[0]
@@ -176,37 +172,4 @@ func TestAuditMiddleware(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestAuditMiddleware_FailedToRetrieveProxyConn(t *testing.T) {
-	mockHandler := &mockHandler{}
-
-	request := httptest.NewRequest(http.MethodGet, "/api", nil)
-	recorder := httptest.NewRecorder()
-
-	core, logs := observer.New(zap.DebugLevel)
-	logger := zap.New(core)
-
-	auditMiddleware(auditMiddlewareConfig{
-		next:   mockHandler.serveHTTP,
-		logger: logger,
-	}).ServeHTTP(recorder, request)
-
-	response := recorder.Result()
-	assert.Equal(t, http.StatusInternalServerError, response.StatusCode)
-	assert.Equal(t, "Internal server error\n", recorder.Body.String())
-
-	assert.Len(t, logs.All(), 1)
-	log := logs.All()[0]
-	assert.Equal(t, zapcore.ErrorLevel, log.Level)
-	assert.Equal(t, "Failed to retrieve proxy connection from context", log.Message)
-
-	logContext := log.ContextMap()
-	assert.Subset(t, logContext, map[string]any{
-		"method":      "GET",
-		"url":         "/api",
-		"remote_addr": request.RemoteAddr,
-	})
-	assert.NotEmpty(t, logContext["request_id"])
-	assert.NotEmpty(t, logContext["requested_at"])
 }

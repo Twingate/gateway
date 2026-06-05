@@ -22,6 +22,7 @@ type User struct {
 func NewUser(user *token.User, gatewayPort int, kindAddress, controllerURL string) (*User, error) {
 	client := fake.NewClient(
 		user,
+		token.GeoIPLocation{},
 		fmt.Sprintf("127.0.0.1:%d", gatewayPort),
 		controllerURL,
 		kindAddress,
@@ -57,6 +58,7 @@ type SSHUser struct {
 func NewSSHUser(user *token.User, gatewayPort int, sshServerAddress, controllerURL, knownHostsFile string) (*SSHUser, error) {
 	client := fake.NewClient(
 		user,
+		token.GeoIPLocation{},
 		fmt.Sprintf("127.0.0.1:%d", gatewayPort),
 		controllerURL,
 		sshServerAddress,
@@ -76,5 +78,34 @@ func NewSSHUser(user *token.User, gatewayPort int, sshServerAddress, controllerU
 }
 
 func (u *SSHUser) Close() {
+	u.client.Close()
+}
+
+// WebAppUser represents a user and its fake Client configured for WebApp proxying.
+type WebAppUser struct {
+	token.User
+
+	URL    string
+	client *fake.Client
+}
+
+func NewWebAppUser(user *token.User, geoIPLocation token.GeoIPLocation, gatewayPort int, upstreamAddress, controllerURL string) *WebAppUser {
+	client := fake.NewClient(
+		user,
+		geoIPLocation,
+		fmt.Sprintf("127.0.0.1:%d", gatewayPort),
+		controllerURL,
+		upstreamAddress,
+		token.ResourceTypeWebApp,
+	)
+
+	return &WebAppUser{
+		User:   *user,
+		URL:    "http://" + client.Address,
+		client: client,
+	}
+}
+
+func (u *WebAppUser) Close() {
 	u.client.Close()
 }

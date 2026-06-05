@@ -83,33 +83,6 @@ func TestProxyConn_setConnectInfo(t *testing.T) {
 	})
 }
 
-func TestProxyConn_TransportProtocol(t *testing.T) {
-	tests := []struct {
-		resourceType token.ResourceType
-		expected     TransportProtocol
-	}{
-		{
-			resourceType: token.ResourceTypeKubernetes,
-			expected:     TransportTLS,
-		},
-		{
-			resourceType: token.ResourceTypeSSH,
-			expected:     TransportSSH,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.resourceType, func(t *testing.T) {
-			claims := &token.GATClaims{
-				Resource: token.Resource{Type: tt.resourceType},
-			}
-			proxyConn := &ProxyConn{Claims: claims}
-
-			assert.Equal(t, tt.expected, proxyConn.TransportProtocol())
-		})
-	}
-}
-
 func TestProxyConn_Close(t *testing.T) {
 	conn := &mockConn{}
 	timer := time.NewTimer(0 * time.Millisecond)

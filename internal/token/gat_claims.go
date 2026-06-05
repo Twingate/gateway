@@ -61,6 +61,10 @@ func (p GATClaims) Validate() error {
 	return nil
 }
 
+func (p GATClaims) ShouldUpgradeTLS() bool {
+	return p.Resource.Type == ResourceTypeKubernetes
+}
+
 func (p GATClaims) getHeaderType() string {
 	return "GAT"
 }
@@ -85,15 +89,25 @@ func (u User) MarshalLogObject(enc zapcore.ObjectEncoder) error {
 	return err
 }
 
-type Device struct {
-	ID string `json:"id"`
+type GeoIPLocation struct {
+	Lat     float64 `json:"lat"`
+	Lon     float64 `json:"lon"`
+	Country string  `json:"country,omitempty"`
+	Region  string  `json:"region,omitempty"`
+	City    string  `json:"city,omitempty"`
 }
 
-type ResourceType = string
+type Device struct {
+	ID       string        `json:"id"`
+	Location GeoIPLocation `json:"location,omitzero"`
+}
+
+type ResourceType string
 
 const (
-	ResourceTypeKubernetes = "KUBERNETES"
-	ResourceTypeSSH        = "SSH"
+	ResourceTypeKubernetes ResourceType = "KUBERNETES"
+	ResourceTypeSSH        ResourceType = "SSH"
+	ResourceTypeWebApp     ResourceType = "WEB_APP"
 )
 
 type Resource struct {

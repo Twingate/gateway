@@ -11,9 +11,6 @@ tests:
     set:
       kubernetes:
         enabled: true
-        upstreams:
-          - name: "k8s api server"
-            inCluster: true
     asserts:
       - matchSnapshot: {}
   - it: should render with SSH enabled
@@ -22,8 +19,5 @@ tests:
         enabled: true
         gateway:
           username: "test"
-        upstreams:
-          - name: "ssh-server"
-            address: "10.0.0.1:22"
     asserts:
       - matchSnapshot: {}

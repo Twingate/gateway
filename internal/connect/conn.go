@@ -32,13 +32,6 @@ func httpResponseString(httpCode int) string {
 	return fmt.Sprintf("HTTP/1.1 %d %s\r\n\r\n", httpCode, http.StatusText(httpCode))
 }
 
-type TransportProtocol int
-
-const (
-	TransportTLS TransportProtocol = iota
-	TransportSSH
-)
-
 // Conn is a custom connection that wraps the underlying TCP net.Conn, handling downstream
 // proxy (Twingate Client)'s authentication via the initial CONNECT message. It handles 2 TLS
 // upgrades: with downstream proxy and then optionally with downstream client e.g. `kubectl`.
@@ -47,8 +40,8 @@ type Conn interface {
 	GATClaims() *token.GATClaims
 	GetID() string
 	GetAddress() string
+	GetToken() string
 	Authenticate() error
-	TransportProtocol() TransportProtocol
 	UpgradeToTLS() error
 
 	Close() error
@@ -64,6 +57,7 @@ type ProxyConn struct {
 	ID      string
 	Address string
 	Claims  *token.GATClaims
+	Token   string
 
 	Timer *time.Timer
 	Mu    sync.Mutex
@@ -97,14 +91,6 @@ func (p *ProxyConn) Close() error {
 	return p.Conn.Close()
 }
 
-func (p *ProxyConn) TransportProtocol() TransportProtocol {
-	if p.GATClaims().Resource.Type == token.ResourceTypeSSH {
-		return TransportSSH
-	}
-
-	return TransportTLS
-}
-
 func (p *ProxyConn) GATClaims() *token.GATClaims {
 	return p.Claims
 }
@@ -115,6 +101,10 @@ func (p *ProxyConn) GetID() string {
 
 func (p *ProxyConn) GetAddress() string {
 	return p.Address
+}
+
+func (p *ProxyConn) GetToken() string {
+	return p.Token
 }
 
 // Authenticate sets up TLS and processes the CONNECT message for authentication.
@@ -225,7 +215,10 @@ func (p *ProxyConn) Authenticate() error {
 
 	p.tracker.RecordConnectMetrics(httpCode)
 
-	p.Logger.Info("Authenticated connection", zap.String("resource_address", connectInfo.Claims.Resource.Address))
+	p.Logger.Info("Authenticated connection",
+		zap.String("resource_type", string(connectInfo.Claims.Resource.Type)),
+		zap.String("resource_address", connectInfo.Claims.Resource.Address),
+	)
 	p.setConnectInfo(connectInfo)
 
 	return nil
@@ -249,6 +242,7 @@ func (p *ProxyConn) setConnectInfo(connectInfo Info) {
 	p.ID = connectInfo.ConnID
 	p.Address = connectInfo.Address
 	p.Claims = connectInfo.Claims
+	p.Token = connectInfo.Token
 	p.Timer = time.AfterFunc(time.Until(connectInfo.Claims.ExpiresAt.Time), func() {
 		_ = p.Close()
 	})

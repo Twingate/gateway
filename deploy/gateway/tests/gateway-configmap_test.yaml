@@ -48,13 +48,7 @@ set:
   kubernetes:
     enabled: true
 tests:
-  - it: should include Kubernetes settings with in-cluster upstream
-    set:
-      kubernetes:
-        enabled: true
-        upstreams:
-          - name: "k8s api server"
-            inCluster: true
+  - it: should render empty kubernetes block (in-cluster mode)
     asserts:
       - equal:
           path: data["config.yaml"]
@@ -74,18 +68,13 @@ tests:
               certificateFile: "/etc/gateway/tls/tls.crt"
               privateKeyFile: "/etc/gateway/tls/tls.key"
 
-            kubernetes:
-              upstreams:
-                - inCluster: true
-                  name: k8s api server
-  - it: should include Kubernetes settings with out-of-cluster upstream
+            kubernetes: {}
+  - it: should include kubernetes upstream creds when provided (external mode for testing)
     set:
       kubernetes:
         enabled: true
         upstreams:
-          - name: "k8s api server"
-            inCluster: false
-            address: "10.0.0.1:443"
+          - name: "external"
             bearerTokenFile: "/token"
             caFile: "/ca.crt"
     asserts:
@@ -109,47 +98,29 @@ tests:
 
             kubernetes:
               upstreams:
-                - address: 10.0.0.1:443
-                  bearerTokenFile: /token
+                - bearerTokenFile: /token
                   caFile: /ca.crt
-                  inCluster: false
-                  name: k8s api server
-  - it: should error when out-of-cluster Kubernetes upstream doesn't have address
+                  name: external
+  - it: should error when external Kubernetes upstream doesn't have bearer token nor bearer token file
     set:
       kubernetes:
         enabled: true
         upstreams:
-          - name: "k8s api server"
-            inCluster: false
-            bearerToken: "token"
+          - name: "external"
             caFile: "/ca.crt"
     asserts:
       - failedTemplate:
-          errorPattern: "at '/kubernetes/upstreams/0': missing property 'address'"
-  - it: should error when out-of-cluster Kubernetes upstream doesn't have bearer token nor bearer token file
+          errorPattern: "'oneOf' failed"
+  - it: should error when external Kubernetes upstream doesn't have CA file
     set:
       kubernetes:
         enabled: true
         upstreams:
-          - name: "k8s api server"
-            inCluster: false
-            address: "10.0.0.1:443"
-            caFile: "/ca.crt"
-    asserts:
-      - failedTemplate:
-          errorPattern: "at '/kubernetes/upstreams/0': missing property 'bearerToken'"
-  - it: should error when out-of-cluster Kubernetes upstream doesn't have CA file
-    set:
-      kubernetes:
-        enabled: true
-        upstreams:
-          - name: "k8s api server"
-            inCluster: false
-            address: "10.0.0.1:443"
+          - name: "external"
             bearerToken: "token"
     asserts:
       - failedTemplate:
-          errorPattern: "at '/kubernetes/upstreams/0': missing property 'caFile'"
+          errorPattern: "missing property 'caFile'"
 ---
 suite: Gateway configmap with Resource
 templates:
@@ -158,7 +129,7 @@ set:
   twingate:
     network: "acme"
 tests:
-  - it: should auto-create inCluster upstream when resource is enabled
+  - it: should render kubernetes block when resource is enabled
     set:
       twingate:
         resource:
@@ -182,82 +153,8 @@ tests:
               certificateFile: "/etc/gateway/tls/tls.crt"
               privateKeyFile: "/etc/gateway/tls/tls.key"
 
-            kubernetes:
-              upstreams:
-                - inCluster: true
-                  name: Local Kubernetes Cluster
-  - it: should use resource.twingate.com/name from extraAnnotations as upstream name
-    set:
-      twingate:
-        resource:
-          enabled: true
-          extraAnnotations:
-            resource.twingate.com/name: "My K8s Cluster"
-    asserts:
-      - equal:
-          path: data["config.yaml"]
-          value: |-
-            twingate:
-              network: "acme"
-              host: "twingate.com"
-
-            port: 8443
-            metricsPort: 9090
-
-            auditLog:
-              flushInterval: 5m
-              flushSizeThreshold: 1e+06
-
-            tls:
-              certificateFile: "/etc/gateway/tls/tls.crt"
-              privateKeyFile: "/etc/gateway/tls/tls.key"
-
-            kubernetes:
-              upstreams:
-                - inCluster: true
-                  name: My K8s Cluster
-  - it: should prepend inCluster upstream before manual upstreams
-    set:
-      twingate:
-        resource:
-          enabled: true
-      kubernetes:
-        enabled: true
-        upstreams:
-          - name: "External Cluster"
-            inCluster: false
-            address: "https://api.k8s.int:443"
-            bearerToken: "token"
-            caFile: "/ca.crt"
-    asserts:
-      - equal:
-          path: data["config.yaml"]
-          value: |-
-            twingate:
-              network: "acme"
-              host: "twingate.com"
-
-            port: 8443
-            metricsPort: 9090
-
-            auditLog:
-              flushInterval: 5m
-              flushSizeThreshold: 1e+06
-
-            tls:
-              certificateFile: "/etc/gateway/tls/tls.crt"
-              privateKeyFile: "/etc/gateway/tls/tls.key"
-
-            kubernetes:
-              upstreams:
-                - inCluster: true
-                  name: Local Kubernetes Cluster
-                - address: https://api.k8s.int:443
-                  bearerToken: token
-                  caFile: /ca.crt
-                  inCluster: false
-                  name: External Cluster
-  - it: should auto-enable kubernetes even when kubernetes.enabled is false
+            kubernetes: {}
+  - it: should still render kubernetes block when kubernetes.enabled is false and resource is enabled
     set:
       twingate:
         resource:
@@ -283,10 +180,7 @@ tests:
               certificateFile: "/etc/gateway/tls/tls.crt"
               privateKeyFile: "/etc/gateway/tls/tls.key"
 
-            kubernetes:
-              upstreams:
-                - inCluster: true
-                  name: Local Kubernetes Cluster
+            kubernetes: {}
 ---
 suite: Gateway configmap with SSH
 templates:
@@ -298,9 +192,6 @@ set:
     enabled: true
     gateway:
       username: "gateway"
-    upstreams:
-      - name: "ssh-server"
-        address: "10.0.0.1:22"
 tests:
   - it: should include SSH without any CA (using auto-generated CA)
     asserts:
@@ -331,10 +222,6 @@ tests:
                   ttl: "24h"
                 userCertificate:
                   ttl: "5m"
-
-              upstreams:
-                - address: 10.0.0.1:22
-                  name: ssh-server
   - it: should include SSH with manual CA
     set:
       ssh:
@@ -373,9 +260,6 @@ tests:
               ca:
                 manual:
                   privateKeyFile: "/etc/gateway/ssh/ca-private-key"
-              upstreams:
-                - address: 10.0.0.1:22
-                  name: ssh-server
   - it: should include SSH with Vault CA
     set:
       ssh:
@@ -443,9 +327,6 @@ tests:
                     role: "gateway-user"
                   upstreamHostCA:
                     mount: "ssh-upstream-host"
-              upstreams:
-                - address: 10.0.0.1:22
-                  name: ssh-server
   - it: should include SSH with Vault AppRole auth
     set:
       ssh:
@@ -497,9 +378,6 @@ tests:
                       secretIDFile: "/etc/gateway/vault/approle/secretId"
                   mount: "ssh-gateway"
                   role: "gateway"
-              upstreams:
-                - address: 10.0.0.1:22
-                  name: ssh-server
   - it: should error when SSH Gateway username is empty
     set:
       ssh:
@@ -517,19 +395,85 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "at '/ssh/ca': maxProperties: got 2, want 1"
-  - it: should error when SSH upstream doesn't have name
-    set:
-      ssh:
-        upstreams:
-          - address: "10.0.0.1:22"
+---
+suite: Gateway configmap with WebApp
+templates:
+  - gateway-configmap.yaml
+set:
+  twingate:
+    network: "acme"
+  webApp:
+    enabled: true
+tests:
+  - it: should render empty webApp block when enabled without headers
     asserts:
-      - failedTemplate:
-          errorPattern: "at '/ssh/upstreams/0': missing property 'name'"
-  - it: should error when SSH upstream doesn't have address
+      - equal:
+          path: data["config.yaml"]
+          value: |-
+            twingate:
+              network: "acme"
+              host: "twingate.com"
+
+            port: 8443
+            metricsPort: 9090
+
+            auditLog:
+              flushInterval: 5m
+              flushSizeThreshold: 1e+06
+
+            tls:
+              certificateFile: "/etc/gateway/tls/tls.crt"
+              privateKeyFile: "/etc/gateway/tls/tls.key"
+
+            webApp: {}
+  - it: should render webApp with custom headers
     set:
-      ssh:
-        upstreams:
-          - name: "ssh-server"
+      webApp:
+        headers:
+          X-Groups: "{{twingate.groups}}"
+          X-User: "{{twingate.username}}"
     asserts:
-      - failedTemplate:
-          errorPattern: "at '/ssh/upstreams/0': missing property 'address'"
+      - equal:
+          path: data["config.yaml"]
+          value: |-
+            twingate:
+              network: "acme"
+              host: "twingate.com"
+
+            port: 8443
+            metricsPort: 9090
+
+            auditLog:
+              flushInterval: 5m
+              flushSizeThreshold: 1e+06
+
+            tls:
+              certificateFile: "/etc/gateway/tls/tls.crt"
+              privateKeyFile: "/etc/gateway/tls/tls.key"
+
+            webApp:
+              headers:
+                X-Groups: '{{twingate.groups}}'
+                X-User: '{{twingate.username}}'
+  - it: should not render webApp when disabled
+    set:
+      webApp:
+        enabled: false
+    asserts:
+      - equal:
+          path: data["config.yaml"]
+          value: |-
+            twingate:
+              network: "acme"
+              host: "twingate.com"
+
+            port: 8443
+            metricsPort: 9090
+
+            auditLog:
+              flushInterval: 5m
+              flushSizeThreshold: 1e+06
+
+            tls:
+              certificateFile: "/etc/gateway/tls/tls.crt"
+              privateKeyFile: "/etc/gateway/tls/tls.key"
