@@ -136,7 +136,7 @@ func downloadCaddyCACert(t *testing.T) string {
 func getDockerImageTag(t *testing.T) string {
 	t.Helper()
 
-	var imageReference = "twingate/gateway:*-linux-"
+	var imageReference = "twingate/gateway:*-"
 	if runtime.GOARCH == archARM64 {
 		imageReference += "arm64"
 	} else {
