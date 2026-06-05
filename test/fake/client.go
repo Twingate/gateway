@@ -39,6 +39,7 @@ type Client struct {
 	Address  string
 
 	user          *token.User
+	geoIPLocation token.GeoIPLocation
 	proxyAddress  string
 	controllerURL string
 
@@ -53,7 +54,7 @@ type Client struct {
 }
 
 // NewClient creates a new Client. upstreamAddress must include both the host and the port.
-func NewClient(user *token.User, proxyAddress, controllerURL, upstreamAddress string, resourceType token.ResourceType) *Client {
+func NewClient(user *token.User, geoIPLocation token.GeoIPLocation, proxyAddress, controllerURL, upstreamAddress string, resourceType token.ResourceType) *Client {
 	logger := zap.Must(zap.NewDevelopment()).Named(fmt.Sprintf("client-%s-%s", user.ID, user.Username))
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -78,6 +79,7 @@ func NewClient(user *token.User, proxyAddress, controllerURL, upstreamAddress st
 		proxyAddress:     proxyAddress,
 		controllerURL:    controllerURL,
 		user:             user,
+		geoIPLocation:    geoIPLocation,
 		resourceHostname: resourceHostname,
 		resourcePort:     resourcePort,
 		resourceType:     resourceType,
@@ -225,7 +227,8 @@ func (c *Client) fetchGAT() (string, error) {
 		},
 		User: c.user,
 		Device: &token.Device{
-			ID: "device-1",
+			ID:       "device-1",
+			Location: c.geoIPLocation,
 		},
 		Resource: &token.Resource{
 			ID:      "resource-1",
