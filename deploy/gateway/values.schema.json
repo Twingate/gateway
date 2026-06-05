@@ -305,6 +305,24 @@
       },
       "additionalProperties": false
     },
+    "webApp": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable HTTP web app proxying.",
+          "default": false
+        },
+        "headers": {
+          "type": "object",
+          "description": "Custom HTTP headers to inject into proxied requests. Values may use template expressions with the twingate namespace (e.g. {{twingate.username}}, {{twingate.groups}}, {{twingate.jwt}}, {{twingate.clientGeoLoc}}).",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
     "tls": {
       "type": "object",
       "properties": {

@@ -102,3 +102,15 @@ data:
       {{- end }}
     {{ end -}}
     {{ end -}}
+
+    {{ with .Values.webApp -}}
+    {{ if .enabled -}}
+    {{ with .headers -}}
+    webApp:
+      headers:
+        {{- . | toYaml | nindent 8 }}
+    {{ else -}}
+    webApp: {}
+    {{ end -}}
+    {{ end -}}
+    {{ end -}}

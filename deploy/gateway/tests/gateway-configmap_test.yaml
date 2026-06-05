@@ -395,3 +395,85 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "at '/ssh/ca': maxProperties: got 2, want 1"
+---
+suite: Gateway configmap with WebApp
+templates:
+  - gateway-configmap.yaml
+set:
+  twingate:
+    network: "acme"
+  webApp:
+    enabled: true
+tests:
+  - it: should render empty webApp block when enabled without headers
+    asserts:
+      - equal:
+          path: data["config.yaml"]
+          value: |-
+            twingate:
+              network: "acme"
+              host: "twingate.com"
+
+            port: 8443
+            metricsPort: 9090
+
+            auditLog:
+              flushInterval: 5m
+              flushSizeThreshold: 1e+06
+
+            tls:
+              certificateFile: "/etc/gateway/tls/tls.crt"
+              privateKeyFile: "/etc/gateway/tls/tls.key"
+
+            webApp: {}
+  - it: should render webApp with custom headers
+    set:
+      webApp:
+        headers:
+          X-Groups: "{{twingate.groups}}"
+          X-User: "{{twingate.username}}"
+    asserts:
+      - equal:
+          path: data["config.yaml"]
+          value: |-
+            twingate:
+              network: "acme"
+              host: "twingate.com"
+
+            port: 8443
+            metricsPort: 9090
+
+            auditLog:
+              flushInterval: 5m
+              flushSizeThreshold: 1e+06
+
+            tls:
+              certificateFile: "/etc/gateway/tls/tls.crt"
+              privateKeyFile: "/etc/gateway/tls/tls.key"
+
+            webApp:
+              headers:
+                X-Groups: '{{twingate.groups}}'
+                X-User: '{{twingate.username}}'
+  - it: should not render webApp when disabled
+    set:
+      webApp:
+        enabled: false
+    asserts:
+      - equal:
+          path: data["config.yaml"]
+          value: |-
+            twingate:
+              network: "acme"
+              host: "twingate.com"
+
+            port: 8443
+            metricsPort: 9090
+
+            auditLog:
+              flushInterval: 5m
+              flushSizeThreshold: 1e+06
+
+            tls:
+              certificateFile: "/etc/gateway/tls/tls.crt"
+              privateKeyFile: "/etc/gateway/tls/tls.key"
