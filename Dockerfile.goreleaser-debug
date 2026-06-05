@@ -3,10 +3,11 @@ ARG TARGETOS
 ARG TARGETARCH
 
 FROM --platform=$BUILDPLATFORM  golang:${GOLANG_VERSION} AS builder
-RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go install github.com/go-delve/delve/cmd/dlv@v1.25.2
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go install github.com/go-delve/delve/cmd/dlv@v1.26.3
 
 FROM gcr.io/distroless/static-debian12:debug
+ARG TARGETPLATFORM
 ENTRYPOINT ["./dlv", "exec", "./gateway-debug", "--headless", "--listen=:2345", "--api-version=2", "--accept-multiclient", "--continue", "--", "start"]
-COPY gateway-debug /
+COPY $TARGETPLATFORM/gateway-debug /
 COPY LICENSE /
 COPY --from=builder /go/bin/dlv /

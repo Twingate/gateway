@@ -2,10 +2,11 @@ GOLANG_VERSION 		?= $(shell cat .tool-versions | grep golang | cut -d' ' -f2)
 GOLANGCI_LINT_VERSION	?= v2.11.1
 VERSION 			?= $(shell go tool svu current)
 REGISTRY 			?= twingate
-IMAGE				:= kubernetes-gateway
+IMAGE				:= gateway
 IMAGE_NAME			:= $(REGISTRY)/$(IMAGE)
-DOCKER_BUILDX_BUILDER ?= twingate-kubernetes-gateway-builder
-DOCKER_BUILDX_CACHE ?=
+DOCKER_BUILDX_BUILDER ?= twingate-gateway-builder
+DOCKER_BUILDX_CACHE_FROM ?=
+DOCKER_BUILDX_CACHE_TO ?=
 
 export DOCKER_CLI_EXPERIMENTAL=enabled
 
@@ -127,7 +128,7 @@ prepare-buildx: ##@build Prepare buildx
 
 .PHONY: build
 build: prepare-buildx ##@build Build the Go binaries and container images
-	DOCKER_BUILDX_BUILDER=$(DOCKER_BUILDX_BUILDER) GOLANG_VERSION=$(GOLANG_VERSION) IMAGE_REGISTRY=$(REGISTRY) goreleaser release --snapshot --clean
+	DOCKER_BUILDX_BUILDER=$(DOCKER_BUILDX_BUILDER) DOCKER_BUILDX_CACHE_FROM=$(DOCKER_BUILDX_CACHE_FROM) DOCKER_BUILDX_CACHE_TO=$(DOCKER_BUILDX_CACHE_TO) goreleaser release --snapshot --clean
 
 .PHONY: cut-release-prod
 cut-release-prod: ##@release Cut a production release (create a version tag and push it)
