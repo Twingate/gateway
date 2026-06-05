@@ -17,6 +17,38 @@ tests:
             resource.twingate.com/type: Kubernetes
             resource.twingate.com/tlsSecret: RELEASE-NAME-gateway-tls
             resource.twingate.com/name: "My Kubernetes API server"
+  - it: add annotations for operator-managed Gateway
+    set:
+      twingate:
+        managed: true
+    asserts:
+      - equal:
+          path: metadata.annotations
+          value:
+            gateway.twingate.com: "true"
+            gateway.twingate.com/tlsSecret: RELEASE-NAME-gateway-tls
+  - it: add annotations for both managed Gateway and Resource CRD
+    set:
+      twingate:
+        managed: true
+        resource:
+          enabled: true
+          extraAnnotations:
+            resource.twingate.com/name: "My Kubernetes API server"
+    asserts:
+      - equal:
+          path: metadata.annotations
+          value:
+            gateway.twingate.com: "true"
+            gateway.twingate.com/tlsSecret: RELEASE-NAME-gateway-tls
+            resource.twingate.com: "true"
+            resource.twingate.com/type: Kubernetes
+            resource.twingate.com/tlsSecret: RELEASE-NAME-gateway-tls
+            resource.twingate.com/name: "My Kubernetes API server"
+  - it: omit Gateway annotations when not managed
+    asserts:
+      - notExists:
+          path: metadata.annotations["gateway.twingate.com"]
   - it: add Service annotations
     set:
       service:

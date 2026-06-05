@@ -17,6 +17,11 @@
           "description": "Twingate host.",
           "default": "twingate.com"
         },
+        "managed": {
+          "type": "boolean",
+          "description": "Annotate the Service with `gateway.twingate.com` so the Twingate operator manages this gateway (creates the TwingateGateway + its CA).",
+          "default": false
+        },
         "resource": {
           "type": "object",
           "required": ["enabled"],

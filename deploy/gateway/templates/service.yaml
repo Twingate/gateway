@@ -8,6 +8,10 @@ metadata:
     {{- with .Values.service.annotations }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
+    {{- if .Values.twingate.managed }}
+    gateway.twingate.com: "true"
+    gateway.twingate.com/tlsSecret: {{ include "gateway.tlsSecretName" . }}
+    {{- end }}
     {{- if .Values.twingate.resource.enabled }}
     resource.twingate.com: "true"
     resource.twingate.com/type: "Kubernetes"

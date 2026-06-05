@@ -8,7 +8,12 @@ fullnameOverride: ""
 
 twingate:
   network: ""
+  # When true, annotate the Service with `gateway.twingate.com` so the Twingate
+  # operator manages this gateway (creates the TwingateGateway + its CA).
+  managed: false
   resource:
+    # When true, the operator creates the in-cluster Kubernetes TwingateResource
+    # (the K8s API server), bound to this gateway when `managed` is true.
     enabled: false
     extraAnnotations: {}
 #      # Resource alias is included in the auto-generated TLS cert
