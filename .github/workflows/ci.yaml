@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  GOLANG_VERSION: 1.26.3
+  GOLANG_VERSION: 1.26.4
   CADDY_VERSION: 2.10.2
 
 permissions:
