@@ -13,8 +13,42 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestGATClaims_ShouldUpgradeTLS(t *testing.T) {
+	tests := []struct {
+		name         string
+		resourceType ResourceType
+		expected     bool
+	}{
+		{
+			name:         "Kubernetes should upgrade TLS",
+			resourceType: ResourceTypeKubernetes,
+			expected:     true,
+		},
+		{
+			name:         "SSH should not upgrade TLS",
+			resourceType: ResourceTypeSSH,
+			expected:     false,
+		},
+		{
+			name:         "Web app should not upgrade TLS",
+			resourceType: ResourceTypeWebApp,
+			expected:     false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			claims := &GATClaims{
+				Resource: Resource{Type: tt.resourceType},
+			}
+			assert.Equal(t, tt.expected, claims.ShouldUpgradeTLS())
+		})
+	}
+}
 
 func TestGATTokenClaims_Validate(t *testing.T) {
 	privateKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -29,6 +63,13 @@ func TestGATTokenClaims_Validate(t *testing.T) {
 		},
 		Device: Device{
 			ID: "device-1",
+			Location: GeoIPLocation{
+				Lat:     37.7749,
+				Lon:     -122.4194,
+				Country: "US",
+				Region:  "California",
+				City:    "San Francisco",
+			},
 		},
 		Resource: Resource{
 			ID:      "resource-1",

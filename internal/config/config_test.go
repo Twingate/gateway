@@ -304,6 +304,9 @@ func TestConfig_Validate(t *testing.T) {
 					PrivateKeyFile:  "tls.key",
 				},
 				Kubernetes: &KubernetesConfig{},
+				WebApp: &WebAppConfig{
+					Headers: map[string]string{"Authorization": "Bearer {{twingate.jwt}}"},
+				},
 			},
 			wantErr: false,
 		},

@@ -16,6 +16,7 @@ import (
 	"go.uber.org/zap"
 
 	"gateway/internal/connect"
+	"gateway/internal/metrics"
 	"gateway/internal/token"
 )
 
@@ -33,7 +34,10 @@ func (l *mockConnListener) Accept() (net.Conn, error) {
 	proxyConn := connect.NewProxyConn(conn, nil, nil, zap.NewNop(), connMetrics)
 	proxyConn.ID = "test-conn"
 	proxyConn.Address = "localhost"
-	proxyConn.Claims = &token.GATClaims{User: token.User{Username: "test@acme.com"}}
+	proxyConn.Claims = &token.GATClaims{
+		User:     token.User{Username: "test@acme.com"},
+		Resource: token.Resource{Type: token.ResourceTypeKubernetes},
+	}
 
 	return proxyConn, nil
 }
@@ -65,9 +69,10 @@ func TestProxy_ForwardRequest(t *testing.T) {
 	require.NoError(t, err)
 
 	proxy := NewProxy(Config{
-		Registry: prometheus.NewRegistry(),
-		Handler:  handler,
-		Logger:   zap.NewNop(),
+		Metrics:      metrics.RegisterHTTPMetrics(prometheus.NewRegistry()),
+		ResourceType: metrics.ResourceTypeKubernetes,
+		Handler:      handler,
+		Logger:       zap.NewNop(),
 	})
 
 	go func() {
@@ -99,9 +104,10 @@ func TestProxy_Shutdown(t *testing.T) {
 	require.NoError(t, err)
 
 	proxy := NewProxy(Config{
-		Handler:  handler,
-		Registry: prometheus.NewRegistry(),
-		Logger:   zap.NewNop(),
+		Metrics:      metrics.RegisterHTTPMetrics(prometheus.NewRegistry()),
+		ResourceType: metrics.ResourceTypeKubernetes,
+		Handler:      handler,
+		Logger:       zap.NewNop(),
 	})
 
 	done := make(chan error, 1)

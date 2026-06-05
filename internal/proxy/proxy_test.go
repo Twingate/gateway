@@ -21,6 +21,7 @@ import (
 	"gateway/internal/kuberneteshandler"
 	"gateway/internal/metrics"
 	"gateway/internal/sshhandler"
+	"gateway/internal/token"
 )
 
 var fullConfig = gatewayconfig.Config{
@@ -67,14 +68,16 @@ func TestNewProxy_Success(t *testing.T) {
 	assert.Equal(t, registry, p.registry)
 	assert.Equal(t, logger, p.logger)
 
-	assert.NotNil(t, p.httpProxy)
+	assert.Len(t, p.httpProxies, 1)
+	assert.Contains(t, p.httpProxies, token.ResourceTypeKubernetes)
 	assert.NotNil(t, p.sshProxy)
 	assert.NotNil(t, p.metricsServer)
 }
 
-func TestNewProxy_KubernetesOnly(t *testing.T) {
+func TestNewProxy_HTTPOnly(t *testing.T) {
 	config := fullConfig
 	config.SSH = nil
+	config.WebApp = &gatewayconfig.WebAppConfig{Headers: map[string]string{}}
 
 	registry := prometheus.NewRegistry()
 	logger, err := NewLogger(DefaultLoggerName, false)
@@ -84,7 +87,9 @@ func TestNewProxy_KubernetesOnly(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.NotNil(t, p)
-	assert.NotNil(t, p.httpProxy)
+	assert.Len(t, p.httpProxies, 2)
+	assert.Contains(t, p.httpProxies, token.ResourceTypeKubernetes)
+	assert.Contains(t, p.httpProxies, token.ResourceTypeWebApp)
 	assert.Nil(t, p.sshProxy)
 }
 
@@ -101,7 +106,7 @@ func TestNewProxy_SSHOnly(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, p)
 	assert.NotNil(t, p.sshProxy)
-	assert.Nil(t, p.httpProxy)
+	assert.Empty(t, p.httpProxies)
 }
 
 func createTestProxy(t *testing.T) (*Proxy, net.Listener) {
@@ -139,12 +144,15 @@ func TestShutdown_ClosesAllComponents(t *testing.T) {
 	require.NoError(t, err)
 
 	httpProxy := httpproxy.NewProxy(httpproxy.Config{
-		Handler:  k8sHandler,
-		Registry: registry,
-		Logger:   zap.NewNop(),
+		Handler:      k8sHandler,
+		Metrics:      metrics.RegisterHTTPMetrics(registry),
+		ResourceType: metrics.ResourceTypeKubernetes,
+		Logger:       zap.NewNop(),
 	})
 
-	p.httpProxy = httpProxy
+	p.httpProxies = map[token.ResourceType]*httpproxy.Proxy{
+		token.ResourceTypeKubernetes: httpProxy,
+	}
 
 	// Start HTTP proxy on a protocol listener
 	httpChannel := make(chan connect.Conn)
@@ -153,7 +161,7 @@ func TestShutdown_ClosesAllComponents(t *testing.T) {
 	httpDone := make(chan error, 1)
 
 	go func() {
-		httpDone <- p.httpProxy.Start(httpListener)
+		httpDone <- httpProxy.Start(httpListener)
 	}()
 
 	// Create and attach a real SSH proxy
@@ -229,11 +237,11 @@ func TestShutdown_NilComponents(t *testing.T) {
 	p := &Proxy{
 		logger:        zap.NewNop(),
 		listener:      nil,
-		httpProxy:     nil,
+		httpProxies:   nil,
 		sshProxy:      nil,
 		metricsServer: metricsServer,
 	}
 
-	// Should not panic with nil listener, httpProxy, and sshProxy
+	// Should not panic with nil listener, httpProxies, and sshProxy
 	p.shutdown()
 }

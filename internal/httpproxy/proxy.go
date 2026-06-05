@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
 
 	"gateway/internal/connect"
@@ -28,9 +27,10 @@ func ProxyConnFromContext(ctx context.Context) *connect.ProxyConn {
 }
 
 type Config struct {
-	Handler  http.Handler
-	Registry *prometheus.Registry
-	Logger   *zap.Logger
+	Handler      http.Handler
+	Metrics      *metrics.HTTPMetrics
+	Logger       *zap.Logger
+	ResourceType metrics.ResourceType
 }
 
 type Proxy struct {
@@ -38,13 +38,10 @@ type Proxy struct {
 }
 
 func NewProxy(cfg Config) *Proxy {
-	handler := metrics.HTTPMiddleware(metrics.HTTPMiddlewareConfig{
-		Registry: cfg.Registry,
-		Next: auditMiddleware(auditMiddlewareConfig{
-			next:   cfg.Handler,
-			logger: cfg.Logger,
-		}),
-	})
+	handler := metrics.HTTPMiddleware(cfg.Metrics, cfg.ResourceType, auditMiddleware(auditMiddlewareConfig{
+		next:   cfg.Handler,
+		logger: cfg.Logger,
+	}))
 
 	mux := http.NewServeMux()
 	mux.Handle("/", handler)

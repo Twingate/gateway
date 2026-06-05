@@ -28,71 +28,84 @@ const (
 	requestTypeUnknown   = "unknown"
 )
 
-type HTTPMiddlewareConfig struct {
-	Registry *prometheus.Registry
-	Next     http.Handler
-}
-
 type contextKey struct{}
 
-func HTTPMiddleware(config HTTPMiddlewareConfig) http.HandlerFunc {
-	requestsTotal := prometheus.NewCounterVec(prometheus.CounterOpts{
-		Namespace: Namespace,
-		Name:      "http_requests_total",
-		Help:      "Total number of HTTP requests processed",
-	}, []string{"type", "method", "code"})
+type HTTPMetrics struct {
+	requestsTotal     *prometheus.CounterVec
+	activeRequests    *prometheus.GaugeVec
+	requestDuration   *prometheus.HistogramVec
+	requestSizeBytes  *prometheus.HistogramVec
+	responseSizeBytes *prometheus.HistogramVec
+}
 
-	activeRequests := prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Namespace: Namespace,
-		Name:      "http_active_requests",
-		Help:      "Number of currently active HTTP requests",
-	}, []string{"type"})
-
-	requestDuration := prometheus.NewHistogramVec(
-		prometheus.HistogramOpts{
+func RegisterHTTPMetrics(registry *prometheus.Registry) *HTTPMetrics {
+	m := &HTTPMetrics{
+		requestsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: Namespace,
-			Name:      "http_request_duration_seconds",
-			Help:      "Latencies of HTTP requests in seconds",
-			Buckets:   []float64{0.1, 0.25, 0.5, 1, 2, 5, 10, 30, 60, 120, 300, 600, 1800, 3600},
-		}, []string{"type", "method", "code"})
+			Name:      "http_requests_total",
+			Help:      "Total number of HTTP requests processed",
+		}, []string{labelResourceType, "type", "method", "code"}),
 
-	requestSizeBytes := prometheus.NewHistogramVec(prometheus.HistogramOpts{
-		Namespace: Namespace,
-		Name:      "http_request_size_bytes",
-		Help:      "Size of incoming HTTP request in bytes",
-		Buckets:   prometheus.ExponentialBuckets(100, 10, 6),
-	}, []string{"type", "method", "code"})
+		activeRequests: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: Namespace,
+			Name:      "http_active_requests",
+			Help:      "Number of currently active HTTP requests",
+		}, []string{labelResourceType, "type"}),
 
-	responseSizeBytes := prometheus.NewHistogramVec(prometheus.HistogramOpts{
-		Namespace: Namespace,
-		Name:      "http_response_size_bytes",
-		Help:      "Size of outgoing HTTP response in bytes",
-		Buckets:   prometheus.ExponentialBuckets(100, 10, 6),
-	}, []string{"type", "method", "code"},
-	)
+		requestDuration: prometheus.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Namespace: Namespace,
+				Name:      "http_request_duration_seconds",
+				Help:      "Latencies of HTTP requests in seconds",
+				Buckets:   []float64{0.1, 0.25, 0.5, 1, 2, 5, 10, 30, 60, 120, 300, 600, 1800, 3600},
+			}, []string{labelResourceType, "type", "method", "code"}),
 
-	config.Registry.MustRegister(requestsTotal, activeRequests, requestDuration, requestSizeBytes, responseSizeBytes)
+		requestSizeBytes: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: Namespace,
+			Name:      "http_request_size_bytes",
+			Help:      "Size of incoming HTTP request in bytes",
+			Buckets:   prometheus.ExponentialBuckets(100, 10, 6),
+		}, []string{labelResourceType, "type", "method", "code"}),
 
-	opts := promhttp.WithLabelFromCtx(labelRequestType, getRequestTypeFromContext)
+		responseSizeBytes: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: Namespace,
+			Name:      "http_response_size_bytes",
+			Help:      "Size of outgoing HTTP response in bytes",
+			Buckets:   prometheus.ExponentialBuckets(100, 10, 6),
+		}, []string{labelResourceType, "type", "method", "code"}),
+	}
+
+	registry.MustRegister(m.requestsTotal, m.activeRequests, m.requestDuration, m.requestSizeBytes, m.responseSizeBytes)
+
+	return m
+}
+
+func HTTPMiddleware(metrics *HTTPMetrics, resourceType ResourceType, next http.Handler) http.HandlerFunc {
+	resourceTypeOpt := promhttp.WithLabelFromCtx(labelResourceType, func(_ context.Context) string { return string(resourceType) })
+	requestTypeOpt := promhttp.WithLabelFromCtx(labelRequestType, getRequestTypeFromContext)
 
 	base := promhttp.InstrumentHandlerCounter(
-		requestsTotal,
-		instrumentHandlerInFlight(activeRequests,
+		metrics.requestsTotal,
+		instrumentHandlerInFlight(metrics.activeRequests, string(resourceType),
 			promhttp.InstrumentHandlerDuration(
-				requestDuration,
+				metrics.requestDuration,
 				promhttp.InstrumentHandlerRequestSize(
-					requestSizeBytes,
+					metrics.requestSizeBytes,
 					promhttp.InstrumentHandlerResponseSize(
-						responseSizeBytes,
-						config.Next,
-						opts,
+						metrics.responseSizeBytes,
+						next,
+						resourceTypeOpt,
+						requestTypeOpt,
 					),
-					opts,
+					resourceTypeOpt,
+					requestTypeOpt,
 				),
-				opts,
+				resourceTypeOpt,
+				requestTypeOpt,
 			),
 		),
-		opts,
+		resourceTypeOpt,
+		requestTypeOpt,
 	)
 
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -100,12 +113,12 @@ func HTTPMiddleware(config HTTPMiddlewareConfig) http.HandlerFunc {
 	}
 }
 
-func instrumentHandlerInFlight(activeRequests *prometheus.GaugeVec, next http.Handler) http.Handler {
+func instrumentHandlerInFlight(activeRequests *prometheus.GaugeVec, resourceType string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestType := getRequestTypeFromContext(r.Context())
 
-		activeRequests.WithLabelValues(requestType).Inc()
-		defer activeRequests.WithLabelValues(requestType).Dec()
+		activeRequests.WithLabelValues(resourceType, requestType).Inc()
+		defer activeRequests.WithLabelValues(resourceType, requestType).Dec()
 
 		next.ServeHTTP(w, r)
 	})

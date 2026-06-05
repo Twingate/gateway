@@ -25,6 +25,8 @@ import (
 	"gateway/internal/metrics"
 	"gateway/internal/sessionrecorder"
 	"gateway/internal/sshhandler"
+	"gateway/internal/token"
+	"gateway/internal/webapphandler"
 )
 
 const shutdownTimeout = 30 * time.Second
@@ -34,7 +36,7 @@ type Proxy struct {
 	registry *prometheus.Registry
 	logger   *zap.Logger
 
-	httpProxy     *httpproxy.Proxy
+	httpProxies   map[token.ResourceType]*httpproxy.Proxy
 	sshProxy      *sshhandler.SSHProxy
 	metricsServer *metrics.Server
 
@@ -43,11 +45,19 @@ type Proxy struct {
 }
 
 func NewProxy(config *gatewayconfig.Config, registry *prometheus.Registry, logger *zap.Logger) (*Proxy, error) {
-	var httpProxy *httpproxy.Proxy
+	httpProxies := make(map[token.ResourceType]*httpproxy.Proxy)
+
+	var (
+		roundTripperMetrics *metrics.RoundTripperMetrics
+		httpMetrics         *metrics.HTTPMetrics
+	)
+
+	if config.Kubernetes != nil || config.WebApp != nil {
+		roundTripperMetrics = metrics.RegisterRoundTripperMetrics(registry)
+		httpMetrics = metrics.RegisterHTTPMetrics(registry)
+	}
 
 	if config.Kubernetes != nil {
-		roundTripperMetrics := metrics.RegisterRoundTripperMetrics(registry)
-
 		k8sConfig, err := kuberneteshandler.NewConfig(&config.AuditLog, config.Kubernetes, roundTripperMetrics, logger)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create Kubernetes config: %w", err)
@@ -58,10 +68,27 @@ func NewProxy(config *gatewayconfig.Config, registry *prometheus.Registry, logge
 			return nil, fmt.Errorf("failed to create Kubernetes handler: %w", err)
 		}
 
-		httpProxy = httpproxy.NewProxy(httpproxy.Config{
-			Handler:  k8sHandler,
-			Registry: registry,
-			Logger:   logger,
+		httpProxies[token.ResourceTypeKubernetes] = httpproxy.NewProxy(httpproxy.Config{
+			Handler:      k8sHandler,
+			Metrics:      httpMetrics,
+			Logger:       logger,
+			ResourceType: metrics.ResourceTypeKubernetes,
+		})
+	}
+
+	if config.WebApp != nil {
+		webAppCfg, err := webapphandler.NewConfig(config.WebApp.Headers, roundTripperMetrics, logger)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create web app config: %w", err)
+		}
+
+		webAppHandler := webapphandler.NewHandler(*webAppCfg)
+
+		httpProxies[token.ResourceTypeWebApp] = httpproxy.NewProxy(httpproxy.Config{
+			Handler:      webAppHandler,
+			Metrics:      httpMetrics,
+			Logger:       logger,
+			ResourceType: metrics.ResourceTypeWebApp,
 		})
 	}
 
@@ -87,7 +114,7 @@ func NewProxy(config *gatewayconfig.Config, registry *prometheus.Registry, logge
 		registry: registry,
 		logger:   logger,
 
-		httpProxy:     httpProxy,
+		httpProxies:   httpProxies,
 		sshProxy:      sshProxy,
 		metricsServer: metricsServer,
 	}, nil
@@ -104,22 +131,22 @@ func (p *Proxy) Start() error {
 
 	p.listener = listener
 
-	channels := make(map[connect.TransportProtocol]chan<- connect.Conn)
+	channels := make(map[token.ResourceType]chan<- connect.Conn)
 
 	var sshListener *connect.ProtocolListener
 
 	if p.sshProxy != nil {
 		sshChannel := make(chan connect.Conn)
-		channels[connect.TransportSSH] = sshChannel
+		channels[token.ResourceTypeSSH] = sshChannel
 		sshListener = connect.NewProtocolListener(sshChannel, listener.Addr())
 	}
 
-	var httpListener *connect.ProtocolListener
+	httpListeners := make(map[token.ResourceType]*connect.ProtocolListener)
 
-	if p.httpProxy != nil {
-		httpChannel := make(chan connect.Conn)
-		channels[connect.TransportTLS] = httpChannel
-		httpListener = connect.NewProtocolListener(httpChannel, listener.Addr())
+	for resourceType := range p.httpProxies {
+		ch := make(chan connect.Conn)
+		channels[resourceType] = ch
+		httpListeners[resourceType] = connect.NewProtocolListener(ch, listener.Addr())
 	}
 
 	connectListener, err := connect.NewListener(
@@ -159,17 +186,19 @@ func (p *Proxy) Start() error {
 		})
 	}
 
-	if p.httpProxy != nil {
+	for resourceType, proxy := range p.httpProxies {
 		g.Go(func() error {
-			p.logger.Info("Starting HTTP proxy")
+			p.logger.Info("Starting HTTP proxy", zap.String("resource_type", string(resourceType)))
 
-			err := p.httpProxy.Start(httpListener)
+			err := proxy.Start(httpListeners[resourceType])
 			if errors.Is(err, http.ErrServerClosed) {
 				return nil
 			}
 
 			if err != nil {
-				p.logger.Error("HTTP proxy stopped with error", zap.Error(err))
+				p.logger.Error("HTTP proxy stopped with error",
+					zap.String("resource_type", string(resourceType)),
+					zap.Error(err))
 			}
 
 			return err
@@ -224,9 +253,11 @@ func (p *Proxy) shutdown() {
 			}
 		}
 
-		if p.httpProxy != nil {
-			if err := p.httpProxy.Shutdown(ctx); err != nil {
-				p.logger.Error("Failed to shut down HTTP proxy", zap.Error(err))
+		for resourceType, proxy := range p.httpProxies {
+			if err := proxy.Shutdown(ctx); err != nil {
+				p.logger.Error("Failed to shut down HTTP proxy",
+					zap.String("resource_type", string(resourceType)),
+					zap.Error(err))
 			}
 		}
 

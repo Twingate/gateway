@@ -23,7 +23,7 @@ func TestInstrumentRoundTripper(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 
-	transport := InstrumentRoundTripper(collectors, promhttp.RoundTripperFunc(func(r *http.Request) (*http.Response, error) {
+	transport := InstrumentRoundTripper(collectors, ResourceTypeKubernetes, promhttp.RoundTripperFunc(func(r *http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody, Request: r}, nil
 	}))
 
@@ -38,17 +38,20 @@ func TestInstrumentRoundTripper(t *testing.T) {
 	labelsByMetric := testutil.ExtractLabelsFromMetrics(metricFamilies)
 	expectedLabels := map[string]map[string]string{
 		"twingate_gateway_api_server_requests_total": {
-			"type":   "http",
-			"method": "get",
-			"code":   "200",
+			"resource_type": "kubernetes",
+			"type":          "http",
+			"method":        "get",
+			"code":          "200",
 		},
 		"twingate_gateway_api_server_active_requests": {
-			"type": "http",
+			"resource_type": "kubernetes",
+			"type":          "http",
 		},
 		"twingate_gateway_api_server_request_duration_seconds": {
-			"type":   "http",
-			"method": "get",
-			"code":   "200",
+			"resource_type": "kubernetes",
+			"type":          "http",
+			"method":        "get",
+			"code":          "200",
 		},
 	}
 	assert.Equal(t, expectedLabels, labelsByMetric)
@@ -64,17 +67,17 @@ func TestInstrumentRoundTripper_MultipleTransports(t *testing.T) {
 	})
 
 	// Instrumenting multiple transports should not panic
-	transport1 := InstrumentRoundTripper(collectors, mockTransport)
-	transport2 := InstrumentRoundTripper(collectors, mockTransport)
+	k8sTransport := InstrumentRoundTripper(collectors, ResourceTypeKubernetes, mockTransport)
+	webAppTransport := InstrumentRoundTripper(collectors, ResourceTypeWebApp, mockTransport)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 
-	resp1, err := transport1.RoundTrip(req)
+	resp1, err := k8sTransport.RoundTrip(req)
 	require.NoError(t, err)
 
 	defer resp1.Body.Close()
 
-	resp2, err := transport2.RoundTrip(req)
+	resp2, err := webAppTransport.RoundTrip(req)
 	require.NoError(t, err)
 
 	defer resp2.Body.Close()

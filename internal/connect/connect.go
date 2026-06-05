@@ -28,6 +28,7 @@ type Info struct {
 	Address string
 	Claims  *token.GATClaims
 	ConnID  string
+	Token   string
 }
 
 type HTTPError struct {
@@ -156,5 +157,6 @@ func (v *MessageValidator) ParseConnect(req *http.Request, ekm []byte) (connectI
 		Address: address,
 		Claims:  gatClaims,
 		ConnID:  connID,
+		Token:   bearerToken,
 	}, nil
 }
