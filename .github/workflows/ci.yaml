@@ -204,6 +204,14 @@ jobs:
       with:
         go-version: ${{ env.GOLANG_VERSION }}
 
+    # kind 0.32 moved to containerd 2.x, whose config.toml uses a schema version
+    # that older kind CLIs can't parse. The runner's pre-installed kind lags
+    # behind, so loading images into a cluster created by the v0.32 library fails
+    # with "unknown containerd config version". Install the CLI from go.mod to
+    # keep the CLI and library in lockstep.
+    - name: Install kind CLI
+      run: go install sigs.k8s.io/kind
+
     - name: Setup Docker
       uses: docker/setup-docker-action@0234bb73ccb40f0c430b795634f9247e2b5c2d23 # v5.2.0
 
@@ -226,4 +234,6 @@ jobs:
       run: sudo caddy start
 
     - name: Run E2E Tests
-      run: make test-e2e
+      run: |
+        echo "kind CLI version: $(kind version)"
+        make test-e2e
