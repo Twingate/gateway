@@ -14,9 +14,10 @@ import (
 
 func TestNewConfig(t *testing.T) {
 	tests := []struct {
-		name    string
-		headers map[string]string
-		wantErr error
+		name        string
+		headers     map[string]string
+		wantErr     error
+		errContains string
 	}{
 		{
 			name: "valid header templates",
@@ -30,6 +31,13 @@ func TestNewConfig(t *testing.T) {
 				"X-Invalid": "{{invalid}}",
 			},
 			wantErr: template.ErrInvalidTemplate,
+		},
+		{
+			name: "unsupported key",
+			headers: map[string]string{
+				"X-Bad": "{{twingate.unknown}}",
+			},
+			wantErr: template.ErrUnsupportedKey,
 		},
 		{
 			name:    "empty headers",

@@ -5,9 +5,11 @@ package webapphandler
 
 import (
 	"context"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/http/httputil"
+	"slices"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -109,12 +111,11 @@ func TestRewrite(t *testing.T) {
 			},
 		},
 		{
-			name:     "empty geo when no device location",
+			name:     "empty lat/lon with non-empty geo fields",
 			jwtToken: "test-token",
 			claims: &token.GATClaims{
-				User:     baseClaims.User,
-				Device:   token.Device{ID: "device-1"},
-				Resource: baseClaims.Resource,
+				User:   baseClaims.User,
+				Device: token.Device{ID: "device-1", Location: token.GeoIPLocation{Country: "US", Region: "CA", City: "San Mateo"}},
 			},
 			headers: map[string]string{
 				"X-LatLong": "{{twingate.clientGeoLatLong}}",
@@ -124,9 +125,9 @@ func TestRewrite(t *testing.T) {
 			},
 			wantHeaders: map[string]string{
 				"X-LatLong": "",
-				"X-City":    "",
-				"X-Region":  "",
-				"X-Country": "",
+				"X-City":    "San Mateo",
+				"X-Region":  "CA",
+				"X-Country": "US",
 				"Existing":  "old-value",
 			},
 		},
@@ -166,4 +167,15 @@ func TestRewrite(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestBuildVariables_CoversAllowedKeys(t *testing.T) {
+	connMetrics := connect.CreateProxyConnMetrics(prometheus.NewRegistry())
+	conn := connect.NewProxyConn(nil, nil, nil, zap.NewNop(), connMetrics)
+	conn.Claims = &token.GATClaims{}
+
+	got := slices.Sorted(maps.Keys(buildVariables(conn)))
+	want := slices.Sorted(slices.Values(template.AllowedWebAppKeys))
+
+	assert.Equal(t, want, got)
 }

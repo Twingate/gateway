@@ -15,7 +15,6 @@ import (
 	"gateway/internal/connect"
 	"gateway/internal/httpproxy"
 	"gateway/internal/metrics"
-	"gateway/internal/token"
 	"gateway/internal/webapphandler/template"
 )
 
@@ -43,6 +42,26 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.proxy.ServeHTTP(w, r)
 }
 
+func buildVariables(conn *connect.ProxyConn) map[string]string {
+	claims := conn.GATClaims()
+	clientLocation := claims.Device.Location
+
+	latLong := ""
+	if clientLocation.Lat != 0 || clientLocation.Lon != 0 {
+		latLong = fmt.Sprintf("%v,%v", clientLocation.Lat, clientLocation.Lon)
+	}
+
+	return map[string]string{
+		template.JWT:              conn.GetToken(),
+		template.Username:         claims.User.Username,
+		template.Groups:           strings.Join(claims.User.Groups, ","),
+		template.ClientGeoLatLong: latLong,
+		template.ClientGeoCity:    clientLocation.City,
+		template.ClientGeoRegion:  clientLocation.Region,
+		template.ClientGeoCountry: clientLocation.Country,
+	}
+}
+
 func rewrite(r *httputil.ProxyRequest, conn *connect.ProxyConn, headers map[string]*template.Template) error {
 	targetURL := &url.URL{
 		Scheme: "http", // plain HTTP — no upstream TLS
@@ -50,24 +69,7 @@ func rewrite(r *httputil.ProxyRequest, conn *connect.ProxyConn, headers map[stri
 	}
 	r.SetURL(targetURL)
 
-	claims := conn.GATClaims()
-
-	clientLocation := claims.Device.Location
-
-	clientGeoLatLong := ""
-	if clientLocation != (token.GeoIPLocation{}) {
-		clientGeoLatLong = fmt.Sprintf("%v,%v", clientLocation.Lat, clientLocation.Lon)
-	}
-
-	variables := map[string]string{
-		template.JWT:              conn.GetToken(),
-		template.Username:         claims.User.Username,
-		template.Groups:           strings.Join(claims.User.Groups, ","),
-		template.ClientGeoLatLong: clientGeoLatLong,
-		template.ClientGeoCity:    clientLocation.City,
-		template.ClientGeoRegion:  clientLocation.Region,
-		template.ClientGeoCountry: clientLocation.Country,
-	}
+	variables := buildVariables(conn)
 
 	for headerName, tmpl := range headers {
 		headerValue, err := tmpl.Evaluate(variables)

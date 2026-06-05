@@ -5,6 +5,7 @@ package webapphandler
 
 import (
 	"fmt"
+	"slices"
 
 	"go.uber.org/zap"
 
@@ -25,6 +26,10 @@ func NewConfig(configHeaders map[string]string, roundTripperMetrics *metrics.Rou
 		tmpl, err := template.New(value)
 		if err != nil {
 			return nil, fmt.Errorf("header %q: %w", name, err)
+		}
+
+		if key := tmpl.Key(); key != "" && !slices.Contains(template.AllowedWebAppKeys, key) {
+			return nil, fmt.Errorf("header %q: %w %q", name, template.ErrUnsupportedKey, key)
 		}
 
 		headers[name] = tmpl

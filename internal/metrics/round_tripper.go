@@ -15,11 +15,12 @@ import (
 
 const labelResourceType = "resource_type"
 
-// Resource type values.
+// ResourceType identifies the upstream resource type in metric labels.
+type ResourceType string
 
 const (
-	ResourceTypeKubernetes = "kubernetes"
-	ResourceTypeWebApp     = "web_app"
+	ResourceTypeKubernetes ResourceType = "kubernetes"
+	ResourceTypeWebApp     ResourceType = "web_app"
 )
 
 type RoundTripperMetrics struct {
@@ -56,8 +57,8 @@ func RegisterRoundTripperMetrics(registry *prometheus.Registry) *RoundTripperMet
 	return c
 }
 
-func InstrumentRoundTripper(metrics *RoundTripperMetrics, resourceType string, next http.RoundTripper) promhttp.RoundTripperFunc {
-	resourceTypeOpt := promhttp.WithLabelFromCtx(labelResourceType, func(_ context.Context) string { return resourceType })
+func InstrumentRoundTripper(metrics *RoundTripperMetrics, resourceType ResourceType, next http.RoundTripper) promhttp.RoundTripperFunc {
+	resourceTypeOpt := promhttp.WithLabelFromCtx(labelResourceType, func(_ context.Context) string { return string(resourceType) })
 	requestTypeOpt := promhttp.WithLabelFromCtx(labelRequestType, getRequestTypeFromContext)
 
 	base := promhttp.InstrumentRoundTripperCounter(
@@ -81,12 +82,12 @@ func InstrumentRoundTripper(metrics *RoundTripperMetrics, resourceType string, n
 	}
 }
 
-func instrumentRoundTripperInFlight(activeRequests *prometheus.GaugeVec, resourceType string, next http.RoundTripper) promhttp.RoundTripperFunc {
+func instrumentRoundTripperInFlight(activeRequests *prometheus.GaugeVec, resourceType ResourceType, next http.RoundTripper) promhttp.RoundTripperFunc {
 	return func(r *http.Request) (*http.Response, error) {
 		requestType := getRequestTypeFromContext(r.Context())
 
-		activeRequests.WithLabelValues(resourceType, requestType).Inc()
-		defer activeRequests.WithLabelValues(resourceType, requestType).Dec()
+		activeRequests.WithLabelValues(string(resourceType), requestType).Inc()
+		defer activeRequests.WithLabelValues(string(resourceType), requestType).Dec()
 
 		return next.RoundTrip(r)
 	}

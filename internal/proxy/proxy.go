@@ -69,10 +69,10 @@ func NewProxy(config *gatewayconfig.Config, registry *prometheus.Registry, logge
 		}
 
 		httpProxies[token.ResourceTypeKubernetes] = httpproxy.NewProxy(httpproxy.Config{
-			Handler:           k8sHandler,
-			Metrics:           httpMetrics,
-			Logger:            logger,
-			ResourceTypeLabel: metrics.ResourceTypeKubernetes,
+			Handler:      k8sHandler,
+			Metrics:      httpMetrics,
+			Logger:       logger,
+			ResourceType: metrics.ResourceTypeKubernetes,
 		})
 	}
 
@@ -85,10 +85,10 @@ func NewProxy(config *gatewayconfig.Config, registry *prometheus.Registry, logge
 		webAppHandler := webapphandler.NewHandler(*webAppCfg)
 
 		httpProxies[token.ResourceTypeWebApp] = httpproxy.NewProxy(httpproxy.Config{
-			Handler:           webAppHandler,
-			Metrics:           httpMetrics,
-			Logger:            logger,
-			ResourceTypeLabel: metrics.ResourceTypeWebApp,
+			Handler:      webAppHandler,
+			Metrics:      httpMetrics,
+			Logger:       logger,
+			ResourceType: metrics.ResourceTypeWebApp,
 		})
 	}
 
