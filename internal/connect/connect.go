@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"gateway/internal/token"
@@ -142,7 +143,7 @@ func (v *MessageValidator) ParseConnect(req *http.Request, ekm []byte) (connectI
 			}
 	}
 
-	if !strings.EqualFold(host, gatClaims.Resource.Address) {
+	if !matchResourceAddress(gatClaims.Resource.Address, host) {
 		return Info{
 				Claims: gatClaims,
 				ConnID: connID,
@@ -159,4 +160,28 @@ func (v *MessageValidator) ParseConnect(req *http.Request, ekm []byte) (connectI
 		ConnID:  connID,
 		Token:   bearerToken,
 	}, nil
+}
+
+var validDNSLabel = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$`)
+
+// matchResourceAddress checks whether host matches the resource address pattern.
+// Supports exact match and RFC 6125 wildcard matching: *.example.com matches
+// api.example.com but not example.com or foo.bar.example.com.
+func matchResourceAddress(pattern, host string) bool {
+	if strings.EqualFold(pattern, host) {
+		return true
+	}
+
+	if !strings.HasPrefix(pattern, "*.") {
+		return false
+	}
+
+	suffix := pattern[1:]
+	if len(host) <= len(suffix) || !strings.HasSuffix(strings.ToLower(host), strings.ToLower(suffix)) {
+		return false
+	}
+
+	label := host[:len(host)-len(suffix)]
+
+	return validDNSLabel.MatchString(label)
 }
