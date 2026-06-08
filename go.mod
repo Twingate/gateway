@@ -1,6 +1,6 @@
 module gateway
 
-go 1.26.3
+go 1.26.4
 
 require (
 	github.com/MicahParks/jwkset v0.11.0
@@ -27,7 +27,7 @@ require (
 	k8s.io/apimachinery v0.36.1
 	k8s.io/client-go v0.36.1
 	k8s.io/streaming v0.36.1
-	sigs.k8s.io/kind v0.31.0
+	sigs.k8s.io/kind v0.32.0
 )
 
 require (
