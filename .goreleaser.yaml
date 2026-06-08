@@ -69,8 +69,8 @@ dockers_v2:
     flags:
       - "--pull"
       - "--builder={{ .Env.DOCKER_BUILDX_BUILDER }}"
-      - '{{ if isEnvSet "DOCKER_BUILDX_CACHE_FROM" }}--cache-from={{ .Env.DOCKER_BUILDX_CACHE_FROM }}{{ end }}'
-      - '{{ if isEnvSet "DOCKER_BUILDX_CACHE_TO" }}--cache-to={{ .Env.DOCKER_BUILDX_CACHE_TO }}{{ end }}'
+      - '--cache-from={{ envOrDefault "DOCKER_BUILDX_CACHE_FROM" "" }}'
+      - '--cache-to={{ envOrDefault "DOCKER_BUILDX_CACHE_TO" "" }}'
     extra_files:
       - LICENSE
   # Release: latest/dev, major, minor tags
@@ -97,8 +97,8 @@ dockers_v2:
     flags:
       - "--pull"
       - "--builder={{ .Env.DOCKER_BUILDX_BUILDER }}"
-      - '{{ if isEnvSet "DOCKER_BUILDX_CACHE_FROM" }}--cache-from={{ .Env.DOCKER_BUILDX_CACHE_FROM }}{{ end }}'
-      - '{{ if isEnvSet "DOCKER_BUILDX_CACHE_TO" }}--cache-to={{ .Env.DOCKER_BUILDX_CACHE_TO }}{{ end }}'
+      - '--cache-from={{ envOrDefault "DOCKER_BUILDX_CACHE_FROM" "" }}'
+      - '--cache-to={{ envOrDefault "DOCKER_BUILDX_CACHE_TO" "" }}'
     extra_files:
       - LICENSE
   # Debug snapshot + release: version tag only
@@ -119,8 +119,8 @@ dockers_v2:
     flags:
       - "--pull"
       - "--builder={{ .Env.DOCKER_BUILDX_BUILDER }}"
-      - '{{ if isEnvSet "DOCKER_BUILDX_CACHE_FROM" }}--cache-from={{ .Env.DOCKER_BUILDX_CACHE_FROM }}{{ end }}'
-      - '{{ if isEnvSet "DOCKER_BUILDX_CACHE_TO" }}--cache-to={{ .Env.DOCKER_BUILDX_CACHE_TO }}{{ end }}'
+      - '--cache-from={{ envOrDefault "DOCKER_BUILDX_CACHE_FROM" "" }}'
+      - '--cache-to={{ envOrDefault "DOCKER_BUILDX_CACHE_TO" "" }}'
     build_args:
       GOLANG_VERSION: "{{ .Env.GOLANG_VERSION }}"
     extra_files:
@@ -149,8 +149,8 @@ dockers_v2:
     flags:
       - "--pull"
       - "--builder={{ .Env.DOCKER_BUILDX_BUILDER }}"
-      - '{{ if isEnvSet "DOCKER_BUILDX_CACHE_FROM" }}--cache-from={{ .Env.DOCKER_BUILDX_CACHE_FROM }}{{ end }}'
-      - '{{ if isEnvSet "DOCKER_BUILDX_CACHE_TO" }}--cache-to={{ .Env.DOCKER_BUILDX_CACHE_TO }}{{ end }}'
+      - '--cache-from={{ envOrDefault "DOCKER_BUILDX_CACHE_FROM" "" }}'
+      - '--cache-to={{ envOrDefault "DOCKER_BUILDX_CACHE_TO" "" }}'
     build_args:
       GOLANG_VERSION: "{{ .Env.GOLANG_VERSION }}"
     extra_files:

@@ -128,7 +128,7 @@ prepare-buildx: ##@build Prepare buildx
 
 .PHONY: build
 build: prepare-buildx ##@build Build the Go binaries and container images
-	DOCKER_BUILDX_BUILDER=$(DOCKER_BUILDX_BUILDER) DOCKER_BUILDX_CACHE_FROM=$(DOCKER_BUILDX_CACHE_FROM) DOCKER_BUILDX_CACHE_TO=$(DOCKER_BUILDX_CACHE_TO) goreleaser release --snapshot --clean
+	DOCKER_BUILDX_BUILDER=$(DOCKER_BUILDX_BUILDER) DOCKER_BUILDX_CACHE_FROM=$(DOCKER_BUILDX_CACHE_FROM) DOCKER_BUILDX_CACHE_TO=$(DOCKER_BUILDX_CACHE_TO) GOLANG_VERSION=$(GOLANG_VERSION) goreleaser release --snapshot --clean
 
 .PHONY: cut-release-prod
 cut-release-prod: ##@release Cut a production release (create a version tag and push it)
