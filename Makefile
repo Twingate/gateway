@@ -124,7 +124,8 @@ upload-coverage: ##@test Upload code coverage to CodeCov (requires CI environmen
 .PHONY: prepare-buildx
 prepare-buildx: ##@build Prepare buildx
 	@echo "Preparing buildx..."
-	docker buildx create --use --name $(DOCKER_BUILDX_BUILDER) --node=$(DOCKER_BUILDX_BUILDER)
+	docker buildx inspect $(DOCKER_BUILDX_BUILDER) >/dev/null 2>&1 && docker buildx use $(DOCKER_BUILDX_BUILDER) || \
+		docker buildx create --use --name $(DOCKER_BUILDX_BUILDER) --node=$(DOCKER_BUILDX_BUILDER)
 
 .PHONY: build
 build: prepare-buildx ##@build Build the Go binaries and container images
