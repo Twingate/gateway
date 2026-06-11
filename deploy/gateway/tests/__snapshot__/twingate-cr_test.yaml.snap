@@ -1,0 +1,87 @@
+renders the CA and Gateway when gateway is enabled:
+  1: |
+    apiVersion: twingate.com/v1beta
+    kind: TwingateCertificateAuthority
+    metadata:
+      labels:
+        app.kubernetes.io/instance: RELEASE-NAME
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: gateway
+        app.kubernetes.io/version: 0.1.0
+        helm.sh/chart: gateway-0.1.0
+      name: RELEASE-NAME-gateway-ca
+    spec:
+      name: RELEASE-NAME-gateway-ca
+      secretRef:
+        name: RELEASE-NAME-gateway-tls
+      type: X509
+  2: |
+    apiVersion: twingate.com/v1beta
+    kind: TwingateGateway
+    metadata:
+      labels:
+        app.kubernetes.io/instance: RELEASE-NAME
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: gateway
+        app.kubernetes.io/version: 0.1.0
+        helm.sh/chart: gateway-0.1.0
+      name: RELEASE-NAME-gateway
+    spec:
+      serviceRef:
+        name: RELEASE-NAME-gateway
+        port: 443
+      x509CertificateAuthorityRef:
+        name: RELEASE-NAME-gateway-ca
+renders the in-cluster Kubernetes resource when enabled:
+  1: |
+    apiVersion: twingate.com/v1beta
+    kind: TwingateCertificateAuthority
+    metadata:
+      labels:
+        app.kubernetes.io/instance: RELEASE-NAME
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: gateway
+        app.kubernetes.io/version: 0.1.0
+        helm.sh/chart: gateway-0.1.0
+      name: RELEASE-NAME-gateway-ca
+    spec:
+      name: RELEASE-NAME-gateway-ca
+      secretRef:
+        name: RELEASE-NAME-gateway-tls
+      type: X509
+  2: |
+    apiVersion: twingate.com/v1beta
+    kind: TwingateGateway
+    metadata:
+      labels:
+        app.kubernetes.io/instance: RELEASE-NAME
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: gateway
+        app.kubernetes.io/version: 0.1.0
+        helm.sh/chart: gateway-0.1.0
+      name: RELEASE-NAME-gateway
+    spec:
+      serviceRef:
+        name: RELEASE-NAME-gateway
+        port: 443
+      x509CertificateAuthorityRef:
+        name: RELEASE-NAME-gateway-ca
+  3: |
+    apiVersion: twingate.com/v1beta
+    kind: TwingateResource
+    metadata:
+      labels:
+        app.kubernetes.io/instance: RELEASE-NAME
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: gateway
+        app.kubernetes.io/version: 0.1.0
+        helm.sh/chart: gateway-0.1.0
+      name: RELEASE-NAME-gateway-resource
+    spec:
+      address: kubernetes.default.svc.cluster.local
+      alias: cluster.int
+      gatewayRef:
+        name: RELEASE-NAME-gateway
+      name: My cluster
+      securityPolicyId: U2VjdXJpdHlQb2xpY3k6MTIz
+      type: Kubernetes
