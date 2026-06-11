@@ -6,7 +6,6 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
-
   - it: fails when kubernetesResource is enabled but gateway is not
     set:
       twingateOperator:
@@ -15,7 +14,6 @@ tests:
     asserts:
       - failedTemplate:
           errorMessage: twingateOperator.kubernetesResource.enabled=true requires twingateOperator.gateway.enabled=true
-
   - it: renders only the CA and Gateway when gateway is enabled
     set:
       twingateOperator:
@@ -24,7 +22,6 @@ tests:
     asserts:
       - hasDocuments:
           count: 2
-
   - it: renders the certificate authority
     set:
       twingateOperator:
@@ -46,7 +43,6 @@ tests:
       - equal:
           path: spec.secretRef.name
           value: RELEASE-NAME-gateway-tls
-
   - it: renders the gateway bound to the CA and Service
     set:
       twingateOperator:
