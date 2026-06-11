@@ -16,23 +16,6 @@
           "type": "string",
           "description": "Twingate host.",
           "default": "twingate.com"
-        },
-        "resource": {
-          "type": "object",
-          "required": ["enabled"],
-          "properties": {
-            "enabled": {
-              "type": "boolean",
-              "description": "Enable TwingateResource CRD integration."
-            },
-            "extraAnnotations": {
-              "type": "object",
-              "additionalProperties": {
-                "type": "string"
-              },
-              "description": "Extra annotations to add to the ClusterIP service."
-            }
-          }
         }
       },
       "additionalProperties": false

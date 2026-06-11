@@ -8,14 +8,6 @@ metadata:
     {{- with .Values.service.annotations }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
-    {{- if .Values.twingate.resource.enabled }}
-    resource.twingate.com: "true"
-    resource.twingate.com/type: "Kubernetes"
-    resource.twingate.com/tlsSecret: {{ include "gateway.tlsSecretName" . }}
-    {{- with .Values.twingate.resource.extraAnnotations }}
-    {{- toYaml . | nindent 4 }}
-    {{- end }}
-    {{- end }}
 spec:
   type: {{ .Values.service.type }}
   ports:
