@@ -20,7 +20,7 @@ spec:
   type: {{ .Values.service.type }}
   ports:
     - name: https
-      port: 443
+      port: {{ .Values.service.port }}
       targetPort: https
       protocol: TCP
       {{- if and (or (eq .Values.service.type "NodePort") (eq .Values.service.type "LoadBalancer")) .Values.service.nodePort }}

@@ -37,6 +37,38 @@
       },
       "additionalProperties": false
     },
+    "twingateOperator": {
+      "type": "object",
+      "description": "Twingate Kubernetes Operator integration: render Twingate Custom Resources reconciled by the operator.",
+      "properties": {
+        "gateway": {
+          "type": "object",
+          "required": ["enabled"],
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Render the TwingateGateway and its TwingateCertificateAuthority CRs.",
+              "default": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "kubernetesResource": {
+          "type": "object",
+          "required": ["enabled"],
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Render a Kubernetes TwingateResource for the in-cluster API server, bound to the gateway via gatewayRef. Requires twingateOperator.gateway.enabled=true.",
+              "default": false
+            }
+          },
+          "description": "Any TwingateResource spec field (name, alias, tags, securityPolicyId, ...) passes through; the chart owns type/address/gatewayRef.",
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": false
+    },
     "auditLog": {
       "type": "object",
       "properties": {
