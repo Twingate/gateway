@@ -14,6 +14,7 @@ renders the CA and Gateway when gateway is enabled:
       name: RELEASE-NAME-gateway-ca
       secretRef:
         name: RELEASE-NAME-gateway-tls
+        namespace: NAMESPACE
       type: X509
   2: |
     apiVersion: twingate.com/v1beta
@@ -29,9 +30,11 @@ renders the CA and Gateway when gateway is enabled:
     spec:
       serviceRef:
         name: RELEASE-NAME-gateway
+        namespace: NAMESPACE
         port: 443
       x509CertificateAuthorityRef:
         name: RELEASE-NAME-gateway-ca
+        namespace: NAMESPACE
 renders the in-cluster Kubernetes resource when enabled:
   1: |
     apiVersion: twingate.com/v1beta
@@ -48,6 +51,7 @@ renders the in-cluster Kubernetes resource when enabled:
       name: RELEASE-NAME-gateway-ca
       secretRef:
         name: RELEASE-NAME-gateway-tls
+        namespace: NAMESPACE
       type: X509
   2: |
     apiVersion: twingate.com/v1beta
@@ -63,9 +67,11 @@ renders the in-cluster Kubernetes resource when enabled:
     spec:
       serviceRef:
         name: RELEASE-NAME-gateway
+        namespace: NAMESPACE
         port: 443
       x509CertificateAuthorityRef:
         name: RELEASE-NAME-gateway-ca
+        namespace: NAMESPACE
   3: |
     apiVersion: twingate.com/v1beta
     kind: TwingateResource
@@ -82,6 +88,7 @@ renders the in-cluster Kubernetes resource when enabled:
       alias: cluster.int
       gatewayRef:
         name: RELEASE-NAME-gateway
+        namespace: NAMESPACE
       name: My cluster
       securityPolicyId: U2VjdXJpdHlQb2xpY3k6MTIz
       type: Kubernetes
