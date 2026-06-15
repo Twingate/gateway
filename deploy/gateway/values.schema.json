@@ -454,6 +454,15 @@
         "type": {
           "enum": ["ClusterIP", "NodePort", "LoadBalancer"],
           "default": "ClusterIP"
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "default": 443
+        },
+        "annotations": {
+          "type": "object"
         }
       }
     },
