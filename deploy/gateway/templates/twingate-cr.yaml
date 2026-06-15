@@ -17,6 +17,7 @@ spec:
   type: X509
   secretRef:
     name: {{ include "gateway.tlsSecretName" . }}
+    namespace: {{ .Release.Namespace }}
 ---
 apiVersion: twingate.com/v1beta
 kind: TwingateGateway
@@ -27,9 +28,11 @@ metadata:
 spec:
   serviceRef:
     name: {{ include "gateway.fullname" . }}
+    namespace: {{ .Release.Namespace }}
     port: {{ .Values.service.port }}
   x509CertificateAuthorityRef:
     name: {{ include "gateway.fullname" . }}-ca
+    namespace: {{ .Release.Namespace }}
 {{- if .Values.twingateOperator.kubernetesResource.enabled }}
 ---
 apiVersion: twingate.com/v1beta
@@ -47,6 +50,7 @@ spec:
   name: {{ .Values.twingateOperator.kubernetesResource.name | default (printf "%s Kubernetes cluster" (include "gateway.fullname" .)) | quote }}
   gatewayRef:
     name: {{ include "gateway.fullname" . }}
+    namespace: {{ .Release.Namespace }}
   {{- with omit .Values.twingateOperator.kubernetesResource "type" "address" "gatewayRef" "enabled" "name" }}
   {{- toYaml . | nindent 2 }}
   {{- end }}
