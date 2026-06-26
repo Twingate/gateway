@@ -4,696 +4,215 @@
 package sshhandler
 
 import (
-	"errors"
 	"net"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
-	"golang.org/x/crypto/ssh"
-
-	gatewayconfig "gateway/internal/config"
-	"gateway/internal/connect"
-	"gateway/internal/token"
 )
 
-const upstreamAddress = "upstream.internal:22"
+// TestSSHProxy_Start drives a real SSH client through the accept loop to an in-memory upstream,
+// verifying the full wiring (session output round-trips), that the served connection is removed
+// from the map once it completes, and that closing the listener makes Start return cleanly.
+func TestSSHProxy_Start(t *testing.T) {
+	sshProxy := newTestProxy(t)
+	upstream := newEchoServer(t, gatewayUserCAPublicKey(t, sshProxy))
+	listener := newTestListener(t, upstream.addr)
 
-var sshConfig = &gatewayconfig.SSHConfig{
-	Gateway: gatewayconfig.SSHGatewayConfig{
-		Username: "test-user",
-	},
-}
-
-// Mock SSH connection factory, used for creating downstream and upstream SSH connections.
-type mockProxySSHConnFactory struct {
-	mock.Mock
-}
-
-//revive:disable-next-line:function-result-limit
-//nolint:ireturn
-func (m *mockProxySSHConnFactory) NewServerConn(c net.Conn, config *ssh.ServerConfig) (ssh.Conn, <-chan ssh.NewChannel, <-chan *ssh.Request, error) {
-	args := m.Called(c, config)
-
-	if args.Get(0) == nil {
-		return nil, nil, nil, args.Error(3)
-	}
-
-	return args.Get(0).(ssh.Conn), args.Get(1).(<-chan ssh.NewChannel), args.Get(2).(<-chan *ssh.Request), args.Error(3)
-}
-
-//revive:disable-next-line:function-result-limit
-//nolint:ireturn
-func (m *mockProxySSHConnFactory) NewClientConn(c net.Conn, addr string, config *ssh.ClientConfig) (ssh.Conn, <-chan ssh.NewChannel, <-chan *ssh.Request, error) {
-	args := m.Called(c, addr, config)
-
-	return args.Get(0).(ssh.Conn), args.Get(1).(<-chan ssh.NewChannel), args.Get(2).(<-chan *ssh.Request), args.Error(3)
-}
-
-// Mock SSH connection pair factory.
-type mockProxySSHConnPairFactory struct {
-	mock.Mock
-}
-
-//nolint:ireturn
-func (m *mockProxySSHConnPairFactory) NewConnPair(logger *zap.Logger, sshCtx *sshContext,
-	downstreamConn ssh.Conn, downstreamChannels <-chan ssh.NewChannel, downstreamRequests <-chan *ssh.Request,
-	upstreamConn ssh.Conn, upstreamChannels <-chan ssh.NewChannel, upstreamRequests <-chan *ssh.Request,
-) ConnPair {
-	args := m.Called(logger, sshCtx, downstreamConn, downstreamChannels, downstreamRequests, upstreamConn, upstreamChannels, upstreamRequests)
-
-	return args.Get(0).(ConnPair)
-}
-
-// Mock SSH connection pair.
-type mockSSHConnPair struct {
-	mock.Mock
-}
-
-func (m *mockSSHConnPair) ChannelsOpened() int {
-	args := m.Called()
-
-	return args.Int(0)
-}
-
-func (m *mockSSHConnPair) serve() {
-	m.Called()
-}
-
-func (m *mockSSHConnPair) close() {
-	m.Called()
-}
-
-// Mock ProxyConn for testing.
-type mockProxyConn struct {
-	mock.Mock
-	*connect.ProxyConn
-}
-
-func (m *mockProxyConn) Close() error {
-	args := m.Called()
-
-	return args.Error(0)
-}
-
-func (m *mockProxyConn) GetClaims() *token.GATClaims {
-	return m.Claims
-}
-
-func (m *mockProxyConn) GetID() string {
-	return m.ID
-}
-
-// Mock ProtocolListener.
-type mockProtocolListener struct {
-	mock.Mock
-	*connect.ProtocolListener
-}
-
-func (m *mockProtocolListener) Accept() (net.Conn, error) {
-	args := m.Called()
-
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-
-	return args.Get(0).(net.Conn), args.Error(1)
-}
-
-func (m *mockProtocolListener) Close() error {
-	args := m.Called()
-
-	return args.Error(0)
-}
-
-func (m *mockProtocolListener) Addr() net.Addr {
-	args := m.Called()
-
-	return args.Get(0).(net.Addr)
-}
-
-// Helper to create a mock ProxyConn for testing.
-func newTestProxyConn(claims *token.GATClaims) *mockProxyConn {
-	mockProxyNetConn := &mockProxyNetConn{}
-	proxyConn := &connect.ProxyConn{
-		Conn:    mockProxyNetConn,
-		Claims:  claims,
-		Address: upstreamAddress,
-		ID:      "test-id",
-	}
-	mockProxyConn := &mockProxyConn{
-		ProxyConn: proxyConn,
-	}
-
-	return mockProxyConn
-}
-
-func TestSSHProxy_Start_AcceptError(t *testing.T) {
-	listener := &mockProtocolListener{
-		ProtocolListener: &connect.ProtocolListener{},
-	}
-
-	config, err := NewConfig(nil, sshConfig, zap.NewNop())
-	require.NoError(t, err)
-
-	sshProxy := NewProxy(*config)
-
-	listener.On("Accept").Return(nil, errors.New("error"))
-
-	done := make(chan struct{})
+	startDone := make(chan error, 1)
 
 	go func() {
-		defer close(done)
-
-		_ = sshProxy.Start(t.Context(), listener)
+		startDone <- sshProxy.Start(t.Context(), listener)
 	}()
 
-	select {
-	case <-done:
-		// Success
-	case <-time.After(100 * time.Millisecond):
-		t.Fatal("Start did not complete within timeout")
-	}
-
-	listener.AssertExpectations(t)
-}
-
-func TestSSHProxy_Start_Shutdown(t *testing.T) {
-	listener := &mockProtocolListener{
-		ProtocolListener: &connect.ProtocolListener{},
-	}
-
-	config, err := NewConfig(nil, sshConfig, zap.NewNop())
+	clientConn, err := net.Dial("tcp", listener.Addr().String())
 	require.NoError(t, err)
 
-	sshProxy := NewProxy(*config)
+	client, err := dialDownstream(t, clientConn, upstream.addr)
+	require.NoError(t, err)
 
-	listener.On("Accept").Return(nil, nil)
+	session, err := client.NewSession()
+	require.NoError(t, err)
 
-	done := make(chan struct{})
+	output, err := session.Output("hello from gateway")
+	require.NoError(t, err)
+	assert.Equal(t, "hello from gateway", string(output))
+
+	_ = client.Close()
+
+	// The served connection is removed from the map once serving completes.
+	require.Eventually(t, func() bool {
+		sshProxy.mu.Lock()
+		defer sshProxy.mu.Unlock()
+
+		return len(sshProxy.connsMap) == 0
+	}, 2*time.Second, 10*time.Millisecond, "served connection should be removed from the map")
+
+	// Closing the listener makes Accept return net.ErrClosed, so Start returns cleanly.
+	require.NoError(t, listener.Close())
+
+	select {
+	case err := <-startDone:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("Start did not return after listener close")
+	}
+}
+
+// TestSSHProxy_serveConn_RejectsWhenShuttingDown verifies that a connection handed to serveConn
+// after shutdown has begun is closed and rejected with errShuttingDown rather than served.
+func TestSSHProxy_serveConn_RejectsWhenShuttingDown(t *testing.T) {
+	sshProxy := newTestProxy(t)
+	sshProxy.Shutdown(t.Context())
+
+	clientDownstreamConn, serverDownstreamConn := newDownstreamConn(t, "unused:22")
+
+	err := sshProxy.serveConn(t.Context(), serverDownstreamConn)
+	require.ErrorIs(t, err, errShuttingDown)
+
+	// The rejected connection is closed, so the client end sees EOF rather than a handshake.
+	require.NoError(t, clientDownstreamConn.SetReadDeadline(time.Now().Add(time.Second)))
+
+	_, readErr := clientDownstreamConn.Read(make([]byte, 1))
+	require.Error(t, readErr)
+}
+
+// TestSSHProxy_serveConn_DownstreamHandshakeFailure verifies serveConn surfaces a failed
+// downstream handshake and bails before dialing the upstream.
+func TestSSHProxy_serveConn_DownstreamHandshakeFailure(t *testing.T) {
+	sshProxy := newTestProxy(t)
+
+	clientDownstreamConn, serverDownstreamConn := newDownstreamConn(t, "unused:22")
+
+	// Closing the client end before any SSH exchange makes the server handshake fail.
+	_ = clientDownstreamConn.Close()
+
+	// serveConn must surface the handshake error instead of proceeding to the upstream (proceeding
+	// would dereference the nil downstream conn).
+	err := sshProxy.serveConn(t.Context(), serverDownstreamConn)
+	require.ErrorContains(t, err, "downstream SSH handshake failed")
+}
+
+// TestSSHProxy_serveConn_UpstreamConnectionFailure verifies that, after a successful downstream
+// handshake, a failure to reach the upstream is surfaced.
+func TestSSHProxy_serveConn_UpstreamConnectionFailure(t *testing.T) {
+	sshProxy := newTestProxy(t)
+
+	// Reserve a loopback address then close it so dialing is refused immediately.
+	refused, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+
+	refusedAddr := refused.Addr().String()
+	require.NoError(t, refused.Close())
+
+	clientDownstreamConn, serverDownstreamConn := newDownstreamConn(t, refusedAddr)
+
+	serveErr := make(chan error, 1)
 
 	go func() {
-		defer close(done)
-
-		_ = sshProxy.Start(t.Context(), listener)
+		serveErr <- sshProxy.serveConn(t.Context(), serverDownstreamConn)
 	}()
 
-	select {
-	case <-done:
-		// Success
-	case <-time.After(100 * time.Millisecond):
-		t.Fatal("Start did not complete within timeout")
-	}
-
-	listener.AssertExpectations(t)
-}
-
-func TestSSHProxy_Start_Success(t *testing.T) {
-	listener := &mockProtocolListener{
-		ProtocolListener: &connect.ProtocolListener{},
-	}
-
-	config, err := NewConfig(nil, sshConfig, zap.NewNop())
+	// The downstream handshake succeeds; the proxy fails only once it dials the upstream.
+	client, err := dialDownstream(t, clientDownstreamConn, refusedAddr)
 	require.NoError(t, err)
 
-	sshProxy := NewProxy(*config)
+	defer func() { _ = client.Close() }()
 
-	// Create a test proxy connection to be served
-	claims := &token.GATClaims{}
-	testConn := newTestProxyConn(claims)
-	closed := make(chan struct{})
+	select {
+	case err := <-serveErr:
+		require.ErrorContains(t, err, "failed to dial upstream")
+	case <-time.After(2 * time.Second):
+		t.Fatal("serveConn did not return")
+	}
 
-	testConn.On("Close").Return(nil).Run(func(_ mock.Arguments) {
-		close(closed)
-	})
+	assert.Empty(t, sshProxy.connsMap)
+}
 
-	// Mock listener to return one connection, then an error to exit the loop
-	listener.On("Accept").Return(testConn, nil).Once()
-	listener.On("Accept").Return(nil, net.ErrClosed).Once()
+// TestSSHProxy_serveConn_UpstreamSSHHandshakeFailure verifies that an upstream that accepts TCP
+// but does not complete the SSH handshake is surfaced as an error.
+func TestSSHProxy_serveConn_UpstreamSSHHandshakeFailure(t *testing.T) {
+	sshProxy := newTestProxy(t)
 
-	// Mock the SSH connection factory to prevent actual SSH handshake
-	mockSSHFactory := &mockProxySSHConnFactory{}
-	sshProxy.sshConnFactory = mockSSHFactory
+	// Upstream accepts the TCP connection then closes it without an SSH handshake.
+	upstream, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
 
-	// Mock to return an error immediately so Serve exits quickly
-	served := make(chan struct{})
-
-	mockSSHFactory.On("NewServerConn", mock.Anything, mock.Anything).Return(nil, nil, nil, errors.New("mock error")).Run(func(args mock.Arguments) {
-		// Validate that the connection used to start the downstream SSH connection is the same one we created
-		assert.Equal(t, testConn, args.Get(0))
-
-		served <- struct{}{}
-	})
-
-	startFinished := make(chan struct{})
+	t.Cleanup(func() { _ = upstream.Close() })
 
 	go func() {
-		defer close(startFinished)
+		for {
+			conn, err := upstream.Accept()
+			if err != nil {
+				return
+			}
 
-		_ = sshProxy.Start(t.Context(), listener)
+			_ = conn.Close()
+		}
 	}()
 
-	// Wait for the connection to start being served (first Accept())
-	select {
-	case <-served:
-		// Success
-	case <-time.After(200 * time.Millisecond):
-		t.Fatal("Connection did not start being served within timeout")
-	}
+	clientDownstreamConn, serverDownstreamConn := newDownstreamConn(t, upstream.Addr().String())
 
-	// Wait for Start() to finish after error from second Accept() (listener closed)
-	select {
-	case <-startFinished:
-		// Success
-	case <-time.After(200 * time.Millisecond):
-		t.Fatal("Start did not complete within timeout")
-	}
+	serveErr := make(chan error, 1)
 
-	select {
-	case <-closed:
-		// Success
-	case <-time.After(200 * time.Millisecond):
-		t.Fatal("Close was not called within timeout")
-	}
-
-	listener.AssertExpectations(t)
-	testConn.AssertExpectations(t)
-	mockSSHFactory.AssertExpectations(t)
-}
-
-func TestSSHProxy_ServeConn_Success(t *testing.T) {
-	mockProxySSHFactory := &mockProxySSHConnFactory{}
-	mockProxyDialer := &mockProxyNetDialer{}
-	mockProxyConnPairFactory := &mockProxySSHConnPairFactory{}
-
-	config, err := NewConfig(nil, sshConfig, zap.NewNop())
-	require.NoError(t, err)
-
-	downstreamConfig, err := config.GetDownstreamConfig(t.Context())
-	require.NoError(t, err)
-
-	sshProxy := NewProxy(*config)
-	sshProxy.downstreamConfig = downstreamConfig
-
-	// Set mock dependencies for testing
-	sshProxy.sshConnFactory = mockProxySSHFactory
-	sshProxy.netDialer = mockProxyDialer
-	sshProxy.connPairFactory = mockProxyConnPairFactory
-
-	// Create a test proxy connection to be served
-	claims := &token.GATClaims{}
-	testConn := newTestProxyConn(claims)
-
-	// Mock NewServerConn to return a new downstream SSH connection
-	downstreamSSHConn := &mockSSHConn{}
-	downstreamSSHConn.On("SessionID").Return([]byte("test-session-id"))
-	downstreamSSHConn.On("ClientVersion").Return([]byte("SSH-2.0-test"))
-
-	downstreamChannels := make(chan ssh.NewChannel, 1)
-	downstreamRequests := make(chan *ssh.Request, 1)
-	mockProxySSHFactory.On("NewServerConn", testConn, downstreamConfig).Return(
-		downstreamSSHConn,
-		(<-chan ssh.NewChannel)(downstreamChannels),
-		(<-chan *ssh.Request)(downstreamRequests),
-		nil,
-	)
-
-	// Mock successful upstream TCP connection
-	upstreamConn := &mockProxyNetConn{}
-	mockProxyDialer.On("DialTimeout", "tcp", upstreamAddress, upstreamConnTimeout).Return(
-		upstreamConn,
-		nil,
-	)
-
-	// Mock successful upstream SSH connection
-	upstreamSSHConn := &mockSSHConn{}
-	upstreamSSHConn.On("ServerVersion").Return([]byte("SSH-2.0-OpenSSH_9.6"))
-
-	upstreamChannels := make(chan ssh.NewChannel, 1)
-	upstreamRequests := make(chan *ssh.Request, 1)
-	mockProxySSHFactory.On("NewClientConn", upstreamConn, upstreamAddress, mock.AnythingOfType("*ssh.ClientConfig")).Return(
-		upstreamSSHConn,
-		(<-chan ssh.NewChannel)(upstreamChannels),
-		(<-chan *ssh.Request)(upstreamRequests),
-		nil,
-	)
-
-	// Create mock SSH connection pair
-	mockProxyConnPair := &mockSSHConnPair{}
-
-	mockProxyConnPairFactory.On("NewConnPair",
-		mock.AnythingOfType("*zap.Logger"),
-		mock.AnythingOfType("*sshhandler.sshContext"),
-		downstreamSSHConn,
-		(<-chan ssh.NewChannel)(downstreamChannels),
-		(<-chan *ssh.Request)(downstreamRequests),
-		upstreamSSHConn,
-		(<-chan ssh.NewChannel)(upstreamChannels),
-		(<-chan *ssh.Request)(upstreamRequests),
-	).Return(mockProxyConnPair)
-
-	serveDone := make(chan struct{})
-
-	mockProxyConnPair.On("serve").Run(func(_ mock.Arguments) {
-		// Return after some delay to simulate a real serve
-		time.Sleep(100 * time.Millisecond)
-	}).Return()
-	mockProxyConnPair.On("ChannelsOpened").Return(0)
-
-	// Call serve - this should succeed and create the mocked SSHConnPair from above
 	go func() {
-		err := sshProxy.serveConn(t.Context(), testConn)
-		assert.NoError(t, err)
-
-		close(serveDone)
+		serveErr <- sshProxy.serveConn(t.Context(), serverDownstreamConn)
 	}()
 
-	// Wait for the mocked serve to complete
-	<-serveDone
+	client, err := dialDownstream(t, clientDownstreamConn, upstream.Addr().String())
+	require.NoError(t, err)
 
-	// Verify that the SSH connection pair was removed from the connection map and it's now empty
-	assert.NotContains(t, sshProxy.connsMap, mockProxyConnPair)
+	defer func() { _ = client.Close() }()
+
+	select {
+	case err := <-serveErr:
+		require.ErrorContains(t, err, "upstream SSH handshake failed")
+	case <-time.After(2 * time.Second):
+		t.Fatal("serveConn did not return")
+	}
+
 	assert.Empty(t, sshProxy.connsMap)
-
-	// Verify all mocks were called as expected
-	mockProxySSHFactory.AssertExpectations(t)
-	mockProxyDialer.AssertExpectations(t)
-	mockProxyConnPairFactory.AssertExpectations(t)
-	mockProxyConnPair.AssertExpectations(t)
-	testConn.AssertExpectations(t)
 }
 
-func TestSSHProxy_ServeConn_DownstreamHandshakeFailure(t *testing.T) {
-	mockProxySSHFactory := &mockProxySSHConnFactory{}
-	mockProxyDialer := &mockProxyNetDialer{}
-	mockProxyConnPairFactory := &mockProxySSHConnPairFactory{}
-
-	config, err := NewConfig(nil, sshConfig, zap.NewNop())
-	require.NoError(t, err)
-
-	downstreamConfig, err := config.GetDownstreamConfig(t.Context())
-	require.NoError(t, err)
-
-	sshProxy := NewProxy(*config)
-	sshProxy.downstreamConfig = downstreamConfig
-
-	// Set mock dependencies for testing
-	sshProxy.sshConnFactory = mockProxySSHFactory
-	sshProxy.netDialer = mockProxyDialer
-	sshProxy.connPairFactory = mockProxyConnPairFactory
-
-	// Create test proxy connection
-	claims := &token.GATClaims{}
-	testConn := newTestProxyConn(claims)
-
-	// Mock NewServerConn to return an error (handshake failure)
-	mockProxySSHFactory.On("NewServerConn", testConn, downstreamConfig).Return(
-		(*mockSSHConn)(nil),
-		(<-chan ssh.NewChannel)(nil),
-		(<-chan *ssh.Request)(nil),
-		assert.AnError,
-	)
-
-	// Ensure that testConn is closed when serve returns due to error
-	testConn.On("Close").Return(nil)
-
-	// Call serve and expect it to fail
-	err = sshProxy.serveConn(t.Context(), testConn)
-
-	require.Error(t, err)
-	mockProxySSHFactory.AssertExpectations(t)
-	testConn.AssertExpectations(t)
-	assert.Empty(t, sshProxy.connsMap)
-
-	// NetDialer and ConnPairFactory should not be called since downstream handshake failed
-	mockProxyDialer.AssertNotCalled(t, "DialTimeout")
-	mockProxyConnPairFactory.AssertNotCalled(t, "NewConnPair")
-}
-
-func TestSSHProxy_ServeConn_UpstreamConnectionFailure(t *testing.T) {
-	mockProxySSHFactory := &mockProxySSHConnFactory{}
-	mockProxyDialer := &mockProxyNetDialer{}
-	mockProxyConnPairFactory := &mockProxySSHConnPairFactory{}
-
-	config, err := NewConfig(nil, sshConfig, zap.NewNop())
-	require.NoError(t, err)
-
-	downstreamConfig, err := config.GetDownstreamConfig(t.Context())
-	require.NoError(t, err)
-
-	sshProxy := NewProxy(*config)
-	sshProxy.downstreamConfig = downstreamConfig
-
-	// Set mock dependencies for testing
-	sshProxy.sshConnFactory = mockProxySSHFactory
-	sshProxy.netDialer = mockProxyDialer
-	sshProxy.connPairFactory = mockProxyConnPairFactory
-
-	// Create test proxy connection
-	claims := &token.GATClaims{}
-	testConn := newTestProxyConn(claims)
-
-	// Mock successful downstream handshake
-	downstreamSSHConn := &mockSSHConn{}
-	downstreamSSHConn.On("SessionID").Return([]byte("test-session-id"))
-	downstreamSSHConn.On("ClientVersion").Return([]byte("SSH-2.0-test"))
-
-	downstreamChannels := make(chan ssh.NewChannel)
-	downstreamRequests := make(chan *ssh.Request)
-	mockProxySSHFactory.On("NewServerConn", testConn, downstreamConfig).Return(
-		downstreamSSHConn,
-		(<-chan ssh.NewChannel)(downstreamChannels),
-		(<-chan *ssh.Request)(downstreamRequests),
-		nil,
-	)
-
-	// Mock upstream connection failure
-	upstreamConn := &mockProxyNetConn{}
-	mockProxyDialer.On("DialTimeout", "tcp", upstreamAddress, upstreamConnTimeout).Return(
-		upstreamConn,
-		assert.AnError,
-	)
-
-	// Simulate real SSH mux behavior: closing the connection closes the channel stream
-	downstreamSSHConn.On("Close").Run(func(_ mock.Arguments) {
-		close(downstreamChannels)
-	}).Return(nil)
-
-	// Call serve and expect it to fail
-	err = sshProxy.serveConn(t.Context(), testConn)
-
-	require.Error(t, err)
-	mockProxySSHFactory.AssertExpectations(t)
-	mockProxyDialer.AssertExpectations(t)
-	downstreamSSHConn.AssertExpectations(t)
-	assert.Empty(t, sshProxy.connsMap)
-
-	// ConnPairFactory should not be called since upstream connection failed
-	mockProxyConnPairFactory.AssertNotCalled(t, "NewConnPair")
-}
-
-func TestSSHProxy_ServeConn_UpstreamSSHHandshakeFailure(t *testing.T) {
-	mockProxySSHFactory := &mockProxySSHConnFactory{}
-	mockProxyDialer := &mockProxyNetDialer{}
-	mockProxyConnPairFactory := &mockProxySSHConnPairFactory{}
-
-	config, err := NewConfig(nil, sshConfig, zap.NewNop())
-	require.NoError(t, err)
-
-	downstreamConfig, err := config.GetDownstreamConfig(t.Context())
-	require.NoError(t, err)
-
-	sshProxy := NewProxy(*config)
-	sshProxy.downstreamConfig = downstreamConfig
-
-	// Set mock dependencies for testing
-	sshProxy.sshConnFactory = mockProxySSHFactory
-	sshProxy.netDialer = mockProxyDialer
-	sshProxy.connPairFactory = mockProxyConnPairFactory
-
-	// Create test proxy connection
-	claims := &token.GATClaims{}
-	testConn := newTestProxyConn(claims)
-
-	// Mock successful downstream handshake
-	downstreamSSHConn := &mockSSHConn{}
-	downstreamSSHConn.On("SessionID").Return([]byte("test-session-id"))
-	downstreamSSHConn.On("ClientVersion").Return([]byte("SSH-2.0-test"))
-
-	downstreamChannels := make(chan ssh.NewChannel)
-	downstreamRequests := make(chan *ssh.Request)
-
-	mockProxySSHFactory.On("NewServerConn", testConn, downstreamConfig).Return(
-		downstreamSSHConn,
-		(<-chan ssh.NewChannel)(downstreamChannels),
-		(<-chan *ssh.Request)(downstreamRequests),
-		nil,
-	)
-
-	// Mock successful upstream TCP connection
-	upstreamConn := &mockProxyNetConn{}
-	mockProxyDialer.On("DialTimeout", "tcp", upstreamAddress, upstreamConnTimeout).Return(
-		upstreamConn,
-		nil,
-	)
-
-	// Mock upstream SSH handshake failure
-	mockProxySSHFactory.On("NewClientConn", upstreamConn, upstreamAddress, mock.AnythingOfType("*ssh.ClientConfig")).Return(
-		(*mockSSHConn)(nil),
-		(<-chan ssh.NewChannel)(nil),
-		(<-chan *ssh.Request)(nil),
-		assert.AnError,
-	)
-
-	// Simulate real SSH mux behavior: closing the connection closes the channel stream
-	downstreamSSHConn.On("Close").Run(func(_ mock.Arguments) {
-		close(downstreamChannels)
-	}).Return(nil)
-	// Ensure upstream connection is closed
-	upstreamConn.On("Close").Return(nil)
-
-	// Call serve and expect it to fail
-	err = sshProxy.serveConn(t.Context(), testConn)
-
-	require.Error(t, err)
-	mockProxySSHFactory.AssertExpectations(t)
-	mockProxyDialer.AssertExpectations(t)
-	downstreamSSHConn.AssertExpectations(t)
-	upstreamConn.AssertExpectations(t)
-	testConn.AssertExpectations(t)
-	assert.Empty(t, sshProxy.connsMap)
-
-	// ConnPairFactory should not be called since upstream SSH handshake failed
-	mockProxyConnPairFactory.AssertNotCalled(t, "NewConnPair")
-}
-
+// TestSSHProxy_Shutdown_WithActiveConnection verifies Shutdown tears down a live connection.
 func TestSSHProxy_Shutdown_WithActiveConnection(t *testing.T) {
-	mockProxySSHFactory := &mockProxySSHConnFactory{}
-	mockProxyDialer := &mockProxyNetDialer{}
-	mockProxyConnPairFactory := &mockProxySSHConnPairFactory{}
+	sshProxy := newTestProxy(t)
+	upstream := newEchoServer(t, gatewayUserCAPublicKey(t, sshProxy))
 
-	config, err := NewConfig(nil, sshConfig, zap.NewNop())
-	require.NoError(t, err)
+	clientDownstreamConn, serverDownstreamConn := newDownstreamConn(t, upstream.addr)
 
-	downstreamConfig, err := config.GetDownstreamConfig(t.Context())
-	require.NoError(t, err)
-
-	sshProxy := NewProxy(*config)
-	sshProxy.downstreamConfig = downstreamConfig
-
-	// Set mock dependencies for testing
-	sshProxy.sshConnFactory = mockProxySSHFactory
-	sshProxy.netDialer = mockProxyDialer
-	sshProxy.connPairFactory = mockProxyConnPairFactory
-
-	// Create test proxy connection
-	claims := &token.GATClaims{}
-	testConn := newTestProxyConn(claims)
-
-	// Mock successful downstream handshake
-	downstreamSSHConn := &mockSSHConn{}
-	downstreamSSHConn.On("SessionID").Return([]byte("test-session-id"))
-	downstreamSSHConn.On("ClientVersion").Return([]byte("SSH-2.0-test"))
-
-	downstreamChannels := make(chan ssh.NewChannel, 1)
-	downstreamRequests := make(chan *ssh.Request, 1)
-	mockProxySSHFactory.On("NewServerConn", testConn, downstreamConfig).Return(
-		downstreamSSHConn,
-		(<-chan ssh.NewChannel)(downstreamChannels),
-		(<-chan *ssh.Request)(downstreamRequests),
-		nil,
-	)
-
-	// Mock successful upstream TCP connection
-	upstreamConn := &mockProxyNetConn{}
-	mockProxyDialer.On("DialTimeout", "tcp", upstreamAddress, upstreamConnTimeout).Return(
-		upstreamConn,
-		nil,
-	)
-
-	// Mock successful upstream SSH handshake
-	upstreamSSHConn := &mockSSHConn{}
-	upstreamSSHConn.On("ServerVersion").Return([]byte("SSH-2.0-OpenSSH_9.6"))
-
-	upstreamChannels := make(chan ssh.NewChannel, 1)
-	upstreamRequests := make(chan *ssh.Request, 1)
-	mockProxySSHFactory.On("NewClientConn", upstreamConn, upstreamAddress, mock.AnythingOfType("*ssh.ClientConfig")).Return(
-		upstreamSSHConn,
-		(<-chan ssh.NewChannel)(upstreamChannels),
-		(<-chan *ssh.Request)(upstreamRequests),
-		nil,
-	)
-
-	// Create mock SSH connection pair
-	mockProxyConnPair := &mockSSHConnPair{}
-
-	mockProxyConnPairFactory.On("NewConnPair",
-		mock.AnythingOfType("*zap.Logger"),
-		mock.AnythingOfType("*sshhandler.sshContext"),
-		downstreamSSHConn,
-		(<-chan ssh.NewChannel)(downstreamChannels),
-		(<-chan *ssh.Request)(downstreamRequests),
-		upstreamSSHConn,
-		(<-chan ssh.NewChannel)(upstreamChannels),
-		(<-chan *ssh.Request)(upstreamRequests),
-	).Return(mockProxyConnPair)
-
-	// Mock the serve method to block until Close is called
-	serveStarted := make(chan struct{})
-	closeReceived := make(chan struct{})
-
-	mockProxyConnPair.On("serve").Run(func(_ mock.Arguments) {
-		close(serveStarted)
-		<-closeReceived // Block until Close is called
-	}).Return()
-	mockProxyConnPair.On("ChannelsOpened").Return(0)
-
-	// Mock Close to signal that shutdown was called
-	mockProxyConnPair.On("close").Run(func(_ mock.Arguments) {
-		close(closeReceived)
-	}).Return(nil)
-
-	// Start serving the connection in a goroutine
 	serveDone := make(chan error, 1)
 
 	go func() {
-		serveDone <- sshProxy.Serve(t.Context(), testConn)
+		serveDone <- sshProxy.Serve(t.Context(), serverDownstreamConn)
 	}()
 
-	// Wait for serve to start and connection to be added
-	<-serveStarted
+	client, err := dialDownstream(t, clientDownstreamConn, upstream.addr)
+	require.NoError(t, err)
 
-	// Verify downstream connection pair was added to the map
-	sshProxy.mu.Lock()
-	assert.Contains(t, sshProxy.connsMap, mockProxyConnPair)
-	sshProxy.mu.Unlock()
+	// The connection pair is tracked once both handshakes complete, before any channel opens.
+	require.Eventually(t, func() bool {
+		sshProxy.mu.Lock()
+		defer sshProxy.mu.Unlock()
 
-	// Call Shutdown() while the connection is active
+		return len(sshProxy.connsMap) == 1
+	}, time.Second, 10*time.Millisecond, "connection should be tracked")
+
 	sshProxy.Shutdown(t.Context())
 
-	// Verify shutdown state
-	assert.True(t, sshProxy.shuttingDown, "Proxy should be in shutting down state")
+	assert.True(t, sshProxy.shuttingDown, "proxy should be in shutting down state")
 
-	// Wait for serve to complete (should finish due to shutdown)
 	select {
 	case err := <-serveDone:
-		// serve() should complete (may return error or nil depending on timing)
 		require.NoError(t, err)
-	case <-time.After(1 * time.Second):
-		t.Fatal("serve() should have completed after shutdown")
+	case <-time.After(2 * time.Second):
+		t.Fatal("Serve should have completed after shutdown")
 	}
 
-	// Verify connections map is empty after shutdown
 	sshProxy.mu.Lock()
-	finalConnCount := len(sshProxy.connsMap)
+	assert.Empty(t, sshProxy.connsMap, "all connections should be removed after shutdown")
 	sshProxy.mu.Unlock()
-	assert.Equal(t, 0, finalConnCount, "All connections should be removed after shutdown")
 
-	mockProxySSHFactory.AssertExpectations(t)
-	mockProxyDialer.AssertExpectations(t)
-	mockProxyConnPairFactory.AssertExpectations(t)
-	mockProxyConnPair.AssertExpectations(t)
+	_ = client.Close()
 }

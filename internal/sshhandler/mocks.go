@@ -8,78 +8,10 @@ import (
 	"io"
 	"net"
 	"sync"
-	"time"
 
 	"github.com/stretchr/testify/mock"
 	"golang.org/x/crypto/ssh"
 )
-
-// Mock implementation for net.Dialer.
-type mockProxyNetDialer struct {
-	mock.Mock
-}
-
-func (m *mockProxyNetDialer) DialTimeout(network, address string, timeout time.Duration) (net.Conn, error) {
-	args := m.Called(network, address, timeout)
-
-	//revive:disable-next-line:unchecked-type-assertion
-	return args.Get(0).(net.Conn), args.Error(1)
-}
-
-// Mock implementation for net.Conn.
-type mockProxyNetConn struct {
-	mock.Mock
-}
-
-func (m *mockProxyNetConn) Read(b []byte) (n int, err error) {
-	args := m.Called(b)
-
-	return args.Int(0), args.Error(1)
-}
-
-func (m *mockProxyNetConn) Write(b []byte) (n int, err error) {
-	args := m.Called(b)
-
-	return args.Int(0), args.Error(1)
-}
-
-func (m *mockProxyNetConn) Close() error {
-	args := m.Called()
-
-	return args.Error(0)
-}
-
-func (m *mockProxyNetConn) LocalAddr() net.Addr {
-	args := m.Called()
-
-	//revive:disable-next-line:unchecked-type-assertion
-	return args.Get(0).(net.Addr)
-}
-
-func (m *mockProxyNetConn) RemoteAddr() net.Addr {
-	args := m.Called()
-
-	//revive:disable-next-line:unchecked-type-assertion
-	return args.Get(0).(net.Addr)
-}
-
-func (m *mockProxyNetConn) SetDeadline(t time.Time) error {
-	args := m.Called(t)
-
-	return args.Error(0)
-}
-
-func (m *mockProxyNetConn) SetReadDeadline(t time.Time) error {
-	args := m.Called(t)
-
-	return args.Error(0)
-}
-
-func (m *mockProxyNetConn) SetWriteDeadline(t time.Time) error {
-	args := m.Called(t)
-
-	return args.Error(0)
-}
 
 // Mock implementation for ssh.Conn.
 type mockSSHConn struct {

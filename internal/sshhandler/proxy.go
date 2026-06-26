@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"net"
 	"sync"
 	"time"
@@ -17,57 +18,6 @@ import (
 	"gateway/internal/connect"
 )
 
-// Factory for creating SSH Client and Server Connections (downstream and upstream).
-type sshConnFactory interface {
-	NewServerConn(c net.Conn, config *ssh.ServerConfig) (ssh.Conn, <-chan ssh.NewChannel, <-chan *ssh.Request, error)
-	NewClientConn(c net.Conn, addr string, config *ssh.ClientConfig) (ssh.Conn, <-chan ssh.NewChannel, <-chan *ssh.Request, error)
-}
-
-// NetDialer creates network connections.
-type netDialerFactory interface {
-	DialTimeout(network, address string, timeout time.Duration) (net.Conn, error)
-}
-
-// DefaultSSHConnFactory implements SSHConnFactory using the standard ssh package.
-type defaultSSHConnFactory struct{}
-
-//revive:disable-next-line:function-result-limit
-//nolint:ireturn
-func (f *defaultSSHConnFactory) NewServerConn(c net.Conn, config *ssh.ServerConfig) (ssh.Conn, <-chan ssh.NewChannel, <-chan *ssh.Request, error) {
-	return ssh.NewServerConn(c, config)
-}
-
-//revive:disable-next-line:function-result-limit
-//nolint:ireturn
-func (f *defaultSSHConnFactory) NewClientConn(c net.Conn, addr string, config *ssh.ClientConfig) (ssh.Conn, <-chan ssh.NewChannel, <-chan *ssh.Request, error) {
-	return ssh.NewClientConn(c, addr, config)
-}
-
-// DefaultNetDialer implements NetDialer using the standard net package.
-type defaultNetDialer struct{}
-
-func (d *defaultNetDialer) DialTimeout(network, address string, timeout time.Duration) (net.Conn, error) {
-	return net.DialTimeout(network, address, timeout)
-}
-
-// ConnPairFactory creates an SSH connection pair (downstream and upstream).
-type connPairFactory interface {
-	NewConnPair(logger *zap.Logger, sshCtx *sshContext,
-		downstreamConn ssh.Conn, downstreamChannels <-chan ssh.NewChannel, downstreamRequests <-chan *ssh.Request,
-		upstreamConn ssh.Conn, upstreamChannels <-chan ssh.NewChannel, upstreamRequests <-chan *ssh.Request) ConnPair
-}
-
-// DefaultConnPairFactory implements connPairFactory using SSHConnPair.
-type defaultConnPairFactory struct{}
-
-//nolint:ireturn
-func (f *defaultConnPairFactory) NewConnPair(logger *zap.Logger, sshCtx *sshContext,
-	downstreamConn ssh.Conn, downstreamChannels <-chan ssh.NewChannel, downstreamRequests <-chan *ssh.Request,
-	upstreamConn ssh.Conn, upstreamChannels <-chan ssh.NewChannel, upstreamRequests <-chan *ssh.Request,
-) ConnPair {
-	return NewSSHConnPair(logger, sshCtx, downstreamConn, downstreamChannels, downstreamRequests, upstreamConn, upstreamChannels, upstreamRequests)
-}
-
 var errShuttingDown = errors.New("shutting down")
 
 // Timeout for connecting to the upstream SSH server.
@@ -77,7 +27,7 @@ type SSHProxy struct {
 	mu sync.Mutex
 
 	// Map of all active SSH connections
-	connsMap map[ConnPair]struct{}
+	connsMap map[*SSHConnPair]struct{}
 
 	// Wait group for active SSH connections
 	wg sync.WaitGroup
@@ -88,20 +38,12 @@ type SSHProxy struct {
 
 	// Whether the proxy is shutting down
 	shuttingDown bool
-
-	// Dependencies for creating connections (injectable for testing)
-	sshConnFactory  sshConnFactory
-	netDialer       netDialerFactory
-	connPairFactory connPairFactory
 }
 
 func NewProxy(config Config) *SSHProxy {
 	return &SSHProxy{
-		connsMap:        map[ConnPair]struct{}{},
-		config:          config,
-		sshConnFactory:  &defaultSSHConnFactory{},
-		netDialer:       &defaultNetDialer{},
-		connPairFactory: &defaultConnPairFactory{},
+		connsMap: map[*SSHConnPair]struct{}{},
+		config:   config,
 	}
 }
 
@@ -205,13 +147,13 @@ func (p *SSHProxy) serveConn(ctx context.Context, conn connect.Conn) error {
 	}
 
 	// Give the proxyconn.ProxyConn TCP connection to the SSH server to start the SSH handshake
-	downstreamSSHConn, downstreamSSHChannelsChan, downstreamSSHRequestsChan, err := p.sshConnFactory.NewServerConn(conn, p.downstreamConfig)
+	downstreamSSHConn, downstreamSSHChannelsChan, downstreamSSHRequestsChan, err := ssh.NewServerConn(conn, p.downstreamConfig)
 	if err != nil {
 		logger.Error("Handshake failed", zap.Error(err))
 
 		_ = conn.Close()
 
-		return err
+		return fmt.Errorf("downstream SSH handshake failed: %w", err)
 	}
 
 	sshCtx := &sshContext{
@@ -224,21 +166,21 @@ func (p *SSHProxy) serveConn(ctx context.Context, conn connect.Conn) error {
 	if err != nil {
 		closeDownstreamSSH(downstreamSSHConn, downstreamSSHChannelsChan, logger, sshCtx)
 
-		return err
+		return fmt.Errorf("failed to build upstream config: %w", err)
 	}
 
 	// Start connection to upstream SSH server
-	upstreamConn, err := p.netDialer.DialTimeout("tcp", upstream.address, upstreamConnTimeout)
+	upstreamConn, err := net.DialTimeout("tcp", upstream.address, upstreamConnTimeout)
 	if err != nil {
 		logger.Error("Failed to connect to upstream SSH server", zap.Error(err))
 
 		closeDownstreamSSH(downstreamSSHConn, downstreamSSHChannelsChan, logger, sshCtx)
 
-		return err
+		return fmt.Errorf("failed to dial upstream: %w", err)
 	}
 
 	// Open the SSH connection to the upstream server
-	upstreamSSHConn, upstreamSSHChannelsChan, upstreamSSHRequestsChan, err := p.sshConnFactory.NewClientConn(upstreamConn, upstream.address, upstreamConfig)
+	upstreamSSHConn, upstreamSSHChannelsChan, upstreamSSHRequestsChan, err := ssh.NewClientConn(upstreamConn, upstream.address, upstreamConfig)
 	if err != nil {
 		logger.Error("Failed to connect to upstream SSH server", zap.Error(err))
 
@@ -246,14 +188,14 @@ func (p *SSHProxy) serveConn(ctx context.Context, conn connect.Conn) error {
 
 		_ = upstreamConn.Close()
 
-		return err
+		return fmt.Errorf("upstream SSH handshake failed: %w", err)
 	}
 
 	sshCtx.serverVersion = string(upstreamSSHConn.ServerVersion())
 
 	logger.Info("SSH connection established", zap.Any("ssh", sshCtx.baseFields()))
 
-	sshConnPair := p.connPairFactory.NewConnPair(logger, sshCtx,
+	sshConnPair := NewSSHConnPair(logger, sshCtx,
 		downstreamSSHConn, downstreamSSHChannelsChan, downstreamSSHRequestsChan,
 		upstreamSSHConn, upstreamSSHChannelsChan, upstreamSSHRequestsChan)
 
