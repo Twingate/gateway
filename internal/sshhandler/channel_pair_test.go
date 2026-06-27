@@ -104,8 +104,8 @@ func newGatewayChannelPair(t *testing.T, logger *zap.Logger, channelType string)
 			targetLabel: "upstream",
 		},
 		"testuser",
-		source.channel, wrapSSHRequestChannel(source.requests),
-		target.channel, wrapSSHRequestChannel(target.requests),
+		source.channel, source.requests,
+		target.channel, target.requests,
 	)
 
 	return downstreamFar, upstreamFar, pair

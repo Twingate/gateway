@@ -152,30 +152,3 @@ func (m *MockChannel) TriggerEOF() {
 		m.closed = true
 	}
 }
-
-// Mock implementation for ssh.Request.
-type mockSSHRequest struct {
-	mock.Mock
-
-	Type      string
-	WantReply bool
-	Payload   []byte
-}
-
-func (m *mockSSHRequest) GetType() string {
-	return m.Type
-}
-
-func (m *mockSSHRequest) GetWantReply() bool {
-	return m.WantReply
-}
-
-func (m *mockSSHRequest) GetPayload() []byte {
-	return m.Payload
-}
-
-func (m *mockSSHRequest) Reply(ok bool, message []byte) error {
-	args := m.Called(ok, message)
-
-	return args.Error(0)
-}

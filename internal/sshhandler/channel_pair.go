@@ -48,12 +48,12 @@ type SSHChannelPair struct {
 	// Source SSH channel
 	sourceChannel ssh.Channel
 	// Source SSH channel requests channel
-	sourceChannelRequests <-chan Request
+	sourceChannelRequests <-chan *ssh.Request
 
 	// Target SSH channel
 	targetChannel ssh.Channel
 	// Target SSH channel requests channel
-	targetChannelRequests <-chan Request
+	targetChannelRequests <-chan *ssh.Request
 
 	// SSH username (for session recording)
 	sshUsername string
@@ -65,7 +65,7 @@ type SSHChannelPair struct {
 }
 
 // NewSSHChannelPair creates a new SSHChannelPair with the default factories.
-func NewSSHChannelPair(logger *zap.Logger, sshChannelCtx *sshChannelContext, sshUsername string, sourceChannel ssh.Channel, sourceRequests <-chan Request, targetChannel ssh.Channel, targetRequests <-chan Request) *SSHChannelPair {
+func NewSSHChannelPair(logger *zap.Logger, sshChannelCtx *sshChannelContext, sshUsername string, sourceChannel ssh.Channel, sourceRequests <-chan *ssh.Request, targetChannel ssh.Channel, targetRequests <-chan *ssh.Request) *SSHChannelPair {
 	return &SSHChannelPair{
 		logger:                logger,
 		sshChannelCtx:         sshChannelCtx,

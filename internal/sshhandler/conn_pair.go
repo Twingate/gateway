@@ -165,8 +165,8 @@ func (c *SSHConnPair) forwardChannels(channels <-chan ssh.NewChannel, targetConn
 			c.logger,
 			sshChannelCtx,
 			c.upstream.conn.User(),
-			sourceChannel, wrapSSHRequestChannel(sourceRequests),
-			targetChannel, wrapSSHRequestChannel(targetRequests),
+			sourceChannel, sourceRequests,
+			targetChannel, targetRequests,
 		)
 
 		c.wg.Go(func() {
