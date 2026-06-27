@@ -39,10 +39,6 @@ func (c *TerminalOutputRecorder) Write(p []byte) (n int, err error) {
 	return len(p), err
 }
 
-type ChannelPair interface {
-	serve()
-}
-
 type SSHChannelPair struct {
 	logger *zap.Logger
 

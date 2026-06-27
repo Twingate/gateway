@@ -5,365 +5,334 @@ package sshhandler
 
 import (
 	"bytes"
+	"io"
 	"testing"
-	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"golang.org/x/crypto/ssh"
 
 	"gateway/internal/sessionrecorder"
 )
 
-// Mock implementations
-
+// mockRecorder is a mock sessionrecorder.Recorder. serve() never calls IsHeaderWritten, so it
+// returns a fixed value; the rest record their calls via testify for assertion.
 type mockRecorder struct {
 	mock.Mock
-
-	headers      []sessionrecorder.AsciicastHeader
-	outputEvents [][]byte
-	resizeEvents []sessionrecorder.ResizeMsg
 }
 
 func (m *mockRecorder) WriteHeader(h sessionrecorder.AsciicastHeader) error {
-	m.headers = append(m.headers, h)
-	args := m.Called(h)
-
-	return args.Error(0)
+	return m.Called(h).Error(0)
 }
 
 func (m *mockRecorder) WriteOutputEvent(data []byte) error {
-	m.outputEvents = append(m.outputEvents, data)
-	args := m.Called(data)
-
-	return args.Error(0)
+	return m.Called(data).Error(0)
 }
 
 func (m *mockRecorder) WriteResizeEvent(width int, height int) error {
-	m.resizeEvents = append(m.resizeEvents, sessionrecorder.ResizeMsg{Width: width, Height: height})
-	args := m.Called(width, height)
+	return m.Called(width, height).Error(0)
+}
 
-	return args.Error(0)
+func (m *mockRecorder) IsHeaderWritten() bool {
+	return false
 }
 
 func (m *mockRecorder) Stop() {
 	m.Called()
 }
 
-func (m *mockRecorder) IsHeaderWritten() bool {
-	return len(m.headers) > 0
-}
-
+// mockSessionRecorderFactory is a mock SessionRecorderFactory.
 type mockSessionRecorderFactory struct {
 	mock.Mock
 }
 
 func (m *mockSessionRecorderFactory) NewRecorder(logger *zap.Logger) sessionrecorder.Recorder {
-	args := m.Called(logger)
-
-	return args.Get(0).(sessionrecorder.Recorder)
+	//revive:disable-next-line:unchecked-type-assertion
+	return m.Called(logger).Get(0).(sessionrecorder.Recorder)
 }
 
-func TestSSHChannelPair_serve_Success(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		// Create mock channels
-		sourceChannel := NewMockChannel()
-		targetChannel := NewMockChannel()
-
-		// Create mock request channels
-		sourceRequests := make(chan Request)
-		targetRequests := make(chan Request)
-
-		mockRecorderFactory := &mockSessionRecorderFactory{}
-		mockRec := &mockRecorder{}
-
-		mockRecorderFactory.On("NewRecorder", mock.Anything).Return(mockRec)
-		mockRec.On("WriteHeader", mock.MatchedBy(func(header sessionrecorder.AsciicastHeader) bool {
-			return header.Version == 2 &&
-				header.User == "testuser" &&
-				header.Width == 80 &&
-				header.Height == 24 &&
-				header.Command == "shell"
-		})).Return(nil)
-		mockRec.On("WriteOutputEvent", mock.MatchedBy(func(data []byte) bool {
-			return bytes.Equal(data, []byte("filename.txt"))
-		})).Return(nil)
-		mockRec.On("WriteResizeEvent",
-			mock.MatchedBy(func(width int) bool { return width == 100 }),
-			mock.MatchedBy(func(height int) bool { return height == 44 }),
-		).Return(nil)
-		mockRec.On("Stop").Return()
-
-		channelPair := NewSSHChannelPair(
-			zap.NewNop(),
-			&sshChannelContext{
-				sshContext:  testSSHContext,
-				channelID:   "test-channel-id",
-				channelType: "session",
-				sourceLabel: "downstream",
-				targetLabel: "upstream",
-			},
-			"testuser",
-			sourceChannel,
-			sourceRequests,
-			targetChannel,
-			targetRequests,
-		)
-		channelPair.recorderFactory = mockRecorderFactory
-
-		// Run serve in a goroutine
-		done := make(chan struct{})
-
-		go func() {
-			defer close(done)
-
-			channelPair.serve()
-		}()
-
-		// Send pty-req request
-		ptyRequest := &mockSSHRequest{
-			Type:      "pty-req",
-			Payload:   ssh.Marshal(ptyReq{WidthColumns: 80, HeightRows: 24}),
-			WantReply: true,
-		}
-		ptyRequest.On("Reply", true, []byte(nil)).Return(nil)
-
-		sourceRequests <- ptyRequest
-
-		// Assert that the pty request was sent to target
-		synctest.Wait()
-
-		requests := targetChannel.GetSendRequests()
-
-		assert.Len(t, requests, 1)
-		assert.Equal(t, ptyRequest.Type, requests[0].Type)
-		assert.Equal(t, ptyRequest.Payload, requests[0].Payload)
-		assert.True(t, requests[0].WantReply)
-
-		// Send shell request to start the session
-		shellRequest := &mockSSHRequest{
-			Type:      "shell",
-			Payload:   []byte{},
-			WantReply: true,
-		}
-		shellRequest.On("Reply", true, []byte(nil)).Return(nil)
-
-		sourceRequests <- shellRequest
-
-		// Assert that the shell request was sent to target
-		synctest.Wait()
-
-		requests = targetChannel.GetSendRequests()
-
-		assert.Len(t, requests, 2)
-		assert.Equal(t, shellRequest.Type, requests[1].Type)
-		assert.Equal(t, shellRequest.Payload, requests[1].Payload)
-		assert.True(t, requests[1].WantReply)
-
-		// Send window-change request
-		windowChangeRequest := &mockSSHRequest{
-			Type:      "window-change",
-			Payload:   ssh.Marshal(windowChangeReq{WidthColumns: 100, HeightRows: 44}),
-			WantReply: false,
-		}
-		windowChangeRequest.On("Reply", false, []byte(nil)).Return(nil)
-
-		sourceRequests <- windowChangeRequest
-
-		// Assert that the window-change request was sent to target
-		synctest.Wait()
-
-		requests = targetChannel.GetSendRequests()
-
-		assert.Len(t, requests, 3)
-		assert.Equal(t, windowChangeRequest.Type, requests[2].Type)
-		assert.Equal(t, windowChangeRequest.Payload, requests[2].Payload)
-		assert.False(t, requests[2].WantReply)
-
-		// Write data to the target channel
-		targetChannel.SetData([]byte("filename.txt"))
-		// Assert that the data was copied to the source channel
-		synctest.Wait()
-		assert.Equal(t, []byte("filename.txt"), sourceChannel.GetWrittenData())
-
-		// Send exit-status back
-		exitStatus := &mockSSHRequest{
-			Type:      "exit-status",
-			Payload:   []byte{},
-			WantReply: false,
-		}
-		targetRequests <- exitStatus
-
-		// Assert that the exit-status request was sent to source
-		synctest.Wait()
-
-		requests = sourceChannel.GetSendRequests()
-
-		assert.Len(t, requests, 1)
-		assert.Equal(t, exitStatus.Type, requests[0].Type)
-		assert.Equal(t, exitStatus.Payload, requests[0].Payload)
-		assert.False(t, requests[0].WantReply)
-
-		// Close all the channels now
-		_ = targetChannel.Close()
-
-		close(targetRequests)
-
-		_ = sourceChannel.Close()
-
-		close(sourceRequests)
-
-		// Wait for serve to complete
-		<-done
-
-		// Check for proper recording
-		mockRecorderFactory.AssertExpectations(t)
-		mockRec.AssertExpectations(t)
-	})
+// channelEnds is one side of a single SSH channel for a test to drive.
+type channelEnds struct {
+	channel  ssh.Channel
+	requests <-chan *ssh.Request
 }
 
-func TestSSHChannelPair_serve_NonShellCommand(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		// Create mock channels
-		sourceChannel := NewMockChannel()
-		targetChannel := NewMockChannel()
+// newGatewayChannelPair wires a real SSHChannelPair over two loopback SSH connections, mirroring
+// production roles: the gateway accepts the source channel opened by the downstream client and
+// opens the target channel that the upstream server accepts. It returns the two test-driven far
+// ends (downstream client + upstream server) and the wired pair whose serve() the test runs.
+func newGatewayChannelPair(t *testing.T, logger *zap.Logger, channelType string) (downstreamFar, upstreamFar channelEnds, pair *SSHChannelPair) {
+	t.Helper()
 
-		// Create mock request channels
-		sourceRequests := make(chan Request)
-		targetRequests := make(chan Request)
+	downstreamClient, downstreamServer := newSSHConnEnds(t)
+	upstreamClient, upstreamServer := newSSHConnEnds(t)
 
-		mockRecorderFactory := &mockSessionRecorderFactory{}
+	// Connection-level requests are unused; drain them so the mux never blocks.
+	go ssh.DiscardRequests(downstreamClient.requests)
+	go ssh.DiscardRequests(downstreamServer.requests)
+	go ssh.DiscardRequests(upstreamClient.requests)
+	go ssh.DiscardRequests(upstreamServer.requests)
 
-		channelPair := NewSSHChannelPair(
-			zap.NewNop(),
-			&sshChannelContext{
-				sshContext:  testSSHContext,
-				channelID:   "test-channel-id",
-				channelType: "session",
-				sourceLabel: "downstream",
-				targetLabel: "upstream",
-			},
-			"testuser",
-			sourceChannel,
-			sourceRequests,
-			targetChannel,
-			targetRequests,
-		)
-		channelPair.recorderFactory = mockRecorderFactory
+	// Source: downstream client opens, gateway (downstream server) accepts.
+	sourceGateway := acceptChannel(t, downstreamServer)
 
-		// Run serve in a goroutine
-		done := make(chan struct{})
+	dsCh, dsReqs, err := downstreamClient.conn.OpenChannel(channelType, nil)
+	require.NoError(t, err)
 
-		go func() {
-			defer close(done)
+	downstreamFar = channelEnds{channel: dsCh, requests: dsReqs}
+	source := <-sourceGateway
 
-			channelPair.serve()
-		}()
+	// Target: gateway (upstream client) opens, upstream server accepts.
+	upstreamGateway := acceptChannel(t, upstreamServer)
 
-		// Send subsystem request to start the session
-		subsystemRequest := &mockSSHRequest{
-			Type:      "subsystem",
-			Payload:   ssh.Marshal(subsystemReq{Name: "sftp"}),
-			WantReply: true,
+	tgtCh, tgtReqs, err := upstreamClient.conn.OpenChannel(channelType, nil)
+	require.NoError(t, err)
+
+	upstreamFar = channelEnds{channel: tgtCh, requests: tgtReqs}
+	target := <-upstreamGateway
+
+	pair = NewSSHChannelPair(
+		logger,
+		&sshChannelContext{
+			sshContext:  testSSHContext,
+			channelID:   "test-channel-id",
+			channelType: channelType,
+			sourceLabel: "downstream",
+			targetLabel: "upstream",
+		},
+		"testuser",
+		source.channel, wrapSSHRequestChannel(source.requests),
+		target.channel, wrapSSHRequestChannel(target.requests),
+	)
+
+	return downstreamFar, upstreamFar, pair
+}
+
+// acceptChannel accepts the next incoming channel on conn in a goroutine, since OpenChannel on the
+// far end blocks until the channel is accepted.
+func acceptChannel(t *testing.T, conn sshConn) <-chan channelEnds {
+	t.Helper()
+
+	accepted := make(chan channelEnds, 1)
+
+	go func() {
+		newChannel, ok := <-conn.newChannels
+		if !ok {
+			return
 		}
-		subsystemRequest.On("Reply", true, []byte(nil)).Return(nil)
 
-		sourceRequests <- subsystemRequest
+		channel, requests, err := newChannel.Accept()
+		if err != nil {
+			return
+		}
 
-		// Assert that the subsystem request was sent to target
-		synctest.Wait()
+		accepted <- channelEnds{channel: channel, requests: requests}
+	}()
 
-		requests := targetChannel.GetSendRequests()
+	return accepted
+}
 
-		assert.Len(t, requests, 1)
-		assert.Equal(t, subsystemRequest.Type, requests[0].Type)
-		assert.Equal(t, subsystemRequest.Payload, requests[0].Payload)
-		assert.Equal(t, subsystemRequest.WantReply, requests[0].WantReply)
+// recvForwardedReq reads the next request from reqs (with a timeout) and replies true when the
+// request wants a reply, so the gateway's blocking forwardRequest can complete.
+func recvForwardedReq(t *testing.T, reqs <-chan *ssh.Request) *ssh.Request {
+	t.Helper()
 
-		// Close all the channels now
-		_ = targetChannel.Close()
+	select {
+	case req := <-reqs:
+		if req.WantReply {
+			_ = req.Reply(true, nil)
+		}
 
-		close(targetRequests)
+		return req
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected a forwarded request but none arrived")
 
-		_ = sourceChannel.Close()
+		return nil
+	}
+}
 
-		close(sourceRequests)
+// sendAndAssertForward sends a request on from and asserts the gateway forwards it to the to chan
+// preserving type, payload, and WantReply. WantReply sends run in a goroutine because they block
+// until the forwarded request is replied to.
+func sendAndAssertForward(t *testing.T, from ssh.Channel, to <-chan *ssh.Request, reqType string, wantReply bool, payload []byte) {
+	t.Helper()
 
-		// Wait for serve to complete
-		<-done
+	sendDone := make(chan struct{})
 
-		// Check that recorder was not called for non-shell command
-		mockRecorderFactory.AssertNotCalled(t, "NewRecorder")
-	})
+	go func() {
+		defer close(sendDone)
+
+		_, err := from.SendRequest(reqType, wantReply, payload)
+		assert.NoError(t, err)
+	}()
+
+	req := recvForwardedReq(t, to)
+
+	assert.Equal(t, reqType, req.Type)
+	assert.Equal(t, wantReply, req.WantReply)
+
+	if len(payload) == 0 {
+		assert.Empty(t, req.Payload)
+	} else {
+		assert.Equal(t, payload, req.Payload)
+	}
+
+	select {
+	case <-sendDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("forwarded request send did not complete")
+	}
+}
+
+func TestSSHChannelPair_serve_ShellRecording(t *testing.T) {
+	// Keep teardown fast once the channels close.
+	originalEOFTimeout, originalCloseTimeout := channelEOFTimeout, channelCloseTimeout
+	channelEOFTimeout, channelCloseTimeout = 100*time.Millisecond, 100*time.Millisecond
+
+	defer func() { channelEOFTimeout, channelCloseTimeout = originalEOFTimeout, originalCloseTimeout }()
+
+	rec := &mockRecorder{}
+	rec.On("WriteHeader", mock.MatchedBy(func(h sessionrecorder.AsciicastHeader) bool {
+		return h.Version == 2 &&
+			h.User == "testuser" &&
+			h.Width == 80 &&
+			h.Height == 24 &&
+			h.Command == requestTypeShell
+	})).Return(nil)
+	rec.On("WriteOutputEvent", mock.MatchedBy(func(data []byte) bool {
+		return bytes.Equal(data, []byte("filename.txt"))
+	})).Return(nil)
+	rec.On("WriteResizeEvent", 100, 44).Return(nil)
+	rec.On("Stop").Return()
+
+	factory := &mockSessionRecorderFactory{}
+	factory.On("NewRecorder", mock.Anything).Return(rec)
+
+	downstreamFar, upstreamFar, pair := newGatewayChannelPair(t, zap.NewNop(), "session")
+	pair.recorderFactory = factory
+
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+
+		pair.serve()
+	}()
+
+	// pty-req carries the terminal dimensions used in the asciinema header.
+	ptyPayload := ssh.Marshal(ptyReq{WidthColumns: 80, HeightRows: 24})
+	sendAndAssertForward(t, downstreamFar.channel, upstreamFar.requests, requestTypePty, true, ptyPayload)
+
+	// shell starts the session and triggers recording.
+	sendAndAssertForward(t, downstreamFar.channel, upstreamFar.requests, requestTypeShell, true, nil)
+
+	// Data target->source is tapped into the recording. Reading it back also confirms the copier
+	// (and therefore the recorder) is running, so the following window-change is recorded.
+	_, err := upstreamFar.channel.Write([]byte("filename.txt"))
+	require.NoError(t, err)
+
+	buf := make([]byte, len("filename.txt"))
+	_, err = io.ReadFull(downstreamFar.channel, buf)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("filename.txt"), buf)
+
+	// window-change is recorded as a resize event now that the recorder exists.
+	windowChangePayload := ssh.Marshal(windowChangeReq{WidthColumns: 100, HeightRows: 44})
+	sendAndAssertForward(t, downstreamFar.channel, upstreamFar.requests, requestTypeWindowChange, false, windowChangePayload)
+
+	// Data source->target proves the other copy direction.
+	_, err = downstreamFar.channel.Write([]byte("ls\n"))
+	require.NoError(t, err)
+
+	srcBuf := make([]byte, len("ls\n"))
+	_, err = io.ReadFull(upstreamFar.channel, srcBuf)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("ls\n"), srcBuf)
+
+	// exit-status is forwarded target->source.
+	_, err = upstreamFar.channel.SendRequest("exit-status", false, ssh.Marshal(struct{ Status uint32 }{Status: 0}))
+	require.NoError(t, err)
+
+	exitReq := recvForwardedReq(t, downstreamFar.requests)
+	assert.Equal(t, "exit-status", exitReq.Type)
+
+	// Closing both far ends EOFs both copy directions so serve() returns and rec.Stop() runs.
+	require.NoError(t, upstreamFar.channel.Close())
+	require.NoError(t, downstreamFar.channel.Close())
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("serve() did not return")
+	}
+
+	factory.AssertExpectations(t)
+	rec.AssertExpectations(t)
+}
+
+func TestSSHChannelPair_serve_NonShellNoRecording(t *testing.T) {
+	originalEOFTimeout, originalCloseTimeout := channelEOFTimeout, channelCloseTimeout
+	channelEOFTimeout, channelCloseTimeout = 100*time.Millisecond, 100*time.Millisecond
+
+	defer func() { channelEOFTimeout, channelCloseTimeout = originalEOFTimeout, originalCloseTimeout }()
+
+	factory := &mockSessionRecorderFactory{}
+
+	downstreamFar, upstreamFar, pair := newGatewayChannelPair(t, zap.NewNop(), "session")
+	pair.recorderFactory = factory
+
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+
+		pair.serve()
+	}()
+
+	// subsystem starts the session but must not trigger recording.
+	subsystemPayload := ssh.Marshal(subsystemReq{Name: "sftp"})
+	sendAndAssertForward(t, downstreamFar.channel, upstreamFar.requests, requestTypeSubsystem, true, subsystemPayload)
+
+	require.NoError(t, upstreamFar.channel.Close())
+	require.NoError(t, downstreamFar.channel.Close())
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("serve() did not return")
+	}
+
+	factory.AssertNotCalled(t, "NewRecorder")
 }
 
 func TestSSHChannelPair_serve_SessionStartTimeout(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		// Create mock channels
-		sourceChannel := NewMockChannel()
-		targetChannel := NewMockChannel()
+	originalStartTimeout := sessionStartTimeout
+	sessionStartTimeout = 50 * time.Millisecond
 
-		// Create mock request channels
-		sourceRequests := make(chan Request)
-		targetRequests := make(chan Request)
+	defer func() { sessionStartTimeout = originalStartTimeout }()
 
-		mockRecorderFactory := &mockSessionRecorderFactory{}
+	factory := &mockSessionRecorderFactory{}
 
-		// Recorder factory should NOT be called since we timeout before creating recorder
-		mockRecorderFactory.AssertNotCalled(t, "NewRecorder")
+	// No session-start request is ever sent, so serve() must give up after sessionStartTimeout.
+	_, _, pair := newGatewayChannelPair(t, zap.NewNop(), "session")
+	pair.recorderFactory = factory
 
-		channelPair := NewSSHChannelPair(
-			zap.NewNop(),
-			&sshChannelContext{
-				sshContext:  testSSHContext,
-				channelID:   "test-channel-id",
-				channelType: "session",
-				sourceLabel: "downstream",
-				targetLabel: "upstream",
-			},
-			"testuser",
-			sourceChannel,
-			sourceRequests,
-			targetChannel,
-			targetRequests,
-		)
-		channelPair.recorderFactory = mockRecorderFactory
+	done := make(chan struct{})
 
-		// Run serve in a goroutine
-		done := make(chan struct{})
+	go func() {
+		defer close(done)
 
-		go func() {
-			defer close(done)
+		pair.serve()
+	}()
 
-			channelPair.serve()
-		}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("serve() did not return after the session-start timeout")
+	}
 
-		time.Sleep(sessionStartTimeout)
-		synctest.Wait()
-
-		// Don't send any session start requests - this should cause a timeout
-		// The serve() method waits for a session to start but we never send one
-
-		// Wait for serve to complete (should timeout and return early)
-		select {
-		case <-done:
-			// Success - serve should complete due to timeout prior to the timer below
-		default:
-			t.Fatal("serve() did not complete within timeout")
-		}
-
-		// Close channels for cleanup
-		_ = targetChannel.Close()
-
-		close(targetRequests)
-
-		_ = sourceChannel.Close()
-
-		close(sourceRequests)
-
-		// Verify expectations - recorder should never have been created
-		mockRecorderFactory.AssertExpectations(t)
-	})
+	factory.AssertNotCalled(t, "NewRecorder")
 }
