@@ -6,85 +6,11 @@ package sshhandler
 import (
 	"bytes"
 	"io"
-	"net"
 	"sync"
 
 	"github.com/stretchr/testify/mock"
 	"golang.org/x/crypto/ssh"
 )
-
-// Mock implementation for ssh.Conn.
-type mockSSHConn struct {
-	mock.Mock
-
-	user string
-}
-
-func (m *mockSSHConn) User() string {
-	return m.user
-}
-
-func (m *mockSSHConn) SessionID() []byte {
-	args := m.Called()
-
-	//revive:disable-next-line:unchecked-type-assertion
-	return args.Get(0).([]byte)
-}
-
-func (m *mockSSHConn) ClientVersion() []byte {
-	args := m.Called()
-
-	//revive:disable-next-line:unchecked-type-assertion
-	return args.Get(0).([]byte)
-}
-
-func (m *mockSSHConn) ServerVersion() []byte {
-	args := m.Called()
-
-	//revive:disable-next-line:unchecked-type-assertion
-	return args.Get(0).([]byte)
-}
-
-func (m *mockSSHConn) RemoteAddr() net.Addr {
-	args := m.Called()
-
-	//revive:disable-next-line:unchecked-type-assertion
-	return args.Get(0).(net.Addr)
-}
-
-func (m *mockSSHConn) LocalAddr() net.Addr {
-	args := m.Called()
-
-	//revive:disable-next-line:unchecked-type-assertion
-	return args.Get(0).(net.Addr)
-}
-
-func (m *mockSSHConn) SendRequest(name string, wantReply bool, payload []byte) (bool, []byte, error) {
-	args := m.Called(name, wantReply, payload)
-
-	//revive:disable-next-line:unchecked-type-assertion
-	return args.Bool(0), args.Get(1).([]byte), args.Error(2)
-}
-
-//nolint:ireturn
-func (m *mockSSHConn) OpenChannel(name string, data []byte) (ssh.Channel, <-chan *ssh.Request, error) {
-	args := m.Called(name, data)
-
-	//revive:disable-next-line:unchecked-type-assertion
-	return args.Get(0).(ssh.Channel), args.Get(1).(<-chan *ssh.Request), args.Error(2)
-}
-
-func (m *mockSSHConn) Close() error {
-	args := m.Called()
-
-	return args.Error(0)
-}
-
-func (m *mockSSHConn) Wait() error {
-	args := m.Called()
-
-	return args.Error(0)
-}
 
 // MockChannel is a mock implementation for ssh.Channel.
 type MockChannel struct {
@@ -252,40 +178,4 @@ func (m *mockSSHRequest) Reply(ok bool, message []byte) error {
 	args := m.Called(ok, message)
 
 	return args.Error(0)
-}
-
-// Mock implementation for ssh.NewChannel.
-type mockNewChannel struct {
-	mock.Mock
-
-	channelType string
-}
-
-func newMockNewChannel(channelType string) *mockNewChannel {
-	return &mockNewChannel{channelType: channelType}
-}
-
-//nolint:ireturn
-func (m *mockNewChannel) Accept() (ssh.Channel, <-chan *ssh.Request, error) {
-	args := m.Called()
-
-	//revive:disable-next-line:unchecked-type-assertion
-	return args.Get(0).(ssh.Channel), args.Get(1).(<-chan *ssh.Request), args.Error(2)
-}
-
-func (m *mockNewChannel) Reject(reason ssh.RejectionReason, message string) error {
-	args := m.Called(reason, message)
-
-	return args.Error(0)
-}
-
-func (m *mockNewChannel) ChannelType() string {
-	return m.channelType
-}
-
-func (m *mockNewChannel) ExtraData() []byte {
-	args := m.Called()
-
-	//revive:disable-next-line:unchecked-type-assertion
-	return args.Get(0).([]byte)
 }

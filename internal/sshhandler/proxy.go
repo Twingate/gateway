@@ -196,8 +196,8 @@ func (p *SSHProxy) serveConn(ctx context.Context, conn connect.Conn) error {
 	logger.Info("SSH connection established", zap.Any("ssh", sshCtx.baseFields()))
 
 	sshConnPair := NewSSHConnPair(logger, sshCtx,
-		downstreamSSHConn, downstreamSSHChannelsChan, downstreamSSHRequestsChan,
-		upstreamSSHConn, upstreamSSHChannelsChan, upstreamSSHRequestsChan)
+		sshConn{conn: downstreamSSHConn, newChannels: downstreamSSHChannelsChan, requests: downstreamSSHRequestsChan},
+		sshConn{conn: upstreamSSHConn, newChannels: upstreamSSHChannelsChan, requests: upstreamSSHRequestsChan})
 
 	// Serve the SSH connection pair
 	p.wg.Add(1)

@@ -42,7 +42,7 @@ func newProxyConn(conn net.Conn, address string) *connect.ProxyConn {
 func newDownstreamConn(t *testing.T, address string) (client net.Conn, server *connect.ProxyConn) {
 	t.Helper()
 
-	clientConn, serverConn := loopbackConnPair(t)
+	clientConn, serverConn := newLoopbackConnEnds(t)
 
 	return clientConn, newProxyConn(serverConn, address)
 }
@@ -181,10 +181,10 @@ func sendExitStatus(channel ssh.Channel, code uint32) {
 	_, _ = channel.SendRequest("exit-status", false, ssh.Marshal(struct{ Status uint32 }{Status: code}))
 }
 
-// loopbackConnPair returns the two ends of a real loopback TCP connection. SSH handshakes
+// newLoopbackConnEnds returns the two ends of a real loopback TCP connection. SSH handshakes
 // cannot run over net.Pipe (its writes are synchronous, so the mutual version/key exchange
 // deadlocks); a buffered socket pair is required.
-func loopbackConnPair(t *testing.T) (client, server net.Conn) {
+func newLoopbackConnEnds(t *testing.T) (client, server net.Conn) {
 	t.Helper()
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
