@@ -119,7 +119,6 @@ func TestNewVaultAuthMethod_AWS(t *testing.T) {
 
 		require.Len(t, logs.FilterMessageSnippet("deprecated").All(), 1)
 	})
-
 }
 
 func TestNewVaultAuthMethod_NoAuth(t *testing.T) {
