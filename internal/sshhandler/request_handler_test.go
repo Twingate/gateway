@@ -286,6 +286,53 @@ func TestSSHRequestHandler_handleRequests_UnknownType(t *testing.T) {
 	assert.Empty(t, requestLog)
 }
 
+// TestSSHRequestHandler_parseRequestPayload_Malformed verifies a typed request whose payload cannot
+// be unmarshalled is logged and still forwarded without crashing the handler.
+func TestSSHRequestHandler_parseRequestPayload_Malformed(t *testing.T) {
+	handler, downstreamFar, upstreamFar := newRequestHandlerEnds(t)
+	core, logs := observer.New(zap.DebugLevel)
+	handler.logger = zap.New(core).Named("test")
+
+	signals := handler.handleRequests()
+
+	// A pty-req with a truncated payload fails to unmarshal but is still forwarded verbatim.
+	sendAndAssertForward(t, downstreamFar.channel, upstreamFar.requests, requestTypePty, true, []byte{0x00})
+
+	require.NoError(t, downstreamFar.channel.Close())
+	<-signals.finished
+
+	assert.NotEmpty(t, logs.FilterMessage("Failed to parse pty-req request").All(),
+		"the malformed payload should have been logged")
+}
+
+// TestForwardRequest_TargetSendError verifies that when forwarding to the target channel fails,
+// forwardRequest replies failure to the source and returns the error.
+func TestForwardRequest_TargetSendError(t *testing.T) {
+	handler, downstreamFar, _ := newRequestHandlerEnds(t)
+
+	// Closing the target channel makes the forwarded SendRequest fail.
+	require.NoError(t, handler.targetChannel.Close())
+
+	// The source sends a WantReply request and must receive a failure reply.
+	replyCh := make(chan bool, 1)
+
+	go func() {
+		ok, _ := downstreamFar.channel.SendRequest(requestTypeExec, true, createExecRequestPayload("x"))
+		replyCh <- ok
+	}()
+
+	req := <-handler.sourceRequestChan
+
+	require.Error(t, forwardRequest(handler.targetChannel, req))
+
+	select {
+	case ok := <-replyCh:
+		assert.False(t, ok, "source should receive a failure reply")
+	case <-time.After(2 * time.Second):
+		t.Fatal("source did not receive a reply")
+	}
+}
+
 func TestForwardRequest_Success(t *testing.T) {
 	handler, downstreamFar, upstreamFar := newRequestHandlerEnds(t)
 

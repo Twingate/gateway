@@ -61,10 +61,10 @@ type channelEnds struct {
 }
 
 // newGatewayChannelPair wires a real SSHChannelPair over two loopback SSH connections, mirroring
-// production roles: the gateway accepts the source channel opened by the downstream client and
-// opens the target channel that the upstream server accepts. It returns the two test-driven far
+// production roles: the gateway accepts the source "session" channel opened by the downstream client
+// and opens the target channel that the upstream server accepts. It returns the two test-driven far
 // ends (downstream client + upstream server) and the wired pair whose serve() the test runs.
-func newGatewayChannelPair(t *testing.T, logger *zap.Logger, channelType string) (downstreamFar, upstreamFar channelEnds, pair *SSHChannelPair) {
+func newGatewayChannelPair(t *testing.T, logger *zap.Logger) (downstreamFar, upstreamFar channelEnds, pair *SSHChannelPair) {
 	t.Helper()
 
 	downstreamClient, downstreamServer := newSSHConnEnds(t)
@@ -79,7 +79,7 @@ func newGatewayChannelPair(t *testing.T, logger *zap.Logger, channelType string)
 	// Source: downstream client opens, gateway (downstream server) accepts.
 	sourceGateway := acceptChannel(t, downstreamServer)
 
-	dsCh, dsReqs, err := downstreamClient.conn.OpenChannel(channelType, nil)
+	dsCh, dsReqs, err := downstreamClient.conn.OpenChannel("session", nil)
 	require.NoError(t, err)
 
 	downstreamFar = channelEnds{channel: dsCh, requests: dsReqs}
@@ -88,7 +88,7 @@ func newGatewayChannelPair(t *testing.T, logger *zap.Logger, channelType string)
 	// Target: gateway (upstream client) opens, upstream server accepts.
 	upstreamGateway := acceptChannel(t, upstreamServer)
 
-	tgtCh, tgtReqs, err := upstreamClient.conn.OpenChannel(channelType, nil)
+	tgtCh, tgtReqs, err := upstreamClient.conn.OpenChannel("session", nil)
 	require.NoError(t, err)
 
 	upstreamFar = channelEnds{channel: tgtCh, requests: tgtReqs}
@@ -99,7 +99,7 @@ func newGatewayChannelPair(t *testing.T, logger *zap.Logger, channelType string)
 		&sshChannelContext{
 			sshContext:  testSSHContext,
 			channelID:   "test-channel-id",
-			channelType: channelType,
+			channelType: "session",
 			sourceLabel: "downstream",
 			targetLabel: "upstream",
 		},
@@ -187,6 +187,52 @@ func sendAndAssertForward(t *testing.T, from ssh.Channel, to <-chan *ssh.Request
 	}
 }
 
+func TestDefaultSessionRecorderFactory_NewRecorder(t *testing.T) {
+	rec := (&DefaultSessionRecorderFactory{}).NewRecorder(zap.NewNop())
+	assert.NotNil(t, rec)
+}
+
+// TestSSHChannelPair_serve_WindowChangeWithoutRecorder verifies a window-change on a session with no
+// active recorder is handled gracefully (the onWindowChange callback guards against a nil recorder).
+func TestSSHChannelPair_serve_WindowChangeWithoutRecorder(t *testing.T) {
+	originalEOFTimeout, originalCloseTimeout := channelEOFTimeout, channelCloseTimeout
+	channelEOFTimeout, channelCloseTimeout = 100*time.Millisecond, 100*time.Millisecond
+
+	defer func() { channelEOFTimeout, channelCloseTimeout = originalEOFTimeout, originalCloseTimeout }()
+
+	factory := &mockSessionRecorderFactory{}
+
+	downstreamFar, upstreamFar, pair := newGatewayChannelPair(t, zap.NewNop())
+	pair.recorderFactory = factory
+
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+
+		pair.serve()
+	}()
+
+	// A subsystem session does not create a recorder.
+	subsystemPayload := ssh.Marshal(subsystemReq{Name: "sftp"})
+	sendAndAssertForward(t, downstreamFar.channel, upstreamFar.requests, requestTypeSubsystem, true, subsystemPayload)
+
+	// Without the nil-recorder guard, handling this window-change would panic and crash serve().
+	windowChangePayload := ssh.Marshal(windowChangeReq{WidthColumns: 100, HeightRows: 44})
+	sendAndAssertForward(t, downstreamFar.channel, upstreamFar.requests, requestTypeWindowChange, false, windowChangePayload)
+
+	require.NoError(t, upstreamFar.channel.Close())
+	require.NoError(t, downstreamFar.channel.Close())
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("serve() did not return")
+	}
+
+	factory.AssertNotCalled(t, "NewRecorder")
+}
+
 func TestSSHChannelPair_serve_ShellRecording(t *testing.T) {
 	// Keep teardown fast once the channels close.
 	originalEOFTimeout, originalCloseTimeout := channelEOFTimeout, channelCloseTimeout
@@ -211,7 +257,7 @@ func TestSSHChannelPair_serve_ShellRecording(t *testing.T) {
 	factory := &mockSessionRecorderFactory{}
 	factory.On("NewRecorder", mock.Anything).Return(rec)
 
-	downstreamFar, upstreamFar, pair := newGatewayChannelPair(t, zap.NewNop(), "session")
+	downstreamFar, upstreamFar, pair := newGatewayChannelPair(t, zap.NewNop())
 	pair.recorderFactory = factory
 
 	done := make(chan struct{})
@@ -281,7 +327,7 @@ func TestSSHChannelPair_serve_NonShellNoRecording(t *testing.T) {
 
 	factory := &mockSessionRecorderFactory{}
 
-	downstreamFar, upstreamFar, pair := newGatewayChannelPair(t, zap.NewNop(), "session")
+	downstreamFar, upstreamFar, pair := newGatewayChannelPair(t, zap.NewNop())
 	pair.recorderFactory = factory
 
 	done := make(chan struct{})
@@ -317,7 +363,7 @@ func TestSSHChannelPair_serve_SessionStartTimeout(t *testing.T) {
 	factory := &mockSessionRecorderFactory{}
 
 	// No session-start request is ever sent, so serve() must give up after sessionStartTimeout.
-	_, _, pair := newGatewayChannelPair(t, zap.NewNop(), "session")
+	_, _, pair := newGatewayChannelPair(t, zap.NewNop())
 	pair.recorderFactory = factory
 
 	done := make(chan struct{})

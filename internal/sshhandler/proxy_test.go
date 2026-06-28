@@ -10,6 +10,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
+	"golang.org/x/crypto/ssh"
 )
 
 // TestSSHProxy_Start drives a real SSH client through the accept loop to an in-memory upstream,
@@ -76,6 +79,61 @@ func TestSSHProxy_serveConn_RejectsWhenShuttingDown(t *testing.T) {
 
 	_, readErr := clientDownstreamConn.Read(make([]byte, 1))
 	require.Error(t, readErr)
+}
+
+// TestSSHProxy_Serve_RejectsWhenShuttingDown verifies that Serve (the public entry point) closes
+// and rejects a connection handed to it after shutdown has begun.
+func TestSSHProxy_Serve_RejectsWhenShuttingDown(t *testing.T) {
+	sshProxy := newTestProxy(t)
+	sshProxy.Shutdown(t.Context())
+
+	clientDownstreamConn, serverDownstreamConn := newDownstreamConn(t, "unused:22")
+
+	err := sshProxy.Serve(t.Context(), serverDownstreamConn)
+	require.ErrorIs(t, err, errShuttingDown)
+
+	// The rejected connection is closed, so the client end sees EOF rather than a handshake.
+	require.NoError(t, clientDownstreamConn.SetReadDeadline(time.Now().Add(time.Second)))
+
+	_, readErr := clientDownstreamConn.Read(make([]byte, 1))
+	require.Error(t, readErr)
+}
+
+// TestCloseDownstreamSSH_RejectsQueuedChannels verifies closeDownstreamSSH closes the connection
+// and rejects every channel still queued for the gateway.
+func TestCloseDownstreamSSH_RejectsQueuedChannels(t *testing.T) {
+	client, server := newSSHConnEnds(t)
+
+	go ssh.DiscardRequests(client.requests)
+	go ssh.DiscardRequests(server.requests)
+
+	// The client opens a channel the gateway never accepts; capture the resulting NewChannel so it
+	// stands in for one still queued when the upstream fails.
+	go func() { _, _, _ = client.conn.OpenChannel("direct-tcpip", nil) }()
+
+	var queued ssh.NewChannel
+
+	select {
+	case queued = <-server.newChannels:
+	case <-time.After(2 * time.Second):
+		t.Fatal("no channel arrived on the gateway side")
+	}
+
+	channels := make(chan ssh.NewChannel, 1)
+	channels <- queued
+
+	close(channels)
+
+	core, logs := observer.New(zap.DebugLevel)
+
+	closeDownstreamSSH(server.conn, channels, zap.New(core), testSSHContext)
+
+	// Closing the downstream connection tears down the client end.
+	assertConnClosed(t, client.conn, "downstream")
+
+	// The queued channel was run through the rejection loop.
+	assert.NotEmpty(t, logs.FilterMessage("Rejecting channel").All(),
+		"queued channel should have been rejected")
 }
 
 // TestSSHProxy_serveConn_DownstreamHandshakeFailure verifies serveConn surfaces a failed

@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -344,6 +345,30 @@ func TestSSHConnPair_forwardGlobalRequests_BlocksDenied(t *testing.T) {
 		t.Fatal("denied request was forwarded to downstream")
 	case <-time.After(100 * time.Millisecond):
 	}
+}
+
+func TestSSHConnPair_forwardGlobalRequests_SendError(t *testing.T) {
+	// A real (but closed) destination conn makes SendRequest fail, exercising the forward-error path.
+	_, dst := newSSHConnEnds(t)
+
+	go ssh.DiscardRequests(dst.requests)
+
+	require.NoError(t, dst.conn.Close())
+
+	core, logs := observer.New(zap.DebugLevel)
+	connPair := NewSSHConnPair(zap.New(core), testSSHContext, sshConn{}, sshConn{})
+
+	// An allowed request with WantReply=false is forwarded (and fails), and needs no reply, so the
+	// error path is reached without a live source channel.
+	requests := make(chan *ssh.Request, 1)
+	requests <- &ssh.Request{Type: "keepalive@openssh.com", WantReply: false}
+
+	close(requests)
+
+	connPair.forwardGlobalRequests(requests, dst.conn, nil, labelDownstream, labelUpstream)
+
+	assert.NotEmpty(t, logs.FilterMessage("Failed to forward global request").All(),
+		"a failed forward should be logged")
 }
 
 func TestSSHConnPair_close(t *testing.T) {
