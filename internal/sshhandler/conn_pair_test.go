@@ -5,7 +5,9 @@ package sshhandler
 
 import (
 	"crypto/rand"
+	"errors"
 	"io"
+	"net"
 	"testing"
 	"time"
 
@@ -73,17 +75,17 @@ func newSSHConnEnds(t *testing.T) (client, server sshConn) {
 // gateway holds the downstream server end and the upstream client end (matching production, where
 // the gateway is the SSH server to the client and the SSH client to the upstream); the returned
 // ends are the ones the test drives.
-func newServingConnPair(t *testing.T) (downstreamClient, upstreamServer sshConn) {
+func newServingConnPair(t *testing.T) (downstreamClient, upstreamServer sshConn, connPair *SSHConnPair) {
 	t.Helper()
 
 	downstreamClient, downstreamServer := newSSHConnEnds(t)
 	upstreamClient, upstreamServer := newSSHConnEnds(t)
 
-	connPair := NewSSHConnPair(zap.NewNop(), testSSHContext, downstreamServer, upstreamClient)
+	connPair = NewSSHConnPair(zap.NewNop(), testSSHContext, downstreamServer, upstreamClient)
 
 	go connPair.serve()
 
-	return downstreamClient, upstreamServer
+	return downstreamClient, upstreamServer, connPair
 }
 
 // assertConnClosed fails unless conn's Wait() returns within a short timeout.
@@ -119,7 +121,7 @@ func TestSSHConnPair_serve_ForwardsChannels(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			downstreamClient, upstreamServer := newServingConnPair(t)
+			downstreamClient, upstreamServer, connPair := newServingConnPair(t)
 
 			go ssh.DiscardRequests(downstreamClient.requests)
 			go ssh.DiscardRequests(upstreamServer.requests)
@@ -185,6 +187,8 @@ func TestSSHConnPair_serve_ForwardsChannels(t *testing.T) {
 			_, err = io.ReadFull(openedChannel, buf)
 			require.NoError(t, err)
 			assert.Equal(t, []byte("y"), buf)
+
+			assert.Equal(t, 1, connPair.ChannelsOpened())
 		})
 	}
 }
@@ -202,7 +206,7 @@ func TestSSHConnPair_serve_ForwardsGlobalRequests(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			downstreamClient, upstreamServer := newServingConnPair(t)
+			downstreamClient, upstreamServer, _ := newServingConnPair(t)
 
 			sender, receiver := downstreamClient, upstreamServer
 			if tt.fromUpstream {
@@ -240,7 +244,7 @@ func TestSSHConnPair_serve_ForwardsGlobalRequests(t *testing.T) {
 func TestSSHConnPair_serve_CrossClose(t *testing.T) {
 	// Closing either side must tear down the other; each direction is a separate serve() goroutine.
 	t.Run("downstream close closes upstream", func(t *testing.T) {
-		downstreamClient, upstreamServer := newServingConnPair(t)
+		downstreamClient, upstreamServer, _ := newServingConnPair(t)
 
 		go ssh.DiscardRequests(downstreamClient.requests)
 		go ssh.DiscardRequests(upstreamServer.requests)
@@ -251,7 +255,7 @@ func TestSSHConnPair_serve_CrossClose(t *testing.T) {
 	})
 
 	t.Run("upstream close closes downstream", func(t *testing.T) {
-		downstreamClient, upstreamServer := newServingConnPair(t)
+		downstreamClient, upstreamServer, _ := newServingConnPair(t)
 
 		go ssh.DiscardRequests(downstreamClient.requests)
 		go ssh.DiscardRequests(upstreamServer.requests)
@@ -263,7 +267,7 @@ func TestSSHConnPair_serve_CrossClose(t *testing.T) {
 }
 
 func TestSSHConnPair_forwardChannels_RejectsDisallowedType(t *testing.T) {
-	downstreamClient, upstreamServer := newServingConnPair(t)
+	downstreamClient, upstreamServer, _ := newServingConnPair(t)
 
 	go ssh.DiscardRequests(downstreamClient.requests)
 	go ssh.DiscardRequests(upstreamServer.requests)
@@ -296,7 +300,7 @@ func TestSSHConnPair_forwardChannels_RejectsDisallowedType(t *testing.T) {
 }
 
 func TestSSHConnPair_forwardChannels_RejectsOnTargetOpenFailure(t *testing.T) {
-	downstreamClient, upstreamServer := newServingConnPair(t)
+	downstreamClient, upstreamServer, _ := newServingConnPair(t)
 
 	go ssh.DiscardRequests(downstreamClient.requests)
 	go ssh.DiscardRequests(upstreamServer.requests)
@@ -318,7 +322,7 @@ func TestSSHConnPair_forwardChannels_RejectsOnTargetOpenFailure(t *testing.T) {
 }
 
 func TestSSHConnPair_forwardGlobalRequests_BlocksDenied(t *testing.T) {
-	downstreamClient, upstreamServer := newServingConnPair(t)
+	downstreamClient, upstreamServer, _ := newServingConnPair(t)
 
 	go ssh.DiscardRequests(upstreamServer.requests)
 
@@ -385,4 +389,235 @@ func TestSSHConnPair_close(t *testing.T) {
 
 	assertConnClosed(t, downstreamClient.conn, "downstream")
 	assertConnClosed(t, upstreamServer.conn, "upstream")
+}
+
+// fakeConn is a minimal ssh.Conn whose Close and Wait are controllable. The embedded nil interface
+// panics on any other method, so it is only safe while the code under test touches just these two.
+type fakeConn struct {
+	ssh.Conn
+
+	closeErr error
+	waitCh   chan struct{}
+}
+
+func (f *fakeConn) Close() error {
+	return f.closeErr
+}
+
+func (f *fakeConn) Wait() error {
+	<-f.waitCh
+
+	return nil
+}
+
+// fakeNewChannel is a minimal ssh.NewChannel whose Accept and Reject outcomes are controllable.
+type fakeNewChannel struct {
+	channelType string
+	acceptErr   error
+	rejectErr   error
+}
+
+func (f *fakeNewChannel) Accept() (ssh.Channel, <-chan *ssh.Request, error) {
+	return nil, nil, f.acceptErr
+}
+
+func (f *fakeNewChannel) Reject(_ ssh.RejectionReason, _ string) error {
+	return f.rejectErr
+}
+
+func (f *fakeNewChannel) ChannelType() string {
+	return f.channelType
+}
+
+func (f *fakeNewChannel) ExtraData() []byte {
+	return nil
+}
+
+func TestSSHConnPair_close_LogsCloseErrors(t *testing.T) {
+	// Close() returning a non-net.ErrClosed error on each side must be logged.
+	core, logs := observer.New(zap.DebugLevel)
+	connPair := NewSSHConnPair(
+		zap.New(core),
+		testSSHContext,
+		sshConn{conn: &fakeConn{closeErr: errors.New("downstream boom")}},
+		sshConn{conn: &fakeConn{closeErr: errors.New("upstream boom")}},
+	)
+
+	connPair.close()
+
+	assert.NotEmpty(t, logs.FilterMessage("Failed to close downstream connection").All())
+	assert.NotEmpty(t, logs.FilterMessage("Failed to close upstream connection").All())
+}
+
+func TestSSHConnPair_close_IgnoresErrClosed(t *testing.T) {
+	// net.ErrClosed is expected on an already-closed conn and must not be logged.
+	core, logs := observer.New(zap.DebugLevel)
+	connPair := NewSSHConnPair(
+		zap.New(core),
+		testSSHContext,
+		sshConn{conn: &fakeConn{closeErr: net.ErrClosed}},
+		sshConn{conn: &fakeConn{closeErr: net.ErrClosed}},
+	)
+
+	connPair.close()
+
+	assert.Empty(t, logs.All())
+}
+
+func TestSSHConnPair_serve_LogsCrossCloseErrors(t *testing.T) {
+	// When one side's Wait returns, serve() closes the other; a non-net.ErrClosed error there is
+	// logged at Debug. Empty closed request/channel streams let the forward goroutines exit so
+	// serve() returns.
+	core, logs := observer.New(zap.DebugLevel)
+
+	emptyRequests := make(chan *ssh.Request)
+	close(emptyRequests)
+
+	emptyChannels := make(chan ssh.NewChannel)
+	close(emptyChannels)
+
+	downstreamWait := make(chan struct{})
+	upstreamWait := make(chan struct{})
+
+	connPair := NewSSHConnPair(
+		zap.New(core),
+		testSSHContext,
+		sshConn{
+			conn:        &fakeConn{closeErr: errors.New("downstream boom"), waitCh: downstreamWait},
+			newChannels: emptyChannels,
+			requests:    emptyRequests,
+		},
+		sshConn{
+			conn:        &fakeConn{closeErr: errors.New("upstream boom"), waitCh: upstreamWait},
+			newChannels: emptyChannels,
+			requests:    emptyRequests,
+		},
+	)
+
+	close(downstreamWait)
+	close(upstreamWait)
+
+	connPair.serve()
+
+	assert.NotEmpty(t, logs.FilterMessage("Failed to close upstream connection").All())
+	assert.NotEmpty(t, logs.FilterMessage("Failed to close downstream connection").All())
+}
+
+func TestSSHConnPair_forwardChannels_RejectError(t *testing.T) {
+	// When Reject() itself fails, the failure must be logged. Two reject sites: a disallowed channel
+	// type, and an allowed type whose target-open fails first.
+	tests := []struct {
+		name        string
+		channelType string
+		closeTarget bool
+		wantLog     string
+	}{
+		{
+			name:        "disallowed type",
+			channelType: "x11", // in disallowedDownstreamChannelTypes
+			wantLog:     "Failed to reject channel",
+		},
+		{
+			name:        "target open failure",
+			channelType: "direct-tcpip", // allowed downstream, but target-open fails
+			closeTarget: true,
+			wantLog:     "Failed to reject source channel",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			core, logs := observer.New(zap.DebugLevel)
+
+			_, target := newSSHConnEnds(t)
+			go ssh.DiscardRequests(target.requests)
+
+			if tt.closeTarget {
+				// A closed target conn makes the gateway's OpenChannel fail.
+				require.NoError(t, target.conn.Close())
+			}
+
+			connPair := NewSSHConnPair(zap.New(core), testSSHContext, sshConn{}, sshConn{})
+
+			channels := make(chan ssh.NewChannel, 1)
+			channels <- &fakeNewChannel{channelType: tt.channelType, rejectErr: errors.New("reject failed")}
+
+			close(channels)
+
+			connPair.forwardChannels(channels, target.conn, disallowedDownstreamChannelTypes, labelDownstream, labelUpstream)
+
+			assert.NotEmpty(t, logs.FilterMessage(tt.wantLog).All())
+		})
+	}
+}
+
+func TestSSHConnPair_forwardChannels_AcceptError(t *testing.T) {
+	// After the target channel opens, a failed Accept() of the source channel must be logged and the
+	// already-opened target channel cleaned up (not counted as opened).
+	core, logs := observer.New(zap.DebugLevel)
+
+	// Both ends of one connection: the gateway opens the target on upstreamClient, the far end
+	// (upstreamServer) accepts it so OpenChannel succeeds and the code reaches the source Accept().
+	upstreamClient, upstreamServer := newSSHConnEnds(t)
+	go ssh.DiscardRequests(upstreamClient.requests)
+	go ssh.DiscardRequests(upstreamServer.requests)
+
+	go func() {
+		for newChannel := range upstreamServer.newChannels {
+			channel, requests, err := newChannel.Accept()
+			if err != nil {
+				return
+			}
+
+			go ssh.DiscardRequests(requests)
+			go func() { _, _ = io.Copy(io.Discard, channel) }()
+		}
+	}()
+
+	connPair := NewSSHConnPair(zap.New(core), testSSHContext, sshConn{}, sshConn{})
+
+	channels := make(chan ssh.NewChannel, 1)
+	channels <- &fakeNewChannel{channelType: "direct-tcpip", acceptErr: errors.New("accept failed")}
+
+	close(channels)
+
+	connPair.forwardChannels(channels, upstreamClient.conn, disallowedDownstreamChannelTypes, labelDownstream, labelUpstream)
+
+	assert.NotEmpty(t, logs.FilterMessage("Failed to accept source channel").All())
+	assert.Zero(t, connPair.ChannelsOpened(), "a failed accept must not count as an opened channel")
+}
+
+func TestReplyToGlobalRequest_ReplyError(t *testing.T) {
+	// Replying on a request whose connection has been torn down must log the failure.
+	client, server := newSSHConnEnds(t)
+
+	received := make(chan *ssh.Request, 1)
+
+	go func() {
+		for req := range server.requests {
+			received <- req
+		}
+	}()
+
+	go func() {
+		// WantReply=true so replyToGlobalRequest attempts a reply.
+		_, _, _ = client.conn.SendRequest("keepalive@openssh.com", true, nil)
+	}()
+
+	var req *ssh.Request
+
+	select {
+	case req = <-received:
+	case <-time.After(2 * time.Second):
+		t.Fatal("global request was not received")
+	}
+
+	// Tear down both ends so the reply cannot be written back.
+	require.NoError(t, client.conn.Close())
+	require.NoError(t, server.conn.Close())
+
+	core, logs := observer.New(zap.DebugLevel)
+	replyToGlobalRequest(req, true, nil, zap.New(core))
+
+	assert.NotEmpty(t, logs.FilterMessage("Failed to reply to global request").All())
 }
