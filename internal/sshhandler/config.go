@@ -83,17 +83,17 @@ func NewConfig(auditLogConfig *config.AuditLogConfig, sshCfg *config.SSHConfig, 
 		keyType = defaultKeyType
 	}
 
-	keyConfig := keyConfig{
+	keyCfg := keyConfig{
 		typ:  keyType,
 		bits: sshCfg.Gateway.Key.Bits,
 	}
 
-	hostSigner, hostPublicKey, err := keyConfig.Generate(rand.Reader)
+	hostSigner, hostPublicKey, err := keyCfg.Generate(rand.Reader)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate gateway host key: %w", err)
 	}
 
-	userSigner, userPublicKey, err := keyConfig.Generate(rand.Reader)
+	userSigner, userPublicKey, err := keyCfg.Generate(rand.Reader)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate gateway user key: %w", err)
 	}
