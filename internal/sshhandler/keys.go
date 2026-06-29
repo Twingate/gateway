@@ -36,8 +36,8 @@ type keyConfig struct {
 
 func newKeyConfig(keyType string, keyBits int) (keyConfig, error) {
 	switch keyType {
-	// Ed25519
-	case "ed25519", ssh.KeyAlgoED25519:
+	// Ed25519 (also the default when no type is set)
+	case "", "ed25519", ssh.KeyAlgoED25519:
 		return keyConfig{typ: keyTypeED25519, bits: keyBits}, nil
 
 	// ECDSA variants

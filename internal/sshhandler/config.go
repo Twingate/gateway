@@ -28,7 +28,6 @@ var (
 
 // Default values for SSH configuration.
 const (
-	defaultKeyType     = keyTypeED25519
 	defaultHostCertTTL = 24 * time.Hour
 	defaultUserCertTTL = 5 * time.Minute
 )
@@ -77,15 +76,9 @@ func NewConfig(auditLogConfig *config.AuditLogConfig, sshCfg *config.SSHConfig, 
 		return nil, fmt.Errorf("failed to create ca: %w", err)
 	}
 
-	// Apply defaults for Gateway's key config
-	keyType := keyType(sshCfg.Gateway.Key.Type)
-	if keyType == "" {
-		keyType = defaultKeyType
-	}
-
-	keyCfg := keyConfig{
-		typ:  keyType,
-		bits: sshCfg.Gateway.Key.Bits,
+	keyCfg, err := newKeyConfig(sshCfg.Gateway.Key.Type, sshCfg.Gateway.Key.Bits)
+	if err != nil {
+		return nil, fmt.Errorf("invalid gateway key config: %w", err)
 	}
 
 	hostSigner, hostPublicKey, err := keyCfg.Generate(rand.Reader)
@@ -149,7 +142,7 @@ func (c *Config) GetDownstreamConfig(ctx context.Context) (*ssh.ServerConfig, er
 
 	hostCertSigner, err := newAutoRenewingCertSigner(ctx, c.caConfig.GatewayHostCA, hostCertRequest, c.hostSigner, c.logger)
 	if err != nil {
-		return nil, fmt.Errorf("failed to Gateway's host cert signer: %w", err)
+		return nil, fmt.Errorf("failed to create Gateway's host cert signer: %w", err)
 	}
 
 	go func() {
