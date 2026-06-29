@@ -54,12 +54,17 @@ type upstream struct {
 }
 
 type Config struct {
-	caConfig         *caConfig
-	gatewaySigner    ssh.Signer
-	gatewayPublicKey ssh.PublicKey
-	hostCertTTL      time.Duration
-	userCertTTL      time.Duration
-	gatewayUsername  string
+	caConfig *caConfig
+
+	hostSigner    ssh.Signer
+	hostPublicKey ssh.PublicKey
+	hostCertTTL   time.Duration
+
+	userSigner    ssh.Signer
+	userPublicKey ssh.PublicKey
+	userCertTTL   time.Duration
+
+	gatewayUsername string
 
 	auditLog *config.AuditLogConfig
 	logger   *zap.Logger
@@ -78,12 +83,19 @@ func NewConfig(auditLogConfig *config.AuditLogConfig, sshCfg *config.SSHConfig, 
 		keyType = defaultKeyType
 	}
 
-	gatewaySigner, gatewayPublicKey, err := keyConfig{
+	keyConfig := keyConfig{
 		typ:  keyType,
 		bits: sshCfg.Gateway.Key.Bits,
-	}.Generate(rand.Reader)
+	}
+
+	hostSigner, hostPublicKey, err := keyConfig.Generate(rand.Reader)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate gateway key: %w", err)
+		return nil, fmt.Errorf("failed to generate gateway host key: %w", err)
+	}
+
+	userSigner, userPublicKey, err := keyConfig.Generate(rand.Reader)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate gateway user key: %w", err)
 	}
 
 	// Apply defaults for certificate TTLs
@@ -98,12 +110,14 @@ func NewConfig(auditLogConfig *config.AuditLogConfig, sshCfg *config.SSHConfig, 
 	}
 
 	return &Config{
-		caConfig:         caConfig,
-		gatewaySigner:    gatewaySigner,
-		gatewayPublicKey: gatewayPublicKey,
-		hostCertTTL:      hostCertTTL,
-		userCertTTL:      userCertTTL,
-		gatewayUsername:  sshCfg.Gateway.Username,
+		caConfig:        caConfig,
+		hostSigner:      hostSigner,
+		hostPublicKey:   hostPublicKey,
+		hostCertTTL:     hostCertTTL,
+		userSigner:      userSigner,
+		userPublicKey:   userPublicKey,
+		userCertTTL:     userCertTTL,
+		gatewayUsername: sshCfg.Gateway.Username,
 
 		auditLog: auditLogConfig,
 		logger:   logger,
@@ -129,11 +143,11 @@ func (c *Config) GetDownstreamConfig(ctx context.Context) (*ssh.ServerConfig, er
 
 	hostCertRequest := &certificateRequest{
 		certType:  ssh.HostCert,
-		publicKey: c.gatewayPublicKey,
+		publicKey: c.hostPublicKey,
 		ttl:       c.hostCertTTL,
 	}
 
-	hostCertSigner, err := newAutoRenewingCertSigner(ctx, c.caConfig.GatewayHostCA, hostCertRequest, c.gatewaySigner, c.logger)
+	hostCertSigner, err := newAutoRenewingCertSigner(ctx, c.caConfig.GatewayHostCA, hostCertRequest, c.hostSigner, c.logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to Gateway's host cert signer: %w", err)
 	}
@@ -154,7 +168,7 @@ func (c *Config) GetDownstreamConfig(ctx context.Context) (*ssh.ServerConfig, er
 func (c *Config) GetUpstreamConfig(ctx context.Context, upstream upstream) (*ssh.ClientConfig, error) {
 	userCertRequest := &certificateRequest{
 		certType:  ssh.UserCert,
-		publicKey: c.gatewayPublicKey,
+		publicKey: c.userPublicKey,
 		principals: []string{
 			upstream.username,
 		},
@@ -175,7 +189,7 @@ func (c *Config) GetUpstreamConfig(ctx context.Context, upstream upstream) (*ssh
 		return nil, fmt.Errorf("failed to sign user certificate: %w", err)
 	}
 
-	userCertSigner, err := ssh.NewCertSigner(userCert, c.gatewaySigner)
+	userCertSigner, err := ssh.NewCertSigner(userCert, c.userSigner)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Gateway's user certificate: %w", err)
 	}

@@ -37,6 +37,13 @@ func TestNewConfig_Success(t *testing.T) {
 
 	assert.Equal(t, auditLog, config.auditLog)
 	assert.Equal(t, "gateway", config.gatewayUsername)
+
+	require.NotNil(t, config.hostSigner)
+	require.NotNil(t, config.userSigner)
+	assert.False(t, keysEqual(config.hostPublicKey, config.userPublicKey),
+		"host and user public keys must be distinct")
+	assert.False(t, keysEqual(config.hostSigner.PublicKey(), config.userSigner.PublicKey()),
+		"host and user signers must be distinct")
 }
 
 func TestNewConfig_WithManualCA(t *testing.T) {
