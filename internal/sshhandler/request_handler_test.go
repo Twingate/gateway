@@ -305,6 +305,40 @@ func TestSSHRequestHandler_parseRequestPayload_Malformed(t *testing.T) {
 		"the malformed payload should have been logged")
 }
 
+// TestSSHRequestHandler_handleRequest_ForwardError verifies that when forwarding a session-starting
+// request to the target channel fails, the handler logs the failure and returns early without
+// signaling that the session has started.
+func TestSSHRequestHandler_handleRequest_ForwardError(t *testing.T) {
+	handler, downstreamFar, _ := newRequestHandlerEnds(t)
+	core, logs := observer.New(zap.DebugLevel)
+	handler.logger = zap.New(core).Named("test")
+
+	// Closing the target channel makes the forwarded SendRequest fail.
+	require.NoError(t, handler.targetChannel.Close())
+
+	signals := handler.handleRequests()
+
+	// Send a session-starting request; forwarding fails so the started signal must not fire.
+	go func() {
+		_, _ = downstreamFar.channel.SendRequest(requestTypeExec, true, createExecRequestPayload("ls"))
+	}()
+
+	// The forwarding failure should be logged.
+	require.Eventually(t, func() bool {
+		return len(logs.FilterMessage("Failed to forward request").All()) > 0
+	}, 2*time.Second, 10*time.Millisecond)
+
+	require.NoError(t, downstreamFar.channel.Close())
+	<-signals.finished
+
+	// The early return means the session never started.
+	select {
+	case <-signals.started:
+		t.Fatal("session should not have started when forwarding failed")
+	default:
+	}
+}
+
 // TestForwardRequest_TargetSendError verifies that when forwarding to the target channel fails,
 // forwardRequest replies failure to the source and returns the error.
 func TestForwardRequest_TargetSendError(t *testing.T) {

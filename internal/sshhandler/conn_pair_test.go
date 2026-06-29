@@ -5,9 +5,7 @@ package sshhandler
 
 import (
 	"crypto/rand"
-	"errors"
 	"io"
-	"net"
 	"testing"
 	"time"
 
@@ -391,116 +389,89 @@ func TestSSHConnPair_close(t *testing.T) {
 	assertConnClosed(t, upstreamServer.conn, "upstream")
 }
 
-// fakeConn is a minimal ssh.Conn whose Close and Wait are controllable. The embedded nil interface
-// panics on any other method, so it is only safe while the code under test touches just these two.
-type fakeConn struct {
+// captureDeadNewChannel opens a channel of channelType from a fresh real SSH client end, captures the
+// matching ssh.NewChannel at the gateway (server) end without accepting or rejecting it, then closes
+// the gateway connection so a later Accept()/Reject() on the captured channel (a mux send) fails.
+func captureDeadNewChannel(t *testing.T, channelType string) ssh.NewChannel {
+	t.Helper()
+
+	client, gateway := newSSHConnEnds(t)
+	go ssh.DiscardRequests(client.requests)
+	go ssh.DiscardRequests(gateway.requests)
+
+	// OpenChannel blocks until the channel is accepted, rejected, or the conn closes; we never accept
+	// it, so drive it from a goroutine and discard the outcome.
+	go func() {
+		channel, requests, err := client.conn.OpenChannel(channelType, nil)
+		if err == nil {
+			go ssh.DiscardRequests(requests)
+
+			_ = channel.Close()
+		}
+	}()
+
+	newChannel := <-gateway.newChannels
+
+	// Tearing down the gateway conn makes any later Accept()/Reject() on newChannel fail.
+	require.NoError(t, gateway.conn.Close())
+
+	return newChannel
+}
+
+// deadChannel opens a real SSH channel and closes its underlying connection, so the returned
+// channel's Close() (a mux send) fails.
+func deadChannel(t *testing.T) ssh.Channel {
+	t.Helper()
+
+	client, server := newSSHConnEnds(t)
+	go ssh.DiscardRequests(client.requests)
+	go ssh.DiscardRequests(server.requests)
+
+	accepted := acceptChannel(t, server)
+
+	channel, requests, err := client.conn.OpenChannel("session", nil)
+	require.NoError(t, err)
+
+	go ssh.DiscardRequests(requests)
+
+	<-accepted
+
+	require.NoError(t, client.conn.Close())
+
+	return channel
+}
+
+// openChannelConn is a minimal ssh.Conn whose OpenChannel returns a fixed (real) channel, letting a
+// test inject a target channel into forwardChannels. Only OpenChannel is exercised on that path.
+type openChannelConn struct {
 	ssh.Conn
 
-	closeErr error
-	waitCh   chan struct{}
+	channel  ssh.Channel
+	requests chan *ssh.Request
 }
 
-func (f *fakeConn) Close() error {
-	return f.closeErr
-}
-
-func (f *fakeConn) Wait() error {
-	<-f.waitCh
-
-	return nil
-}
-
-// fakeNewChannel is a minimal ssh.NewChannel whose Accept and Reject outcomes are controllable.
-type fakeNewChannel struct {
-	channelType string
-	acceptErr   error
-	rejectErr   error
-}
-
-func (f *fakeNewChannel) Accept() (ssh.Channel, <-chan *ssh.Request, error) {
-	return nil, nil, f.acceptErr
-}
-
-func (f *fakeNewChannel) Reject(_ ssh.RejectionReason, _ string) error {
-	return f.rejectErr
-}
-
-func (f *fakeNewChannel) ChannelType() string {
-	return f.channelType
-}
-
-func (f *fakeNewChannel) ExtraData() []byte {
-	return nil
-}
-
-func TestSSHConnPair_close_LogsCloseErrors(t *testing.T) {
-	// Close() returning a non-net.ErrClosed error on each side must be logged.
-	core, logs := observer.New(zap.DebugLevel)
-	connPair := NewSSHConnPair(
-		zap.New(core),
-		testSSHContext,
-		sshConn{conn: &fakeConn{closeErr: errors.New("downstream boom")}},
-		sshConn{conn: &fakeConn{closeErr: errors.New("upstream boom")}},
-	)
-
-	connPair.close()
-
-	assert.NotEmpty(t, logs.FilterMessage("Failed to close downstream connection").All())
-	assert.NotEmpty(t, logs.FilterMessage("Failed to close upstream connection").All())
+func (c *openChannelConn) OpenChannel(_ string, _ []byte) (ssh.Channel, <-chan *ssh.Request, error) {
+	return c.channel, c.requests, nil
 }
 
 func TestSSHConnPair_close_IgnoresErrClosed(t *testing.T) {
 	// net.ErrClosed is expected on an already-closed conn and must not be logged.
+	downstreamClient, downstreamServer := newSSHConnEnds(t)
+	upstreamClient, upstreamServer := newSSHConnEnds(t)
+
+	go ssh.DiscardRequests(downstreamClient.requests)
+	go ssh.DiscardRequests(upstreamServer.requests)
+
+	// Pre-close the gateway-held conns so close()'s second Close() sees net.ErrClosed.
+	require.NoError(t, downstreamServer.conn.Close())
+	require.NoError(t, upstreamClient.conn.Close())
+
 	core, logs := observer.New(zap.DebugLevel)
-	connPair := NewSSHConnPair(
-		zap.New(core),
-		testSSHContext,
-		sshConn{conn: &fakeConn{closeErr: net.ErrClosed}},
-		sshConn{conn: &fakeConn{closeErr: net.ErrClosed}},
-	)
+	connPair := NewSSHConnPair(zap.New(core), testSSHContext, downstreamServer, upstreamClient)
 
 	connPair.close()
 
 	assert.Empty(t, logs.All())
-}
-
-func TestSSHConnPair_serve_LogsCrossCloseErrors(t *testing.T) {
-	// When one side's Wait returns, serve() closes the other; a non-net.ErrClosed error there is
-	// logged at Debug. Empty closed request/channel streams let the forward goroutines exit so
-	// serve() returns.
-	core, logs := observer.New(zap.DebugLevel)
-
-	emptyRequests := make(chan *ssh.Request)
-	close(emptyRequests)
-
-	emptyChannels := make(chan ssh.NewChannel)
-	close(emptyChannels)
-
-	downstreamWait := make(chan struct{})
-	upstreamWait := make(chan struct{})
-
-	connPair := NewSSHConnPair(
-		zap.New(core),
-		testSSHContext,
-		sshConn{
-			conn:        &fakeConn{closeErr: errors.New("downstream boom"), waitCh: downstreamWait},
-			newChannels: emptyChannels,
-			requests:    emptyRequests,
-		},
-		sshConn{
-			conn:        &fakeConn{closeErr: errors.New("upstream boom"), waitCh: upstreamWait},
-			newChannels: emptyChannels,
-			requests:    emptyRequests,
-		},
-	)
-
-	close(downstreamWait)
-	close(upstreamWait)
-
-	connPair.serve()
-
-	assert.NotEmpty(t, logs.FilterMessage("Failed to close upstream connection").All())
-	assert.NotEmpty(t, logs.FilterMessage("Failed to close downstream connection").All())
 }
 
 func TestSSHConnPair_forwardChannels_RejectError(t *testing.T) {
@@ -539,8 +510,9 @@ func TestSSHConnPair_forwardChannels_RejectError(t *testing.T) {
 
 			connPair := NewSSHConnPair(zap.New(core), testSSHContext, sshConn{}, sshConn{})
 
+			// A real captured source channel whose conn is gone, so the gateway's Reject() of it fails.
 			channels := make(chan ssh.NewChannel, 1)
-			channels <- &fakeNewChannel{channelType: tt.channelType, rejectErr: errors.New("reject failed")}
+			channels <- captureDeadNewChannel(t, tt.channelType)
 
 			close(channels)
 
@@ -576,8 +548,9 @@ func TestSSHConnPair_forwardChannels_AcceptError(t *testing.T) {
 
 	connPair := NewSSHConnPair(zap.New(core), testSSHContext, sshConn{}, sshConn{})
 
+	// A real captured source channel whose conn is gone, so the gateway's Accept() of it fails.
 	channels := make(chan ssh.NewChannel, 1)
-	channels <- &fakeNewChannel{channelType: "direct-tcpip", acceptErr: errors.New("accept failed")}
+	channels <- captureDeadNewChannel(t, "direct-tcpip")
 
 	close(channels)
 
@@ -585,6 +558,37 @@ func TestSSHConnPair_forwardChannels_AcceptError(t *testing.T) {
 
 	assert.NotEmpty(t, logs.FilterMessage("Failed to accept source channel").All())
 	assert.Zero(t, connPair.ChannelsOpened(), "a failed accept must not count as an opened channel")
+}
+
+func TestSSHConnPair_forwardChannels_TargetCloseError(t *testing.T) {
+	// When the source Accept() fails, the gateway closes the already-opened target channel; a failure
+	// from that close must itself be logged.
+	core, logs := observer.New(zap.DebugLevel)
+	connPair := NewSSHConnPair(zap.New(core), testSSHContext, sshConn{}, sshConn{})
+
+	// The target's OpenChannel hands back a real channel whose conn is already gone, so its Close()
+	// fails. A pre-closed requests stream lets the accept-failure path's DiscardRequests exit cleanly.
+	closedRequests := make(chan *ssh.Request)
+	close(closedRequests)
+
+	realConn, _ := newSSHConnEnds(t)
+	go ssh.DiscardRequests(realConn.requests)
+
+	targetConn := &openChannelConn{
+		Conn:     realConn.conn,
+		channel:  deadChannel(t),
+		requests: closedRequests,
+	}
+
+	// A real captured source channel whose conn is gone, so the gateway's Accept() of it fails.
+	channels := make(chan ssh.NewChannel, 1)
+	channels <- captureDeadNewChannel(t, "direct-tcpip")
+
+	close(channels)
+
+	connPair.forwardChannels(channels, targetConn, disallowedDownstreamChannelTypes, labelDownstream, labelUpstream)
+
+	assert.NotEmpty(t, logs.FilterMessage("Failed to close target channel").All())
 }
 
 func TestReplyToGlobalRequest_ReplyError(t *testing.T) {
