@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -20,10 +21,18 @@ import (
 var (
 	ErrRequired          = errors.New("required field is missing")
 	ErrInvalidPort       = errors.New("invalid port number")
+	ErrInvalidHost       = errors.New("invalid twingate.host")
 	ErrDuplicateUpstream = errors.New("duplicate upstream name")
 	ErrInvalidSSHKeyType = errors.New("invalid SSH key type")
 	ErrNegativeTTL       = errors.New("TTL must be non-negative")
 )
+
+// allowedHostSuffixes restricts twingate.host to controller domains we trust as the JWKS
+// (GAT signing key) source. The "test" suffix supports local/e2e testing (e.g. acme.test).
+var allowedHostSuffixes = []string{"twingate.com", "opstg.com", "test"}
+
+// hostnameRegexp allows only valid DNS-label characters, permitting a single label (e.g. "test").
+var hostnameRegexp = regexp.MustCompile(`^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)*[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$`)
 
 const (
 	defaultTwingateHost               = "twingate.com"
@@ -247,6 +256,10 @@ func (c *Config) ResolveTwingateHost(logger *zap.Logger) {
 func (c *Config) Validate() error {
 	if c.Twingate.Network == "" {
 		return fmt.Errorf("%w: twingate.network", ErrRequired)
+	}
+
+	if err := validateHost(c.Twingate.Host); err != nil {
+		return err
 	}
 
 	if err := validatePort(c.Port, "port"); err != nil {
@@ -662,6 +675,21 @@ func (v *SSHCAVaultConfig) GetUpstreamHostCAMount() string {
 	}
 
 	return defaultVaultSSHMount
+}
+
+// validateHost checks host is a well-formed hostname ending in an approved suffix.
+func validateHost(host string) error {
+	if !hostnameRegexp.MatchString(host) {
+		return fmt.Errorf("%w: not a valid hostname: %q", ErrInvalidHost, host)
+	}
+
+	for _, suffix := range allowedHostSuffixes {
+		if host == suffix || strings.HasSuffix(host, "."+suffix) {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("%w: must end with one of %v: %q", ErrInvalidHost, allowedHostSuffixes, host)
 }
 
 func validatePort(port int, fieldName string) error {

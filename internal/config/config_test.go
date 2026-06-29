@@ -296,7 +296,7 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			name: "valid config",
 			config: &Config{
-				Twingate:    TwingateConfig{Network: "test"},
+				Twingate:    TwingateConfig{Network: "test", Host: "twingate.com"},
 				Port:        8443,
 				MetricsPort: 9090,
 				TLS: TLSConfig{
@@ -327,7 +327,7 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			name: "invalid port",
 			config: &Config{
-				Twingate:    TwingateConfig{Network: "test"},
+				Twingate:    TwingateConfig{Network: "test", Host: "twingate.com"},
 				Port:        -1,
 				MetricsPort: 9090,
 				TLS: TLSConfig{
@@ -342,7 +342,7 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			name: "invalid metrics port",
 			config: &Config{
-				Twingate:    TwingateConfig{Network: "test"},
+				Twingate:    TwingateConfig{Network: "test", Host: "twingate.com"},
 				Port:        8443,
 				MetricsPort: 70000,
 				TLS: TLSConfig{
@@ -357,7 +357,7 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			name: "no protocols configured",
 			config: &Config{
-				Twingate:    TwingateConfig{Network: "test"},
+				Twingate:    TwingateConfig{Network: "test", Host: "twingate.com"},
 				Port:        8443,
 				MetricsPort: 9090,
 				TLS: TLSConfig{
@@ -367,6 +367,88 @@ func TestConfig_Validate(t *testing.T) {
 			},
 			wantErr:     true,
 			errContains: "at least one protocol",
+		},
+		{
+			name: "host with opstg suffix",
+			config: &Config{
+				Twingate:    TwingateConfig{Network: "test", Host: "foo.opstg.com"},
+				Port:        8443,
+				MetricsPort: 9090,
+				TLS:         TLSConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+				Kubernetes:  &KubernetesConfig{},
+			},
+			wantErr: false,
+		},
+		{
+			name: "host with test suffix",
+			config: &Config{
+				Twingate:    TwingateConfig{Network: "test", Host: "acme.test"},
+				Port:        8443,
+				MetricsPort: 9090,
+				TLS:         TLSConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+				Kubernetes:  &KubernetesConfig{},
+			},
+			wantErr: false,
+		},
+		{
+			name: "empty host",
+			config: &Config{
+				Twingate:    TwingateConfig{Network: "test", Host: ""},
+				Port:        8443,
+				MetricsPort: 9090,
+				TLS:         TLSConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+				Kubernetes:  &KubernetesConfig{},
+			},
+			wantErr:     true,
+			errContains: "invalid twingate.host",
+		},
+		{
+			name: "host with disallowed suffix",
+			config: &Config{
+				Twingate:    TwingateConfig{Network: "test", Host: "evil.example.com"},
+				Port:        8443,
+				MetricsPort: 9090,
+				TLS:         TLSConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+				Kubernetes:  &KubernetesConfig{},
+			},
+			wantErr:     true,
+			errContains: "must end with one of",
+		},
+		{
+			name: "host with scheme and path",
+			config: &Config{
+				Twingate:    TwingateConfig{Network: "test", Host: "https://evil.com/x"},
+				Port:        8443,
+				MetricsPort: 9090,
+				TLS:         TLSConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+				Kubernetes:  &KubernetesConfig{},
+			},
+			wantErr:     true,
+			errContains: "not a valid hostname",
+		},
+		{
+			name: "host embeds allowed suffix in path",
+			config: &Config{
+				Twingate:    TwingateConfig{Network: "test", Host: "evil.com/x.twingate.com"},
+				Port:        8443,
+				MetricsPort: 9090,
+				TLS:         TLSConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+				Kubernetes:  &KubernetesConfig{},
+			},
+			wantErr:     true,
+			errContains: "not a valid hostname",
+		},
+		{
+			name: "host is an IP address",
+			config: &Config{
+				Twingate:    TwingateConfig{Network: "test", Host: "10.0.0.5"},
+				Port:        8443,
+				MetricsPort: 9090,
+				TLS:         TLSConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+				Kubernetes:  &KubernetesConfig{},
+			},
+			wantErr:     true,
+			errContains: "must end with one of",
 		},
 	}
 
