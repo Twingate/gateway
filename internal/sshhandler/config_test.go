@@ -58,7 +58,7 @@ func TestNewConfig(t *testing.T) {
 			config, err := NewConfig(auditLog, sshConfig, zap.NewNop())
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
-				assert.ErrorContains(t, err, tt.wantErrText)
+				require.ErrorContains(t, err, tt.wantErrText)
 				assert.Nil(t, config)
 
 				return
