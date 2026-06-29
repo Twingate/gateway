@@ -612,9 +612,10 @@ func TestReplyToGlobalRequest_ReplyError(t *testing.T) {
 		t.Fatal("global request was not received")
 	}
 
-	// Tear down both ends so the reply cannot be written back.
-	require.NoError(t, client.conn.Close())
-	require.NoError(t, server.conn.Close())
+	// Close the server transport (the side the reply is written on) and wait for the shutdown to
+	// complete, so the subsequent reply deterministically fails rather than racing a half-open socket.
+	_ = server.conn.Close()
+	_ = server.conn.Wait()
 
 	core, logs := observer.New(zap.DebugLevel)
 	replyToGlobalRequest(req, true, nil, zap.New(core))
