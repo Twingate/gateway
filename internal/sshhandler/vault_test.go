@@ -5,7 +5,9 @@ package sshhandler
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
+	"net/http"
 	"sync"
 	"testing"
 	"testing/synctest"
@@ -14,6 +16,7 @@ import (
 	"github.com/hashicorp/vault/api/auth/approle"
 	"github.com/hashicorp/vault/api/auth/aws"
 	"github.com/hashicorp/vault/api/auth/gcp"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
@@ -21,6 +24,19 @@ import (
 
 	gatewayconfig "gateway/internal/config"
 )
+
+func TestNewVault_EnforcesTLS13(t *testing.T) {
+	v, err := newVault(&gatewayconfig.SSHCAVaultConfig{
+		Address: "https://vault.example.com",
+		Auth:    gatewayconfig.SSHCAVaultAuthConfig{Token: "test-token"},
+	}, zap.NewNop())
+	require.NoError(t, err)
+
+	transport, ok := v.client.CloneConfig().HttpClient.Transport.(*http.Transport)
+	require.True(t, ok)
+	require.NotNil(t, transport.TLSClientConfig)
+	assert.Equal(t, uint16(tls.VersionTLS13), transport.TLSClientConfig.MinVersion)
+}
 
 func TestNewVaultAuthMethod_AppRole(t *testing.T) {
 	t.Run("with secretID", func(t *testing.T) {
