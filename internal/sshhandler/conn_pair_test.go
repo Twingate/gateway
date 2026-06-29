@@ -5,7 +5,9 @@ package sshhandler
 
 import (
 	"crypto/rand"
+	"errors"
 	"io"
+	"net"
 	"testing"
 	"time"
 
@@ -29,7 +31,37 @@ var testSSHContext = &sshContext{
 func newSSHConnEnds(t *testing.T) (client, server sshConn) {
 	t.Helper()
 
+	return newSSHConnEndsWithClose(t, nil, nil)
+}
+
+// closeErrConn wraps a net.Conn so its Close() returns a fixed error, letting a test exercise SSH
+// close-error handling while the SSH handshake, mux, and channels stay fully real.
+type closeErrConn struct {
+	net.Conn
+
+	closeErr error
+}
+
+func (c *closeErrConn) Close() error {
+	_ = c.Conn.Close()
+
+	return c.closeErr
+}
+
+// newSSHConnEndsWithClose is newSSHConnEnds with control over each end's transport Close() error
+// (nil = a real close), so a test can drive the close-error logging branches over real SSH conns.
+func newSSHConnEndsWithClose(t *testing.T, clientCloseErr, serverCloseErr error) (client, server sshConn) {
+	t.Helper()
+
 	clientConn, serverConn := newLoopbackConnEnds(t)
+
+	if clientCloseErr != nil {
+		clientConn = &closeErrConn{Conn: clientConn, closeErr: clientCloseErr}
+	}
+
+	if serverCloseErr != nil {
+		serverConn = &closeErrConn{Conn: serverConn, closeErr: serverCloseErr}
+	}
 
 	hostSigner, _, err := keyConfig{}.Generate(rand.Reader)
 	require.NoError(t, err)
@@ -452,6 +484,53 @@ type openChannelConn struct {
 
 func (c *openChannelConn) OpenChannel(_ string, _ []byte) (ssh.Channel, <-chan *ssh.Request, error) {
 	return c.channel, c.requests, nil
+}
+
+func TestSSHConnPair_close_LogsCloseErrors(t *testing.T) {
+	// A non-net.ErrClosed error from each side's Close() must be logged. The gateway holds the
+	// downstream server end and the upstream client end, so those are the ends whose Close() fails.
+	_, downstreamServer := newSSHConnEndsWithClose(t, nil, errors.New("downstream boom"))
+	upstreamClient, _ := newSSHConnEndsWithClose(t, errors.New("upstream boom"), nil)
+
+	core, logs := observer.New(zap.DebugLevel)
+	connPair := NewSSHConnPair(zap.New(core), testSSHContext, downstreamServer, upstreamClient)
+
+	connPair.close()
+
+	assert.NotEmpty(t, logs.FilterMessage("Failed to close downstream connection").All())
+	assert.NotEmpty(t, logs.FilterMessage("Failed to close upstream connection").All())
+}
+
+func TestSSHConnPair_serve_LogsCrossCloseErrors(t *testing.T) {
+	// When one side's Wait returns, serve() closes the other; a non-net.ErrClosed error there is
+	// logged at Debug. Closing one far end cascades through both cross-close goroutines: downstream
+	// Wait returns -> upstream Close (boom) -> upstream Wait returns -> downstream Close (boom).
+	downstreamClient, downstreamServer := newSSHConnEndsWithClose(t, nil, errors.New("downstream boom"))
+	upstreamClient, upstreamServer := newSSHConnEndsWithClose(t, errors.New("upstream boom"), nil)
+
+	go ssh.DiscardRequests(downstreamClient.requests)
+	go ssh.DiscardRequests(upstreamServer.requests)
+
+	core, logs := observer.New(zap.DebugLevel)
+	connPair := NewSSHConnPair(zap.New(core), testSSHContext, downstreamServer, upstreamClient)
+
+	done := make(chan struct{})
+
+	go func() {
+		connPair.serve()
+		close(done)
+	}()
+
+	require.NoError(t, downstreamClient.conn.Close())
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("serve did not return")
+	}
+
+	assert.NotEmpty(t, logs.FilterMessage("Failed to close upstream connection").All())
+	assert.NotEmpty(t, logs.FilterMessage("Failed to close downstream connection").All())
 }
 
 func TestSSHConnPair_close_IgnoresErrClosed(t *testing.T) {

@@ -13,6 +13,8 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
 	"golang.org/x/crypto/ssh"
+
+	vault "github.com/hashicorp/vault/api"
 )
 
 // TestSSHProxy_Start drives a real SSH client through the accept loop to an in-memory upstream,
@@ -181,6 +183,50 @@ func TestSSHProxy_serveConn_UpstreamConnectionFailure(t *testing.T) {
 	select {
 	case err := <-serveErr:
 		require.ErrorContains(t, err, "failed to dial upstream")
+	case <-time.After(2 * time.Second):
+		t.Fatal("serveConn did not return")
+	}
+
+	assert.Empty(t, sshProxy.connsMap)
+}
+
+// TestSSHProxy_serveConn_UpstreamConfigFailure verifies that, after a successful downstream
+// handshake, a failure to build the upstream config tears down the downstream and is surfaced.
+func TestSSHProxy_serveConn_UpstreamConfigFailure(t *testing.T) {
+	sshProxy := newTestProxy(t)
+
+	// Point upstream host verification at a Vault that isn't listening, so building the upstream
+	// config fails when it fetches the CA public key.
+	deadVault, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+
+	deadAddr := deadVault.Addr().String()
+	require.NoError(t, deadVault.Close())
+
+	vaultClient, err := vault.NewClient(vault.DefaultConfig())
+	require.NoError(t, err)
+	require.NoError(t, vaultClient.SetAddress("http://"+deadAddr))
+	vaultClient.SetMaxRetries(0)
+
+	sshProxy.config.caConfig.UpstreamHostCA = &vaultCA{client: vaultClient, mount: "ssh", role: "upstream"}
+
+	clientDownstreamConn, serverDownstreamConn := newDownstreamConn(t, "unused:22")
+
+	serveErr := make(chan error, 1)
+
+	go func() {
+		serveErr <- sshProxy.serveConn(t.Context(), serverDownstreamConn)
+	}()
+
+	// The downstream handshake succeeds; the proxy fails only once it builds the upstream config.
+	client, err := dialDownstream(t, clientDownstreamConn, "unused:22")
+	require.NoError(t, err)
+
+	defer func() { _ = client.Close() }()
+
+	select {
+	case err := <-serveErr:
+		require.ErrorContains(t, err, "failed to build upstream config")
 	case <-time.After(2 * time.Second):
 		t.Fatal("serveConn did not return")
 	}
