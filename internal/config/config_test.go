@@ -48,6 +48,17 @@ func TestResolveTwingateHostname(t *testing.T) {
 		assert.Equal(t, "acme.us1.twingate.com", result)
 	})
 
+	t.Run("returns default host when resolved host is untrusted", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Location", "https://evil.com/api/v1/jwk/ec")
+			w.WriteHeader(http.StatusPermanentRedirect)
+		}))
+		t.Cleanup(server.Close)
+
+		result := resolveTwingateHostname(server.URL+"/api/v1/jwk/ec", "twingate.com", 0, zap.NewNop())
+		assert.Equal(t, "twingate.com", result)
+	})
+
 	t.Run("returns default host on empty location", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Location", "")
@@ -325,48 +336,16 @@ func TestConfig_Validate(t *testing.T) {
 			errContains: "twingate.network",
 		},
 		{
-			name: "invalid port",
+			name: "network with invalid characters",
 			config: &Config{
-				Twingate:    TwingateConfig{Network: "test", Host: "twingate.com"},
-				Port:        -1,
-				MetricsPort: 9090,
-				TLS: TLSConfig{
-					CertificateFile: "tls.crt",
-					PrivateKeyFile:  "tls.key",
-				},
-				Kubernetes: &KubernetesConfig{},
-			},
-			wantErr:     true,
-			errContains: "port must be between",
-		},
-		{
-			name: "invalid metrics port",
-			config: &Config{
-				Twingate:    TwingateConfig{Network: "test", Host: "twingate.com"},
-				Port:        8443,
-				MetricsPort: 70000,
-				TLS: TLSConfig{
-					CertificateFile: "tls.crt",
-					PrivateKeyFile:  "tls.key",
-				},
-				Kubernetes: &KubernetesConfig{},
-			},
-			wantErr:     true,
-			errContains: "metricsPort must be between",
-		},
-		{
-			name: "no protocols configured",
-			config: &Config{
-				Twingate:    TwingateConfig{Network: "test", Host: "twingate.com"},
+				Twingate:    TwingateConfig{Network: "evil.com/x", Host: "twingate.com"},
 				Port:        8443,
 				MetricsPort: 9090,
-				TLS: TLSConfig{
-					CertificateFile: "tls.crt",
-					PrivateKeyFile:  "tls.key",
-				},
+				TLS:         TLSConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+				Kubernetes:  &KubernetesConfig{},
 			},
 			wantErr:     true,
-			errContains: "at least one protocol",
+			errContains: "twingate.network",
 		},
 		{
 			name: "host with opstg suffix",
@@ -449,6 +428,50 @@ func TestConfig_Validate(t *testing.T) {
 			},
 			wantErr:     true,
 			errContains: "must end with one of",
+		},
+		{
+			name: "invalid port",
+			config: &Config{
+				Twingate:    TwingateConfig{Network: "test", Host: "twingate.com"},
+				Port:        -1,
+				MetricsPort: 9090,
+				TLS: TLSConfig{
+					CertificateFile: "tls.crt",
+					PrivateKeyFile:  "tls.key",
+				},
+				Kubernetes: &KubernetesConfig{},
+			},
+			wantErr:     true,
+			errContains: "port must be between",
+		},
+		{
+			name: "invalid metrics port",
+			config: &Config{
+				Twingate:    TwingateConfig{Network: "test", Host: "twingate.com"},
+				Port:        8443,
+				MetricsPort: 70000,
+				TLS: TLSConfig{
+					CertificateFile: "tls.crt",
+					PrivateKeyFile:  "tls.key",
+				},
+				Kubernetes: &KubernetesConfig{},
+			},
+			wantErr:     true,
+			errContains: "metricsPort must be between",
+		},
+		{
+			name: "no protocols configured",
+			config: &Config{
+				Twingate:    TwingateConfig{Network: "test", Host: "twingate.com"},
+				Port:        8443,
+				MetricsPort: 9090,
+				TLS: TLSConfig{
+					CertificateFile: "tls.crt",
+					PrivateKeyFile:  "tls.key",
+				},
+			},
+			wantErr:     true,
+			errContains: "at least one protocol",
 		},
 	}
 

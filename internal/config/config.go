@@ -20,12 +20,16 @@ import (
 
 var (
 	ErrRequired          = errors.New("required field is missing")
-	ErrInvalidPort       = errors.New("invalid port number")
+	ErrInvalidNetwork    = errors.New("invalid twingate.network")
 	ErrInvalidHost       = errors.New("invalid twingate.host")
+	ErrInvalidPort       = errors.New("invalid port number")
 	ErrDuplicateUpstream = errors.New("duplicate upstream name")
 	ErrInvalidSSHKeyType = errors.New("invalid SSH key type")
 	ErrNegativeTTL       = errors.New("TTL must be non-negative")
 )
+
+// dnsLabelRegexp matches a single DNS label.
+var dnsLabelRegexp = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$`)
 
 // allowedHostSuffixes restricts twingate.host to controller domains we trust as the JWKS
 // (GAT signing key) source. The "test" suffix supports local/e2e testing (e.g. acme.test).
@@ -241,6 +245,13 @@ func resolveTwingateHostname(targetURL, defaultHost string, retryMax int, logger
 	}
 
 	resolved := location.Hostname()
+	if err := validateHost(resolved); err != nil {
+		logger.Warn("Resolved Twingate host failed validation, keeping configured host",
+			zap.String("resolvedHost", resolved), zap.Error(err))
+
+		return defaultHost
+	}
+
 	logger.Info("Resolved Twingate hostname", zap.String("hostname", resolved))
 
 	return resolved
@@ -256,6 +267,12 @@ func (c *Config) ResolveTwingateHost(logger *zap.Logger) {
 func (c *Config) Validate() error {
 	if c.Twingate.Network == "" {
 		return fmt.Errorf("%w: twingate.network", ErrRequired)
+	}
+
+	// twingate.network is interpolated into the JWKS URL authority (https://<network>.<host>/...),
+	// so it must be a single DNS label to keep the URL host from being altered.
+	if !dnsLabelRegexp.MatchString(c.Twingate.Network) {
+		return fmt.Errorf("%w: must be a valid DNS label: %q", ErrInvalidNetwork, c.Twingate.Network)
 	}
 
 	if err := validateHost(c.Twingate.Host); err != nil {
@@ -677,7 +694,7 @@ func (v *SSHCAVaultConfig) GetUpstreamHostCAMount() string {
 	return defaultVaultSSHMount
 }
 
-// validateHost checks host is a well-formed hostname ending in an approved suffix.
+// validateHost checks host is a well-formed hostname ending in an allowed suffix.
 func validateHost(host string) error {
 	if !hostnameRegexp.MatchString(host) {
 		return fmt.Errorf("%w: not a valid hostname: %q", ErrInvalidHost, host)
