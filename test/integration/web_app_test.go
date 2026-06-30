@@ -47,13 +47,13 @@ func TestWebApp(t *testing.T) {
 		},
 		WebApp: &gatewayconfig.WebAppConfig{
 			Headers: map[string]string{
-				"Authorization":                 "Bearer {{twingate.jwt}}",
-				"X-Twingate-Username":           "{{twingate.username}}",
-				"X-Twingate-Groups":             "{{twingate.groups}}",
-				"X-Twingate-Client-Geo-LatLong": "{{twingate.clientGeoLatLong}}",
-				"X-Twingate-Client-Geo-City":    "{{twingate.clientGeoCity}}",
-				"X-Twingate-Client-Geo-Region":  "{{twingate.clientGeoRegion}}",
-				"X-Twingate-Client-Geo-Country": "{{twingate.clientGeoCountry}}",
+				"Authorization":                 "Bearer {{jwt}}",
+				"X-Twingate-Username":           "{{username}}",
+				"X-Twingate-Groups":             "{{groups}}",
+				"X-Twingate-Client-Geo-LatLong": "{{clientLatLong}}",
+				"X-Twingate-Client-Geo-City":    "{{clientCity}}",
+				"X-Twingate-Client-Geo-Region":  "{{clientRegion}}",
+				"X-Twingate-Client-Geo-Country": "{{clientCountry}}",
 			},
 		},
 	}
