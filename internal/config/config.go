@@ -25,6 +25,14 @@ var (
 	ErrNegativeTTL       = errors.New("TTL must be non-negative")
 )
 
+var issuerByDomain = map[string]string{
+	"test":          "twingate-local",
+	"dev.opstg.com": "twingate-dev",
+	"stg.opstg.com": "twingate-stg",
+	"sec.opstg.com": "twingate-sec",
+	"twingate.com":  "twingate",
+}
+
 const (
 	defaultTwingateHost               = "twingate.com"
 	defaultPort                       = 8443
@@ -51,6 +59,16 @@ type WebAppConfig struct {
 type TwingateConfig struct {
 	Network string `yaml:"network"`
 	Host    string `yaml:"host"`
+}
+
+// JWKSURL returns the controller endpoint for fetching GAT signing keys.
+func (t TwingateConfig) JWKSURL() string {
+	return fmt.Sprintf("https://%s.%s/api/v1/jwk/ec", t.Network, t.Host)
+}
+
+// Issuer returns the expected JWT issuer for the configured controller host.
+func (t TwingateConfig) Issuer() string {
+	return issuerByDomain[trustedDomainFor(t.Host)]
 }
 
 type AuditLogConfig struct {
@@ -238,8 +256,7 @@ func resolveTwingateHostname(targetURL, defaultHost string, retryMax int, logger
 }
 
 func (c *Config) ResolveTwingateHost(logger *zap.Logger) {
-	targetURL := fmt.Sprintf("https://%s.%s/api/v1/jwk/ec", c.Twingate.Network, c.Twingate.Host)
-	resolvedHostname := resolveTwingateHostname(targetURL, c.Twingate.Host, 2, logger)
+	resolvedHostname := resolveTwingateHostname(c.Twingate.JWKSURL(), c.Twingate.Host, 2, logger)
 
 	c.Twingate.Host = stripNetworkPrefix(resolvedHostname, c.Twingate.Network)
 }
@@ -662,6 +679,19 @@ func (v *SSHCAVaultConfig) GetUpstreamHostCAMount() string {
 	}
 
 	return defaultVaultSSHMount
+}
+
+// trustedDomainFor returns the trusted Twingate domain that host belongs to, or "" if none.
+// A host matches a domain exactly or as a subdomain, so sharded hosts like us1.twingate.com are
+// trusted.
+func trustedDomainFor(host string) string {
+	for domain := range issuerByDomain {
+		if host == domain || strings.HasSuffix(host, "."+domain) {
+			return domain
+		}
+	}
+
+	return ""
 }
 
 func validatePort(port int, fieldName string) error {
