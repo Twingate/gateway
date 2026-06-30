@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -19,11 +20,19 @@ import (
 
 var (
 	ErrRequired          = errors.New("required field is missing")
+	ErrInvalidNetwork    = errors.New("invalid twingate.network")
+	ErrInvalidHost       = errors.New("invalid twingate.host")
 	ErrInvalidPort       = errors.New("invalid port number")
 	ErrDuplicateUpstream = errors.New("duplicate upstream name")
 	ErrInvalidSSHKeyType = errors.New("invalid SSH key type")
 	ErrNegativeTTL       = errors.New("TTL must be non-negative")
 )
+
+// dnsLabelRegexp matches a single DNS label.
+var dnsLabelRegexp = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$`)
+
+// hostnameRegexp allows only valid DNS-label characters, permitting a single label (e.g. "test").
+var hostnameRegexp = regexp.MustCompile(`^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)*[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$`)
 
 var issuerByDomain = map[string]string{
 	"test":          "twingate-local",
@@ -250,6 +259,13 @@ func resolveTwingateHostname(targetURL, defaultHost string, retryMax int, logger
 	}
 
 	resolved := location.Hostname()
+	if err := validateHost(resolved); err != nil {
+		logger.Warn("Resolved Twingate host failed validation, keeping configured host",
+			zap.String("resolvedHost", resolved), zap.Error(err))
+
+		return defaultHost
+	}
+
 	logger.Info("Resolved Twingate hostname", zap.String("hostname", resolved))
 
 	return resolved
@@ -264,6 +280,16 @@ func (c *Config) ResolveTwingateHost(logger *zap.Logger) {
 func (c *Config) Validate() error {
 	if c.Twingate.Network == "" {
 		return fmt.Errorf("%w: twingate.network", ErrRequired)
+	}
+
+	// twingate.network is interpolated into the JWKS URL authority (https://<network>.<host>/...),
+	// so it must be a single DNS label to keep the URL host from being altered.
+	if !dnsLabelRegexp.MatchString(c.Twingate.Network) {
+		return fmt.Errorf("%w: must be a valid DNS label: %q", ErrInvalidNetwork, c.Twingate.Network)
+	}
+
+	if err := validateHost(c.Twingate.Host); err != nil {
+		return err
 	}
 
 	if err := validatePort(c.Port, "port"); err != nil {
@@ -681,12 +707,26 @@ func (v *SSHCAVaultConfig) GetUpstreamHostCAMount() string {
 	return defaultVaultSSHMount
 }
 
+// validateHost checks host is a well-formed hostname for a trusted Twingate controller domain.
+func validateHost(host string) error {
+	if !hostnameRegexp.MatchString(host) {
+		return fmt.Errorf("%w: not a valid hostname: %q", ErrInvalidHost, host)
+	}
+
+	if trustedDomainFor(host) == "" {
+		return fmt.Errorf("%w: not a trusted Twingate domain: %q", ErrInvalidHost, host)
+	}
+
+	return nil
+}
+
 // trustedDomainFor returns the trusted Twingate domain that host belongs to, or "" if none.
 // A host matches a domain exactly or as a subdomain, so sharded hosts like us1.twingate.com are
-// trusted.
+// trusted. Matching is case-insensitive.
 func trustedDomainFor(host string) string {
+	lowered := strings.ToLower(host)
 	for domain := range issuerByDomain {
-		if host == domain || strings.HasSuffix(host, "."+domain) {
+		if lowered == domain || strings.HasSuffix(lowered, "."+domain) {
 			return domain
 		}
 	}
