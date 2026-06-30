@@ -6,6 +6,9 @@ package sshhandler
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +19,8 @@ import (
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
 	"golang.org/x/crypto/ssh"
+
+	vault "github.com/hashicorp/vault/api"
 
 	gatewayconfig "gateway/internal/config"
 	"gateway/test/data"
@@ -274,6 +279,209 @@ func TestMustUint64_PanicsOnNegativeTime(t *testing.T) {
 	require.Panics(t, func() {
 		mustUint64(time.Unix(-1, 0))
 	})
+}
+
+// newVaultTestCA returns a vaultCA whose client talks to a test server running handler.
+func newVaultTestCA(t *testing.T, handler http.HandlerFunc) *vaultCA {
+	t.Helper()
+
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+
+	config := vault.DefaultConfig()
+	config.Address = server.URL
+
+	client, err := vault.NewClient(config)
+	require.NoError(t, err)
+	client.SetToken("test-token")
+
+	return &vaultCA{client: client, mount: "ssh", role: "test-role"}
+}
+
+func TestVaultCA_PublicKey(t *testing.T) {
+	caPublicKey, err := parsePublicKey(data.SSHCAPublicKey)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name         string
+		responseData map[string]any // nil means the server returns an empty body
+		wantErr      error
+		wantKey      bool
+	}{
+		{name: "success", responseData: map[string]any{"public_key": string(data.SSHCAPublicKey)}, wantKey: true},
+		{name: "empty response", responseData: nil, wantErr: errVaultCAFailed},
+		{name: "missing public key", responseData: map[string]any{}, wantErr: errVaultCAFailed},
+		{name: "empty public key", responseData: map[string]any{"public_key": ""}, wantErr: errVaultCAFailed},
+		{name: "unparseable public key", responseData: map[string]any{"public_key": "not-a-key"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ca := newVaultTestCA(t, func(w http.ResponseWriter, _ *http.Request) {
+				if tt.responseData == nil {
+					return
+				}
+
+				_ = json.NewEncoder(w).Encode(map[string]any{"data": tt.responseData})
+			})
+
+			publicKey, err := ca.publicKey(context.Background())
+
+			if tt.wantKey {
+				require.NoError(t, err)
+				assert.True(t, keysEqual(publicKey, caPublicKey))
+
+				return
+			}
+
+			require.Error(t, err)
+
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestVaultCA_Sign(t *testing.T) {
+	publicKey, err := parsePublicKey(data.SSHHostPublicKey)
+	require.NoError(t, err)
+
+	// CA the test server signs with; the gateway never verifies it against this key.
+	caSigner, _, err := keyConfig{}.Generate(rand.Reader)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name           string
+		req            *certificateRequest
+		wantCertType   string
+		wantPrincipals string
+		wantExtensions map[string]string // nil means the field must be absent from the request
+	}{
+		{
+			name: "user cert",
+			req: &certificateRequest{
+				certType:   UserCert,
+				publicKey:  publicKey,
+				principals: []string{"alice", "bob"},
+				ttl:        time.Hour,
+				permissions: ssh.Permissions{
+					Extensions: map[string]string{"permit-pty": ""},
+				},
+			},
+			wantCertType:   "user",
+			wantPrincipals: "alice,bob",
+			wantExtensions: map[string]string{"permit-pty": ""},
+		},
+		{
+			name: "host cert",
+			req: &certificateRequest{
+				certType:   HostCert,
+				publicKey:  publicKey,
+				principals: []string{"gateway.example.com"},
+				ttl:        24 * time.Hour,
+			},
+			wantCertType:   "host",
+			wantPrincipals: "gateway.example.com",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ca := newVaultTestCA(t, func(w http.ResponseWriter, r *http.Request) {
+				var gotData map[string]any
+				assert.NoError(t, json.NewDecoder(r.Body).Decode(&gotData))
+
+				// The server checks the request payload the gateway built for the request.
+				assert.Equal(t, tt.wantCertType, gotData["cert_type"])
+				assert.Equal(t, string(ssh.MarshalAuthorizedKey(publicKey)), gotData["public_key"])
+				assert.Equal(t, tt.wantPrincipals, gotData["valid_principals"])
+				assert.Equal(t, tt.req.ttl.String(), gotData["ttl"])
+
+				if tt.wantExtensions == nil {
+					_, ok := gotData["extensions"]
+					assert.False(t, ok, "extensions must not be sent for host certs")
+				} else if ext, ok := gotData["extensions"].(map[string]any); assert.True(t, ok) {
+					assert.Len(t, ext, len(tt.wantExtensions))
+
+					for k := range tt.wantExtensions {
+						_, ok := ext[k]
+						assert.True(t, ok, "missing extension %q", k)
+					}
+				}
+
+				cert := &ssh.Certificate{
+					Key:             publicKey,
+					CertType:        uint32(tt.req.certType),
+					ValidPrincipals: tt.req.principals,
+					ValidBefore:     mustUint64(time.Now().Add(tt.req.ttl)),
+					Permissions:     tt.req.permissions,
+				}
+				assert.NoError(t, cert.SignCert(rand.Reader, caSigner))
+
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"data": map[string]any{"signed_key": string(ssh.MarshalAuthorizedKey(cert))},
+				})
+			})
+
+			cert, err := ca.sign(context.Background(), tt.req)
+			require.NoError(t, err)
+			assert.NotNil(t, cert)
+		})
+	}
+}
+
+func TestVaultCA_Sign_Error(t *testing.T) {
+	publicKey, err := parsePublicKey(data.SSHHostPublicKey)
+	require.NoError(t, err)
+
+	req := &certificateRequest{
+		certType:   UserCert,
+		publicKey:  publicKey,
+		principals: []string{"alice"},
+		ttl:        time.Hour,
+		permissions: ssh.Permissions{
+			Extensions: map[string]string{"permit-pty": ""},
+		},
+	}
+
+	// A syntactically valid cert that grants an extra principal, to exercise the verifyCertificate path.
+	caSigner, _, err := keyConfig{}.Generate(rand.Reader)
+	require.NoError(t, err)
+
+	overBroadCert := &ssh.Certificate{
+		Key:             publicKey,
+		CertType:        uint32(UserCert),
+		ValidPrincipals: []string{"alice", "root"},
+		ValidBefore:     mustUint64(time.Now().Add(30 * time.Minute)),
+	}
+	require.NoError(t, overBroadCert.SignCert(rand.Reader, caSigner))
+
+	tests := []struct {
+		name         string
+		responseData map[string]any
+		wantErr      error
+	}{
+		{name: "missing signed key", responseData: map[string]any{}, wantErr: errVaultSignFailed},
+		{name: "empty signed key", responseData: map[string]any{"signed_key": ""}, wantErr: errVaultSignFailed},
+		{name: "unparseable signed key", responseData: map[string]any{"signed_key": "not-a-certificate"}},
+		{name: "certificate violates policy", responseData: map[string]any{"signed_key": string(ssh.MarshalAuthorizedKey(overBroadCert))}, wantErr: errCertPolicyViolation},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ca := newVaultTestCA(t, func(w http.ResponseWriter, _ *http.Request) {
+				_ = json.NewEncoder(w).Encode(map[string]any{"data": tt.responseData})
+			})
+
+			_, err := ca.sign(context.Background(), req)
+			require.Error(t, err)
+
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+			}
+		})
+	}
 }
 
 func TestVerifyCertificate(t *testing.T) {
