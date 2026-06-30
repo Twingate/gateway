@@ -327,25 +327,35 @@ func verifyCertificate(cert *ssh.Certificate, req *certificateRequest) error {
 		return fmt.Errorf("%w: validity %d exceeds requested TTL (max %d)", errCertPolicyViolation, cert.ValidBefore, maxValidBefore)
 	}
 
-	for opt, got := range cert.CriticalOptions {
-		want, ok := req.permissions.CriticalOptions[opt]
+	// Critical options are restrictions, so dropping one widens privilege; require the
+	// cert's options to match the request exactly.
+	for opt, requested := range req.permissions.CriticalOptions {
+		granted, ok := cert.CriticalOptions[opt]
 		if !ok {
-			return fmt.Errorf("%w: unexpected critical option %q", errCertPolicyViolation, opt)
+			return fmt.Errorf("%w: missing requested critical option %q", errCertPolicyViolation, opt)
 		}
 
-		if got != want {
-			return fmt.Errorf("%w: critical option %q has value %q, requested %q", errCertPolicyViolation, opt, got, want)
+		if granted != requested {
+			return fmt.Errorf("%w: critical option %q granted value %q, requested %q", errCertPolicyViolation, opt, granted, requested)
 		}
 	}
 
-	for ext, got := range cert.Extensions {
-		want, ok := req.permissions.Extensions[ext]
+	for opt := range cert.CriticalOptions {
+		if _, ok := req.permissions.CriticalOptions[opt]; !ok {
+			return fmt.Errorf("%w: unexpected critical option %q", errCertPolicyViolation, opt)
+		}
+	}
+
+	// A missing extension only narrows privilege, so reject only unexpected extensions
+	// or values.
+	for ext, granted := range cert.Extensions {
+		requested, ok := req.permissions.Extensions[ext]
 		if !ok {
 			return fmt.Errorf("%w: unexpected extension %q", errCertPolicyViolation, ext)
 		}
 
-		if got != want {
-			return fmt.Errorf("%w: extension %q has value %q, requested %q", errCertPolicyViolation, ext, got, want)
+		if granted != requested {
+			return fmt.Errorf("%w: extension %q granted value %q, requested %q", errCertPolicyViolation, ext, granted, requested)
 		}
 	}
 
