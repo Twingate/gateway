@@ -31,12 +31,12 @@ var (
 // dnsLabelRegexp matches a single DNS label.
 var dnsLabelRegexp = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$`)
 
+// hostnameRegexp allows only valid DNS-label characters, permitting a single label (e.g. "test").
+var hostnameRegexp = regexp.MustCompile(`^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)*[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$`)
+
 // allowedHostSuffixes restricts twingate.host to controller domains we trust as the JWKS
 // (GAT signing key) source. The "test" suffix supports local/e2e testing (e.g. acme.test).
 var allowedHostSuffixes = []string{"twingate.com", "opstg.com", "test"}
-
-// hostnameRegexp allows only valid DNS-label characters, permitting a single label (e.g. "test").
-var hostnameRegexp = regexp.MustCompile(`^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)*[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$`)
 
 const (
 	defaultTwingateHost               = "twingate.com"
@@ -700,8 +700,10 @@ func validateHost(host string) error {
 		return fmt.Errorf("%w: not a valid hostname: %q", ErrInvalidHost, host)
 	}
 
+	// DNS hostnames are case-insensitive, so match the suffix allowlist case-insensitively.
+	lowered := strings.ToLower(host)
 	for _, suffix := range allowedHostSuffixes {
-		if host == suffix || strings.HasSuffix(host, "."+suffix) {
+		if lowered == suffix || strings.HasSuffix(lowered, "."+suffix) {
 			return nil
 		}
 	}

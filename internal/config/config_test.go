@@ -345,7 +345,7 @@ func TestConfig_Validate(t *testing.T) {
 				Kubernetes:  &KubernetesConfig{},
 			},
 			wantErr:     true,
-			errContains: "twingate.network",
+			errContains: "must be a valid DNS label",
 		},
 		{
 			name: "host with opstg suffix",
@@ -362,6 +362,17 @@ func TestConfig_Validate(t *testing.T) {
 			name: "host with test suffix",
 			config: &Config{
 				Twingate:    TwingateConfig{Network: "test", Host: "acme.test"},
+				Port:        8443,
+				MetricsPort: 9090,
+				TLS:         TLSConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+				Kubernetes:  &KubernetesConfig{},
+			},
+			wantErr: false,
+		},
+		{
+			name: "host suffix match is case-insensitive",
+			config: &Config{
+				Twingate:    TwingateConfig{Network: "test", Host: "Foo.Twingate.COM"},
 				Port:        8443,
 				MetricsPort: 9090,
 				TLS:         TLSConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
