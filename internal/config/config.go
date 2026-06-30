@@ -34,9 +34,13 @@ var dnsLabelRegexp = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0
 // hostnameRegexp allows only valid DNS-label characters, permitting a single label (e.g. "test").
 var hostnameRegexp = regexp.MustCompile(`^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)*[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$`)
 
-// allowedHostSuffixes restricts twingate.host to controller domains we trust as the JWKS
-// (GAT signing key) source. The "test" suffix supports local/e2e testing (e.g. acme.test).
-var allowedHostSuffixes = []string{"twingate.com", "opstg.com", "test"}
+var IssuerByDomain = map[string]string{
+	"test":          "twingate-local",
+	"dev.opstg.com": "twingate-dev",
+	"stg.opstg.com": "twingate-stg",
+	"sec.opstg.com": "twingate-sec",
+	"twingate.com":  "twingate",
+}
 
 const (
 	defaultTwingateHost               = "twingate.com"
@@ -694,21 +698,20 @@ func (v *SSHCAVaultConfig) GetUpstreamHostCAMount() string {
 	return defaultVaultSSHMount
 }
 
-// validateHost checks host is a well-formed hostname ending in an allowed suffix.
+// validateHost checks host is a well-formed hostname for a trusted Twingate controller domain.
 func validateHost(host string) error {
 	if !hostnameRegexp.MatchString(host) {
 		return fmt.Errorf("%w: not a valid hostname: %q", ErrInvalidHost, host)
 	}
 
-	// DNS hostnames are case-insensitive, so match the suffix allowlist case-insensitively.
 	lowered := strings.ToLower(host)
-	for _, suffix := range allowedHostSuffixes {
-		if lowered == suffix || strings.HasSuffix(lowered, "."+suffix) {
+	for domain := range IssuerByDomain {
+		if lowered == domain || strings.HasSuffix(lowered, "."+domain) {
 			return nil
 		}
 	}
 
-	return fmt.Errorf("%w: must end with one of %v: %q", ErrInvalidHost, allowedHostSuffixes, host)
+	return fmt.Errorf("%w: not a trusted Twingate domain: %q", ErrInvalidHost, host)
 }
 
 func validatePort(port int, fieldName string) error {

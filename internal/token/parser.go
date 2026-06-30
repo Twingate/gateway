@@ -10,22 +10,18 @@ import (
 
 	"github.com/MicahParks/keyfunc/v3"
 	"github.com/golang-jwt/jwt/v5"
+
+	"gateway/internal/config"
 )
 
 var errInvalidTokenType = errors.New("token type is invalid")
 
 var allowedSigningMethods = []string{jwt.SigningMethodES256.Alg()}
 
-var allowedIssuerByDomain = map[string]string{
-	"test":          "twingate-local",
-	"dev.opstg.com": "twingate-dev",
-	"stg.opstg.com": "twingate-stg",
-	"twingate.com":  "twingate",
-}
-
 func getIssuer(host string) string {
-	for baseDomain, issuer := range allowedIssuerByDomain {
-		if baseDomain == host || strings.HasSuffix(host, "."+baseDomain) {
+	lowered := strings.ToLower(host)
+	for domain, issuer := range config.IssuerByDomain {
+		if lowered == domain || strings.HasSuffix(lowered, "."+domain) {
 			return issuer
 		}
 	}
@@ -51,27 +47,27 @@ type Parser struct {
 	config ParserConfig
 }
 
-func NewParser(config ParserConfig) (*Parser, error) {
-	if config.Keyfunc == nil {
-		jwkURL := fmt.Sprintf("https://%s.%s/api/v1/jwk/ec", config.Network, config.Host)
+func NewParser(cfg ParserConfig) (*Parser, error) {
+	if cfg.Keyfunc == nil {
+		jwkURL := fmt.Sprintf("https://%s.%s/api/v1/jwk/ec", cfg.Network, cfg.Host)
 
 		jwks, err := keyfunc.NewDefault([]string{jwkURL})
 		if err != nil {
 			return nil, fmt.Errorf("failed to create JWKS store: %w", err)
 		}
 
-		config.Keyfunc = jwks.Keyfunc
+		cfg.Keyfunc = jwks.Keyfunc
 	}
 
 	return &Parser{
 		parser: jwt.NewParser(
 			jwt.WithValidMethods(allowedSigningMethods),
-			jwt.WithIssuer(getIssuer(config.Host)),
-			jwt.WithAudience(config.Network),
+			jwt.WithIssuer(getIssuer(cfg.Host)),
+			jwt.WithAudience(cfg.Network),
 			jwt.WithIssuedAt(),
 			jwt.WithExpirationRequired(),
 		),
-		config: config,
+		config: cfg,
 	}, nil
 }
 

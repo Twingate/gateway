@@ -350,7 +350,7 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			name: "host with opstg suffix",
 			config: &Config{
-				Twingate:    TwingateConfig{Network: "test", Host: "foo.opstg.com"},
+				Twingate:    TwingateConfig{Network: "test", Host: "foo.stg.opstg.com"},
 				Port:        8443,
 				MetricsPort: 9090,
 				TLS:         TLSConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
@@ -402,7 +402,7 @@ func TestConfig_Validate(t *testing.T) {
 				Kubernetes:  &KubernetesConfig{},
 			},
 			wantErr:     true,
-			errContains: "must end with one of",
+			errContains: "not a trusted Twingate domain",
 		},
 		{
 			name: "host with scheme and path",
@@ -438,7 +438,7 @@ func TestConfig_Validate(t *testing.T) {
 				Kubernetes:  &KubernetesConfig{},
 			},
 			wantErr:     true,
-			errContains: "must end with one of",
+			errContains: "not a trusted Twingate domain",
 		},
 		{
 			name: "invalid port",
