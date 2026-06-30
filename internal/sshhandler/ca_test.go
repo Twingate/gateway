@@ -331,9 +331,23 @@ func TestVerifyCertificate(t *testing.T) {
 		{name: "unrequested critical option", req: userReq, setupFn: func(c *ssh.Certificate) {
 			c.CriticalOptions = map[string]string{"force-command": "/bin/false"}
 		}, wantErrMsg: "unexpected critical option"},
+		{name: "critical option value mismatch", req: &certificateRequest{
+			certType:   UserCert,
+			publicKey:  publicKey,
+			principals: []string{"alice"},
+			ttl:        time.Hour,
+			permissions: ssh.Permissions{
+				CriticalOptions: map[string]string{"force-command": "/usr/bin/allowed"},
+			},
+		}, setupFn: func(c *ssh.Certificate) {
+			c.CriticalOptions = map[string]string{"force-command": "/bin/sh"}
+		}, wantErrMsg: "critical option \"force-command\" has value"},
 		{name: "unrequested extension", req: userReq, setupFn: func(c *ssh.Certificate) {
 			c.Extensions["permit-port-forwarding"] = ""
 		}, wantErrMsg: "unexpected extension"},
+		{name: "extension value mismatch", req: userReq, setupFn: func(c *ssh.Certificate) {
+			c.Extensions["permit-pty"] = "unexpected"
+		}, wantErrMsg: "extension \"permit-pty\" has value"},
 	}
 
 	for _, tt := range tests {

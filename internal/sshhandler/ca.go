@@ -327,15 +327,25 @@ func verifyCertificate(cert *ssh.Certificate, req *certificateRequest) error {
 		return fmt.Errorf("%w: validity %d exceeds requested TTL (max %d)", errCertPolicyViolation, cert.ValidBefore, maxValidBefore)
 	}
 
-	for opt := range cert.CriticalOptions {
-		if _, ok := req.permissions.CriticalOptions[opt]; !ok {
+	for opt, got := range cert.CriticalOptions {
+		want, ok := req.permissions.CriticalOptions[opt]
+		if !ok {
 			return fmt.Errorf("%w: unexpected critical option %q", errCertPolicyViolation, opt)
+		}
+
+		if got != want {
+			return fmt.Errorf("%w: critical option %q has value %q, requested %q", errCertPolicyViolation, opt, got, want)
 		}
 	}
 
-	for ext := range cert.Extensions {
-		if _, ok := req.permissions.Extensions[ext]; !ok {
+	for ext, got := range cert.Extensions {
+		want, ok := req.permissions.Extensions[ext]
+		if !ok {
 			return fmt.Errorf("%w: unexpected extension %q", errCertPolicyViolation, ext)
+		}
+
+		if got != want {
+			return fmt.Errorf("%w: extension %q has value %q, requested %q", errCertPolicyViolation, ext, got, want)
 		}
 	}
 
