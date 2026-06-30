@@ -257,10 +257,10 @@ webApp:
     Authorization: "Bearer {{jwt}}"
     X-Twingate-User: "{{username}}"
     X-Twingate-Groups: "{{groups}}"
-    X-Twingate-Client-Geo-LatLong: "{{clientLatLong}}"
-    X-Twingate-Client-Geo-City: "{{clientCity}}"
-    X-Twingate-Client-Geo-Region: "{{clientRegion}}"
-    X-Twingate-Client-Geo-Country: "{{clientCountry}}"
+    X-Twingate-Client-LatLong: "{{clientLatLong}}"
+    X-Twingate-Client-City: "{{clientCity}}"
+    X-Twingate-Client-Region: "{{clientRegion}}"
+    X-Twingate-Client-Country: "{{clientCountry}}"
 `
 
 	config := fmt.Sprintf(configTemplate, network, gatewayPort, kindBearerToken, sshUsername)
