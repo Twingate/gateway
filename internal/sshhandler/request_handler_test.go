@@ -4,12 +4,10 @@
 package sshhandler
 
 import (
-	"errors"
-	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
@@ -60,20 +58,45 @@ func createWindowChangeRequestPayload() []byte {
 	return payload
 }
 
-func TestSSHRequestHandler_handleRequests_PtyRequest(t *testing.T) {
-	mockChannel := NewMockChannel()
-	sourceRequestChan := make(chan Request, 1)
-	flushTrigger := make(chan SSHRequestHandlerFlushTrigger)
-	core, logs := observer.New(zap.DebugLevel)
+// newRequestHandlerEnds wires a SSHRequestHandler over real SSH channels, mirroring production roles:
+// the gateway accepts the source channel opened by the downstream client (its request chan feeds the
+// handler) and opens the target channel the upstream server accepts (the handler forwards onto it).
+// It returns the handler (with a nop logger and no-op pty callback that tests override as needed) and
+// the two test-driven far ends: downstreamFar.channel drives requests, upstreamFar.requests receives
+// the forwarded ones.
+func newRequestHandlerEnds(t *testing.T) (handler *SSHRequestHandler, downstreamFar, upstreamFar channelEnds) {
+	t.Helper()
 
-	var capturedPtyReq ptyReq
+	downstreamClient, downstreamServer := newSSHConnEnds(t)
+	upstreamClient, upstreamServer := newSSHConnEnds(t)
 
-	onPtyRequest := func(req ptyReq) {
-		capturedPtyReq = req
-	}
+	// Connection-level requests are unused; drain them so the mux never blocks.
+	go ssh.DiscardRequests(downstreamClient.requests)
+	go ssh.DiscardRequests(downstreamServer.requests)
+	go ssh.DiscardRequests(upstreamClient.requests)
+	go ssh.DiscardRequests(upstreamServer.requests)
 
-	handler := &SSHRequestHandler{
-		logger: zap.New(core).Named("test"),
+	// Source: downstream client opens, gateway (downstream server) accepts.
+	sourceAccepted := acceptChannel(t, downstreamServer)
+
+	dsCh, dsReqs, err := downstreamClient.conn.OpenChannel("session", nil)
+	require.NoError(t, err)
+
+	downstreamFar = channelEnds{channel: dsCh, requests: dsReqs}
+	source := <-sourceAccepted
+
+	// Target: gateway (upstream client) opens, upstream server accepts.
+	upstreamGateway := acceptChannel(t, upstreamServer)
+
+	tgtCh, tgtReqs, err := upstreamClient.conn.OpenChannel("session", nil)
+	require.NoError(t, err)
+
+	go ssh.DiscardRequests(tgtReqs)
+
+	upstreamFar = <-upstreamGateway
+
+	handler = &SSHRequestHandler{
+		logger: zap.NewNop(),
 		sshChannelCtx: &sshChannelContext{
 			sshContext:  testSSHContext,
 			channelID:   "test-channel-id",
@@ -81,44 +104,35 @@ func TestSSHRequestHandler_handleRequests_PtyRequest(t *testing.T) {
 			sourceLabel: labelDownstream,
 			targetLabel: labelUpstream,
 		},
-		flushTrigger:      flushTrigger,
-		sourceRequestChan: sourceRequestChan,
-		targetChannel:     mockChannel,
-		onPtyRequest:      onPtyRequest,
+		sourceRequestChan: source.requests,
+		targetChannel:     tgtCh,
+		onPtyRequest:      func(_ ptyReq) {},
 	}
 
-	// Create Pty Request
-	ptyPayload := createPtyRequestPayload()
-	mockReq := &mockSSHRequest{
-		Type:      "pty-req",
-		WantReply: true,
-		Payload:   ptyPayload,
-	}
-	// We expect this to be forwarded to the target channel
-	mockChannel.On("SendRequest", "pty-req", true, mock.AnythingOfType("[]uint8")).Return(true, nil)
+	return handler, downstreamFar, upstreamFar
+}
 
-	// We expect this to be replied to
-	mockReq.On("Reply", true, []byte(nil)).Return(nil)
+func TestSSHRequestHandler_handleRequests_PtyRequest(t *testing.T) {
+	handler, downstreamFar, upstreamFar := newRequestHandlerEnds(t)
+	core, logs := observer.New(zap.DebugLevel)
+	handler.logger = zap.New(core).Named("test")
 
-	// Provide the request to the handler
+	var capturedPtyReq ptyReq
+
+	handler.onPtyRequest = func(req ptyReq) { capturedPtyReq = req }
+
 	signals := handler.handleRequests()
 
-	sourceRequestChan <- mockReq
+	sendAndAssertForward(t, downstreamFar.channel, upstreamFar.requests, requestTypePty, true, createPtyRequestPayload())
 
-	// Close the channel
-	close(sourceRequestChan)
-
-	// Wait for request processing to be finished after closing the channel
+	require.NoError(t, downstreamFar.channel.Close())
 	<-signals.finished
 
-	// Verify pty request was processed
+	// Verify pty request was parsed and the callback received the dimensions.
 	assert.Equal(t, "xterm-256color", capturedPtyReq.Term)
 	assert.Equal(t, uint32(80), capturedPtyReq.WidthColumns)
 	assert.Equal(t, uint32(24), capturedPtyReq.HeightRows)
 
-	mockChannel.AssertExpectations(t)
-
-	// Assert that the SSH request log was emitted
 	requestLog := logs.FilterMessage("SSH channel request").All()
 	assert.Len(t, requestLog, 1)
 
@@ -127,57 +141,21 @@ func TestSSHRequestHandler_handleRequests_PtyRequest(t *testing.T) {
 }
 
 func TestSSHRequestHandler_handleRequests_ShellRequest(t *testing.T) {
-	mockChannel := NewMockChannel()
-	sourceRequestChan := make(chan Request, 1)
-	flushTrigger := make(chan SSHRequestHandlerFlushTrigger)
+	handler, downstreamFar, upstreamFar := newRequestHandlerEnds(t)
 	core, logs := observer.New(zap.DebugLevel)
+	handler.logger = zap.New(core).Named("test")
 
-	handler := &SSHRequestHandler{
-		logger: zap.New(core).Named("test"),
-		sshChannelCtx: &sshChannelContext{
-			sshContext:  testSSHContext,
-			channelID:   "test-channel-id",
-			channelType: "session",
-			sourceLabel: labelDownstream,
-			targetLabel: labelUpstream,
-		},
-		flushTrigger:      flushTrigger,
-		sourceRequestChan: sourceRequestChan,
-		targetChannel:     mockChannel,
-		onPtyRequest:      func(_ ptyReq) {},
-	}
-
-	// Create shell request
-	mockReq := &mockSSHRequest{
-		Type:      "shell",
-		WantReply: true,
-		Payload:   nil,
-	}
-
-	// We expect this to be forwarded to the target channel
-	mockChannel.On("SendRequest", "shell", true, []byte(nil)).Return(true, nil)
-
-	// We expect this to be replied to
-	mockReq.On("Reply", true, []byte(nil)).Return(nil)
-
-	// Provide the request to the handler
 	signals := handler.handleRequests()
 
-	sourceRequestChan <- mockReq
+	sendAndAssertForward(t, downstreamFar.channel, upstreamFar.requests, requestTypeShell, true, nil)
 
-	// Wait for session to start
+	// Shell starts the session.
 	command := <-signals.started
 	assert.Equal(t, "shell", command)
 
-	// Close the channel
-	close(sourceRequestChan)
-
-	// Wait for processing to finish after closing the channel
+	require.NoError(t, downstreamFar.channel.Close())
 	<-signals.finished
 
-	mockChannel.AssertExpectations(t)
-
-	// Assert that the SSH request log was emitted
 	requestLog := logs.FilterMessage("SSH channel request").All()
 	assert.Len(t, requestLog, 1)
 
@@ -186,56 +164,21 @@ func TestSSHRequestHandler_handleRequests_ShellRequest(t *testing.T) {
 }
 
 func TestSSHRequestHandler_handleRequests_ExecRequest(t *testing.T) {
-	mockChannel := NewMockChannel()
-	sourceRequestChan := make(chan Request, 1)
-	flushTrigger := make(chan SSHRequestHandlerFlushTrigger)
+	handler, downstreamFar, upstreamFar := newRequestHandlerEnds(t)
 	core, logs := observer.New(zap.DebugLevel)
+	handler.logger = zap.New(core).Named("test")
 
-	handler := &SSHRequestHandler{
-		logger: zap.New(core).Named("test"),
-		sshChannelCtx: &sshChannelContext{
-			sshContext:  testSSHContext,
-			channelID:   "test-channel-id",
-			channelType: "session",
-			sourceLabel: labelDownstream,
-			targetLabel: labelUpstream,
-		},
-		flushTrigger:      flushTrigger,
-		sourceRequestChan: sourceRequestChan,
-		targetChannel:     mockChannel,
-		onPtyRequest:      func(_ ptyReq) {},
-	}
-
-	// Create and send exec request
-	execPayload := createExecRequestPayload("ls -la")
-	mockReq := &mockSSHRequest{
-		Type:      "exec",
-		WantReply: true,
-		Payload:   execPayload,
-	}
-	// We expect this to be forwarded to the target channel
-	mockChannel.On("SendRequest", "exec", true, mock.AnythingOfType("[]uint8")).Return(true, nil)
-	// We expect this to be replied to
-	mockReq.On("Reply", true, []byte(nil)).Return(nil)
-
-	// Provide the request to the handler
 	signals := handler.handleRequests()
 
-	sourceRequestChan <- mockReq
+	sendAndAssertForward(t, downstreamFar.channel, upstreamFar.requests, requestTypeExec, true, createExecRequestPayload("ls -la"))
 
-	// Wait for session to start
+	// Exec starts the session and carries the command.
 	command := <-signals.started
 	assert.Equal(t, "exec ls -la", command)
 
-	// Close the channel
-	close(sourceRequestChan)
-
-	// Wait for processing to finish after closing the channel
+	require.NoError(t, downstreamFar.channel.Close())
 	<-signals.finished
 
-	mockChannel.AssertExpectations(t)
-
-	// Assert that the SSH request log was emitted
 	requestLog := logs.FilterMessage("SSH channel request").All()
 	assert.Len(t, requestLog, 1)
 
@@ -245,56 +188,21 @@ func TestSSHRequestHandler_handleRequests_ExecRequest(t *testing.T) {
 }
 
 func TestSSHRequestHandler_handleRequests_SubsystemRequest(t *testing.T) {
-	mockChannel := NewMockChannel()
-	sourceRequestChan := make(chan Request, 1)
-	flushTrigger := make(chan SSHRequestHandlerFlushTrigger)
+	handler, downstreamFar, upstreamFar := newRequestHandlerEnds(t)
 	core, logs := observer.New(zap.DebugLevel)
+	handler.logger = zap.New(core).Named("test")
 
-	handler := &SSHRequestHandler{
-		logger: zap.New(core).Named("test"),
-		sshChannelCtx: &sshChannelContext{
-			sshContext:  testSSHContext,
-			channelID:   "test-channel-id",
-			channelType: "session",
-			sourceLabel: labelDownstream,
-			targetLabel: labelUpstream,
-		},
-		flushTrigger:      flushTrigger,
-		sourceRequestChan: sourceRequestChan,
-		targetChannel:     mockChannel,
-		onPtyRequest:      func(_ ptyReq) {},
-	}
-
-	// Create subsystem request
-	subsystemPayload := createSubsystemRequestPayload("sftp")
-	mockReq := &mockSSHRequest{
-		Type:      "subsystem",
-		WantReply: false,
-		Payload:   subsystemPayload,
-	}
-	// We expect this to be forwarded to the target channel
-	mockChannel.On("SendRequest", "subsystem", false, mock.AnythingOfType("[]uint8")).Return(true, nil)
-
-	// Provide the request to the handler
 	signals := handler.handleRequests()
 
-	sourceRequestChan <- mockReq
+	sendAndAssertForward(t, downstreamFar.channel, upstreamFar.requests, requestTypeSubsystem, false, createSubsystemRequestPayload("sftp"))
 
-	// Wait for session to start
+	// Subsystem starts the session and carries the subsystem name.
 	command := <-signals.started
 	assert.Equal(t, "subsystem sftp", command)
 
-	// Close the channel
-	close(sourceRequestChan)
-
-	// Wait for processing to finish after closing the channel
+	require.NoError(t, downstreamFar.channel.Close())
 	<-signals.finished
 
-	// Assert that Reply was NOT called since WantReply is false
-	mockReq.AssertNotCalled(t, "Reply")
-	mockChannel.AssertExpectations(t)
-
-	// Assert that the SSH request log was emitted
 	requestLog := logs.FilterMessage("SSH channel request").All()
 	assert.Len(t, requestLog, 1)
 
@@ -304,246 +212,185 @@ func TestSSHRequestHandler_handleRequests_SubsystemRequest(t *testing.T) {
 }
 
 func TestSSHRequestHandler_handleRequests_WindowChangeRequest(t *testing.T) {
-	mockChannel := NewMockChannel()
-	sourceRequestChan := make(chan Request, 1)
-	flushTrigger := make(chan SSHRequestHandlerFlushTrigger)
+	handler, downstreamFar, upstreamFar := newRequestHandlerEnds(t)
 
 	var capturedWindowChangeReq windowChangeReq
 
-	onWindowChangeRequest := func(windowChangeReq windowChangeReq) {
-		capturedWindowChangeReq = windowChangeReq
-	}
-
-	handler := &SSHRequestHandler{
-		logger: zap.NewNop(),
-		sshChannelCtx: &sshChannelContext{
-			sshContext:  testSSHContext,
-			channelID:   "test-channel-id",
-			channelType: "session",
-			sourceLabel: labelDownstream,
-			targetLabel: labelUpstream,
-		},
-		flushTrigger:      flushTrigger,
-		sourceRequestChan: sourceRequestChan,
-		targetChannel:     mockChannel,
-		onPtyRequest:      func(_ ptyReq) {},
-		onWindowChange:    onWindowChangeRequest,
-	}
-
-	mockReq := &mockSSHRequest{
-		Type:      "window-change",
-		WantReply: false,
-		Payload:   createWindowChangeRequestPayload(),
-	}
-
-	mockChannel.On("SendRequest", "window-change", false, mock.AnythingOfType("[]uint8")).Return(false, nil)
-
-	mockReq.On("Reply", false, []byte(nil)).Return(nil)
+	handler.onWindowChange = func(req windowChangeReq) { capturedWindowChangeReq = req }
 
 	signals := handler.handleRequests()
 
-	sourceRequestChan <- mockReq
+	sendAndAssertForward(t, downstreamFar.channel, upstreamFar.requests, requestTypeWindowChange, false, createWindowChangeRequestPayload())
 
-	close(sourceRequestChan)
-
-	// Wait for request processing to be finished after closing the channel
+	require.NoError(t, downstreamFar.channel.Close())
 	<-signals.finished
 
-	// Verify window-change request was processed
+	// Verify window-change request was parsed and the callback received the dimensions.
 	assert.Equal(t, uint32(80), capturedWindowChangeReq.WidthColumns)
 	assert.Equal(t, uint32(24), capturedWindowChangeReq.HeightRows)
-
-	// Assert that Reply was NOT called since WantReply is false
-	mockReq.AssertNotCalled(t, "Reply")
-	mockChannel.AssertExpectations(t)
 }
 
 func TestSSHRequestHandler_handleRequests_FlushTrigger(t *testing.T) {
-	mockChannel := NewMockChannel()
-	sourceRequestChan := make(chan Request, 3)
+	handler, downstreamFar, upstreamFar := newRequestHandlerEnds(t)
 	flushTrigger := make(chan SSHRequestHandlerFlushTrigger, 1)
-
-	handler := &SSHRequestHandler{
-		logger: zap.NewNop(),
-		sshChannelCtx: &sshChannelContext{
-			sshContext:  testSSHContext,
-			channelID:   "test-channel-id",
-			channelType: "session",
-			sourceLabel: labelDownstream,
-			targetLabel: labelUpstream,
-		},
-		flushTrigger:      flushTrigger,
-		sourceRequestChan: sourceRequestChan,
-		targetChannel:     mockChannel,
-		onPtyRequest:      func(_ ptyReq) {},
-	}
-
-	// Set up mock expectations for multiple pty requests (non-session requests)
-	mockChannel.On("SendRequest", "pty-req", true, mock.AnythingOfType("[]uint8")).Return(true, nil)
-	mockChannel.On("SendRequest", "shell", true, mock.AnythingOfType("[]uint8")).Return(true, nil)
+	handler.flushTrigger = flushTrigger
 
 	signals := handler.handleRequests()
 
-	// Send pty request and shell to be drained
-	ptyPayload := createPtyRequestPayload()
-	mockReq1 := &mockSSHRequest{
-		Type:      "pty-req",
-		WantReply: true,
-		Payload:   ptyPayload,
+	// A normal request is processed first.
+	sendAndAssertForward(t, downstreamFar.channel, upstreamFar.requests, requestTypePty, true, createPtyRequestPayload())
+
+	// The flush trigger drains pending requests and then invokes the callback.
+	flushed := make(chan struct{})
+	flushTrigger <- SSHRequestHandlerFlushTrigger{cb: func() { close(flushed) }}
+
+	select {
+	case <-flushed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("flush callback was not invoked")
 	}
-	mockReq1.On("Reply", true, []byte(nil)).Return(nil)
 
-	mockReq2 := &mockSSHRequest{
-		Type:      "shell",
-		WantReply: true,
-		Payload:   nil,
-	}
-	mockReq2.On("Reply", true, []byte(nil)).Return(nil)
-
-	sourceRequestChan <- mockReq1
-
-	sourceRequestChan <- mockReq2
-
-	<-signals.started
-
-	// Send flush trigger
-	wg := sync.WaitGroup{}
-	wg.Add(1)
-
-	trigger := SSHRequestHandlerFlushTrigger{
-		cb: func() {
-			wg.Done()
-		},
-	}
-	flushTrigger <- trigger
-
-	// Wait for processing to finish
-	wg.Wait()
-
-	// Close source channel
-	close(sourceRequestChan)
-
-	// Wait for processing to finish
+	require.NoError(t, downstreamFar.channel.Close())
 	<-signals.finished
-
-	mockChannel.AssertExpectations(t)
 }
 
 func TestSSHRequestHandler_handleRequests_ChannelClosed(t *testing.T) {
-	mockChannel := NewMockChannel()
-	sourceRequestChan := make(chan Request)
-	flushTrigger := make(chan SSHRequestHandlerFlushTrigger)
-
-	handler := &SSHRequestHandler{
-		logger: zap.NewNop(),
-		sshChannelCtx: &sshChannelContext{
-			sshContext:  testSSHContext,
-			channelID:   "test-channel-id",
-			channelType: "session",
-			sourceLabel: labelDownstream,
-			targetLabel: labelUpstream,
-		},
-		flushTrigger:      flushTrigger,
-		sourceRequestChan: sourceRequestChan,
-		targetChannel:     mockChannel,
-		onPtyRequest:      func(_ ptyReq) {},
-	}
+	handler, downstreamFar, _ := newRequestHandlerEnds(t)
 
 	signals := handler.handleRequests()
 
-	// Close the source channel immediately
-	close(sourceRequestChan)
+	// Closing the source channel closes the gateway's request chan, finishing the handler.
+	require.NoError(t, downstreamFar.channel.Close())
 
-	// Wait for processing to finish
-	<-signals.finished
-
-	// No mock expectations needed as no requests should be processed
-	mockChannel.AssertExpectations(t)
+	select {
+	case <-signals.finished:
+	case <-time.After(2 * time.Second):
+		t.Fatal("handler did not finish after source channel closed")
+	}
 }
 
 func TestSSHRequestHandler_handleRequests_UnknownType(t *testing.T) {
-	mockChannel := NewMockChannel()
-	sourceRequestChan := make(chan Request, 1)
-	flushTrigger := make(chan SSHRequestHandlerFlushTrigger)
+	handler, downstreamFar, upstreamFar := newRequestHandlerEnds(t)
 	core, logs := observer.New(zap.DebugLevel)
-
-	handler := &SSHRequestHandler{
-		logger: zap.New(core).Named("test"),
-		sshChannelCtx: &sshChannelContext{
-			sshContext:  testSSHContext,
-			channelID:   "test-channel-id",
-			channelType: "session",
-			sourceLabel: labelDownstream,
-			targetLabel: labelUpstream,
-		},
-		flushTrigger:      flushTrigger,
-		sourceRequestChan: sourceRequestChan,
-		targetChannel:     mockChannel,
-		onPtyRequest:      func(_ ptyReq) {},
-	}
-
-	// Set up mock expectations
-	mockChannel.On("SendRequest", "some-command", true, []byte("some random data")).Return(true, nil)
-
-	// Create unknown type request with random data
-	mockReq := &mockSSHRequest{
-		Type:      "some-command",
-		WantReply: true,
-		Payload:   []byte("some random data"),
-	}
-
-	mockReq.On("Reply", true, []byte(nil)).Return(nil)
+	handler.logger = zap.New(core).Named("test")
 
 	signals := handler.handleRequests()
 
-	sourceRequestChan <- mockReq
+	// An unknown request type is still forwarded but not logged as an "SSH channel request".
+	sendAndAssertForward(t, downstreamFar.channel, upstreamFar.requests, "some-command", true, []byte("some random data"))
 
-	close(sourceRequestChan)
-
-	// Wait for processing to finish
+	require.NoError(t, downstreamFar.channel.Close())
 	<-signals.finished
 
-	mockChannel.AssertExpectations(t)
-
-	// Assert that the SSH request log was not emitted
 	requestLog := logs.FilterMessage("SSH channel request").All()
 	assert.Empty(t, requestLog)
 }
 
-func TestForwardRequest_Failure(t *testing.T) {
-	mockChannel := NewMockChannel()
+// TestSSHRequestHandler_parseRequestPayload_Malformed verifies a typed request whose payload cannot
+// be unmarshalled is logged and still forwarded without crashing the handler.
+func TestSSHRequestHandler_parseRequestPayload_Malformed(t *testing.T) {
+	handler, downstreamFar, upstreamFar := newRequestHandlerEnds(t)
+	core, logs := observer.New(zap.DebugLevel)
+	handler.logger = zap.New(core).Named("test")
 
-	mockReq := &mockSSHRequest{
-		Type:      "exec",
-		WantReply: true,
-		Payload:   []byte("test"),
+	signals := handler.handleRequests()
+
+	// A pty-req with a truncated payload fails to unmarshal but is still forwarded verbatim.
+	sendAndAssertForward(t, downstreamFar.channel, upstreamFar.requests, requestTypePty, true, []byte{0x00})
+
+	require.NoError(t, downstreamFar.channel.Close())
+	<-signals.finished
+
+	assert.NotEmpty(t, logs.FilterMessage("Failed to parse pty-req request").All(),
+		"the malformed payload should have been logged")
+}
+
+// TestSSHRequestHandler_handleRequest_ForwardError verifies that when forwarding a session-starting
+// request to the target channel fails, the handler logs the failure and returns early without
+// signaling that the session has started.
+func TestSSHRequestHandler_handleRequest_ForwardError(t *testing.T) {
+	handler, downstreamFar, _ := newRequestHandlerEnds(t)
+	core, logs := observer.New(zap.DebugLevel)
+	handler.logger = zap.New(core).Named("test")
+
+	// Closing the target channel makes the forwarded SendRequest fail.
+	require.NoError(t, handler.targetChannel.Close())
+
+	signals := handler.handleRequests()
+
+	// Send a session-starting request; forwarding fails so the started signal must not fire.
+	go func() {
+		_, _ = downstreamFar.channel.SendRequest(requestTypeExec, true, createExecRequestPayload("ls"))
+	}()
+
+	// The forwarding failure should be logged.
+	require.Eventually(t, func() bool {
+		return len(logs.FilterMessage("Failed to forward request").All()) > 0
+	}, 2*time.Second, 10*time.Millisecond)
+
+	require.NoError(t, downstreamFar.channel.Close())
+	<-signals.finished
+
+	// The early return means the session never started.
+	select {
+	case <-signals.started:
+		t.Fatal("session should not have started when forwarding failed")
+	default:
 	}
+}
 
-	mockChannel.On("SendRequest", "exec", true, []byte("test")).Return(false, errors.New("send failed"))
-	mockReq.On("Reply", false, []byte(nil)).Return(nil)
+// TestForwardRequest_TargetSendError verifies that when forwarding to the target channel fails,
+// forwardRequest replies failure to the source and returns the error.
+func TestForwardRequest_TargetSendError(t *testing.T) {
+	handler, downstreamFar, _ := newRequestHandlerEnds(t)
 
-	err := forwardRequest(mockChannel, mockReq)
+	// Closing the target channel makes the forwarded SendRequest fail.
+	require.NoError(t, handler.targetChannel.Close())
 
-	require.Error(t, err)
-	mockChannel.AssertExpectations(t)
-	mockReq.AssertExpectations(t)
+	// The source sends a WantReply request and must receive a failure reply.
+	replyCh := make(chan bool, 1)
+
+	go func() {
+		ok, _ := downstreamFar.channel.SendRequest(requestTypeExec, true, createExecRequestPayload("x"))
+		replyCh <- ok
+	}()
+
+	req := <-handler.sourceRequestChan
+
+	require.Error(t, forwardRequest(handler.targetChannel, req))
+
+	select {
+	case ok := <-replyCh:
+		assert.False(t, ok, "source should receive a failure reply")
+	case <-time.After(2 * time.Second):
+		t.Fatal("source did not receive a reply")
+	}
 }
 
 func TestForwardRequest_Success(t *testing.T) {
-	mockChannel := NewMockChannel()
+	handler, downstreamFar, upstreamFar := newRequestHandlerEnds(t)
 
-	mockReq := &mockSSHRequest{
-		Type:      "shell",
-		WantReply: true,
-		Payload:   nil,
+	// Drive a real request so forwardRequest receives one whose source it can reply to.
+	go func() {
+		_, _ = downstreamFar.channel.SendRequest(requestTypeShell, true, nil)
+	}()
+
+	req := <-handler.sourceRequestChan
+
+	// forwardRequest blocks until the target far end replies, so run it concurrently.
+	fwdErr := make(chan error, 1)
+
+	go func() {
+		fwdErr <- forwardRequest(handler.targetChannel, req)
+	}()
+
+	forwarded := recvForwardedReq(t, upstreamFar.requests)
+	assert.Equal(t, requestTypeShell, forwarded.Type)
+
+	select {
+	case err := <-fwdErr:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("forwardRequest did not complete")
 	}
-
-	mockChannel.On("SendRequest", "shell", true, []byte(nil)).Return(true, nil)
-	mockReq.On("Reply", true, []byte(nil)).Return(nil)
-
-	err := forwardRequest(mockChannel, mockReq)
-
-	require.NoError(t, err)
-	mockChannel.AssertExpectations(t)
-	mockReq.AssertExpectations(t)
 }

@@ -4,64 +4,97 @@
 package sshhandler
 
 import (
+	"io"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"golang.org/x/crypto/ssh"
 )
 
-type mockTapWriter struct {
-	mock.Mock
-
-	data []byte
+// bufferTap is an io.Writer spy that records everything written to it, used as a ChannelCopyPair Tap.
+type bufferTap struct {
 	mu   sync.Mutex
+	data []byte
 }
 
-func (m *mockTapWriter) Write(p []byte) (n int, err error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+func (b *bufferTap) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
-	m.data = append(m.data, p...)
-	args := m.Called(p)
+	b.data = append(b.data, p...)
 
-	return args.Int(0), args.Error(1)
+	return len(p), nil
 }
 
-func (m *mockTapWriter) GetData() []byte {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+func (b *bufferTap) bytes() []byte {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
-	return append([]byte(nil), m.data...)
+	return append([]byte(nil), b.data...)
+}
+
+// newChannelEnds opens one real SSH channel and returns the gateway-held end (the copier operates on
+// it) and the far end the test drives.
+func newChannelEnds(t *testing.T) (gateway, far ssh.Channel) {
+	t.Helper()
+
+	client, server := newSSHConnEnds(t)
+
+	go ssh.DiscardRequests(client.requests)
+	go ssh.DiscardRequests(server.requests)
+
+	accepted := acceptChannel(t, server)
+
+	farCh, farReqs, err := client.conn.OpenChannel("session", nil)
+	require.NoError(t, err)
+
+	go ssh.DiscardRequests(farReqs)
+
+	g := <-accepted
+
+	go ssh.DiscardRequests(g.requests)
+
+	return g.channel, farCh
 }
 
 func TestChannelCopyPair_copy_BasicCopy(t *testing.T) {
-	src := NewMockChannel()
-	dst := NewMockChannel()
+	srcGateway, srcFar := newChannelEnds(t)
+	dstGateway, dstFar := newChannelEnds(t)
 
 	testData := []byte("test data1234")
-	src.SetData(testData)
 
 	eofTriggerCh := make(chan SSHRequestHandlerFlushTrigger, 1)
 	channelClosedCh := make(chan struct{}, 1)
 
-	dst.On("CloseWrite").Return(nil)
-	dst.On("Close").Return(nil)
-
 	copyPair := &ChannelCopyPair{
 		logger:          zap.NewNop(),
-		Src:             src,
-		Dst:             dst,
+		Src:             srcGateway,
+		Dst:             dstGateway,
 		EOFTriggerCh:    eofTriggerCh,
 		ChannelClosedCh: channelClosedCh,
 	}
 
-	// EOF from src
-	src.TriggerEOF()
+	// Far end writes the data then EOFs the source.
+	go func() {
+		_, _ = srcFar.Write(testData)
+		_ = srcFar.CloseWrite()
+	}()
 
-	// Handle EOF trigger
+	// Read the copied data off the destination far end.
+	gotCh := make(chan []byte, 1)
+
+	go func() {
+		buf := make([]byte, len(testData))
+		_, _ = io.ReadFull(dstFar, buf)
+
+		gotCh <- buf
+	}()
+
+	// Respond to the EOF trigger and signal the channel fully closed.
 	eofCalled := false
 
 	go func() {
@@ -70,83 +103,73 @@ func TestChannelCopyPair_copy_BasicCopy(t *testing.T) {
 
 		eofCalled = true
 
-		// Signal channel fully closed
 		close(channelClosedCh)
 	}()
 
 	copyPair.copy()
 
-	// Verify data was copied
-	assert.Equal(t, testData, dst.GetWrittenData())
+	assert.Equal(t, testData, <-gotCh)
 	assert.True(t, eofCalled)
-	dst.AssertExpectations(t)
 }
 
 func TestChannelCopyPair_copy_WithTap(t *testing.T) {
-	src := NewMockChannel()
-	dst := NewMockChannel()
-	tap := &mockTapWriter{}
+	srcGateway, srcFar := newChannelEnds(t)
+	dstGateway, dstFar := newChannelEnds(t)
+	tap := &bufferTap{}
 
 	testData := []byte("test data for tap")
-	src.SetData(testData)
-
-	tap.On("Write", testData).Return(len(testData), nil)
 
 	eofTriggerCh := make(chan SSHRequestHandlerFlushTrigger, 1)
 	channelClosedCh := make(chan struct{}, 1)
 
-	dst.On("CloseWrite").Return(nil)
-	dst.On("Close").Return(nil)
-
 	copyPair := &ChannelCopyPair{
 		logger:          zap.NewNop(),
-		Src:             src,
-		Dst:             dst,
+		Src:             srcGateway,
+		Dst:             dstGateway,
 		EOFTriggerCh:    eofTriggerCh,
 		ChannelClosedCh: channelClosedCh,
 		Tap:             tap,
 	}
 
-	// EOF from src
-	src.TriggerEOF()
+	go func() {
+		_, _ = srcFar.Write(testData)
+		_ = srcFar.CloseWrite()
+	}()
 
-	// Handle EOF trigger
-	eofCalled := false
+	gotCh := make(chan []byte, 1)
+
+	go func() {
+		buf := make([]byte, len(testData))
+		_, _ = io.ReadFull(dstFar, buf)
+
+		gotCh <- buf
+	}()
 
 	go func() {
 		trigger := <-eofTriggerCh
 		trigger.cb()
 
-		eofCalled = true
-
-		// Signal channel fully closed
 		close(channelClosedCh)
 	}()
 
 	copyPair.copy()
 
-	// Verify data was copied to both destination and tap
-	assert.Equal(t, testData, dst.GetWrittenData())
-	assert.Equal(t, testData, tap.GetData())
-	assert.True(t, eofCalled)
-	tap.AssertExpectations(t)
-	dst.AssertExpectations(t)
+	// Data is copied to the destination and captured by the tap.
+	assert.Equal(t, testData, <-gotCh)
+	assert.Equal(t, testData, tap.bytes())
 }
 
 func TestChannelCopyPair_copy_ShutdownTimeout(t *testing.T) {
-	src := NewMockChannel()
-	dst := NewMockChannel()
+	srcGateway, srcFar := newChannelEnds(t)
+	dstGateway, dstFar := newChannelEnds(t)
 
-	// Set a small amount of data
-	src.SetData([]byte("test"))
+	// Drain the destination so its small write never blocks.
+	go io.Copy(io.Discard, dstFar) //nolint:errcheck
 
 	eofTriggerCh := make(chan SSHRequestHandlerFlushTrigger, 1)
 	channelClosedCh := make(chan struct{})
 
-	dst.On("CloseWrite").Return(nil)
-	dst.On("Close").Return(nil)
-
-	// Temporarily reduce timeouts for testing
+	// Temporarily reduce timeouts for testing.
 	originalEOFTimeout := channelEOFTimeout
 	channelEOFTimeout = 50 * time.Millisecond
 	originalChannelCloseTimeout := channelCloseTimeout
@@ -159,15 +182,17 @@ func TestChannelCopyPair_copy_ShutdownTimeout(t *testing.T) {
 
 	copyPair := &ChannelCopyPair{
 		logger:          zap.NewNop(),
-		Src:             src,
-		Dst:             dst,
+		Src:             srcGateway,
+		Dst:             dstGateway,
 		EOFTriggerCh:    eofTriggerCh,
 		ChannelClosedCh: channelClosedCh,
 	}
 
-	// EOF from src
-	// But no EOF trigger or closing of the channel
-	src.TriggerEOF()
+	// Source EOFs, but no EOF-trigger response and no channel-close signal are ever given.
+	go func() {
+		_, _ = srcFar.Write([]byte("test"))
+		_ = srcFar.CloseWrite()
+	}()
 
 	start := time.Now()
 
@@ -175,61 +200,72 @@ func TestChannelCopyPair_copy_ShutdownTimeout(t *testing.T) {
 
 	elapsed := time.Since(start)
 
-	// Should have timed out after approximately the timeout duration
-	assert.GreaterOrEqual(t, elapsed, 50*time.Millisecond)
-	assert.Less(t, elapsed, 150*time.Millisecond) // Allow some margin
-
-	dst.AssertExpectations(t)
+	// Both the EOF-trigger wait and the channel-close wait must have timed out.
+	assert.GreaterOrEqual(t, elapsed, channelEOFTimeout+channelCloseTimeout)
+	assert.Less(t, elapsed, 1*time.Second)
 }
 
 func TestBidirectionalCopier_start(t *testing.T) {
-	// Create mock channels for both directions
-	sourceSrc := NewMockChannel()
-	sourceDst := NewMockChannel()
-	targetSrc := NewMockChannel()
-	targetDst := NewMockChannel()
+	sourceSrcGateway, sourceSrcFar := newChannelEnds(t)
+	sourceDstGateway, sourceDstFar := newChannelEnds(t)
+	targetSrcGateway, targetSrcFar := newChannelEnds(t)
+	targetDstGateway, targetDstFar := newChannelEnds(t)
 
-	// Set up test data
 	sourceData := []byte("source data")
 	targetData := []byte("target data")
 
-	sourceSrc.SetData(sourceData)
-	targetSrc.SetData(targetData)
-
-	// Set up channels
 	sourceEOFTrigger := make(chan SSHRequestHandlerFlushTrigger, 1)
 	sourceChannelClosed := make(chan struct{}, 1)
 	targetEOFTrigger := make(chan SSHRequestHandlerFlushTrigger, 1)
 	targetChannelClosed := make(chan struct{}, 1)
 
-	// Mock expectations
-	sourceDst.On("CloseWrite").Return(nil)
-	sourceDst.On("Close").Return(nil)
-	targetDst.On("CloseWrite").Return(nil)
-	targetDst.On("Close").Return(nil)
-
 	copier := &BidirectionalCopier{
 		logger: zap.NewNop(),
 		SourceToTarget: ChannelCopyPair{
 			logger:          zap.NewNop(),
-			Src:             sourceSrc,
-			Dst:             sourceDst,
+			Src:             sourceSrcGateway,
+			Dst:             sourceDstGateway,
 			EOFTriggerCh:    sourceEOFTrigger,
 			ChannelClosedCh: sourceChannelClosed,
 		},
 		TargetToSource: ChannelCopyPair{
 			logger:          zap.NewNop(),
-			Src:             targetSrc,
-			Dst:             targetDst,
+			Src:             targetSrcGateway,
+			Dst:             targetDstGateway,
 			EOFTriggerCh:    targetEOFTrigger,
 			ChannelClosedCh: targetChannelClosed,
 		},
 	}
 
-	// Initiate shutdown from source EOF
-	sourceSrc.TriggerEOF()
+	// Both directions write their data then EOF.
+	go func() {
+		_, _ = sourceSrcFar.Write(sourceData)
+		_ = sourceSrcFar.CloseWrite()
+	}()
+	go func() {
+		_, _ = targetSrcFar.Write(targetData)
+		_ = targetSrcFar.CloseWrite()
+	}()
 
-	// Handle EOF trigger from source
+	// Read the copied data off both destination far ends.
+	sourceGot := make(chan []byte, 1)
+
+	go func() {
+		buf := make([]byte, len(sourceData))
+		_, _ = io.ReadFull(sourceDstFar, buf)
+
+		sourceGot <- buf
+	}()
+
+	targetGot := make(chan []byte, 1)
+
+	go func() {
+		buf := make([]byte, len(targetData))
+		_, _ = io.ReadFull(targetDstFar, buf)
+
+		targetGot <- buf
+	}()
+
 	sourceEOFCalled := false
 
 	go func() {
@@ -238,16 +274,9 @@ func TestBidirectionalCopier_start(t *testing.T) {
 
 		sourceEOFCalled = true
 
-		// Source should have done CloseWrite() at this point, and target
-		// will receive SSH_MSG_CHANNEL_EOF, so simulate this by
-		// starting EOF trigger for target
-		targetSrc.TriggerEOF()
-
-		// Now source can fully close
 		close(sourceChannelClosed)
 	}()
 
-	// Handle EOF trigger from target
 	targetEOFCalled := false
 
 	go func() {
@@ -256,26 +285,18 @@ func TestBidirectionalCopier_start(t *testing.T) {
 
 		targetEOFCalled = true
 
-		// Now target can fully close after receiving SSH_MSG_CHANNEL_EOF
 		close(targetChannelClosed)
 	}()
 
-	// Mark time start
 	start := time.Now()
 	copier.start()
 	elapsed := time.Since(start)
 
-	// EOF triggers should have been called
 	assert.True(t, sourceEOFCalled)
 	assert.True(t, targetEOFCalled)
-
-	// Should complete quickly
 	assert.Less(t, elapsed, 1*time.Second)
 
-	// Verify data was copied in both directions
-	assert.Equal(t, sourceData, sourceDst.GetWrittenData())
-	assert.Equal(t, targetData, targetDst.GetWrittenData())
-
-	sourceDst.AssertExpectations(t)
-	targetDst.AssertExpectations(t)
+	// Data was copied in both directions.
+	assert.Equal(t, sourceData, <-sourceGot)
+	assert.Equal(t, targetData, <-targetGot)
 }
