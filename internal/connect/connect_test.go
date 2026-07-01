@@ -341,6 +341,31 @@ func TestConnectValidator_ParseConnect(t *testing.T) {
 		assert.Equal(t, "conn-id", connectInfo.ConnID)
 	})
 
+	t.Run("Invalid destination port (non-numeric)", func(t *testing.T) {
+		validator := &MessageValidator{TokenParser: parser}
+
+		// net.SplitHostPort accepts a non-numeric port; strconv.Atoi rejects it.
+		// Set RequestURI directly since httptest.NewRequest validates the target.
+		req := httptest.NewRequest(http.MethodConnect, "example.com:443", nil)
+		req.RequestURI = "example.com:abc"
+		req.Header.Set(AuthHeaderKey, "Bearer "+signedToken)
+
+		signature := c.sign(sigData)
+		req.Header.Set(AuthSignatureHeaderKey, signature)
+		req.Header.Set(ConnIDHeaderKey, "conn-id")
+
+		connectInfo, err := validator.ParseConnect(req, []byte(sigData))
+
+		var httpErr *HTTPError
+
+		require.ErrorAs(t, err, &httpErr)
+		require.Error(t, httpErr.Err)
+		assert.Equal(t, http.StatusBadRequest, httpErr.Code)
+		assert.Contains(t, httpErr.Error(), "failed to parse CONNECT destination port")
+		assert.Equal(t, *connectInfo.Claims, gatClaims)
+		assert.Equal(t, "conn-id", connectInfo.ConnID)
+	})
+
 	t.Run("Missing downstream port in token", func(t *testing.T) {
 		claimsNoPort := newGATTokenClaims(c.getPublicKey())
 		claimsNoPort.Resource.GatewayMetadata = token.GatewayMetadata{}

@@ -168,14 +168,25 @@ func (v *MessageValidator) ParseConnect(req *http.Request, ekm []byte) (connectI
 	}
 
 	requestedPort, portErr := strconv.Atoi(port)
-	if portErr != nil || requestedPort != downstreamPort {
+	if portErr != nil {
+		return Info{
+				Claims: gatClaims,
+				ConnID: connID,
+			}, &HTTPError{
+				Code:    http.StatusBadRequest,
+				Message: fmt.Sprintf("failed to parse CONNECT destination port: %v", portErr),
+				Err:     portErr,
+			}
+	}
+
+	if requestedPort != downstreamPort {
 		return Info{
 				Claims: gatClaims,
 				ConnID: connID,
 			}, &HTTPError{
 				Code:    http.StatusForbidden,
 				Message: fmt.Sprintf("failed to verify CONNECT destination port: %s with token downstream port %d", port, downstreamPort),
-				Err:     portErr,
+				Err:     nil,
 			}
 	}
 
