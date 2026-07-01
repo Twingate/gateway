@@ -11,6 +11,7 @@ import (
 	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -399,6 +400,18 @@ func TestMatchResourceAddress(t *testing.T) {
 			name:    "wildcard reject invalid ending label",
 			pattern: "*.example.com",
 			host:    "invalid-.example.com",
+			want:    false,
+		},
+		{
+			name:    "wildcard matches max-length label",
+			pattern: "*.example.com",
+			host:    strings.Repeat("a", 63) + ".example.com",
+			want:    true,
+		},
+		{
+			name:    "wildcard rejects over-length label",
+			pattern: "*.example.com",
+			host:    strings.Repeat("a", 64) + ".example.com",
 			want:    false,
 		},
 		{
