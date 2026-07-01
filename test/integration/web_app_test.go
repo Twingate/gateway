@@ -87,6 +87,12 @@ func TestWebApp(t *testing.T) {
 		gatewayPort,
 		upstreamAddress,
 		controller.URL,
+		map[string]string{
+			// A GAT-only header, and one that overrides a config header on conflict.
+			"X-Gat-Header":        "gat-static-value",
+			"X-Gat-User":          "{{twingate.username}}",
+			"X-Twingate-Username": "gat-override-{{twingate.username}}",
+		},
 	)
 	defer user.Close()
 
@@ -108,12 +114,16 @@ func TestWebApp(t *testing.T) {
 	require.NoError(t, err, "failed to parse echo response")
 
 	expectedHeaders := map[string]string{
-		"X-Twingate-Username":           "alex@acme.com",
 		"X-Twingate-Groups":             "OnCall,Engineering",
 		"X-Twingate-Client-Geo-LatLong": "37.5,-122.4",
 		"X-Twingate-Client-Geo-City":    "San Mateo",
 		"X-Twingate-Client-Geo-Region":  "CA",
 		"X-Twingate-Client-Geo-Country": "US",
+		// GAT request header rewrites: a GAT-only header, a templated value, and an
+		// override of the X-Twingate-Username config header.
+		"X-Gat-Header":        "gat-static-value",
+		"X-Gat-User":          "alex@acme.com",
+		"X-Twingate-Username": "gat-override-alex@acme.com",
 	}
 
 	for header, expected := range expectedHeaders {

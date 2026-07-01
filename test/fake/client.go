@@ -48,11 +48,22 @@ type Client struct {
 	downstreamPort   int
 	upstreamPort     int
 	resourceType     token.ResourceType
+	requestHeaderRewrites map[string]string
 
 	cancel context.CancelFunc
 	wg     *sync.WaitGroup
 
 	logger *zap.Logger
+}
+
+// Option configures a Client at construction time.
+type Option func(*Client)
+
+// WithRequestHeaderRewrites sets the Web App request header rewrites carried in the GAT.
+func WithRequestHeaderRewrites(rewrites map[string]string) Option {
+	return func(c *Client) {
+		c.requestHeaderRewrites = rewrites
+	}
 }
 
 // downstreamPorts maps each resource type to the client-facing port used in the CONNECT request.
@@ -114,6 +125,11 @@ func NewClient(user *token.User, geoIPLocation token.GeoIPLocation, proxyAddress
 		wg:               &sync.WaitGroup{},
 		logger:           logger,
 	}
+
+	for _, opt := range opts {
+		opt(c)
+	}
+
 	go c.serve(ctx)
 
 	return c
@@ -264,6 +280,7 @@ func (c *Client) fetchGAT() (string, error) {
 			GatewayMetadata: token.GatewayMetadata{
 				Downstream: token.Downstream{Port: c.downstreamPort},
 				Upstream:   token.Upstream{Port: c.upstreamPort},
+				RequestHeaderRewrites: c.requestHeaderRewrites,
 			},
 		},
 	}
