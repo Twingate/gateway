@@ -18,6 +18,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strconv"
 	"sync"
 
 	"github.com/google/uuid"
@@ -221,6 +222,14 @@ func (c *Client) handleConnection(ctx context.Context, clientConn net.Conn, gat 
 
 func (c *Client) fetchGAT() (string, error) {
 	clientPublicKey, _ := ReadECKey(data.ClientKey)
+
+	downstreamPort, err := strconv.Atoi(c.resourcePort)
+	if err != nil {
+		c.logger.Error("Failed to parse resource port", zap.Error(err))
+
+		return "", err
+	}
+
 	requestBody := requestBody{
 		ClientPublicKey: &token.PublicKey{
 			PublicKey: clientPublicKey.PublicKey,
@@ -234,6 +243,9 @@ func (c *Client) fetchGAT() (string, error) {
 			ID:      "resource-1",
 			Type:    c.resourceType,
 			Address: c.resourceHostname,
+			GatewayMetadata: token.GatewayMetadata{
+				Downstream: token.Downstream{Port: downstreamPort},
+			},
 		},
 	}
 

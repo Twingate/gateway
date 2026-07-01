@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"gateway/internal/token"
@@ -131,7 +132,7 @@ func (v *MessageValidator) ParseConnect(req *http.Request, ekm []byte) (connectI
 	// verify address in CONNECT with the GAT token
 	address := req.RequestURI
 
-	host, _, hostErr := net.SplitHostPort(address)
+	host, port, hostErr := net.SplitHostPort(address)
 	if hostErr != nil {
 		return Info{
 				Claims: gatClaims,
@@ -151,6 +152,30 @@ func (v *MessageValidator) ParseConnect(req *http.Request, ekm []byte) (connectI
 				Code:    http.StatusBadRequest,
 				Message: fmt.Sprintf("failed to verify CONNECT destination: %s with token resource address %s", host, gatClaims.Resource.Address),
 				Err:     nil,
+			}
+	}
+
+	downstreamPort := gatClaims.Resource.GatewayMetadata.Downstream.Port
+	if downstreamPort == 0 {
+		return Info{
+				Claims: gatClaims,
+				ConnID: connID,
+			}, &HTTPError{
+				Code:    http.StatusForbidden,
+				Message: "failed to verify CONNECT destination port: token missing downstream port",
+				Err:     nil,
+			}
+	}
+
+	requestedPort, portErr := strconv.Atoi(port)
+	if portErr != nil || requestedPort != downstreamPort {
+		return Info{
+				Claims: gatClaims,
+				ConnID: connID,
+			}, &HTTPError{
+				Code:    http.StatusForbidden,
+				Message: fmt.Sprintf("failed to verify CONNECT destination port: %s with token downstream port %d", port, downstreamPort),
+				Err:     portErr,
 			}
 	}
 

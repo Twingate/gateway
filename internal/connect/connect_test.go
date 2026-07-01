@@ -61,7 +61,13 @@ func newGATTokenClaims(clientPublicKey token.PublicKey) token.GATClaims {
 		Device: token.Device{
 			ID: "device-1",
 		},
-		Resource: token.Resource{ID: "resource-1", Address: "example.com"},
+		Resource: token.Resource{
+			ID:      "resource-1",
+			Address: "example.com",
+			GatewayMetadata: token.GatewayMetadata{
+				Downstream: token.Downstream{Port: 443},
+			},
+		},
 	}
 }
 
@@ -310,6 +316,52 @@ func TestConnectValidator_ParseConnect(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, httpErr.Code)
 		assert.Contains(t, httpErr.Error(), "failed to parse CONNECT destination")
 		assert.Equal(t, *connectInfo.Claims, gatClaims)
+		assert.Equal(t, "conn-id", connectInfo.ConnID)
+	})
+
+	t.Run("Invalid destination port (mismatch)", func(t *testing.T) {
+		validator := &MessageValidator{TokenParser: parser}
+
+		// token authorizes example.com downstream port 443; client targets 8443
+		req := httptest.NewRequest(http.MethodConnect, "example.com:8443", nil)
+		req.Header.Set(AuthHeaderKey, "Bearer "+signedToken)
+
+		signature := c.sign(sigData)
+		req.Header.Set(AuthSignatureHeaderKey, signature)
+		req.Header.Set(ConnIDHeaderKey, "conn-id")
+
+		connectInfo, err := validator.ParseConnect(req, []byte(sigData))
+
+		var httpErr *HTTPError
+
+		require.ErrorAs(t, err, &httpErr)
+		assert.Equal(t, http.StatusForbidden, httpErr.Code)
+		assert.Contains(t, httpErr.Error(), "failed to verify CONNECT destination port")
+		assert.Equal(t, *connectInfo.Claims, gatClaims)
+		assert.Equal(t, "conn-id", connectInfo.ConnID)
+	})
+
+	t.Run("Missing downstream port in token", func(t *testing.T) {
+		claimsNoPort := newGATTokenClaims(c.getPublicKey())
+		claimsNoPort.Resource.GatewayMetadata = token.GatewayMetadata{}
+		parserNoPort, tokenNoPort := createParserAndGATToken(t, claimsNoPort)
+		validator := &MessageValidator{TokenParser: parserNoPort}
+
+		req := httptest.NewRequest(http.MethodConnect, "example.com:443", nil)
+		req.Header.Set(AuthHeaderKey, "Bearer "+tokenNoPort)
+
+		signature := c.sign(sigData)
+		req.Header.Set(AuthSignatureHeaderKey, signature)
+		req.Header.Set(ConnIDHeaderKey, "conn-id")
+
+		connectInfo, err := validator.ParseConnect(req, []byte(sigData))
+
+		var httpErr *HTTPError
+
+		require.ErrorAs(t, err, &httpErr)
+		assert.Equal(t, http.StatusForbidden, httpErr.Code)
+		assert.Contains(t, httpErr.Error(), "missing downstream port")
+		assert.Equal(t, *connectInfo.Claims, claimsNoPort)
 		assert.Equal(t, "conn-id", connectInfo.ConnID)
 	})
 }

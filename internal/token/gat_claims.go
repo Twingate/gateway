@@ -111,9 +111,20 @@ const (
 )
 
 type Resource struct {
-	ID      string       `json:"id"`
-	Type    ResourceType `json:"type"`
-	Address string       `json:"address"`
+	ID              string          `json:"id"`
+	Type            ResourceType    `json:"type"`
+	Address         string          `json:"address"`
+	GatewayMetadata GatewayMetadata `json:"gateway_metadata,omitzero"` //nolint:tagliatelle // GAT wire format from the controller uses snake_case
+}
+
+// GatewayMetadata carries per-resource routing details from the GAT.
+type GatewayMetadata struct {
+	Downstream Downstream `json:"downstream"`
+}
+
+// Downstream is the client-facing endpoint the CONNECT destination must target.
+type Downstream struct {
+	Port int `json:"port"`
 }
 
 // PublicKey is a wrapper for ecdsa.PublicKey that adds support for JSON
