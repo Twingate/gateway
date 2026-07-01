@@ -19,9 +19,7 @@ type User struct {
 	client  *fake.Client
 }
 
-// downstreamPort values are the client-facing ports used in the CONNECT request. They differ
-// from the upstream ports the backends actually listen on, so the Gateway's port rewrite is
-// exercised end-to-end: the client targets the downstream port and reaches the upstream port.
+// downstreamPort values are the client-facing ports used in the CONNECT request.
 const (
 	kubernetesDownstreamPort = 443
 	sshDownstreamPort        = 22

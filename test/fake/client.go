@@ -56,8 +56,8 @@ type Client struct {
 }
 
 // NewClient creates a new Client. upstreamAddress must include both the host and the port that
-// the backend actually listens on. downstreamPort is the client-facing port used in the CONNECT
-// request; the Gateway rewrites it to the upstream port before forwarding to the backend.
+// the backend actually listens on. downstreamPort is the client-facing port used in the CONNECT request.
+// The Gateway rewrites it to the upstream port before forwarding to the backend.
 func NewClient(user *token.User, geoIPLocation token.GeoIPLocation, proxyAddress, controllerURL, upstreamAddress string, downstreamPort int, resourceType token.ResourceType) *Client {
 	logger := zap.Must(zap.NewDevelopment()).Named(fmt.Sprintf("client-%s-%s", user.ID, user.Username))
 

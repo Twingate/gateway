@@ -27,8 +27,6 @@ const (
 	defaultUsername   = "alex@acme.com"
 	gatewayConfigFile = "gateway-config.local.yaml"
 
-	// Client-facing downstream ports used in the CONNECT request. The Gateway rewrites them to
-	// the upstream ports the backends actually listen on before forwarding.
 	kubernetesDownstreamPort = 443
 	sshDownstreamPort        = 22
 	webAppDownstreamPort     = 80
