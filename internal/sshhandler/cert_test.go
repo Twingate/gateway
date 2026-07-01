@@ -171,19 +171,94 @@ func TestAutoRenewingCertSigner_RetriesOnRenewError(t *testing.T) {
 		cancel()
 		synctest.Wait()
 
-		<-errCh
+		require.ErrorIs(t, <-errCh, context.Canceled)
+	})
+}
+
+func TestAutoRenewingCertSigner_FloorsRenewalWhenRenewTimeInPast(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		logger := zap.NewNop()
+
+		keySigner, _, err := keyConfig{}.Generate(rand.Reader)
+		require.NoError(t, err)
+
+		caSigner, _, err := keyConfig{}.Generate(rand.Reader)
+		require.NoError(t, err)
+
+		ca := &stubCA{signer: caSigner, errOnCalls: map[int]error{}}
+
+		// A negative TTL yields an already-expired cert, so renewTime lands in the past.
+		// The loop must fall back to retryInterval rather than re-signing in a tight loop.
+		req := &certificateRequest{
+			certType:  ssh.HostCert,
+			publicKey: keySigner.PublicKey(),
+			ttl:       -time.Hour,
+		}
+
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+
+		s, err := newAutoRenewingCertSigner(ctx, ca, req, keySigner, logger)
+		require.NoError(t, err)
+
+		errCh := make(chan error, 1)
+
+		go func() {
+			errCh <- s.renewalLoop(ctx)
+		}()
+
+		synctest.Wait()
+		require.Equal(t, 1, ca.calls(), "initial sign calls")
+
+		time.Sleep(retryInterval - 1*time.Second)
+		synctest.Wait()
+		require.Equal(t, 1, ca.calls(), "before floored renewal sign calls")
+
+		time.Sleep(1 * time.Second)
+		synctest.Wait()
+		require.Equal(t, 2, ca.calls(), "after floored renewal sign calls")
+
+		cancel()
+		synctest.Wait()
+
+		require.ErrorIs(t, <-errCh, context.Canceled)
 	})
 }
 
 func TestRenewTime(t *testing.T) {
-	cert := &ssh.Certificate{
-		ValidAfter:  0,
-		ValidBefore: 100,
+	tests := []struct {
+		name              string
+		validAfterOffset  time.Duration
+		validBeforeOffset time.Duration
+		wantOffset        time.Duration
+	}{
+		{
+			name:              "renews at fraction of lifetime",
+			validAfterOffset:  0,
+			validBeforeOffset: 100 * time.Minute,
+			wantOffset:        80 * time.Minute,
+		},
+		{
+			// A backdated start must not drag the schedule earlier: the cert was just
+			// issued, so renewal is measured from now, not from ValidAfter.
+			name:              "backdated start schedules from now",
+			validAfterOffset:  -time.Hour,
+			validBeforeOffset: 100 * time.Minute,
+			wantOffset:        80 * time.Minute,
+		},
 	}
 
-	got := renewTime(cert)
-	want := time.Unix(80, 0)
-	require.Equal(t, want, got)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			now := time.Now()
+			cert := &ssh.Certificate{
+				ValidAfter:  mustUint64(now.Add(tt.validAfterOffset)),
+				ValidBefore: mustUint64(now.Add(tt.validBeforeOffset)),
+			}
+
+			require.WithinDuration(t, now.Add(tt.wantOffset), renewTime(cert), 2*time.Second)
+		})
+	}
 }
 
 func TestRenewTime_Infinity(t *testing.T) {

@@ -103,7 +103,7 @@ func (s *autoRenewingCertSigner) renewalLoop(ctx context.Context) error {
 		return nil
 	}
 
-	timer := time.NewTimer(time.Until(nextRenewal))
+	timer := time.NewTimer(renewalDelay(nextRenewal))
 	defer timer.Stop()
 
 	for {
@@ -120,7 +120,7 @@ func (s *autoRenewingCertSigner) renewalLoop(ctx context.Context) error {
 				return nil
 			}
 
-			timer.Reset(time.Until(nextRenewal))
+			timer.Reset(renewalDelay(nextRenewal))
 		case <-ctx.Done():
 			return ctx.Err()
 		}
@@ -155,8 +155,19 @@ func renewTime(cert *ssh.Certificate) time.Time {
 	}
 
 	issuedAt := time.Unix(int64(cert.ValidAfter), 0)
+	if now := time.Now(); issuedAt.Before(now) {
+		// The cert was just issued, so schedule from now rather than a backdated start.
+		issuedAt = now
+	}
+
 	expiresAt := time.Unix(int64(cert.ValidBefore), 0)
 	lifetime := expiresAt.Sub(issuedAt)
 
 	return issuedAt.Add(time.Duration(float64(lifetime) * renewFraction))
+}
+
+// renewalDelay returns the delay until t, floored at retryInterval so a renewal time in the past
+// (e.g. from a backdated certificate) cannot busy-loop the timer.
+func renewalDelay(t time.Time) time.Duration {
+	return max(time.Until(t), retryInterval)
 }
