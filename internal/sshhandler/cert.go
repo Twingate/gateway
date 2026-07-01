@@ -103,7 +103,7 @@ func (s *autoRenewingCertSigner) renewalLoop(ctx context.Context) error {
 		return nil
 	}
 
-	timer := time.NewTimer(renewalDelay(nextRenewal))
+	timer := time.NewTimer(s.renewalDelay(nextRenewal))
 	defer timer.Stop()
 
 	for {
@@ -120,11 +120,29 @@ func (s *autoRenewingCertSigner) renewalLoop(ctx context.Context) error {
 				return nil
 			}
 
-			timer.Reset(renewalDelay(nextRenewal))
+			timer.Reset(s.renewalDelay(nextRenewal))
 		case <-ctx.Done():
 			return ctx.Err()
 		}
 	}
+}
+
+// renewalDelay returns the delay until t, floored at retryInterval so an imminent or past renewal
+// time cannot busy-loop the timer. Hitting the floor means the renewal point falls within
+// retryInterval, i.e. the CA issued a very short-lived or backdated cert, so it warns to surface it.
+func (s *autoRenewingCertSigner) renewalDelay(t time.Time) time.Duration {
+	if d := time.Until(t); d >= retryInterval {
+		return d
+	}
+
+	s.logger.Warn(
+		"certificate renewal due within the retry interval; the CA may be issuing short-lived or backdated certificates",
+		zap.String("certType", s.certReq.certType.String()),
+		zap.Duration("requestedTTL", s.certReq.ttl),
+		zap.Time("renewAt", t),
+	)
+
+	return retryInterval
 }
 
 func (s *autoRenewingCertSigner) updateCertSigner(ctx context.Context) (time.Time, error) {
@@ -164,10 +182,4 @@ func renewTime(cert *ssh.Certificate) time.Time {
 	lifetime := expiresAt.Sub(issuedAt)
 
 	return issuedAt.Add(time.Duration(float64(lifetime) * renewFraction))
-}
-
-// renewalDelay returns the delay until t, floored at retryInterval so a renewal time in the past
-// (e.g. from a backdated certificate) cannot busy-loop the timer.
-func renewalDelay(t time.Time) time.Duration {
-	return max(time.Until(t), retryInterval)
 }

@@ -14,6 +14,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -177,7 +179,8 @@ func TestAutoRenewingCertSigner_RetriesOnRenewError(t *testing.T) {
 
 func TestAutoRenewingCertSigner_FloorsRenewalWhenRenewTimeInPast(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		logger := zap.NewNop()
+		observed, logs := observer.New(zapcore.WarnLevel)
+		logger := zap.New(observed)
 
 		keySigner, _, err := keyConfig{}.Generate(rand.Reader)
 		require.NoError(t, err)
@@ -209,6 +212,10 @@ func TestAutoRenewingCertSigner_FloorsRenewalWhenRenewTimeInPast(t *testing.T) {
 
 		synctest.Wait()
 		require.Equal(t, 1, ca.calls(), "initial sign calls")
+
+		warnings := logs.FilterMessage("certificate renewal due within the retry interval; the CA may be issuing short-lived or backdated certificates").All()
+		require.Len(t, warnings, 1, "expected a warning that renewal is due within the retry interval")
+		require.Equal(t, hostString, warnings[0].ContextMap()["certType"])
 
 		time.Sleep(retryInterval - 1*time.Second)
 		synctest.Wait()
