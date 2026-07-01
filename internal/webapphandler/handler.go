@@ -80,5 +80,21 @@ func rewrite(r *httputil.ProxyRequest, conn *connect.ProxyConn, headers map[stri
 		r.Out.Header.Set(headerName, headerValue)
 	}
 
+	// Per-resource request header rewrites from the GAT are applied last, so they override
+	// any config headers with the same name.
+	for headerName, value := range conn.GATClaims().Resource.GatewayMetadata.RequestHeaderRewrites {
+		tmpl, err := template.New(value)
+		if err != nil {
+			return fmt.Errorf("request header rewrite %q: %w", headerName, err)
+		}
+
+		headerValue, err := tmpl.Evaluate(variables)
+		if err != nil {
+			return fmt.Errorf("request header rewrite %q: %w", headerName, err)
+		}
+
+		r.Out.Header.Set(headerName, headerValue)
+	}
+
 	return nil
 }

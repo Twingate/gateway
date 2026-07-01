@@ -7,6 +7,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"encoding/json"
 	"fmt"
 	"math/big"
 	"testing"
@@ -220,6 +221,32 @@ func TestGATTokenClaims_Validate(t *testing.T) {
 			require.ErrorContains(t, err, tt.expectedErrorMessage)
 		})
 	}
+}
+
+func TestResource_UnmarshalGatewayMetadata(t *testing.T) {
+	raw := `{
+		"id": "resource-1",
+		"type": "WEB_APP",
+		"address": "app.internal",
+		"gateway_metadata": {
+			"downstream": {"port": 443},
+			"request_header_rewrites": {
+				"Authorization": "Bearer {{twingate.jwt}}",
+				"X-Custom": "static"
+			}
+		}
+	}`
+
+	var resource Resource
+
+	err := json.Unmarshal([]byte(raw), &resource)
+	require.NoError(t, err)
+
+	assert.Equal(t, 443, resource.GatewayMetadata.Downstream.Port)
+	assert.Equal(t, map[string]string{
+		"Authorization": "Bearer {{twingate.jwt}}",
+		"X-Custom":      "static",
+	}, resource.GatewayMetadata.RequestHeaderRewrites)
 }
 
 func TestPublicKey_MarshalJSON(t *testing.T) {

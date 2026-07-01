@@ -64,6 +64,13 @@ func TestNewHandler_PanicsOnRewriteError(t *testing.T) {
 	})
 }
 
+func withRequestHeaderRewrites(base *token.GATClaims, rewrites map[string]string) *token.GATClaims {
+	claims := *base
+	claims.Resource.GatewayMetadata.RequestHeaderRewrites = rewrites
+
+	return &claims
+}
+
 func TestRewrite(t *testing.T) {
 	baseClaims := &token.GATClaims{
 		User: token.User{
@@ -108,6 +115,37 @@ func TestRewrite(t *testing.T) {
 				"X-Region":      "CA",
 				"X-Country":     "US",
 				"Existing":      "new-value",
+			},
+		},
+		{
+			name:     "applies GAT request header rewrites with template values",
+			jwtToken: "test-token",
+			claims: withRequestHeaderRewrites(baseClaims, map[string]string{
+				"X-Gat-Static":   "static-value",
+				"X-Gat-Username": "{{twingate.username}}",
+				"X-Gat-Auth":     "Bearer {{twingate.jwt}}",
+			}),
+			headers: map[string]string{
+				"X-Config": "{{twingate.groups}}",
+			},
+			wantHeaders: map[string]string{
+				"X-Config":       "Everyone,Engineering",
+				"X-Gat-Static":   "static-value",
+				"X-Gat-Username": "alice@acme.com",
+				"X-Gat-Auth":     "Bearer test-token",
+			},
+		},
+		{
+			name:     "GAT request header rewrites override config headers on conflict",
+			jwtToken: "test-token",
+			claims: withRequestHeaderRewrites(baseClaims, map[string]string{
+				"X-Username": "gat-{{twingate.username}}",
+			}),
+			headers: map[string]string{
+				"X-Username": "{{twingate.username}}",
+			},
+			wantHeaders: map[string]string{
+				"X-Username": "gat-alice@acme.com",
 			},
 		},
 		{
