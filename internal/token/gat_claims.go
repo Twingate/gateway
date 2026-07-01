@@ -18,7 +18,10 @@ import (
 
 const supportedVersion = "1"
 
-const maxPort = 65535
+const (
+	minPort = 1
+	maxPort = 65535
+)
 
 var (
 	errInvalidPublicKey   = errors.New("not a valid public key")
@@ -67,7 +70,7 @@ func (p GATClaims) Validate() error {
 // validatePort ensures a GAT-provided port is within the valid TCP range. A missing port (zero)
 // is treated as invalid.
 func validatePort(port int, fieldName string) error {
-	if port < 1 || port > maxPort {
+	if port < minPort || port > maxPort {
 		return fmt.Errorf("%w: %w %q=%d", jwt.ErrTokenInvalidClaims, errInvalidPort, fieldName, port)
 	}
 

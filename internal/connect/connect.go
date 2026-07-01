@@ -156,7 +156,7 @@ func (v *MessageValidator) ParseConnect(req *http.Request, ekm []byte) (connectI
 	}
 
 	// The downstream port is validated for presence and range when the token is parsed
-	// (see GATClaims.Validate), so it is guaranteed to be within the valid range here.
+	// so it is guaranteed to be within the valid range here.
 	downstreamPort := gatClaims.Resource.GatewayMetadata.Downstream.Port
 
 	requestedPort, portErr := strconv.Atoi(port)
