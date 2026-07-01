@@ -366,7 +366,7 @@ func TestConnectValidator_ParseConnect(t *testing.T) {
 		assert.Equal(t, "conn-id", connectInfo.ConnID)
 	})
 
-	t.Run("Missing downstream port in token", func(t *testing.T) {
+	t.Run("Missing downstream port in token is rejected at parse", func(t *testing.T) {
 		claimsNoPort := newGATTokenClaims(c.getPublicKey())
 		claimsNoPort.Resource.GatewayMetadata = token.GatewayMetadata{}
 		parserNoPort, tokenNoPort := createParserAndGATToken(t, claimsNoPort)
@@ -384,9 +384,10 @@ func TestConnectValidator_ParseConnect(t *testing.T) {
 		var httpErr *HTTPError
 
 		require.ErrorAs(t, err, &httpErr)
-		assert.Equal(t, http.StatusForbidden, httpErr.Code)
-		assert.Contains(t, httpErr.Error(), "missing downstream port")
-		assert.Equal(t, *connectInfo.Claims, claimsNoPort)
+		assert.Equal(t, http.StatusUnauthorized, httpErr.Code)
+		assert.Contains(t, httpErr.Error(), "failed to parse token")
+		assert.Contains(t, httpErr.Error(), "invalid port")
+		assert.Nil(t, connectInfo.Claims)
 		assert.Equal(t, "conn-id", connectInfo.ConnID)
 	})
 }

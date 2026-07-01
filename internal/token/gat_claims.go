@@ -18,9 +18,12 @@ import (
 
 const supportedVersion = "1"
 
+const maxPort = 65535
+
 var (
 	errInvalidPublicKey   = errors.New("not a valid public key")
 	errUnsupportedVersion = errors.New("unsupported version")
+	errInvalidPort        = errors.New("invalid port")
 )
 
 type GATClaims struct {
@@ -56,6 +59,16 @@ func (p GATClaims) Validate() error {
 
 	if p.Version != supportedVersion {
 		return fmt.Errorf("%w: %w %q", jwt.ErrTokenInvalidClaims, errUnsupportedVersion, p.Version)
+	}
+
+	return validatePort(p.Resource.GatewayMetadata.Downstream.Port, "resource.gateway_metadata.downstream.port")
+}
+
+// validatePort ensures a GAT-provided port is within the valid TCP range. A missing port (zero)
+// is treated as invalid.
+func validatePort(port int, fieldName string) error {
+	if port < 1 || port > maxPort {
+		return fmt.Errorf("%w: %w %q=%d", jwt.ErrTokenInvalidClaims, errInvalidPort, fieldName, port)
 	}
 
 	return nil

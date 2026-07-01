@@ -155,17 +155,9 @@ func (v *MessageValidator) ParseConnect(req *http.Request, ekm []byte) (connectI
 			}
 	}
 
+	// The downstream port is validated for presence and range when the token is parsed
+	// (see GATClaims.Validate), so it is guaranteed to be within the valid range here.
 	downstreamPort := gatClaims.Resource.GatewayMetadata.Downstream.Port
-	if downstreamPort == 0 {
-		return Info{
-				Claims: gatClaims,
-				ConnID: connID,
-			}, &HTTPError{
-				Code:    http.StatusForbidden,
-				Message: "failed to verify CONNECT destination port: token missing downstream port",
-				Err:     nil,
-			}
-	}
 
 	requestedPort, portErr := strconv.Atoi(port)
 	if portErr != nil {

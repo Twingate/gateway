@@ -75,6 +75,9 @@ func TestGATTokenClaims_Validate(t *testing.T) {
 			ID:      "resource-1",
 			Type:    "KUBERNETES",
 			Address: "resource.internal",
+			GatewayMetadata: GatewayMetadata{
+				Downstream: Downstream{Port: 443},
+			},
 		},
 	}
 
@@ -152,6 +155,30 @@ func TestGATTokenClaims_Validate(t *testing.T) {
 			},
 			expectedError:        jwt.ErrTokenInvalidClaims,
 			expectedErrorMessage: "unsupported version \"2\"",
+		},
+		{
+			name: "Missing downstream port",
+			setupFn: func(claims *GATClaims) {
+				claims.Resource.GatewayMetadata.Downstream.Port = 0
+			},
+			expectedError:        jwt.ErrTokenInvalidClaims,
+			expectedErrorMessage: "invalid port \"resource.gateway_metadata.downstream.port\"=0",
+		},
+		{
+			name: "Negative downstream port",
+			setupFn: func(claims *GATClaims) {
+				claims.Resource.GatewayMetadata.Downstream.Port = -1
+			},
+			expectedError:        jwt.ErrTokenInvalidClaims,
+			expectedErrorMessage: "invalid port \"resource.gateway_metadata.downstream.port\"=-1",
+		},
+		{
+			name: "Downstream port out of range",
+			setupFn: func(claims *GATClaims) {
+				claims.Resource.GatewayMetadata.Downstream.Port = 65536
+			},
+			expectedError:        jwt.ErrTokenInvalidClaims,
+			expectedErrorMessage: "invalid port \"resource.gateway_metadata.downstream.port\"=65536",
 		},
 	}
 
