@@ -64,7 +64,11 @@ func (p GATClaims) Validate() error {
 		return fmt.Errorf("%w: %w %q", jwt.ErrTokenInvalidClaims, errUnsupportedVersion, p.Version)
 	}
 
-	return validatePort(p.Resource.GatewayMetadata.Downstream.Port, "resource.gateway_metadata.downstream.port")
+	if err := validatePort(p.Resource.GatewayMetadata.Downstream.Port, "resource.gateway_metadata.downstream.port"); err != nil {
+		return err
+	}
+
+	return validatePort(p.Resource.GatewayMetadata.Upstream.Port, "resource.gateway_metadata.upstream.port")
 }
 
 // validatePort ensures a GAT-provided port is within the valid TCP range. A missing port (zero)
@@ -136,10 +140,16 @@ type Resource struct {
 // GatewayMetadata carries per-resource routing details from the GAT.
 type GatewayMetadata struct {
 	Downstream Downstream `json:"downstream"`
+	Upstream   Upstream   `json:"upstream"`
 }
 
 // Downstream is the client-facing endpoint the CONNECT destination must target.
 type Downstream struct {
+	Port int `json:"port"`
+}
+
+// Upstream is the backend endpoint the CONNECT destination is forwarded to.
+type Upstream struct {
 	Port int `json:"port"`
 }
 

@@ -66,6 +66,7 @@ func newGATTokenClaims(clientPublicKey token.PublicKey) token.GATClaims {
 			Address: "example.com",
 			GatewayMetadata: token.GatewayMetadata{
 				Downstream: token.Downstream{Port: 443},
+				Upstream:   token.Upstream{Port: 443},
 			},
 		},
 	}
@@ -369,6 +370,52 @@ func TestConnectValidator_ParseConnect(t *testing.T) {
 	t.Run("Missing downstream port in token is rejected at parse", func(t *testing.T) {
 		claimsNoPort := newGATTokenClaims(c.getPublicKey())
 		claimsNoPort.Resource.GatewayMetadata = token.GatewayMetadata{}
+		parserNoPort, tokenNoPort := createParserAndGATToken(t, claimsNoPort)
+		validator := &MessageValidator{TokenParser: parserNoPort}
+
+		req := httptest.NewRequest(http.MethodConnect, "example.com:443", nil)
+		req.Header.Set(AuthHeaderKey, "Bearer "+tokenNoPort)
+
+		signature := c.sign(sigData)
+		req.Header.Set(AuthSignatureHeaderKey, signature)
+		req.Header.Set(ConnIDHeaderKey, "conn-id")
+
+		connectInfo, err := validator.ParseConnect(req, []byte(sigData))
+
+		var httpErr *HTTPError
+
+		require.ErrorAs(t, err, &httpErr)
+		assert.Equal(t, http.StatusUnauthorized, httpErr.Code)
+		assert.Contains(t, httpErr.Error(), "failed to parse token")
+		assert.Contains(t, httpErr.Error(), "invalid port")
+		assert.Nil(t, connectInfo.Claims)
+		assert.Equal(t, "conn-id", connectInfo.ConnID)
+	})
+
+	t.Run("Rewrites destination port to upstream port", func(t *testing.T) {
+		claims := newGATTokenClaims(c.getPublicKey())
+		claims.Resource.GatewayMetadata.Upstream = token.Upstream{Port: 8443}
+		parserRewrite, tokenRewrite := createParserAndGATToken(t, claims)
+		validator := &MessageValidator{TokenParser: parserRewrite}
+
+		// client targets the downstream port 443; backend must be dialed on upstream 8443
+		req := httptest.NewRequest(http.MethodConnect, "example.com:443", nil)
+		req.Header.Set(AuthHeaderKey, "Bearer "+tokenRewrite)
+
+		signature := c.sign(sigData)
+		req.Header.Set(AuthSignatureHeaderKey, signature)
+		req.Header.Set(ConnIDHeaderKey, "conn-id")
+
+		connectInfo, err := validator.ParseConnect(req, []byte(sigData))
+
+		require.NoError(t, err)
+		assert.Equal(t, "example.com:8443", connectInfo.Address)
+		assert.Equal(t, "conn-id", connectInfo.ConnID)
+	})
+
+	t.Run("Missing upstream port in token is rejected at parse", func(t *testing.T) {
+		claimsNoPort := newGATTokenClaims(c.getPublicKey())
+		claimsNoPort.Resource.GatewayMetadata.Upstream = token.Upstream{}
 		parserNoPort, tokenNoPort := createParserAndGATToken(t, claimsNoPort)
 		validator := &MessageValidator{TokenParser: parserNoPort}
 

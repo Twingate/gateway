@@ -182,6 +182,13 @@ func (v *MessageValidator) ParseConnect(req *http.Request, ekm []byte) (connectI
 			}
 	}
 
+	// The upstream port is validated for presence and range when the token is parsed
+	// (see GATClaims.Validate), so it is guaranteed to be within the valid range here.
+	upstreamPort := gatClaims.Resource.GatewayMetadata.Upstream.Port
+
+	// rewrite the destination port to the upstream port for backend forwarding
+	address = net.JoinHostPort(host, strconv.Itoa(upstreamPort))
+
 	return Info{
 		Address: address,
 		Claims:  gatClaims,
