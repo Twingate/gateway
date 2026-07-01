@@ -164,22 +164,14 @@ func (s *autoRenewingCertSigner) updateCertSigner(ctx context.Context) (time.Tim
 }
 
 func renewTime(cert *ssh.Certificate) time.Time {
-	if cert.ValidAfter > uint64(math.MaxInt64) {
-		return time.Time{} // timestamp too far in future, don't renew
-	}
-
 	if cert.ValidBefore > uint64(math.MaxInt64) {
-		return time.Time{} // expiry too far in future, don't renew
+		return time.Time{} // never expires, don't renew
 	}
 
-	issuedAt := time.Unix(int64(cert.ValidAfter), 0)
-	if now := time.Now(); issuedAt.Before(now) {
-		// The cert was just issued, so schedule from now rather than a backdated start.
-		issuedAt = now
-	}
-
+	now := time.Now()
 	expiresAt := time.Unix(int64(cert.ValidBefore), 0)
-	lifetime := expiresAt.Sub(issuedAt)
+	lifetime := expiresAt.Sub(now)
+	renewAfter := time.Duration(float64(lifetime) * renewFraction)
 
-	return issuedAt.Add(time.Duration(float64(lifetime) * renewFraction))
+	return now.Add(renewAfter)
 }
