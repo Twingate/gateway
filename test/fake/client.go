@@ -45,7 +45,8 @@ type Client struct {
 	controllerURL string
 
 	resourceHostname string
-	resourcePort     string
+	downstreamPort   int
+	upstreamPort     int
 	resourceType     token.ResourceType
 
 	cancel context.CancelFunc
@@ -54,8 +55,10 @@ type Client struct {
 	logger *zap.Logger
 }
 
-// NewClient creates a new Client. upstreamAddress must include both the host and the port.
-func NewClient(user *token.User, geoIPLocation token.GeoIPLocation, proxyAddress, controllerURL, upstreamAddress string, resourceType token.ResourceType) *Client {
+// NewClient creates a new Client. upstreamAddress must include both the host and the port that
+// the backend actually listens on. downstreamPort is the client-facing port used in the CONNECT
+// request; the Gateway rewrites it to the upstream port before forwarding to the backend.
+func NewClient(user *token.User, geoIPLocation token.GeoIPLocation, proxyAddress, controllerURL, upstreamAddress string, downstreamPort int, resourceType token.ResourceType) *Client {
 	logger := zap.Must(zap.NewDevelopment()).Named(fmt.Sprintf("client-%s-%s", user.ID, user.Username))
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -72,6 +75,13 @@ func NewClient(user *token.User, geoIPLocation token.GeoIPLocation, proxyAddress
 		return nil
 	}
 
+	upstreamPort, err := strconv.Atoi(resourcePort)
+	if err != nil {
+		logger.Fatal("Failed to parse upstream port", zap.Error(err))
+
+		return nil
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 
 	c := &Client{
@@ -82,7 +92,8 @@ func NewClient(user *token.User, geoIPLocation token.GeoIPLocation, proxyAddress
 		user:             user,
 		geoIPLocation:    geoIPLocation,
 		resourceHostname: resourceHostname,
-		resourcePort:     resourcePort,
+		downstreamPort:   downstreamPort,
+		upstreamPort:     upstreamPort,
 		resourceType:     resourceType,
 		cancel:           cancel,
 		wg:               &sync.WaitGroup{},
@@ -167,7 +178,7 @@ func (c *Client) handleConnection(ctx context.Context, clientConn net.Conn, gat 
 	defer proxyTLSConn.Close()
 
 	// Create CONNECT request
-	connectReq, err := http.NewRequest(http.MethodConnect, "https://"+net.JoinHostPort(c.resourceHostname, c.resourcePort), nil)
+	connectReq, err := http.NewRequest(http.MethodConnect, "https://"+net.JoinHostPort(c.resourceHostname, strconv.Itoa(c.downstreamPort)), nil)
 	if err != nil {
 		c.logger.Error("Failed to create request", zap.Error(err))
 
@@ -223,13 +234,6 @@ func (c *Client) handleConnection(ctx context.Context, clientConn net.Conn, gat 
 func (c *Client) fetchGAT() (string, error) {
 	clientPublicKey, _ := ReadECKey(data.ClientKey)
 
-	downstreamPort, err := strconv.Atoi(c.resourcePort)
-	if err != nil {
-		c.logger.Error("Failed to parse resource port", zap.Error(err))
-
-		return "", err
-	}
-
 	requestBody := requestBody{
 		ClientPublicKey: &token.PublicKey{
 			PublicKey: clientPublicKey.PublicKey,
@@ -244,7 +248,8 @@ func (c *Client) fetchGAT() (string, error) {
 			Type:    c.resourceType,
 			Address: c.resourceHostname,
 			GatewayMetadata: token.GatewayMetadata{
-				Downstream: token.Downstream{Port: downstreamPort},
+				Downstream: token.Downstream{Port: c.downstreamPort},
+				Upstream:   token.Upstream{Port: c.upstreamPort},
 			},
 		},
 	}
