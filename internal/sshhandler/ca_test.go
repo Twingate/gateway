@@ -322,7 +322,7 @@ func TestVaultCA_PublicKey(t *testing.T) {
 				_ = json.NewEncoder(w).Encode(map[string]any{"data": tt.responseData})
 			})
 
-			publicKey, err := ca.publicKey(context.Background())
+			publicKey, err := ca.publicKey(t.Context())
 
 			if tt.wantKey {
 				require.NoError(t, err)
@@ -345,7 +345,7 @@ func TestVaultCA_PublicKey_RequestFails(t *testing.T) {
 		w.WriteHeader(http.StatusInternalServerError)
 	})
 
-	_, err := ca.publicKey(context.Background())
+	_, err := ca.publicKey(t.Context())
 	require.Error(t, err)
 	require.NotErrorIs(t, err, errVaultCAFailed)
 }
@@ -406,14 +406,12 @@ func TestVaultCA_Sign(t *testing.T) {
 				assert.Equal(t, tt.req.ttl.String(), gotData["ttl"])
 
 				if tt.wantExtensions == nil {
-					_, ok := gotData["extensions"]
-					assert.False(t, ok, "extensions must not be sent for host certs")
+					assert.NotContains(t, gotData, "extensions", "extensions must not be sent for host certs")
 				} else if ext, ok := gotData["extensions"].(map[string]any); assert.True(t, ok) {
 					assert.Len(t, ext, len(tt.wantExtensions))
 
 					for k := range tt.wantExtensions {
-						_, ok := ext[k]
-						assert.True(t, ok, "missing extension %q", k)
+						assert.Contains(t, ext, k, "missing extension %q", k)
 					}
 				}
 
@@ -431,7 +429,7 @@ func TestVaultCA_Sign(t *testing.T) {
 				})
 			})
 
-			cert, err := ca.sign(context.Background(), tt.req)
+			cert, err := ca.sign(t.Context(), tt.req)
 			require.NoError(t, err)
 			assert.NotNil(t, cert)
 		})
@@ -481,7 +479,7 @@ func TestVaultCA_Sign_Error(t *testing.T) {
 				_ = json.NewEncoder(w).Encode(map[string]any{"data": tt.responseData})
 			})
 
-			_, err := ca.sign(context.Background(), req)
+			_, err := ca.sign(t.Context(), req)
 			require.Error(t, err)
 
 			if tt.wantErr != nil {
@@ -509,7 +507,7 @@ func TestVaultCA_Sign_RequestFails(t *testing.T) {
 		w.WriteHeader(http.StatusInternalServerError)
 	})
 
-	_, err = ca.sign(context.Background(), req)
+	_, err = ca.sign(t.Context(), req)
 	require.Error(t, err)
 	require.NotErrorIs(t, err, errVaultSignFailed)
 }
