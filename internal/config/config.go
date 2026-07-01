@@ -28,8 +28,8 @@ var (
 	ErrNegativeTTL       = errors.New("TTL must be non-negative")
 )
 
-// dnsLabelRegexp matches a single DNS label.
-var dnsLabelRegexp = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$`)
+// DNSLabelRegexp matches a single DNS label (RFC 1035: 1-63 chars, alphanumeric with internal hyphens).
+var DNSLabelRegexp = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$`)
 
 // hostnameRegexp allows only valid DNS-label characters, permitting a single label (e.g. "test").
 var hostnameRegexp = regexp.MustCompile(`^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)*[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$`)
@@ -284,7 +284,7 @@ func (c *Config) Validate() error {
 
 	// twingate.network is interpolated into the JWKS URL authority (https://<network>.<host>/...),
 	// so it must be a single DNS label to keep the URL host from being altered.
-	if !dnsLabelRegexp.MatchString(c.Twingate.Network) {
+	if !DNSLabelRegexp.MatchString(c.Twingate.Network) {
 		return fmt.Errorf("%w: must be a valid DNS label: %q", ErrInvalidNetwork, c.Twingate.Network)
 	}
 
