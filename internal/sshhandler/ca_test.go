@@ -290,6 +290,7 @@ func newVaultTestCA(t *testing.T, handler http.HandlerFunc) *vaultCA {
 
 	config := vault.DefaultConfig()
 	config.Address = server.URL
+	config.MaxRetries = 0 // Fail fast on error responses instead of retrying with backoff.
 
 	client, err := vault.NewClient(config)
 	require.NoError(t, err)
@@ -304,12 +305,12 @@ func TestVaultCA_PublicKey(t *testing.T) {
 
 	tests := []struct {
 		name         string
-		responseData map[string]any // nil means the server returns an empty body
+		responseData map[string]any // nil sends {"data": null}
 		wantErr      error
 		wantKey      bool
 	}{
 		{name: "success", responseData: map[string]any{"public_key": string(data.SSHCAPublicKey)}, wantKey: true},
-		{name: "empty response", responseData: nil, wantErr: errVaultCAFailed},
+		{name: "null data", responseData: nil, wantErr: errVaultCAFailed},
 		{name: "missing public key", responseData: map[string]any{}, wantErr: errVaultCAFailed},
 		{name: "empty public key", responseData: map[string]any{"public_key": ""}, wantErr: errVaultCAFailed},
 		{name: "unparseable public key", responseData: map[string]any{"public_key": "not-a-key"}},
@@ -318,10 +319,6 @@ func TestVaultCA_PublicKey(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ca := newVaultTestCA(t, func(w http.ResponseWriter, _ *http.Request) {
-				if tt.responseData == nil {
-					return
-				}
-
 				_ = json.NewEncoder(w).Encode(map[string]any{"data": tt.responseData})
 			})
 
@@ -341,6 +338,16 @@ func TestVaultCA_PublicKey(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestVaultCA_PublicKey_RequestFails(t *testing.T) {
+	ca := newVaultTestCA(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+
+	_, err := ca.publicKey(context.Background())
+	require.Error(t, err)
+	require.NotErrorIs(t, err, errVaultCAFailed)
 }
 
 func TestVaultCA_Sign(t *testing.T) {
@@ -482,6 +489,29 @@ func TestVaultCA_Sign_Error(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestVaultCA_Sign_RequestFails(t *testing.T) {
+	publicKey, err := parsePublicKey(data.SSHHostPublicKey)
+	require.NoError(t, err)
+
+	req := &certificateRequest{
+		certType:   UserCert,
+		publicKey:  publicKey,
+		principals: []string{"alice"},
+		ttl:        time.Hour,
+		permissions: ssh.Permissions{
+			Extensions: map[string]string{"permit-pty": ""},
+		},
+	}
+
+	ca := newVaultTestCA(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+
+	_, err = ca.sign(context.Background(), req)
+	require.Error(t, err)
+	require.NotErrorIs(t, err, errVaultSignFailed)
 }
 
 func TestVerifyCertificate(t *testing.T) {
