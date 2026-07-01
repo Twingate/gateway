@@ -12,23 +12,23 @@ import (
 )
 
 const (
-	JWT           = "jwt"
-	Username      = "username"
-	Groups        = "groups"
-	ClientLatLong = "clientLatLong"
-	ClientCity    = "clientCity"
-	ClientRegion  = "clientRegion"
-	ClientCountry = "clientCountry"
+	JWT              = "jwt"
+	Username         = "username"
+	Groups           = "groups"
+	ClientGeoLatLong = "clientGeoLatLong"
+	ClientGeoCity    = "clientGeoCity"
+	ClientGeoRegion  = "clientGeoRegion"
+	ClientGeoCountry = "clientGeoCountry"
 )
 
 var AllowedWebAppKeys = []string{
 	JWT,
 	Username,
 	Groups,
-	ClientLatLong,
-	ClientCity,
-	ClientRegion,
-	ClientCountry,
+	ClientGeoLatLong,
+	ClientGeoCity,
+	ClientGeoRegion,
+	ClientGeoCountry,
 }
 
 var (

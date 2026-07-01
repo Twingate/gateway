@@ -47,13 +47,13 @@ func TestWebApp(t *testing.T) {
 		},
 		WebApp: &gatewayconfig.WebAppConfig{
 			Headers: map[string]string{
-				"Authorization":             "Bearer {{jwt}}",
-				"X-Twingate-Username":       "{{username}}",
-				"X-Twingate-Groups":         "{{groups}}",
-				"X-Twingate-Client-LatLong": "{{clientLatLong}}",
-				"X-Twingate-Client-City":    "{{clientCity}}",
-				"X-Twingate-Client-Region":  "{{clientRegion}}",
-				"X-Twingate-Client-Country": "{{clientCountry}}",
+				"Authorization":                 "Bearer {{jwt}}",
+				"X-Twingate-Username":           "{{username}}",
+				"X-Twingate-Groups":             "{{groups}}",
+				"X-Twingate-Client-Geo-LatLong": "{{clientGeoLatLong}}",
+				"X-Twingate-Client-Geo-City":    "{{clientGeoCity}}",
+				"X-Twingate-Client-Geo-Region":  "{{clientGeoRegion}}",
+				"X-Twingate-Client-Geo-Country": "{{clientGeoCountry}}",
 			},
 		},
 	}
@@ -108,12 +108,12 @@ func TestWebApp(t *testing.T) {
 	require.NoError(t, err, "failed to parse echo response")
 
 	expectedHeaders := map[string]string{
-		"X-Twingate-Username":       "alex@acme.com",
-		"X-Twingate-Groups":         "OnCall,Engineering",
-		"X-Twingate-Client-LatLong": "37.5,-122.4",
-		"X-Twingate-Client-City":    "San Mateo",
-		"X-Twingate-Client-Region":  "CA",
-		"X-Twingate-Client-Country": "US",
+		"X-Twingate-Username":           "alex@acme.com",
+		"X-Twingate-Groups":             "OnCall,Engineering",
+		"X-Twingate-Client-Geo-LatLong": "37.5,-122.4",
+		"X-Twingate-Client-Geo-City":    "San Mateo",
+		"X-Twingate-Client-Geo-Region":  "CA",
+		"X-Twingate-Client-Geo-Country": "US",
 	}
 
 	for header, expected := range expectedHeaders {

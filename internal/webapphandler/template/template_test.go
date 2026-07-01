@@ -36,8 +36,8 @@ func TestParser_NewTemplate(t *testing.T) {
 		},
 		{
 			name:    "client location template",
-			input:   "{{clientCity}}",
-			wantKey: "clientCity",
+			input:   "{{clientGeoCity}}",
+			wantKey: "clientGeoCity",
 		},
 		{
 			name:    "template with leading and trailing space",

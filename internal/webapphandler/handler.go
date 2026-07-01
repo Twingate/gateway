@@ -52,13 +52,13 @@ func buildVariables(conn *connect.ProxyConn) map[string]string {
 	}
 
 	return map[string]string{
-		template.JWT:           conn.GetToken(),
-		template.Username:      claims.User.Username,
-		template.Groups:        strings.Join(claims.User.Groups, ","),
-		template.ClientLatLong: latLong,
-		template.ClientCity:    clientLocation.City,
-		template.ClientRegion:  clientLocation.Region,
-		template.ClientCountry: clientLocation.Country,
+		template.JWT:              conn.GetToken(),
+		template.Username:         claims.User.Username,
+		template.Groups:           strings.Join(claims.User.Groups, ","),
+		template.ClientGeoLatLong: latLong,
+		template.ClientGeoCity:    clientLocation.City,
+		template.ClientGeoRegion:  clientLocation.Region,
+		template.ClientGeoCountry: clientLocation.Country,
 	}
 }
 
