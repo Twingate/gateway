@@ -155,36 +155,13 @@ func (v *MessageValidator) ParseConnect(req *http.Request, ekm []byte) (connectI
 			}
 	}
 
-	// Both ports are validated for presence and range when the token is parsed
-	// so it is guaranteed to be within the valid range here.
-	downstreamPort := gatClaims.Resource.GatewayMetadata.Downstream.Port
-	upstreamPort := gatClaims.Resource.GatewayMetadata.Upstream.Port
-
-	requestedPort, portErr := strconv.Atoi(port)
-	if portErr != nil {
+	address, httpErr := rewriteAddress(host, port, gatClaims.Resource.GatewayMetadata)
+	if httpErr != nil {
 		return Info{
-				Claims: gatClaims,
-				ConnID: connID,
-			}, &HTTPError{
-				Code:    http.StatusBadRequest,
-				Message: fmt.Sprintf("failed to parse CONNECT destination port: %v", portErr),
-				Err:     portErr,
-			}
+			Claims: gatClaims,
+			ConnID: connID,
+		}, httpErr
 	}
-
-	if requestedPort != downstreamPort {
-		return Info{
-				Claims: gatClaims,
-				ConnID: connID,
-			}, &HTTPError{
-				Code:    http.StatusForbidden,
-				Message: fmt.Sprintf("failed to verify CONNECT destination port: %s with token downstream port %d", port, downstreamPort),
-				Err:     nil,
-			}
-	}
-
-	// rewrite the destination port to the upstream port for backend forwarding
-	address = net.JoinHostPort(host, strconv.Itoa(upstreamPort))
 
 	return Info{
 		Address: address,
@@ -192,6 +169,31 @@ func (v *MessageValidator) ParseConnect(req *http.Request, ekm []byte) (connectI
 		ConnID:  connID,
 		Token:   bearerToken,
 	}, nil
+}
+
+// rewriteAddress verifies the CONNECT destination port matches the GAT downstream
+// port and maps it to the upstream port for backend forwarding. Both ports are
+// validated for presence and range when the token is parsed, so they are
+// guaranteed to be within the valid range here.
+func rewriteAddress(host, port string, metadata token.GatewayMetadata) (string, *HTTPError) {
+	requestedPort, err := strconv.Atoi(port)
+	if err != nil {
+		return "", &HTTPError{
+			Code:    http.StatusBadRequest,
+			Message: fmt.Sprintf("failed to parse CONNECT destination port: %v", err),
+			Err:     err,
+		}
+	}
+
+	if requestedPort != metadata.Downstream.Port {
+		return "", &HTTPError{
+			Code:    http.StatusBadRequest,
+			Message: fmt.Sprintf("failed to verify CONNECT destination port: %s with token downstream port %d", port, metadata.Downstream.Port),
+			Err:     nil,
+		}
+	}
+
+	return net.JoinHostPort(host, strconv.Itoa(metadata.Upstream.Port)), nil
 }
 
 var validDNSLabel = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$`)
