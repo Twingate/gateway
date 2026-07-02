@@ -47,8 +47,8 @@ type Client struct {
 	resourceHostname      string
 	downstreamPort        int
 	upstreamPort          int
-	resourceType          token.ResourceType
 	requestHeaderRewrites map[string]string
+	resourceType          token.ResourceType
 
 	cancel context.CancelFunc
 	wg     *sync.WaitGroup

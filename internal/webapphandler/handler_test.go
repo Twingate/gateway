@@ -121,31 +121,33 @@ func TestRewrite(t *testing.T) {
 			name:     "applies GAT request header rewrites with template values",
 			jwtToken: "test-token",
 			claims: withRequestHeaderRewrites(baseClaims, map[string]string{
-				"X-Gat-Static":   "static-value",
-				"X-Gat-Username": "{{twingate.username}}",
-				"X-Gat-Auth":     "Bearer {{twingate.jwt}}",
+				"X-GAT-Static":   "static-value",
+				"X-GAT-Username": "{{twingate.username}}",
+				"X-GAT-Auth":     "Bearer {{twingate.jwt}}",
 			}),
 			headers: map[string]string{
 				"X-Config": "{{twingate.groups}}",
 			},
 			wantHeaders: map[string]string{
 				"X-Config":       "Everyone,Engineering",
-				"X-Gat-Static":   "static-value",
-				"X-Gat-Username": "alice@acme.com",
-				"X-Gat-Auth":     "Bearer test-token",
+				"X-GAT-Static":   "static-value",
+				"X-GAT-Username": "alice@acme.com",
+				"X-GAT-Auth":     "Bearer test-token",
 			},
 		},
 		{
 			name:     "GAT request header rewrites override config headers on conflict",
 			jwtToken: "test-token",
 			claims: withRequestHeaderRewrites(baseClaims, map[string]string{
-				"X-Username": "gat-{{twingate.username}}",
+				"X-Username": "{{twingate.username}}",
 			}),
 			headers: map[string]string{
-				"X-Username": "{{twingate.username}}",
+				"X-Config":   "Dont override",
+				"X-Username": "Not preserved",
 			},
 			wantHeaders: map[string]string{
-				"X-Username": "gat-alice@acme.com",
+				"X-Config":   "Dont override",
+				"X-Username": "alice@acme.com",
 			},
 		},
 		{
