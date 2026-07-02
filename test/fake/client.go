@@ -44,15 +44,26 @@ type Client struct {
 	proxyAddress  string
 	controllerURL string
 
-	resourceHostname string
-	downstreamPort   int
-	upstreamPort     int
-	resourceType     token.ResourceType
+	resourceHostname      string
+	downstreamPort        int
+	upstreamPort          int
+	requestHeaderRewrites map[string]string
+	resourceType          token.ResourceType
 
 	cancel context.CancelFunc
 	wg     *sync.WaitGroup
 
 	logger *zap.Logger
+}
+
+// Option configures a Client at construction time.
+type Option func(*Client)
+
+// WithRequestHeaderRewrites sets the Web App request header rewrites carried in the GAT.
+func WithRequestHeaderRewrites(rewrites map[string]string) Option {
+	return func(c *Client) {
+		c.requestHeaderRewrites = rewrites
+	}
 }
 
 // downstreamPorts maps each resource type to the client-facing port used in the CONNECT request.
@@ -66,7 +77,7 @@ var downstreamPorts = map[token.ResourceType]int{
 // the backend actually listens on. The client-facing downstream port used in the CONNECT request
 // is derived from resourceType. The Gateway rewrites it to the upstream port before forwarding
 // to the backend.
-func NewClient(user *token.User, geoIPLocation token.GeoIPLocation, proxyAddress, controllerURL, upstreamAddress string, resourceType token.ResourceType) *Client {
+func NewClient(user *token.User, geoIPLocation token.GeoIPLocation, proxyAddress, controllerURL, upstreamAddress string, resourceType token.ResourceType, opts ...Option) *Client {
 	logger := zap.Must(zap.NewDevelopment()).Named(fmt.Sprintf("client-%s-%s", user.ID, user.Username))
 
 	downstreamPort, ok := downstreamPorts[resourceType]
@@ -114,6 +125,11 @@ func NewClient(user *token.User, geoIPLocation token.GeoIPLocation, proxyAddress
 		wg:               &sync.WaitGroup{},
 		logger:           logger,
 	}
+
+	for _, opt := range opts {
+		opt(c)
+	}
+
 	go c.serve(ctx)
 
 	return c
@@ -262,8 +278,9 @@ func (c *Client) fetchGAT() (string, error) {
 			Type:    c.resourceType,
 			Address: c.resourceHostname,
 			GatewayMetadata: token.GatewayMetadata{
-				Downstream: token.Downstream{Port: c.downstreamPort},
-				Upstream:   token.Upstream{Port: c.upstreamPort},
+				Downstream:            token.Downstream{Port: c.downstreamPort},
+				Upstream:              token.Upstream{Port: c.upstreamPort},
+				RequestHeaderRewrites: c.requestHeaderRewrites,
 			},
 		},
 	}

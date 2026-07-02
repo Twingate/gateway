@@ -139,8 +139,9 @@ type Resource struct {
 
 // GatewayMetadata carries per-resource routing details from the GAT.
 type GatewayMetadata struct {
-	Downstream Downstream `json:"downstream"`
-	Upstream   Upstream   `json:"upstream"`
+	Downstream            Downstream        `json:"downstream"`
+	Upstream              Upstream          `json:"upstream"`
+	RequestHeaderRewrites map[string]string `json:"request_header_rewrites,omitempty"` //nolint:tagliatelle // GAT wire format from the controller uses snake_case
 }
 
 // Downstream is the client-facing endpoint the CONNECT destination must target.
