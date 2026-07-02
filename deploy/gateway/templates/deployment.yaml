@@ -1,4 +1,5 @@
-{{- if and .Values.ssh.enabled (not .Values.ssh.ca) -}}
+{{- $ca := .Values.ssh.ca -}}
+{{- if and .Values.ssh.enabled (not (and $ca (or $ca.manual $ca.vault))) -}}
   {{- fail "ssh.ca must be configured (manual or vault) when SSH is enabled." -}}
 {{- end -}}
 {{- $manualCAEnabled := and .Values.ssh.enabled .Values.ssh.ca .Values.ssh.ca.manual -}}

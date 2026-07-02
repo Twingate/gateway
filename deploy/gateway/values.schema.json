@@ -154,7 +154,7 @@
         },
         "ca": {
           "type": "object",
-          "description": "CA configuration. If neither manual nor vault is configured, auto-generated CA is used.",
+          "description": "CA configuration. Exactly one of manual or vault must be configured when SSH is enabled.",
           "properties": {
             "manual": {
               "type": "object",
