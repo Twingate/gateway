@@ -315,7 +315,7 @@
         },
         "headers": {
           "type": "object",
-          "description": "Custom HTTP headers to inject into proxied requests. Values may use template expressions with the twingate namespace (e.g. {{twingate.username}}, {{twingate.groups}}, {{twingate.jwt}}, {{twingate.clientGeoLoc}}).",
+          "description": "Custom HTTP headers to inject into proxied requests. Values may use template expressions with the twingate namespace (e.g. {{username}}, {{groups}}, {{jwt}}, {{clientGeoLoc}}).",
           "additionalProperties": {
             "type": "string"
           }
