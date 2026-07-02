@@ -44,10 +44,10 @@ type Client struct {
 	proxyAddress  string
 	controllerURL string
 
-	resourceHostname string
-	downstreamPort   int
-	upstreamPort     int
-	resourceType     token.ResourceType
+	resourceHostname      string
+	downstreamPort        int
+	upstreamPort          int
+	resourceType          token.ResourceType
 	requestHeaderRewrites map[string]string
 
 	cancel context.CancelFunc
@@ -77,7 +77,7 @@ var downstreamPorts = map[token.ResourceType]int{
 // the backend actually listens on. The client-facing downstream port used in the CONNECT request
 // is derived from resourceType. The Gateway rewrites it to the upstream port before forwarding
 // to the backend.
-func NewClient(user *token.User, geoIPLocation token.GeoIPLocation, proxyAddress, controllerURL, upstreamAddress string, resourceType token.ResourceType) *Client {
+func NewClient(user *token.User, geoIPLocation token.GeoIPLocation, proxyAddress, controllerURL, upstreamAddress string, resourceType token.ResourceType, opts ...Option) *Client {
 	logger := zap.Must(zap.NewDevelopment()).Named(fmt.Sprintf("client-%s-%s", user.ID, user.Username))
 
 	downstreamPort, ok := downstreamPorts[resourceType]
@@ -278,8 +278,8 @@ func (c *Client) fetchGAT() (string, error) {
 			Type:    c.resourceType,
 			Address: c.resourceHostname,
 			GatewayMetadata: token.GatewayMetadata{
-				Downstream: token.Downstream{Port: c.downstreamPort},
-				Upstream:   token.Upstream{Port: c.upstreamPort},
+				Downstream:            token.Downstream{Port: c.downstreamPort},
+				Upstream:              token.Upstream{Port: c.upstreamPort},
 				RequestHeaderRewrites: c.requestHeaderRewrites,
 			},
 		},
