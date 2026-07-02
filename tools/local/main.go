@@ -26,10 +26,6 @@ const (
 	controllerPort    = 8080
 	defaultUsername   = "alex@acme.com"
 	gatewayConfigFile = "gateway-config.local.yaml"
-
-	kubernetesDownstreamPort = 443
-	sshDownstreamPort        = 22
-	webAppDownstreamPort     = 80
 )
 
 // Before running this local dev client, Caddy must be already running. Run `caddy run` to start Caddy.
@@ -90,7 +86,6 @@ func main() {
 		fmt.Sprintf("%s:%d", gatewayHost, gatewayPort),
 		controller.URL,
 		fmt.Sprintf("%s:%d", gatewayHost, kindPort),
-		kubernetesDownstreamPort,
 		token.ResourceTypeKubernetes,
 	)
 
@@ -121,7 +116,6 @@ func main() {
 		fmt.Sprintf("%s:%d", gatewayHost, gatewayPort),
 		controller.URL,
 		fmt.Sprintf("%s:%d", gatewayHost, sshPort),
-		sshDownstreamPort,
 		token.ResourceTypeSSH,
 	)
 
@@ -160,7 +154,6 @@ func main() {
 		fmt.Sprintf("%s:%d", gatewayHost, gatewayPort),
 		controller.URL,
 		echoServer.address,
-		webAppDownstreamPort,
 		token.ResourceTypeWebApp,
 	)
 	defer webAppClient.Close()

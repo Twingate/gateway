@@ -19,13 +19,6 @@ type User struct {
 	client  *fake.Client
 }
 
-// downstreamPort values are the client-facing ports used in the CONNECT request.
-const (
-	kubernetesDownstreamPort = 443
-	sshDownstreamPort        = 22
-	webAppDownstreamPort     = 80
-)
-
 func NewUser(user *token.User, gatewayPort int, kindAddress, controllerURL string) (*User, error) {
 	client := fake.NewClient(
 		user,
@@ -33,7 +26,6 @@ func NewUser(user *token.User, gatewayPort int, kindAddress, controllerURL strin
 		fmt.Sprintf("127.0.0.1:%d", gatewayPort),
 		controllerURL,
 		kindAddress,
-		kubernetesDownstreamPort,
 		token.ResourceTypeKubernetes,
 	)
 
@@ -70,7 +62,6 @@ func NewSSHUser(user *token.User, gatewayPort int, sshServerAddress, controllerU
 		fmt.Sprintf("127.0.0.1:%d", gatewayPort),
 		controllerURL,
 		sshServerAddress,
-		sshDownstreamPort,
 		token.ResourceTypeSSH,
 	)
 
@@ -105,7 +96,6 @@ func NewWebAppUser(user *token.User, geoIPLocation token.GeoIPLocation, gatewayP
 		fmt.Sprintf("127.0.0.1:%d", gatewayPort),
 		controllerURL,
 		upstreamAddress,
-		webAppDownstreamPort,
 		token.ResourceTypeWebApp,
 	)
 

@@ -55,11 +55,26 @@ type Client struct {
 	logger *zap.Logger
 }
 
+// downstreamPorts maps each resource type to the client-facing port used in the CONNECT request.
+var downstreamPorts = map[token.ResourceType]int{
+	token.ResourceTypeKubernetes: 443,
+	token.ResourceTypeSSH:        22,
+	token.ResourceTypeWebApp:     80,
+}
+
 // NewClient creates a new Client. upstreamAddress must include both the host and the port that
-// the backend actually listens on. downstreamPort is the client-facing port used in the CONNECT request.
-// The Gateway rewrites it to the upstream port before forwarding to the backend.
-func NewClient(user *token.User, geoIPLocation token.GeoIPLocation, proxyAddress, controllerURL, upstreamAddress string, downstreamPort int, resourceType token.ResourceType) *Client {
+// the backend actually listens on. The client-facing downstream port used in the CONNECT request
+// is derived from resourceType. The Gateway rewrites it to the upstream port before forwarding
+// to the backend.
+func NewClient(user *token.User, geoIPLocation token.GeoIPLocation, proxyAddress, controllerURL, upstreamAddress string, resourceType token.ResourceType) *Client {
 	logger := zap.Must(zap.NewDevelopment()).Named(fmt.Sprintf("client-%s-%s", user.ID, user.Username))
+
+	downstreamPort, ok := downstreamPorts[resourceType]
+	if !ok {
+		logger.Fatal("Unknown resource type", zap.String("resourceType", string(resourceType)))
+
+		return nil
+	}
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -233,7 +248,6 @@ func (c *Client) handleConnection(ctx context.Context, clientConn net.Conn, gat 
 
 func (c *Client) fetchGAT() (string, error) {
 	clientPublicKey, _ := ReadECKey(data.ClientKey)
-
 	requestBody := requestBody{
 		ClientPublicKey: &token.PublicKey{
 			PublicKey: clientPublicKey.PublicKey,
