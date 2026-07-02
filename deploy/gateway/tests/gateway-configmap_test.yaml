@@ -430,8 +430,8 @@ tests:
     set:
       webApp:
         headers:
-          X-Groups: "{{twingate.groups}}"
-          X-User: "{{twingate.username}}"
+          X-Groups: "{{groups}}"
+          X-User: "{{username}}"
     asserts:
       - equal:
           path: data["config.yaml"]
@@ -453,8 +453,8 @@ tests:
 
             webApp:
               headers:
-                X-Groups: '{{twingate.groups}}'
-                X-User: '{{twingate.username}}'
+                X-Groups: '{{groups}}'
+                X-User: '{{username}}'
   - it: should not render webApp when disabled
     set:
       webApp:
