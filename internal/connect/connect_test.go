@@ -61,7 +61,14 @@ func newGATTokenClaims(clientPublicKey token.PublicKey) token.GATClaims {
 		Device: token.Device{
 			ID: "device-1",
 		},
-		Resource: token.Resource{ID: "resource-1", Address: "example.com"},
+		Resource: token.Resource{
+			ID:      "resource-1",
+			Address: "example.com",
+			GatewayMetadata: token.GatewayMetadata{
+				Downstream: token.Downstream{Port: 443},
+				Upstream:   token.Upstream{Port: 443},
+			},
+		},
 	}
 }
 
@@ -312,6 +319,27 @@ func TestConnectValidator_ParseConnect(t *testing.T) {
 		assert.Equal(t, *connectInfo.Claims, gatClaims)
 		assert.Equal(t, "conn-id", connectInfo.ConnID)
 	})
+
+	t.Run("Rewrites destination port to upstream port", func(t *testing.T) {
+		claims := newGATTokenClaims(c.getPublicKey())
+		claims.Resource.GatewayMetadata.Upstream = token.Upstream{Port: 8443}
+		parserRewrite, tokenRewrite := createParserAndGATToken(t, claims)
+		validator := &MessageValidator{TokenParser: parserRewrite}
+
+		// client targets the downstream port 443; backend must be dialed on upstream 8443
+		req := httptest.NewRequest(http.MethodConnect, "example.com:443", nil)
+		req.Header.Set(AuthHeaderKey, "Bearer "+tokenRewrite)
+
+		signature := c.sign(sigData)
+		req.Header.Set(AuthSignatureHeaderKey, signature)
+		req.Header.Set(ConnIDHeaderKey, "conn-id")
+
+		connectInfo, err := validator.ParseConnect(req, []byte(sigData))
+
+		require.NoError(t, err)
+		assert.Equal(t, "example.com:8443", connectInfo.Address)
+		assert.Equal(t, "conn-id", connectInfo.ConnID)
+	})
 }
 
 func TestHTTPError_Error(t *testing.T) {
@@ -348,6 +376,65 @@ func TestHTTPError_Error(t *testing.T) {
 				Message: tt.message,
 			}
 			assert.Equal(t, tt.want, e.Error())
+		})
+	}
+}
+
+func TestRewriteAddress(t *testing.T) {
+	metadata := token.GatewayMetadata{
+		Downstream: token.Downstream{Port: 443},
+		Upstream:   token.Upstream{Port: 8443},
+	}
+
+	tests := []struct {
+		name        string
+		host        string
+		port        string
+		metadata    token.GatewayMetadata
+		wantAddress string
+		wantCode    int
+		wantMessage string
+	}{
+		{
+			name:        "maps downstream port to upstream port",
+			host:        "example.com",
+			port:        "443",
+			metadata:    metadata,
+			wantAddress: "example.com:8443",
+		},
+		{
+			name:        "non-numeric port",
+			host:        "example.com",
+			port:        "abc",
+			metadata:    metadata,
+			wantCode:    http.StatusBadRequest,
+			wantMessage: "failed to parse CONNECT destination port",
+		},
+		{
+			name:        "port mismatch with downstream port",
+			host:        "example.com",
+			port:        "8443",
+			metadata:    metadata,
+			wantCode:    http.StatusBadRequest,
+			wantMessage: "failed to verify CONNECT destination port",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, httpErr := rewriteAddress(tt.host, tt.port, tt.metadata)
+
+			if tt.wantCode != 0 {
+				require.NotNil(t, httpErr)
+				assert.Equal(t, tt.wantCode, httpErr.Code)
+				assert.Contains(t, httpErr.Message, tt.wantMessage)
+				assert.Empty(t, got)
+
+				return
+			}
+
+			require.Nil(t, httpErr)
+			assert.Equal(t, tt.wantAddress, got)
 		})
 	}
 }

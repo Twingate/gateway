@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"gateway/internal/token"
@@ -131,7 +132,7 @@ func (v *MessageValidator) ParseConnect(req *http.Request, ekm []byte) (connectI
 	// verify address in CONNECT with the GAT token
 	address := req.RequestURI
 
-	host, _, hostErr := net.SplitHostPort(address)
+	host, port, hostErr := net.SplitHostPort(address)
 	if hostErr != nil {
 		return Info{
 				Claims: gatClaims,
@@ -154,12 +155,45 @@ func (v *MessageValidator) ParseConnect(req *http.Request, ekm []byte) (connectI
 			}
 	}
 
+	address, httpErr := rewriteAddress(host, port, gatClaims.Resource.GatewayMetadata)
+	if httpErr != nil {
+		return Info{
+			Claims: gatClaims,
+			ConnID: connID,
+		}, httpErr
+	}
+
 	return Info{
 		Address: address,
 		Claims:  gatClaims,
 		ConnID:  connID,
 		Token:   bearerToken,
 	}, nil
+}
+
+// rewriteAddress verifies the CONNECT destination port matches the GAT downstream
+// port and maps it to the upstream port for backend forwarding. Both ports are
+// validated for presence and range when the token is parsed, so they are
+// guaranteed to be within the valid range here.
+func rewriteAddress(host, port string, metadata token.GatewayMetadata) (string, *HTTPError) {
+	requestedPort, err := strconv.Atoi(port)
+	if err != nil {
+		return "", &HTTPError{
+			Code:    http.StatusBadRequest,
+			Message: fmt.Sprintf("failed to parse CONNECT destination port: %v", err),
+			Err:     err,
+		}
+	}
+
+	if requestedPort != metadata.Downstream.Port {
+		return "", &HTTPError{
+			Code:    http.StatusBadRequest,
+			Message: fmt.Sprintf("failed to verify CONNECT destination port: %s with token downstream port %d", port, metadata.Downstream.Port),
+			Err:     nil,
+		}
+	}
+
+	return net.JoinHostPort(host, strconv.Itoa(metadata.Upstream.Port)), nil
 }
 
 var validDNSLabel = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$`)
