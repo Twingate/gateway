@@ -160,10 +160,10 @@ func TestGATTokenClaims_Validate(t *testing.T) {
 		{
 			name: "Missing downstream port",
 			setupFn: func(claims *GATClaims) {
-				claims.Resource.GatewayMetadata.Downstream.Port = 0
+				claims.Resource.GatewayMetadata = GatewayMetadata{}
 			},
 			expectedError:        jwt.ErrTokenInvalidClaims,
-			expectedErrorMessage: "invalid port \"resource.gateway_metadata.downstream.port\"=0",
+			expectedErrorMessage: "invalid port \"resource.gateway_metadata.downstream.port\": 0",
 		},
 		{
 			name: "Negative downstream port",
@@ -171,7 +171,7 @@ func TestGATTokenClaims_Validate(t *testing.T) {
 				claims.Resource.GatewayMetadata.Downstream.Port = -1
 			},
 			expectedError:        jwt.ErrTokenInvalidClaims,
-			expectedErrorMessage: "invalid port \"resource.gateway_metadata.downstream.port\"=-1",
+			expectedErrorMessage: "invalid port \"resource.gateway_metadata.downstream.port\": -1",
 		},
 		{
 			name: "Downstream port out of range",
@@ -179,15 +179,17 @@ func TestGATTokenClaims_Validate(t *testing.T) {
 				claims.Resource.GatewayMetadata.Downstream.Port = 65536
 			},
 			expectedError:        jwt.ErrTokenInvalidClaims,
-			expectedErrorMessage: "invalid port \"resource.gateway_metadata.downstream.port\"=65536",
+			expectedErrorMessage: "invalid port \"resource.gateway_metadata.downstream.port\": 65536",
 		},
 		{
 			name: "Missing upstream port",
 			setupFn: func(claims *GATClaims) {
-				claims.Resource.GatewayMetadata.Upstream.Port = 0
+				claims.Resource.GatewayMetadata = GatewayMetadata{
+					Downstream: Downstream{Port: 443},
+				}
 			},
 			expectedError:        jwt.ErrTokenInvalidClaims,
-			expectedErrorMessage: "invalid port \"resource.gateway_metadata.upstream.port\"=0",
+			expectedErrorMessage: "invalid port \"resource.gateway_metadata.upstream.port\": 0",
 		},
 		{
 			name: "Negative upstream port",
@@ -195,7 +197,7 @@ func TestGATTokenClaims_Validate(t *testing.T) {
 				claims.Resource.GatewayMetadata.Upstream.Port = -1
 			},
 			expectedError:        jwt.ErrTokenInvalidClaims,
-			expectedErrorMessage: "invalid port \"resource.gateway_metadata.upstream.port\"=-1",
+			expectedErrorMessage: "invalid port \"resource.gateway_metadata.upstream.port\": -1",
 		},
 		{
 			name: "Upstream port out of range",
@@ -203,7 +205,7 @@ func TestGATTokenClaims_Validate(t *testing.T) {
 				claims.Resource.GatewayMetadata.Upstream.Port = 65536
 			},
 			expectedError:        jwt.ErrTokenInvalidClaims,
-			expectedErrorMessage: "invalid port \"resource.gateway_metadata.upstream.port\"=65536",
+			expectedErrorMessage: "invalid port \"resource.gateway_metadata.upstream.port\": 65536",
 		},
 	}
 

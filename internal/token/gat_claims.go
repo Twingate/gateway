@@ -75,7 +75,7 @@ func (p GATClaims) Validate() error {
 // is treated as invalid.
 func validatePort(port int, fieldName string) error {
 	if port < minPort || port > maxPort {
-		return fmt.Errorf("%w: %w %q=%d", jwt.ErrTokenInvalidClaims, errInvalidPort, fieldName, port)
+		return fmt.Errorf("%w: %w %q: %d", jwt.ErrTokenInvalidClaims, errInvalidPort, fieldName, port)
 	}
 
 	return nil
@@ -134,7 +134,7 @@ type Resource struct {
 	ID              string          `json:"id"`
 	Type            ResourceType    `json:"type"`
 	Address         string          `json:"address"`
-	GatewayMetadata GatewayMetadata `json:"gateway_metadata,omitzero"` //nolint:tagliatelle // GAT wire format from the controller uses snake_case
+	GatewayMetadata GatewayMetadata `json:"gateway_metadata"` //nolint:tagliatelle // GAT wire format from the controller uses snake_case
 }
 
 // GatewayMetadata carries per-resource routing details from the GAT.
