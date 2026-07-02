@@ -1,0 +1,58 @@
+{{/*
+Twingate Custom Resources reconciled by the operator. Requires the operator's
+CRDs in the cluster, so rendering is gated behind twingateOperator.gateway.enabled.
+*/}}
+{{- if and .Values.twingateOperator.kubernetesResource.enabled (not .Values.twingateOperator.gateway.enabled) }}
+{{- fail "twingateOperator.kubernetesResource.enabled=true requires twingateOperator.gateway.enabled=true" }}
+{{- end }}
+{{- if .Values.twingateOperator.gateway.enabled }}
+apiVersion: twingate.com/v1beta
+kind: TwingateCertificateAuthority
+metadata:
+  name: {{ include "gateway.fullname" . }}-ca
+  labels:
+    {{- include "gateway.labels" . | nindent 4 }}
+spec:
+  name: {{ include "gateway.fullname" . }}-ca
+  type: X509
+  secretRef:
+    name: {{ include "gateway.tlsSecretName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: twingate.com/v1beta
+kind: TwingateGateway
+metadata:
+  name: {{ include "gateway.fullname" . }}
+  labels:
+    {{- include "gateway.labels" . | nindent 4 }}
+spec:
+  serviceRef:
+    name: {{ include "gateway.fullname" . }}
+    namespace: {{ .Release.Namespace }}
+    port: {{ .Values.service.port }}
+  x509CertificateAuthorityRef:
+    name: {{ include "gateway.fullname" . }}-ca
+    namespace: {{ .Release.Namespace }}
+{{- if .Values.twingateOperator.kubernetesResource.enabled }}
+---
+apiVersion: twingate.com/v1beta
+kind: TwingateResource
+metadata:
+  # Backward compatible with the legacy annotation approach: the operator created a
+  # TwingateResource named <fullname>-resource from the Service annotation. Keep this
+  # name so existing TwingateResourceAccess refs keep resolving.
+  name: {{ include "gateway.fullname" . }}-resource
+  labels:
+    {{- include "gateway.labels" . | nindent 4 }}
+spec:
+  type: Kubernetes
+  address: kubernetes.default.svc.cluster.local
+  name: {{ .Values.twingateOperator.kubernetesResource.name | default (printf "%s Kubernetes cluster" (include "gateway.fullname" .)) | quote }}
+  gatewayRef:
+    name: {{ include "gateway.fullname" . }}
+    namespace: {{ .Release.Namespace }}
+  {{- with omit .Values.twingateOperator.kubernetesResource "type" "address" "gatewayRef" "enabled" "name" }}
+  {{- toYaml . | nindent 2 }}
+  {{- end }}
+{{- end }}
+{{- end }}

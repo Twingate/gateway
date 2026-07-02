@@ -161,22 +161,13 @@ Create the name of the SSH Vault AppRole secret ID secret to use
 
 
 {{/*
-Get the name for the auto-created in-cluster Kubernetes upstream
-*/}}
-{{- define "gateway.resourceInClusterUpstreamName" -}}
-{{- if and .Values.twingate.resource .Values.twingate.resource.enabled .Values.twingate.resource.extraAnnotations }}
-{{- default "Local Kubernetes Cluster" (get .Values.twingate.resource.extraAnnotations "resource.twingate.com/name") }}
-{{- else }}
-{{- "Local Kubernetes Cluster" }}
-{{- end }}
-{{- end }}
-
-{{/*
-Get the alias of the resource
+Get the alias of the in-cluster Kubernetes resource
 */}}
 {{- define "gateway.resourceAlias" -}}
-{{- if and .Values.twingate.resource .Values.twingate.resource.enabled .Values.twingate.resource.extraAnnotations }}
-{{- get .Values.twingate.resource.extraAnnotations "resource.twingate.com/alias" }}
+{{- with .Values.twingateOperator.kubernetesResource }}
+{{- if .enabled }}
+{{- .alias | default "" }}
+{{- end }}
 {{- end }}
 {{- end }}
 

@@ -2,21 +2,6 @@ suite: Service
 templates:
   - service.yaml
 tests:
-  - it: add annotations for Twingate Resource CRD
-    set:
-      twingate:
-        resource:
-          enabled: true
-          extraAnnotations:
-            resource.twingate.com/name: "My Kubernetes API server"
-    asserts:
-      - equal:
-          path: metadata.annotations
-          value:
-            resource.twingate.com: "true"
-            resource.twingate.com/type: Kubernetes
-            resource.twingate.com/tlsSecret: RELEASE-NAME-gateway-tls
-            resource.twingate.com/name: "My Kubernetes API server"
   - it: add Service annotations
     set:
       service:

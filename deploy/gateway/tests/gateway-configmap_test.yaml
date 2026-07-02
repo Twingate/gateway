@@ -131,8 +131,8 @@ set:
 tests:
   - it: should render kubernetes block when resource is enabled
     set:
-      twingate:
-        resource:
+      twingateOperator:
+        kubernetesResource:
           enabled: true
     asserts:
       - equal:
@@ -156,8 +156,8 @@ tests:
             kubernetes: {}
   - it: should still render kubernetes block when kubernetes.enabled is false and resource is enabled
     set:
-      twingate:
-        resource:
+      twingateOperator:
+        kubernetesResource:
           enabled: true
       kubernetes:
         enabled: false
