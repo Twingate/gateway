@@ -169,6 +169,11 @@ func TestSSH(t *testing.T) {
 		"target": "upstream",
 	}
 	testutil.AssertLogsForSSH(t, env.logs, expectedUser, expectedRequest)
+	// The gateway presents only its CA-signed host certificate, so a client that accepts
+	// only the plain ed25519 host key algorithm cannot negotiate a host key.
+	_, err = env.user.SSH.Command("-o", "HostKeyAlgorithms=ssh-ed25519", "whoami")
+	require.Error(t, err, "connection should fail when only the plain host key algorithm is offered")
+	assert.Contains(t, err.Error(), "no matching host key type found. Their offer: ssh-ed25519-cert-v01@openssh.com")
 }
 
 // TestSSHVault tests SSH proxying through the gateway using Vault as the CA backend.
