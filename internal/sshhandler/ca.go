@@ -22,8 +22,9 @@ import (
 )
 
 var (
-	errVaultCAFailed   = errors.New("failed to get CA from Vault")
-	errVaultSignFailed = errors.New("failed to sign certificate with Vault")
+	errVaultCAFailed       = errors.New("failed to get CA from Vault")
+	errVaultSignFailed     = errors.New("failed to sign certificate with Vault")
+	errCertPolicyViolation = errors.New("CA-issued certificate violates the requested policy")
 )
 
 // ca signs SSH certificates.
@@ -288,5 +289,75 @@ func (ca *vaultCA) sign(ctx context.Context, req *certificateRequest) (*ssh.Cert
 		return nil, errVaultSignFailed
 	}
 
-	return parseCertificate([]byte(certStr))
+	cert, err := parseCertificate([]byte(certStr))
+	if err != nil {
+		return nil, err
+	}
+
+	if err := verifyCertificate(cert, req); err != nil {
+		return nil, err
+	}
+
+	return cert, nil
+}
+
+// verifyCertificate rejects a CA-issued certificate that grants more than the request asked for.
+func verifyCertificate(cert *ssh.Certificate, req *certificateRequest) error {
+	if cert.CertType != uint32(req.certType) {
+		return fmt.Errorf("%w: cert type %q does not match requested %q", errCertPolicyViolation, certType(cert.CertType), req.certType)
+	}
+
+	if !keysEqual(cert.Key, req.publicKey) {
+		return fmt.Errorf("%w: certificate is bound to a different public key", errCertPolicyViolation)
+	}
+
+	requestedPrincipals := make(map[string]struct{}, len(req.principals))
+	for _, p := range req.principals {
+		requestedPrincipals[p] = struct{}{}
+	}
+
+	for _, p := range cert.ValidPrincipals {
+		if _, ok := requestedPrincipals[p]; !ok {
+			return fmt.Errorf("%w: unexpected principal %q", errCertPolicyViolation, p)
+		}
+	}
+
+	maxValidBefore := mustUint64(time.Now().Add(req.ttl).Add(clockSkewBuffer))
+	if cert.ValidBefore > maxValidBefore {
+		return fmt.Errorf("%w: validity %d exceeds requested TTL (max %d)", errCertPolicyViolation, cert.ValidBefore, maxValidBefore)
+	}
+
+	// Critical options are restrictions, so dropping one widens privilege; require the
+	// cert's options to match the request exactly.
+	for opt, requested := range req.permissions.CriticalOptions {
+		granted, ok := cert.CriticalOptions[opt]
+		if !ok {
+			return fmt.Errorf("%w: missing requested critical option %q", errCertPolicyViolation, opt)
+		}
+
+		if granted != requested {
+			return fmt.Errorf("%w: critical option %q granted value %q, requested %q", errCertPolicyViolation, opt, granted, requested)
+		}
+	}
+
+	for opt := range cert.CriticalOptions {
+		if _, ok := req.permissions.CriticalOptions[opt]; !ok {
+			return fmt.Errorf("%w: unexpected critical option %q", errCertPolicyViolation, opt)
+		}
+	}
+
+	// A missing extension only narrows privilege, so reject only unexpected extensions
+	// or values.
+	for ext, granted := range cert.Extensions {
+		requested, ok := req.permissions.Extensions[ext]
+		if !ok {
+			return fmt.Errorf("%w: unexpected extension %q", errCertPolicyViolation, ext)
+		}
+
+		if granted != requested {
+			return fmt.Errorf("%w: extension %q granted value %q, requested %q", errCertPolicyViolation, ext, granted, requested)
+		}
+	}
+
+	return nil
 }
