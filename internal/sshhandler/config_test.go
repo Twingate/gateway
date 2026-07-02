@@ -28,7 +28,11 @@ func TestNewConfig_Success(t *testing.T) {
 			HostCertificate: gatewayconfig.SSHCertificateConfig{TTL: 24 * time.Hour},
 			UserCertificate: gatewayconfig.SSHCertificateConfig{TTL: 5 * time.Minute},
 		},
-		CA: gatewayconfig.SSHCAConfig{},
+		CA: gatewayconfig.SSHCAConfig{
+			Manual: &gatewayconfig.SSHCAManualConfig{
+				PrivateKeyFile: "../../test/data/ssh/ca/ca",
+			},
+		},
 	}
 
 	config, err := NewConfig(auditLog, sshConfig, zap.NewNop())

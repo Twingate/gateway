@@ -69,7 +69,7 @@ main.go → cmd/start.go → proxy.NewProxy() → proxy.Start()
 
 **K8s Security**: Gateway uses impersonation headers (`Impersonate-User`, `Impersonate-Group`). K8s RBAC enforced at API server level. Gateway service account only needs impersonation permission.
 
-**SSH Security**: Certificate-based auth. CA options: auto-generated (testing), manual (file), Vault (production). Separate CAs supported for gateway-host, gateway-user, and upstream verification.
+**SSH Security**: Certificate-based auth. CA options: manual (file) or Vault (production); one is required. Separate CAs supported for gateway-host, gateway-user, and upstream verification.
 
 ## Directory Structure
 

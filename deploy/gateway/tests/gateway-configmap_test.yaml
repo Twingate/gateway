@@ -193,35 +193,6 @@ set:
     gateway:
       username: "gateway"
 tests:
-  - it: should include SSH without any CA (using auto-generated CA)
-    asserts:
-      - equal:
-          path: data["config.yaml"]
-          value: |-
-            twingate:
-              network: "acme"
-              host: "twingate.com"
-
-            port: 8443
-            metricsPort: 9090
-
-            auditLog:
-              flushInterval: 5m
-              flushSizeThreshold: 1e+06
-
-            tls:
-              certificateFile: "/etc/gateway/tls/tls.crt"
-              privateKeyFile: "/etc/gateway/tls/tls.key"
-
-            ssh:
-              gateway:
-                username: "gateway"
-                key:
-                  type: "ed25519"
-                hostCertificate:
-                  ttl: "24h"
-                userCertificate:
-                  ttl: "5m"
   - it: should include SSH with manual CA
     set:
       ssh:

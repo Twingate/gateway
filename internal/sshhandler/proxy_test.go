@@ -26,6 +26,11 @@ var sshConfig = &gatewayconfig.SSHConfig{
 	Gateway: gatewayconfig.SSHGatewayConfig{
 		Username: "test-user",
 	},
+	CA: gatewayconfig.SSHCAConfig{
+		Manual: &gatewayconfig.SSHCAManualConfig{
+			PrivateKeyFile: "../../test/data/ssh/ca/ca",
+		},
+	},
 }
 
 // Mock SSH connection factory, used for creating downstream and upstream SSH connections.
