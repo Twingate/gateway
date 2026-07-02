@@ -46,7 +46,7 @@ func TestNewHandler_PanicsOnRewriteError(t *testing.T) {
 		User: token.User{Username: "alice@acme.com"},
 	}
 
-	unknownKeyTemplate, err := template.New("{{twingate.nonexistent}}")
+	unknownKeyTemplate, err := template.New("{{nonexistent}}")
 	require.NoError(t, err)
 
 	handler := NewHandler(Config{
@@ -97,13 +97,13 @@ func TestRewrite(t *testing.T) {
 			jwtToken: "test-token",
 			claims:   baseClaims,
 			headers: map[string]string{
-				"Authorization": "Bearer {{twingate.jwt}}",
-				"X-Username":    "{{twingate.username}}",
-				"X-Groups":      "{{twingate.groups}}",
-				"X-LatLong":     "{{twingate.clientGeoLatLong}}",
-				"X-City":        "{{twingate.clientGeoCity}}",
-				"X-Region":      "{{twingate.clientGeoRegion}}",
-				"X-Country":     "{{twingate.clientGeoCountry}}",
+				"Authorization": "Bearer {{jwt}}",
+				"X-Username":    "{{username}}",
+				"X-Groups":      "{{groups}}",
+				"X-LatLong":     "{{clientGeoLatLong}}",
+				"X-City":        "{{clientGeoCity}}",
+				"X-Region":      "{{clientGeoRegion}}",
+				"X-Country":     "{{clientGeoCountry}}",
 				"Existing":      "new-value",
 			},
 			wantHeaders: map[string]string{
@@ -158,10 +158,10 @@ func TestRewrite(t *testing.T) {
 				Device: token.Device{ID: "device-1", Location: token.GeoIPLocation{Country: "US", Region: "CA", City: "San Mateo"}},
 			},
 			headers: map[string]string{
-				"X-LatLong": "{{twingate.clientGeoLatLong}}",
-				"X-City":    "{{twingate.clientGeoCity}}",
-				"X-Region":  "{{twingate.clientGeoRegion}}",
-				"X-Country": "{{twingate.clientGeoCountry}}",
+				"X-LatLong": "{{clientGeoLatLong}}",
+				"X-City":    "{{clientGeoCity}}",
+				"X-Region":  "{{clientGeoRegion}}",
+				"X-Country": "{{clientGeoCountry}}",
 			},
 			wantHeaders: map[string]string{
 				"X-LatLong": "",
