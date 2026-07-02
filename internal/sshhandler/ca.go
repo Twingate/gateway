@@ -65,15 +65,18 @@ func (c *caConfig) Start(ctx context.Context) error {
 // - If config.Manual is set, creates an embedded CA with the provided key files.
 // - If config.Vault is set, creates Vault-backed CAs.
 func newCAFromConfig(config *gatewayconfig.SSHCAConfig, logger *zap.Logger) (*caConfig, error) {
-	if config != nil && config.Manual != nil {
+	if config == nil {
+		return nil, gatewayconfig.ErrMissingCAConfig
+	}
+
+	switch {
+	case config.Manual != nil:
 		return newManualCA(config.Manual.PrivateKeyFile, logger)
-	}
-
-	if config != nil && config.Vault != nil {
+	case config.Vault != nil:
 		return newVaultCA(config.Vault, logger)
+	default:
+		return nil, gatewayconfig.ErrMissingCAConfig
 	}
-
-	return nil, gatewayconfig.ErrMissingCAConfig
 }
 
 // newManualCA creates an embedded CA with keys loaded from files.
