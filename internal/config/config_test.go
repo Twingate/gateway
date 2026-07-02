@@ -36,6 +36,29 @@ func TestStripNetworkPrefix(t *testing.T) {
 	}
 }
 
+func TestTwingateConfig_JWKSURL(t *testing.T) {
+	cfg := TwingateConfig{Network: "acme", Host: "twingate.com"}
+	assert.Equal(t, "https://acme.twingate.com/api/v1/jwk/ec", cfg.JWKSURL())
+}
+
+func TestTwingateConfig_Issuer(t *testing.T) {
+	tests := []struct {
+		name   string
+		host   string
+		issuer string
+	}{
+		{name: "exact match", host: "twingate.com", issuer: "twingate"},
+		{name: "sharded host", host: "us1.twingate.com", issuer: "twingate"},
+		{name: "unknown host", host: "unknown-dev.opstg.com", issuer: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.issuer, TwingateConfig{Host: tt.host}.Issuer())
+		})
+	}
+}
+
 func TestResolveTwingateHostname(t *testing.T) {
 	t.Run("returns location hostname on 308 status code", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
