@@ -122,11 +122,11 @@ func TestRewrite(t *testing.T) {
 			jwtToken: "test-token",
 			claims: withRequestHeaderRewrites(baseClaims, map[string]string{
 				"X-GAT-Static":   "static-value",
-				"X-GAT-Username": "{{twingate.username}}",
-				"X-GAT-Auth":     "Bearer {{twingate.jwt}}",
+				"X-GAT-Username": "{{username}}",
+				"X-GAT-Auth":     "Bearer {{jwt}}",
 			}),
 			headers: map[string]string{
-				"X-Config": "{{twingate.groups}}",
+				"X-Config": "{{groups}}",
 			},
 			wantHeaders: map[string]string{
 				"X-Config":       "Everyone,Engineering",
@@ -139,7 +139,7 @@ func TestRewrite(t *testing.T) {
 			name:     "GAT request header rewrites override config headers on conflict",
 			jwtToken: "test-token",
 			claims: withRequestHeaderRewrites(baseClaims, map[string]string{
-				"X-Username": "{{twingate.username}}",
+				"X-Username": "{{username}}",
 			}),
 			headers: map[string]string{
 				"X-Config":   "Dont override",
