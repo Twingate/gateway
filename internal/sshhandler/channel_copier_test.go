@@ -38,8 +38,9 @@ func (b *bufferTap) bytes() []byte {
 }
 
 // newChannelEnds opens one real SSH channel and returns the gateway-held end (the copier operates on
-// it) and the far end the test drives.
-func newChannelEnds(t *testing.T) (gateway, far ssh.Channel) {
+// it), the far end the test drives, and the far end's request stream, which closes only when the
+// channel is fully torn down.
+func newChannelEnds(t *testing.T) (gateway, far ssh.Channel, farReqs <-chan *ssh.Request) {
 	t.Helper()
 
 	client, server := newSSHConnEnds(t)
@@ -52,23 +53,21 @@ func newChannelEnds(t *testing.T) (gateway, far ssh.Channel) {
 	farCh, farReqs, err := client.conn.OpenChannel("session", nil)
 	require.NoError(t, err)
 
-	go ssh.DiscardRequests(farReqs)
-
 	g := <-accepted
 
 	go ssh.DiscardRequests(g.requests)
 
-	return g.channel, farCh
+	return g.channel, farCh, farReqs
 }
 
 func TestChannelCopyPair_copy_BasicCopy(t *testing.T) {
-	srcGateway, srcFar := newChannelEnds(t)
-	dstGateway, dstFar := newChannelEnds(t)
+	srcGateway, srcFar, _ := newChannelEnds(t)
+	dstGateway, dstFar, dstFarReqs := newChannelEnds(t)
 
 	testData := []byte("test data1234")
 
 	eofTriggerCh := make(chan SSHRequestHandlerFlushTrigger, 1)
-	channelClosedCh := make(chan struct{}, 1)
+	channelClosedCh := make(chan struct{})
 
 	copyPair := &ChannelCopyPair{
 		logger:          zap.NewNop(),
@@ -84,37 +83,69 @@ func TestChannelCopyPair_copy_BasicCopy(t *testing.T) {
 		_ = srcFar.CloseWrite()
 	}()
 
-	// Read the copied data off the destination far end.
+	// Read the destination far end until EOF, which arrives only once copy() half-closes (or
+	// closes) the destination.
 	gotCh := make(chan []byte, 1)
 
 	go func() {
-		buf := make([]byte, len(testData))
-		_, _ = io.ReadFull(dstFar, buf)
-
-		gotCh <- buf
+		data, _ := io.ReadAll(dstFar)
+		gotCh <- data
 	}()
 
-	// Respond to the EOF trigger and signal the channel fully closed.
-	eofCalled := false
+	copyDone := make(chan struct{})
 
 	go func() {
-		trigger := <-eofTriggerCh
-		trigger.cb()
-
-		eofCalled = true
-
-		close(channelClosedCh)
+		copyPair.copy()
+		close(copyDone)
 	}()
 
-	copyPair.copy()
+	// Once the source EOFs, copy() flushes pending requests before starting teardown.
+	var trigger SSHRequestHandlerFlushTrigger
+	select {
+	case trigger = <-eofTriggerCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("copy did not send the EOF trigger")
+	}
 
-	assert.Equal(t, testData, <-gotCh)
-	assert.True(t, eofCalled)
+	trigger.cb()
+
+	// After the flush, copy() half-closes the destination (SSH_MSG_CHANNEL_EOF): the far end sees
+	// EOF with all the copied data...
+	select {
+	case got := <-gotCh:
+		assert.Equal(t, testData, got)
+	case <-time.After(2 * time.Second):
+		t.Fatal("destination write side was not closed")
+	}
+
+	// ...but the channel must not be fully closed until the channel-closed signal is given.
+	select {
+	case _, ok := <-dstFarReqs:
+		require.True(t, ok, "channel fully closed before ChannelClosedCh")
+	default:
+	}
+
+	close(channelClosedCh)
+
+	// Now copy() fully closes the destination (SSH_MSG_CHANNEL_CLOSE), which closes the far end's
+	// request stream.
+	select {
+	case _, ok := <-dstFarReqs:
+		assert.False(t, ok, "expected the request stream to close, got a request")
+	case <-time.After(2 * time.Second):
+		t.Fatal("destination channel was not fully closed")
+	}
+
+	select {
+	case <-copyDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("copy did not return")
+	}
 }
 
 func TestChannelCopyPair_copy_WithTap(t *testing.T) {
-	srcGateway, srcFar := newChannelEnds(t)
-	dstGateway, dstFar := newChannelEnds(t)
+	srcGateway, srcFar, _ := newChannelEnds(t)
+	dstGateway, dstFar, _ := newChannelEnds(t)
 	tap := &bufferTap{}
 
 	testData := []byte("test data for tap")
@@ -160,8 +191,8 @@ func TestChannelCopyPair_copy_WithTap(t *testing.T) {
 }
 
 func TestChannelCopyPair_copy_ShutdownTimeout(t *testing.T) {
-	srcGateway, srcFar := newChannelEnds(t)
-	dstGateway, dstFar := newChannelEnds(t)
+	srcGateway, srcFar, _ := newChannelEnds(t)
+	dstGateway, dstFar, _ := newChannelEnds(t)
 
 	// Drain the destination so its small write never blocks.
 	go io.Copy(io.Discard, dstFar) //nolint:errcheck
@@ -206,10 +237,10 @@ func TestChannelCopyPair_copy_ShutdownTimeout(t *testing.T) {
 }
 
 func TestBidirectionalCopier_start(t *testing.T) {
-	sourceSrcGateway, sourceSrcFar := newChannelEnds(t)
-	sourceDstGateway, sourceDstFar := newChannelEnds(t)
-	targetSrcGateway, targetSrcFar := newChannelEnds(t)
-	targetDstGateway, targetDstFar := newChannelEnds(t)
+	sourceSrcGateway, sourceSrcFar, _ := newChannelEnds(t)
+	sourceDstGateway, sourceDstFar, _ := newChannelEnds(t)
+	targetSrcGateway, targetSrcFar, _ := newChannelEnds(t)
+	targetDstGateway, targetDstFar, _ := newChannelEnds(t)
 
 	sourceData := []byte("source data")
 	targetData := []byte("target data")

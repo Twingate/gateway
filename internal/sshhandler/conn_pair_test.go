@@ -381,6 +381,37 @@ func TestSSHConnPair_forwardGlobalRequests_BlocksDenied(t *testing.T) {
 	}
 }
 
+func TestSSHConnPair_forwardGlobalRequests_ForwardsDeniedTypeFromDownstream(t *testing.T) {
+	downstreamClient, upstreamServer, _ := newServingConnPair(t)
+
+	go ssh.DiscardRequests(downstreamClient.requests)
+
+	received := make(chan string, 1)
+
+	go func() {
+		for req := range upstreamServer.requests {
+			received <- req.Type
+
+			if req.WantReply {
+				_ = req.Reply(true, nil)
+			}
+		}
+	}()
+
+	// The denylist only applies to requests from upstream: the same tcpip-forward that is dropped
+	// above must be forwarded when the downstream client sends it.
+	ok, _, err := downstreamClient.conn.SendRequest("tcpip-forward", true, nil)
+	require.NoError(t, err)
+	assert.True(t, ok)
+
+	select {
+	case reqType := <-received:
+		assert.Equal(t, "tcpip-forward", reqType)
+	case <-time.After(2 * time.Second):
+		t.Fatal("request from downstream was not forwarded to upstream")
+	}
+}
+
 func TestSSHConnPair_forwardGlobalRequests_SendError(t *testing.T) {
 	// A real (but closed) destination conn makes SendRequest fail, exercising the forward-error path.
 	_, dst := newSSHConnEnds(t)

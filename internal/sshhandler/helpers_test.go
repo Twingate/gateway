@@ -51,7 +51,15 @@ func newDownstreamConn(t *testing.T, address string) (client net.Conn, server *c
 func newTestProxy(t *testing.T) *SSHProxy {
 	t.Helper()
 
-	config, err := NewConfig(nil, sshConfig, zap.NewNop())
+	return newTestProxyWithLogger(t, zap.NewNop())
+}
+
+// newTestProxyWithLogger is newTestProxy with the proxy logging to the given logger, so a test can
+// assert on log output.
+func newTestProxyWithLogger(t *testing.T, logger *zap.Logger) *SSHProxy {
+	t.Helper()
+
+	config, err := NewConfig(nil, sshConfig, logger)
 	require.NoError(t, err)
 
 	proxy := NewProxy(*config)

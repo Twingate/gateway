@@ -71,11 +71,6 @@ func (p *SSHProxy) Start(ctx context.Context, listener net.Listener) error {
 			break
 		}
 
-		// No longer serving
-		if conn == nil {
-			break
-		}
-
 		// Serve SSH connection in a separate goroutine
 		go func() {
 			err := p.Serve(ctx, conn.(connect.Conn))

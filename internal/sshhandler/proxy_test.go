@@ -65,6 +65,34 @@ func TestSSHProxy_Start(t *testing.T) {
 	}
 }
 
+// TestSSHProxy_Start_AcceptError drives the accept loop's generic-error branch: an Accept error
+// other than net.ErrClosed is logged and stops the loop.
+func TestSSHProxy_Start_AcceptError(t *testing.T) {
+	core, logs := observer.New(zap.ErrorLevel)
+	sshProxy := newTestProxyWithLogger(t, zap.New(core))
+	listener := newTestListener(t, "unused:22")
+
+	// An already-expired deadline makes the real listener's Accept fail with a deadline error,
+	// which is not net.ErrClosed.
+	require.NoError(t, listener.Listener.(*net.TCPListener).SetDeadline(time.Now()))
+
+	startDone := make(chan error, 1)
+
+	go func() {
+		startDone <- sshProxy.Start(t.Context(), listener)
+	}()
+
+	select {
+	case err := <-startDone:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("Start did not return after the accept error")
+	}
+
+	assert.NotEmpty(t, logs.FilterMessage("Failed to accept incoming connection").All(),
+		"the accept error should be logged")
+}
+
 // TestSSHProxy_serveConn_RejectsWhenShuttingDown verifies that a connection handed to serveConn
 // after shutdown has begun is closed and rejected with errShuttingDown rather than served.
 func TestSSHProxy_serveConn_RejectsWhenShuttingDown(t *testing.T) {
