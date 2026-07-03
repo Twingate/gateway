@@ -299,8 +299,22 @@
               "additionalProperties": false
             }
           },
-          "maxProperties": 1,
           "additionalProperties": false
+        }
+      },
+      "if": {
+        "properties": {"enabled": {"const": true}},
+        "required": ["enabled"]
+      },
+      "then": {
+        "required": ["ca"],
+        "properties": {
+          "ca": {
+            "oneOf": [
+              {"required": ["manual"]},
+              {"required": ["vault"]}
+            ]
+          }
         }
       },
       "additionalProperties": false

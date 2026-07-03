@@ -354,9 +354,26 @@ tests:
       ssh:
         gateway:
           username: ""
+        ca:
+          manual:
+            privateKey: "my-private-key"
     asserts:
       - failedTemplate:
           errorPattern: "ssh.gateway.username is required"
+  - it: should error when SSH is enabled but ca is omitted
+    set:
+      ssh:
+        ca: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/ssh': missing property 'ca'"
+  - it: should error when SSH is enabled but neither CA backend is configured
+    set:
+      ssh:
+        ca: {}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/ssh/ca': 'oneOf' failed, none matched"
   - it: should error when both manual and Vault config are provided
     set:
       ssh:
@@ -365,7 +382,7 @@ tests:
           vault: {}
     asserts:
       - failedTemplate:
-          errorPattern: "at '/ssh/ca': maxProperties: got 2, want 1"
+          errorPattern: "at '/ssh/ca': 'oneOf' failed, subschemas 0, 1 matched"
 ---
 suite: Gateway configmap with WebApp
 templates:

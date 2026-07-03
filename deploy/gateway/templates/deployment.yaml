@@ -1,7 +1,3 @@
-{{- $ca := .Values.ssh.ca -}}
-{{- if and .Values.ssh.enabled (not (and $ca (or $ca.manual $ca.vault))) -}}
-  {{- fail "ssh.ca must be configured (manual or vault) when SSH is enabled." -}}
-{{- end -}}
 {{- $manualCAEnabled := and .Values.ssh.enabled .Values.ssh.ca .Values.ssh.ca.manual -}}
 {{- $vaultCABundleEnabled := and .Values.ssh.enabled .Values.ssh.ca .Values.ssh.ca.vault (or .Values.ssh.ca.vault.caBundle .Values.ssh.ca.vault.existingCABundleSecret) -}}
 {{- $vaultAppRoleEnabled := and .Values.ssh.enabled .Values.ssh.ca .Values.ssh.ca.vault .Values.ssh.ca.vault.auth .Values.ssh.ca.vault.auth.appRole -}}

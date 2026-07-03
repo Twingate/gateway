@@ -117,13 +117,6 @@ tests:
             name: ssh-manual-ca
             secret:
               secretName: RELEASE-NAME-gateway-ssh-manual-ca
-  - it: should error when `ssh.enabled` is true and `ssh.ca` is not specified
-    set:
-      ssh:
-        ca: {}
-    asserts:
-      - failedTemplate:
-          errorPattern: "ssh.ca must be configured \\(manual or vault\\) when SSH is enabled"
 ---
 suite: Deployment with SSH and Vault CA
 templates:
