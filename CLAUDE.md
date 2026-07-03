@@ -45,7 +45,7 @@ main.go → cmd/start.go → proxy.NewProxy() → proxy.Start()
 
 **`internal/sshhandler/`** - SSH proxy:
 
-- SSH server with CA-signed certificates (auto/manual/Vault)
+- SSH server with CA-signed certificates (manual/Vault)
 - Bidirectional channel forwarding to upstreams
 - Host certs (gateway→client) + User certs (gateway→upstream)
 
