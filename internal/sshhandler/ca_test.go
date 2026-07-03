@@ -114,20 +114,13 @@ func TestNewManualCA_PrivateKeyFileNotFound(t *testing.T) {
 	require.Contains(t, err.Error(), "failed to read private key file")
 }
 
-func TestNewCAFromConfig_NilConfig(t *testing.T) {
-	_, err := newCAFromConfig(nil, zap.NewNop())
-	require.ErrorIs(t, err, gatewayconfig.ErrMissingCAConfig)
-}
-
 func TestNewCAFromConfig_EmptyConfig(t *testing.T) {
-	config := &gatewayconfig.SSHCAConfig{}
-
-	_, err := newCAFromConfig(config, zap.NewNop())
+	_, err := newCAFromConfig(gatewayconfig.SSHCAConfig{}, zap.NewNop())
 	require.ErrorIs(t, err, gatewayconfig.ErrMissingCAConfig)
 }
 
 func TestNewCAFromConfig_ManualConfig(t *testing.T) {
-	config := &gatewayconfig.SSHCAConfig{
+	config := gatewayconfig.SSHCAConfig{
 		Manual: &gatewayconfig.SSHCAManualConfig{
 			PrivateKeyFile: "../../test/data/ssh/ca/ca",
 		},
