@@ -143,7 +143,7 @@ func TestRewrite(t *testing.T) {
 			}),
 			headers: map[string]string{
 				"X-Config":   "Dont override",
-				"X-Username": "Not preserved",
+				"X-Username": "Overridden by GAT Token",
 			},
 			wantHeaders: map[string]string{
 				"X-Config":   "Dont override",

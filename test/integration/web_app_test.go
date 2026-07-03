@@ -48,7 +48,7 @@ func TestWebApp(t *testing.T) {
 		WebApp: &gatewayconfig.WebAppConfig{
 			Headers: map[string]string{
 				"Authorization":                 "Bearer {{jwt}}",
-				"X-Twingate-Username":           "override",
+				"X-Twingate-Username":           "Overridden by GAT Token",
 				"X-Twingate-Groups":             "{{groups}}",
 				"X-Twingate-Client-Geo-LatLong": "{{clientGeoLatLong}}",
 				"X-Twingate-Client-Geo-City":    "{{clientGeoCity}}",
