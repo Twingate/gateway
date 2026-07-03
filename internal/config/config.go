@@ -104,7 +104,7 @@ type SSHCAConfig struct {
 
 // SSHCAManualConfig configures an embedded CA loaded from key files.
 type SSHCAManualConfig struct {
-	PrivateKeyFile string `yaml:"privateKeyFile"` // Path to the OpenSSH-format CA private key
+	PrivateKeyFile string `yaml:"privateKeyFile"` // Path to the unencrypted CA private key (OpenSSH or PEM encoded)
 }
 
 // SSHCAVaultConfig configures CAs backed by Vault's SSH secrets engine.
@@ -158,10 +158,12 @@ type SSHCAVaultAppRoleConfig struct {
 
 // SSHCAVaultGCPConfig configures Vault GCP authentication.
 type SSHCAVaultGCPConfig struct {
-	Mount               string `yaml:"mount,omitempty"`               // GCP auth mount path. Defaults to "gcp"
-	Role                string `yaml:"role"`                          // Vault GCP auth role to login as
-	Type                string `yaml:"type"`                          // "gce" or "iam"
-	ServiceAccountEmail string `yaml:"serviceAccountEmail,omitempty"` // iam, required
+	Mount string `yaml:"mount,omitempty"` // GCP auth mount path. Defaults to "gcp"
+	Role  string `yaml:"role"`            // Vault GCP auth role to login as
+	Type  string `yaml:"type"`            // "gce" or "iam"
+
+	// Fields for type "iam".
+	ServiceAccountEmail string `yaml:"serviceAccountEmail,omitempty"` // Required
 }
 
 // SSHCAVaultAWSConfig configures Vault AWS authentication.
@@ -171,8 +173,10 @@ type SSHCAVaultAWSConfig struct {
 	Type              string `yaml:"type"`            // "iam" or "ec2"
 	Region            string `yaml:"region,omitempty"`
 	IAMServerIDHeader string `yaml:"iamServerIDHeader,omitempty"` // Value for the X-Vault-AWS-IAM-Server-ID header
-	SignatureType     string `yaml:"signatureType,omitempty"`     // ec2; "pkcs7" (default), "identity", or "rsa2048"
-	Nonce             string `yaml:"nonce,omitempty"`             // ec2
+
+	// Fields for type "ec2".
+	SignatureType string `yaml:"signatureType,omitempty"` // "pkcs7" (default), "identity", or "rsa2048"
+	Nonce         string `yaml:"nonce,omitempty"`
 }
 
 func newDefaultConfig() *Config {
