@@ -175,7 +175,7 @@ type SSHCAVaultAWSConfig struct {
 	IAMServerIDHeader string `yaml:"iamServerIDHeader,omitempty"` // Value for the X-Vault-AWS-IAM-Server-ID header
 
 	// Fields for type "ec2".
-	SignatureType string `yaml:"signatureType,omitempty"` // "pkcs7" (default), "identity", or "rsa2048"
+	SignatureType string `yaml:"signatureType,omitempty"` // "rsa2048" (default), "identity", or "pkcs7"
 	Nonce         string `yaml:"nonce,omitempty"`
 }
 
