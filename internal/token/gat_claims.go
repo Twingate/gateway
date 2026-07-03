@@ -111,9 +111,15 @@ const (
 )
 
 type Resource struct {
-	ID      string       `json:"id"`
-	Type    ResourceType `json:"type"`
-	Address string       `json:"address"`
+	ID              string          `json:"id"`
+	Type            ResourceType    `json:"type"`
+	Address         string          `json:"address"`
+	GatewayMetadata GatewayMetadata `json:"gateway_metadata"` //nolint:tagliatelle // GAT wire format from the controller uses snake_case
+}
+
+// GatewayMetadata carries per-resource routing details from the GAT.
+type GatewayMetadata struct {
+	RequestHeaderRewrites map[string]string `json:"request_header_rewrites,omitempty"` //nolint:tagliatelle // GAT wire format from the controller uses snake_case
 }
 
 // PublicKey is a wrapper for ecdsa.PublicKey that adds support for JSON

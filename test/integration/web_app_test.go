@@ -48,7 +48,7 @@ func TestWebApp(t *testing.T) {
 		WebApp: &gatewayconfig.WebAppConfig{
 			Headers: map[string]string{
 				"Authorization":                 "Bearer {{jwt}}",
-				"X-Twingate-Username":           "{{username}}",
+				"X-Twingate-Username":           "override",
 				"X-Twingate-Groups":             "{{groups}}",
 				"X-Twingate-Client-Geo-LatLong": "{{clientGeoLatLong}}",
 				"X-Twingate-Client-Geo-City":    "{{clientGeoCity}}",
@@ -87,6 +87,10 @@ func TestWebApp(t *testing.T) {
 		gatewayPort,
 		upstreamAddress,
 		controller.URL,
+		map[string]string{
+			"X-GAT-Token-Header":  "value preserved",
+			"X-Twingate-Username": "{{username}}",
+		},
 	)
 	defer user.Close()
 
@@ -108,12 +112,15 @@ func TestWebApp(t *testing.T) {
 	require.NoError(t, err, "failed to parse echo response")
 
 	expectedHeaders := map[string]string{
-		"X-Twingate-Username":           "alex@acme.com",
+		// From Gateway config
 		"X-Twingate-Groups":             "OnCall,Engineering",
 		"X-Twingate-Client-Geo-LatLong": "37.5,-122.4",
 		"X-Twingate-Client-Geo-City":    "San Mateo",
 		"X-Twingate-Client-Geo-Region":  "CA",
 		"X-Twingate-Client-Geo-Country": "US",
+		// From GAT Token
+		"X-Twingate-Username": "alex@acme.com",
+		"X-GAT-Token-Header":  "value preserved",
 	}
 
 	for header, expected := range expectedHeaders {
