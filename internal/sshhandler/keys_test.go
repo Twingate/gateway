@@ -12,7 +12,7 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-func TestNewKeyConfig_ByKeyType(t *testing.T) {
+func TestNewKeyConfig(t *testing.T) {
 	tests := []struct {
 		name       string
 		keyType    string
@@ -137,9 +137,6 @@ func TestNewKeyConfig_InvalidInputs(t *testing.T) {
 }
 
 func TestKeyConfigGenerate(t *testing.T) {
-	// One case per code path in Generate: each ECDSA curve is a separate
-	// branch, while the RSA branch does not vary by bits, so 2048 (the
-	// cheapest allowed size) covers it.
 	tests := []struct {
 		name       string
 		keyConfig  keyConfig
@@ -182,6 +179,28 @@ func TestKeyConfigGenerate(t *testing.T) {
 			assert.Equal(t, tt.expectAlgo, signer.PublicKey().Type())
 			assert.Equal(t, tt.expectAlgo, pub.Type())
 			assert.Equal(t, signer.PublicKey().Marshal(), pub.Marshal())
+		})
+	}
+}
+
+func TestKeyConfigGenerate_InvalidInputs(t *testing.T) {
+	tests := []struct {
+		name       string
+		keyConfig  keyConfig
+		wantErr    error
+		wantErrMsg string
+	}{
+		{name: "unsupported key type", keyConfig: keyConfig{typ: "foo"}, wantErr: errUnsupportedKeyType, wantErrMsg: "unsupported key type: foo"},
+		{name: "ECDSA invalid bits", keyConfig: keyConfig{typ: keyTypeECDSA, bits: 123}, wantErr: errUnsupportedKeySize, wantErrMsg: "unsupported key size: ecdsa 123"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			signer, pub, err := tt.keyConfig.Generate(rand.Reader)
+			require.ErrorIs(t, err, tt.wantErr)
+			require.EqualError(t, err, tt.wantErrMsg)
+			assert.Nil(t, signer)
+			assert.Nil(t, pub)
 		})
 	}
 }
