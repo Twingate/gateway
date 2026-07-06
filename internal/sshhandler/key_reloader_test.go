@@ -121,15 +121,17 @@ func TestKeyReloaderSignalsReloadOnKeyChange(t *testing.T) {
 	require.NoError(t, keyReloader.load())
 	requireNoReloadSignal()
 
-	// Loading a changed key signals once
-	newKeyPEM, _ := generateCAKey(t)
-	replaceCAKeyFile(t, keyFile, newKeyPEM)
-	require.NoError(t, keyReloader.load())
+	// Signals coalesce: two changes before the pending signal is consumed produce one signal
+	for range 2 {
+		nextKeyPEM, _ := generateCAKey(t)
+		replaceCAKeyFile(t, keyFile, nextKeyPEM)
+		require.NoError(t, keyReloader.load())
+	}
 
 	select {
 	case <-keyReloader.reloadCh:
 	default:
-		t.Fatal("expected reload signal after key change")
+		t.Fatal("expected reload signal after key changes")
 	}
 
 	requireNoReloadSignal()
