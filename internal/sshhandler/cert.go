@@ -54,7 +54,7 @@ type autoRenewingCertSigner struct {
 	ca        ca
 	certReq   *certificateRequest
 	keySigner ssh.Signer
-	renewCh   <-chan struct{} // Signals an immediate re-sign (e.g. after a CA key reload). May be nil.
+	renewCh   <-chan struct{} // Signals an immediate re-sign after a CA key reload
 	logger    *zap.Logger
 
 	mu         sync.RWMutex
@@ -111,7 +111,7 @@ func (s *autoRenewingCertSigner) renewalLoop(ctx context.Context) error {
 	for {
 		select {
 		case <-timer.C:
-		case <-s.renewCh: // nil (and thus never fires) unless the CA key is reloadable; timer and ctx cases still wake the loop
+		case <-s.renewCh:
 			s.logger.Info("CA key reloaded, re-signing certificate", zap.String("cert_type", s.certReq.certType.String()))
 		case <-ctx.Done():
 			return ctx.Err()

@@ -144,7 +144,7 @@ func TestNewManualCA_ReloadsPrivateKey(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, caConfig.Start(t.Context()))
 
-	initialPublicKey, err := caConfig.GatewayHostCA.publicKey(context.Background())
+	initialPublicKey, err := caConfig.GatewayHostCA.publicKey(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, publicKey.Marshal(), initialPublicKey.Marshal())
 
@@ -152,7 +152,7 @@ func TestNewManualCA_ReloadsPrivateKey(t *testing.T) {
 	replaceCAKeyFile(t, keyFile, newKeyPEM)
 
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		reloadedPublicKey, err := caConfig.GatewayHostCA.publicKey(context.Background())
+		reloadedPublicKey, err := caConfig.GatewayHostCA.publicKey(t.Context())
 		require.NoError(c, err)
 
 		require.Equal(c, newPublicKey.Marshal(), reloadedPublicKey.Marshal())
@@ -162,7 +162,7 @@ func TestNewManualCA_ReloadsPrivateKey(t *testing.T) {
 	_, subjectPublicKey, err := keyConfig{}.Generate(rand.Reader)
 	require.NoError(t, err)
 
-	cert, err := caConfig.GatewayUserCA.sign(context.Background(), &certificateRequest{
+	cert, err := caConfig.GatewayUserCA.sign(t.Context(), &certificateRequest{
 		certType:  UserCert,
 		publicKey: subjectPublicKey,
 		ttl:       time.Minute,

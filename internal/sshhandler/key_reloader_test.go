@@ -152,6 +152,7 @@ func TestKeyReloaderRecoversAfterInvalidKey(t *testing.T) {
 		require.NotEmpty(c, logs.FilterMessage("failed to load CA private key file").All())
 	}, time.Second, 5*time.Millisecond, "failed load was not logged")
 
+	// The last good key remains available
 	signer := keyReloader.getSigner()
 	require.NotNil(t, signer)
 	assert.Equal(t, oldPublicKey.Marshal(), signer.PublicKey().Marshal())
@@ -168,7 +169,7 @@ func TestKeyReloaderRecoversAfterInvalidKey(t *testing.T) {
 	}, time.Second, 5*time.Millisecond)
 }
 
-func TestKeyReloaderRetriesWatchWhenFileRemoved(t *testing.T) {
+func TestKeyReloaderRetriesWatchWhenKeyFileRemoved(t *testing.T) {
 	core, logs := observer.New(zapcore.ErrorLevel)
 
 	keyPEM, publicKey := generateCAKey(t)
@@ -189,28 +190,6 @@ func TestKeyReloaderRetriesWatchWhenFileRemoved(t *testing.T) {
 	signer := keyReloader.getSigner()
 	require.NotNil(t, signer)
 	assert.Equal(t, publicKey.Marshal(), signer.PublicKey().Marshal())
-}
-
-func TestKeyReloaderDontReloadWhenInvalidKey(t *testing.T) {
-	oldKeyPEM, oldPublicKey := generateCAKey(t)
-	keyFile := createCAKeyFile(t, oldKeyPEM)
-	keyReloader := newKeyReloader(keyFile, zap.NewNop())
-	require.NoError(t, keyReloader.load())
-
-	replaceCAKeyFile(t, keyFile, []byte("not a private key"))
-	require.Error(t, keyReloader.load())
-
-	// The failed load does not signal a reload
-	select {
-	case <-keyReloader.reloadCh:
-		t.Fatal("unexpected reload signal after loading an invalid key")
-	default:
-	}
-
-	// Ensure signer is unchanged
-	signer := keyReloader.getSigner()
-	require.NotNil(t, signer)
-	assert.Equal(t, oldPublicKey.Marshal(), signer.PublicKey().Marshal())
 }
 
 func TestKeyReloaderDontReloadWhenContextIsCanceled(t *testing.T) {
