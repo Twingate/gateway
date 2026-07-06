@@ -188,7 +188,7 @@ func rewriteAddress(host, port string, metadata token.GatewayMetadata) (string, 
 	if requestedPort != metadata.Downstream.Port {
 		return "", &HTTPError{
 			Code:    http.StatusBadRequest,
-			Message: fmt.Sprintf("failed to verify CONNECT destination port: %s with token downstream port %d", port, metadata.Downstream.Port),
+			Message: fmt.Sprintf("CONNECT destination port %d does not match token downstream port %d", requestedPort, metadata.Downstream.Port),
 			Err:     nil,
 		}
 	}

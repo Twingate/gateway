@@ -416,7 +416,7 @@ func TestRewriteAddress(t *testing.T) {
 			port:        "8443",
 			metadata:    metadata,
 			wantCode:    http.StatusBadRequest,
-			wantMessage: "failed to verify CONNECT destination port",
+			wantMessage: "CONNECT destination port 8443 does not match token downstream port 443",
 		},
 	}
 
