@@ -102,19 +102,22 @@ type SSHCAConfig struct {
 	Vault  *SSHCAVaultConfig  `yaml:"vault,omitempty"`
 }
 
+// SSHCAManualConfig configures an embedded CA loaded from key files.
 type SSHCAManualConfig struct {
-	PrivateKeyFile string `yaml:"privateKeyFile"`
+	PrivateKeyFile string `yaml:"privateKeyFile"` // Path to the unencrypted CA private key (OpenSSH or PEM encoded)
 }
 
+// SSHCAVaultConfig configures CAs backed by Vault's SSH secrets engine.
 type SSHCAVaultConfig struct {
-	Address      string               `yaml:"address"`
-	CABundleFile string               `yaml:"caBundleFile,omitempty"`
+	Address      string               `yaml:"address"`                // Vault server address, e.g. https://vault.example.com:8200
+	CABundleFile string               `yaml:"caBundleFile,omitempty"` // Path to a PEM CA bundle for verifying Vault's TLS certificate; omit to use the system trust store
 	Auth         SSHCAVaultAuthConfig `yaml:"auth"`
 
 	Namespace string `yaml:"namespace,omitempty"` // Optional Vault namespace
 
-	// Default mount point and role (used for all CAs unless overridden below)
-	Mount string `yaml:"mount,omitempty"`
+	// Default SSH secrets engine mount point and role (used for all CAs unless
+	// overridden below).
+	Mount string `yaml:"mount,omitempty"` // Defaults to "ssh"
 	Role  string `yaml:"role,omitempty"`
 
 	// Optional overrides for advanced setups with separate CAs
@@ -134,35 +137,45 @@ type SSHCAVaultMountConfig struct {
 	Mount string `yaml:"mount,omitempty"`
 }
 
+// SSHCAVaultAuthConfig configures how the Gateway authenticates to Vault.
+// At most one method may be set. If none is set, the token is read from the
+// VAULT_TOKEN environment variable.
 type SSHCAVaultAuthConfig struct {
-	Token   string                   `yaml:"token,omitempty"`
+	Token   string                   `yaml:"token,omitempty"` // Static Vault token. Inline tokens are for dev/testing only; in production deliver the token via the VAULT_TOKEN environment variable sourced from a secret store
 	AppRole *SSHCAVaultAppRoleConfig `yaml:"appRole,omitempty"`
 	GCP     *SSHCAVaultGCPConfig     `yaml:"gcp,omitempty"`
 	AWS     *SSHCAVaultAWSConfig     `yaml:"aws,omitempty"`
 }
 
+// SSHCAVaultAppRoleConfig configures Vault AppRole authentication.
+// Exactly one of SecretID or SecretIDFile must be set.
 type SSHCAVaultAppRoleConfig struct {
-	Mount        string `yaml:"mount,omitempty"`
+	Mount        string `yaml:"mount,omitempty"` // AppRole auth mount path. Defaults to "approle"
 	RoleID       string `yaml:"roleID"`
-	SecretID     string `yaml:"secretID"`
-	SecretIDFile string `yaml:"secretIDFile"`
+	SecretID     string `yaml:"secretID"`     // Inline SecretID, for dev/testing only
+	SecretIDFile string `yaml:"secretIDFile"` // Path to a file containing the SecretID; preferred in production
 }
 
+// SSHCAVaultGCPConfig configures Vault GCP authentication.
 type SSHCAVaultGCPConfig struct {
-	Mount               string `yaml:"mount,omitempty"`
-	Role                string `yaml:"role"`
-	Type                string `yaml:"type"`
-	ServiceAccountEmail string `yaml:"serviceAccountEmail,omitempty"` // Required for iam type
+	Mount string `yaml:"mount,omitempty"` // GCP auth mount path. Defaults to "gcp"
+	Role  string `yaml:"role"`            // Vault GCP auth role to login as
+	Type  string `yaml:"type"`            // "gce" or "iam"
+
+	// Fields for type "iam".
+	ServiceAccountEmail string `yaml:"serviceAccountEmail,omitempty"` // Required
 }
 
+// SSHCAVaultAWSConfig configures Vault AWS authentication.
 type SSHCAVaultAWSConfig struct {
-	Mount             string `yaml:"mount,omitempty"`
-	Role              string `yaml:"role"`
-	Type              string `yaml:"type"`
+	Mount             string `yaml:"mount,omitempty"` // AWS auth mount path. Defaults to "aws"
+	Role              string `yaml:"role"`            // Vault AWS auth role to login as
+	Type              string `yaml:"type"`            // "iam" or "ec2"
 	Region            string `yaml:"region,omitempty"`
-	IAMServerIDHeader string `yaml:"iamServerIDHeader,omitempty"`
-	// EC2-only options
-	SignatureType string `yaml:"signatureType,omitempty"`
+	IAMServerIDHeader string `yaml:"iamServerIDHeader,omitempty"` // Value for the X-Vault-AWS-IAM-Server-ID header
+
+	// Fields for type "ec2".
+	SignatureType string `yaml:"signatureType,omitempty"` // "pkcs7" (default), "identity", or "rsa2048"
 	Nonce         string `yaml:"nonce,omitempty"`
 }
 
