@@ -63,6 +63,9 @@ func (kr *keyReloader) load() error {
 	kr.mu.Unlock()
 
 	if previous != nil && !keysEqual(previous.PublicKey(), signer.PublicKey()) {
+		publicKeyStr := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(kr.getSigner().PublicKey())))
+		kr.logger.Info("reloaded CA private key file", zap.String("ca_public_key", publicKeyStr))
+
 		// Non-blocking send: a pending notification already re-signs with the latest key.
 		select {
 		case kr.reloadCh <- struct{}{}:
@@ -115,9 +118,6 @@ func (kr *keyReloader) handleWatchEvent(event fsnotify.Event, watcher *fsnotify.
 
 			return nil
 		}
-
-		publicKeyStr := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(kr.getSigner().PublicKey())))
-		kr.logger.Info("reloaded CA private key file", zap.String("ca_public_key", publicKeyStr))
 
 		return nil
 	}
