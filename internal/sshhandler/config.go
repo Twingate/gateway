@@ -133,7 +133,12 @@ func (c *Config) GetDownstreamConfig(ctx context.Context) (*ssh.ServerConfig, er
 		ttl:       c.hostCertTTL,
 	}
 
-	hostCertSigner, err := newAutoRenewingCertSigner(ctx, c.caConfig.GatewayHostCA, hostCertRequest, c.gatewaySigner, c.logger)
+	var renewCh <-chan struct{}
+	if c.caConfig.keyReloader != nil {
+		renewCh = c.caConfig.keyReloader.reloadCh
+	}
+
+	hostCertSigner, err := newAutoRenewingCertSigner(ctx, c.caConfig.GatewayHostCA, hostCertRequest, c.gatewaySigner, renewCh, c.logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to Gateway's host cert signer: %w", err)
 	}
