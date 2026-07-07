@@ -43,33 +43,6 @@ var (
 	}
 )
 
-// ChannelPairFactory creates SSH channel pairs.
-type ChannelPairFactory interface {
-	NewChannelPair(logger *zap.Logger, sshChannelCtx *sshChannelContext, sshUsername string, sourceChannel ssh.Channel, sourceRequests <-chan *ssh.Request, targetChannel ssh.Channel, targetRequests <-chan *ssh.Request) ChannelPair
-}
-
-// DefaultChannelPairFactory implements ChannelPairFactory using SSHChannelPair.
-type DefaultChannelPairFactory struct{}
-
-//nolint:ireturn
-func (f *DefaultChannelPairFactory) NewChannelPair(logger *zap.Logger, sshChannelCtx *sshChannelContext, sshUsername string, sourceChannel ssh.Channel, sourceRequests <-chan *ssh.Request, targetChannel ssh.Channel, targetRequests <-chan *ssh.Request) ChannelPair {
-	return NewSSHChannelPair(
-		logger,
-		sshChannelCtx,
-		sshUsername,
-		sourceChannel,
-		wrapSSHRequestChannel(sourceRequests),
-		targetChannel,
-		wrapSSHRequestChannel(targetRequests),
-	)
-}
-
-type ConnPair interface {
-	serve()
-	close()
-	ChannelsOpened() int
-}
-
 type SSHConnPair struct {
 	logger *zap.Logger
 	sshCtx *sshContext
@@ -83,9 +56,6 @@ type SSHConnPair struct {
 	upstreamConn            ssh.Conn
 	upstreamSSHChannelsChan <-chan ssh.NewChannel
 	upstreamRequestsChan    <-chan *ssh.Request
-
-	// Factory for creating channel pairs
-	channelPairFactory ChannelPairFactory
 
 	// Counter for opened channels
 	channelCount atomic.Int32
@@ -108,7 +78,6 @@ func NewSSHConnPair(
 		upstreamConn:              upstreamConn,
 		upstreamSSHChannelsChan:   upstreamChannels,
 		upstreamRequestsChan:      upstreamRequests,
-		channelPairFactory:        &DefaultChannelPairFactory{},
 	}
 }
 
@@ -199,7 +168,7 @@ func (c *SSHConnPair) forwardChannels(channels <-chan ssh.NewChannel, targetConn
 
 		logger.Info("SSH channel opened")
 
-		channelPair := c.channelPairFactory.NewChannelPair(
+		channelPair := NewSSHChannelPair(
 			c.logger,
 			sshChannelCtx,
 			c.upstreamConn.User(),
