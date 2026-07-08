@@ -11,6 +11,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/golang-jwt/jwt/v5"
 	"go.uber.org/zap/zapcore"
@@ -27,6 +28,7 @@ var (
 	errInvalidPublicKey   = errors.New("not a valid public key")
 	errUnsupportedVersion = errors.New("unsupported version")
 	errInvalidPort        = errors.New("invalid port")
+	errWildcardAlias      = errors.New("resource with wildcard address cannot have an alias")
 )
 
 type GATClaims struct {
@@ -68,7 +70,15 @@ func (p GATClaims) Validate() error {
 		return err
 	}
 
-	return validatePort(p.Resource.GatewayMetadata.Upstream.Port, "resource.gateway_metadata.upstream.port")
+	if err := validatePort(p.Resource.GatewayMetadata.Upstream.Port, "resource.gateway_metadata.upstream.port"); err != nil {
+		return err
+	}
+
+	if p.Resource.Alias != "" && strings.HasPrefix(p.Resource.Address, "*.") {
+		return fmt.Errorf("%w: %w: address %q, alias %q", jwt.ErrTokenInvalidClaims, errWildcardAlias, p.Resource.Address, p.Resource.Alias)
+	}
+
+	return nil
 }
 
 // validatePort ensures a GAT-provided port is within the valid TCP range. A missing port (zero)
