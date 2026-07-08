@@ -209,7 +209,7 @@ func matchResourceAddress(pattern, host string) bool {
 		return true
 	}
 
-	if !strings.HasPrefix(pattern, "*.") {
+	if !token.IsWildcardAddress(pattern) {
 		return false
 	}
 

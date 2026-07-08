@@ -74,7 +74,7 @@ func (p GATClaims) Validate() error {
 		return err
 	}
 
-	if p.Resource.Alias != "" && strings.HasPrefix(p.Resource.Address, "*.") {
+	if p.Resource.Alias != "" && IsWildcardAddress(p.Resource.Address) {
 		return fmt.Errorf("%w: %w: address %q, alias %q", jwt.ErrTokenInvalidClaims, errWildcardAlias, p.Resource.Address, p.Resource.Alias)
 	}
 
@@ -146,6 +146,12 @@ type Resource struct {
 	Address         string          `json:"address"`
 	Alias           string          `json:"alias,omitempty"`
 	GatewayMetadata GatewayMetadata `json:"gateway_metadata"` //nolint:tagliatelle // GAT wire format from the controller uses snake_case
+}
+
+// IsWildcardAddress reports whether a resource address is an RFC 6125 wildcard
+// pattern such as *.example.com.
+func IsWildcardAddress(address string) bool {
+	return strings.HasPrefix(address, "*.")
 }
 
 // GatewayMetadata carries per-resource routing details from the GAT.
