@@ -173,7 +173,7 @@ func resolveUpstreamAddress(host, port string, resource token.Resource) (string,
 	default:
 		return "", &HTTPError{
 			Code:    http.StatusBadRequest,
-			Message: fmt.Sprintf("failed to verify CONNECT destination: %s with token resource address %s", host, resource.Address),
+			Message: fmt.Sprintf("CONNECT destination address %s does not match token resource address %s", host, resource.Address),
 			Err:     nil,
 		}
 	}
@@ -187,15 +187,16 @@ func resolveUpstreamAddress(host, port string, resource token.Resource) (string,
 		}
 	}
 
-	if requestedPort != resource.GatewayMetadata.Downstream.Port {
+	metadata := resource.GatewayMetadata
+	if requestedPort != metadata.Downstream.Port {
 		return "", &HTTPError{
 			Code:    http.StatusBadRequest,
-			Message: fmt.Sprintf("CONNECT destination port %d does not match token downstream port %d", requestedPort, resource.GatewayMetadata.Downstream.Port),
+			Message: fmt.Sprintf("CONNECT destination port %d does not match token downstream port %d", requestedPort, metadata.Downstream.Port),
 			Err:     nil,
 		}
 	}
 
-	return net.JoinHostPort(host, strconv.Itoa(resource.GatewayMetadata.Upstream.Port)), nil
+	return net.JoinHostPort(host, strconv.Itoa(metadata.Upstream.Port)), nil
 }
 
 var validDNSLabel = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$`)

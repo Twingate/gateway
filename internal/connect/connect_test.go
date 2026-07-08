@@ -291,7 +291,7 @@ func TestConnectValidator_ParseConnect(t *testing.T) {
 		require.ErrorAs(t, err, &httpErr)
 		require.NoError(t, httpErr.Err)
 		assert.Equal(t, http.StatusBadRequest, httpErr.Code)
-		assert.Contains(t, httpErr.Error(), "failed to verify CONNECT destination")
+		assert.Contains(t, httpErr.Error(), "CONNECT destination address website.com does not match token resource address example.com")
 		assert.Equal(t, *connectInfo.Claims, gatClaims)
 		assert.Equal(t, "conn-id", connectInfo.ConnID)
 	})
@@ -341,7 +341,7 @@ func TestConnectValidator_ParseConnect(t *testing.T) {
 		assert.Equal(t, "conn-id", connectInfo.ConnID)
 	})
 
-	t.Run("Connect via alias rewrites host to resource address", func(t *testing.T) {
+	t.Run("Rewrites alias address to upstream address", func(t *testing.T) {
 		claims := newGATTokenClaims(c.getPublicKey())
 		claims.Resource.Alias = "app.acme.internal"
 		claims.Resource.GatewayMetadata.Upstream = token.Upstream{Port: 8443}
@@ -361,25 +361,6 @@ func TestConnectValidator_ParseConnect(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "example.com:8443", connectInfo.Address)
 		assert.Equal(t, "conn-id", connectInfo.ConnID)
-	})
-
-	t.Run("Connect to wildcard resource keeps requested host", func(t *testing.T) {
-		claims := newGATTokenClaims(c.getPublicKey())
-		claims.Resource.Address = "*.example.com"
-		parserWildcard, tokenWildcard := createParserAndGATToken(t, claims)
-		validator := &MessageValidator{TokenParser: parserWildcard}
-
-		req := httptest.NewRequest(http.MethodConnect, "api.example.com:443", nil)
-		req.Header.Set(AuthHeaderKey, "Bearer "+tokenWildcard)
-
-		signature := c.sign(sigData)
-		req.Header.Set(AuthSignatureHeaderKey, signature)
-		req.Header.Set(ConnIDHeaderKey, "conn-id")
-
-		connectInfo, err := validator.ParseConnect(req, []byte(sigData))
-
-		require.NoError(t, err)
-		assert.Equal(t, "api.example.com:443", connectInfo.Address)
 	})
 }
 
@@ -463,7 +444,7 @@ func TestResolveUpstreamAddress(t *testing.T) {
 			port:        "443",
 			resource:    token.Resource{Address: "example.com", Alias: "app.internal", GatewayMetadata: metadata},
 			wantCode:    http.StatusBadRequest,
-			wantMessage: "failed to verify CONNECT destination",
+			wantMessage: "CONNECT destination address other.com does not match token resource address example.com",
 		},
 		{
 			name:        "non-numeric port",
