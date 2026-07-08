@@ -380,7 +380,7 @@ func TestHTTPError_Error(t *testing.T) {
 	}
 }
 
-func TestRewriteAddress(t *testing.T) {
+func TestResolveUpstreamAddress(t *testing.T) {
 	metadata := token.GatewayMetadata{
 		Downstream: token.Downstream{Port: 443},
 		Upstream:   token.Upstream{Port: 8443},
@@ -422,7 +422,7 @@ func TestRewriteAddress(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, httpErr := rewriteAddress(tt.host, tt.port, tt.metadata)
+			got, httpErr := resolveUpstreamAddress(tt.host, tt.port, tt.metadata)
 
 			if tt.wantCode != 0 {
 				require.NotNil(t, httpErr)
