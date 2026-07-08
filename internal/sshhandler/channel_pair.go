@@ -14,7 +14,7 @@ import (
 	"gateway/internal/sessionrecorder"
 )
 
-var sessionStartTimeout = 10 * time.Second
+const defaultSessionStartTimeout = 10 * time.Second
 
 // SessionRecorderFactory creates session recorders.
 type SessionRecorderFactory interface {
@@ -39,21 +39,21 @@ func (c *TerminalOutputRecorder) Write(p []byte) (n int, err error) {
 	return len(p), err
 }
 
+// channel is one end of an open SSH channel: the channel itself plus its incoming
+// out-of-band requests, the pair returned by ssh.Conn.OpenChannel or ssh.NewChannel.Accept.
+type channel struct {
+	ch       ssh.Channel
+	requests <-chan *ssh.Request
+}
+
 type SSHChannelPair struct {
 	logger *zap.Logger
 
 	// sshChannelCtx carries channel-level context
 	sshChannelCtx *sshChannelContext
 
-	// Source SSH channel
-	sourceChannel ssh.Channel
-	// Source SSH channel requests channel
-	sourceChannelRequests <-chan *ssh.Request
-
-	// Target SSH channel
-	targetChannel ssh.Channel
-	// Target SSH channel requests channel
-	targetChannelRequests <-chan *ssh.Request
+	source channel
+	target channel
 
 	// SSH username (for session recording)
 	sshUsername string
@@ -61,20 +61,28 @@ type SSHChannelPair struct {
 	// Factory for creating session recorders
 	recorderFactory SessionRecorderFactory
 
+	// sessionStartTimeout bounds the wait for a session-start request before serve() gives up.
+	sessionStartTimeout time.Duration
+
+	// channelEOFTimeout and channelCloseTimeout configure the data copiers' teardown waits.
+	channelEOFTimeout   time.Duration
+	channelCloseTimeout time.Duration
+
 	ptyRequestOnce sync.Once
 }
 
 // NewSSHChannelPair creates a new SSHChannelPair with the default factories.
-func NewSSHChannelPair(logger *zap.Logger, sshChannelCtx *sshChannelContext, sshUsername string, sourceChannel ssh.Channel, sourceRequests <-chan *ssh.Request, targetChannel ssh.Channel, targetRequests <-chan *ssh.Request) *SSHChannelPair {
+func NewSSHChannelPair(logger *zap.Logger, sshChannelCtx *sshChannelContext, sshUsername string, source, target channel) *SSHChannelPair {
 	return &SSHChannelPair{
-		logger:                logger,
-		sshChannelCtx:         sshChannelCtx,
-		sshUsername:           sshUsername,
-		sourceChannel:         sourceChannel,
-		sourceChannelRequests: sourceRequests,
-		targetChannel:         targetChannel,
-		targetChannelRequests: targetRequests,
-		recorderFactory:       &DefaultSessionRecorderFactory{},
+		logger:              logger,
+		sshChannelCtx:       sshChannelCtx,
+		sshUsername:         sshUsername,
+		source:              source,
+		target:              target,
+		recorderFactory:     &DefaultSessionRecorderFactory{},
+		sessionStartTimeout: defaultSessionStartTimeout,
+		channelEOFTimeout:   defaultChannelEOFTimeout,
+		channelCloseTimeout: defaultChannelCloseTimeout,
 	}
 }
 
@@ -99,8 +107,8 @@ func (c *SSHChannelPair) serve() {
 		logger:            c.logger,
 		sshChannelCtx:     c.sshChannelCtx,
 		flushTrigger:      sourceEOFTrigger,
-		sourceRequestChan: c.sourceChannelRequests,
-		targetChannel:     c.targetChannel,
+		sourceRequestChan: c.source.requests,
+		targetChannel:     c.target.ch,
 		onPtyRequest: func(req ptyReq) {
 			// Set the asciinema header with the pty request details only once
 			c.ptyRequestOnce.Do(func() {
@@ -139,8 +147,8 @@ func (c *SSHChannelPair) serve() {
 		logger:            c.logger,
 		sshChannelCtx:     targetChannelCtx,
 		flushTrigger:      targetEOFTrigger,
-		sourceRequestChan: c.targetChannelRequests,
-		targetChannel:     c.sourceChannel,
+		sourceRequestChan: c.target.requests,
+		targetChannel:     c.source.ch,
 		onPtyRequest:      nil,
 		onWindowChange:    nil,
 	}
@@ -154,7 +162,7 @@ func (c *SSHChannelPair) serve() {
 		case command = <-sourceSessionSignals.started:
 			logger.Debug("Source session started", zap.String("command", command))
 			asciinemaHeader.Command = command
-		case <-time.After(sessionStartTimeout):
+		case <-time.After(c.sessionStartTimeout):
 			logger.Error("Timeout waiting for source session to start")
 
 			return
@@ -188,19 +196,23 @@ func (c *SSHChannelPair) serve() {
 		logger: logger,
 		SourceToTarget: ChannelCopyPair{
 			logger:          logger,
-			Src:             c.sourceChannel,
-			Dst:             c.targetChannel,
+			Src:             c.source.ch,
+			Dst:             c.target.ch,
 			EOFTriggerCh:    sourceEOFTrigger,
 			ChannelClosedCh: sourceSessionSignals.finished,
+			eofTimeout:      c.channelEOFTimeout,
+			closeTimeout:    c.channelCloseTimeout,
 		},
 
 		TargetToSource: ChannelCopyPair{
 			logger:          logger,
-			Src:             c.targetChannel,
-			Dst:             c.sourceChannel,
+			Src:             c.target.ch,
+			Dst:             c.source.ch,
 			EOFTriggerCh:    targetEOFTrigger,
 			ChannelClosedCh: targetSessionSignals.finished,
 			Tap:             processor,
+			eofTimeout:      c.channelEOFTimeout,
+			closeTimeout:    c.channelCloseTimeout,
 		},
 	}
 

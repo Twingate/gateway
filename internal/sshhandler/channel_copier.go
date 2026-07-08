@@ -13,8 +13,10 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-var channelEOFTimeout = 5 * time.Second
-var channelCloseTimeout = 10 * time.Second
+const (
+	defaultChannelEOFTimeout   = 5 * time.Second
+	defaultChannelCloseTimeout = 10 * time.Second
+)
 
 type ChannelCopyPair struct {
 	logger *zap.Logger
@@ -33,6 +35,12 @@ type ChannelCopyPair struct {
 
 	// Tap for recording a channel's data from Src channel
 	Tap io.Writer
+
+	// eofTimeout bounds the wait for a pending-request flush or a Src close before sending EOF.
+	eofTimeout time.Duration
+
+	// closeTimeout bounds the wait for the peer to close the channel before force-closing it.
+	closeTimeout time.Duration
 }
 
 func (c *ChannelCopyPair) copy() {
@@ -68,7 +76,7 @@ func (c *ChannelCopyPair) copy() {
 		// If Src already closed the channel, then there's no pending requests anymore, so we can
 		// send SSH_MSG_CHANNEL_EOF
 		c.logger.Debug("Channel closed")
-	case <-time.After(channelEOFTimeout):
+	case <-time.After(c.eofTimeout):
 		// If we timeout, we proceed with teardown
 		c.logger.Error("Timeout waiting for EOF trigger or channel close")
 	}
@@ -87,7 +95,7 @@ func (c *ChannelCopyPair) copy() {
 	select {
 	case <-c.ChannelClosedCh:
 		c.logger.Debug("Requests channel closed")
-	case <-time.After(channelCloseTimeout):
+	case <-time.After(c.closeTimeout):
 		c.logger.Error("Timeout waiting for requests channel close")
 	}
 

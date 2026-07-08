@@ -219,23 +219,12 @@ func (h *SSHRequestHandler) handleRequests() SSHSessionSignals {
 }
 
 func forwardRequest(channel ssh.Channel, request *ssh.Request) error {
-	// Forward the request to the target channel
 	reply, requestErr := channel.SendRequest(request.Type, request.WantReply, request.Payload)
 	if requestErr != nil {
-		// Reply with failure
-		if request.WantReply {
-			_ = request.Reply(false, nil)
-		}
+		_ = request.Reply(false, nil)
 
 		return requestErr
 	}
 
-	// Reply to the original request with the reply from forwarded request
-	if request.WantReply {
-		if replyErr := request.Reply(reply, nil); replyErr != nil {
-			return replyErr
-		}
-	}
-
-	return nil
+	return request.Reply(reply, nil)
 }
