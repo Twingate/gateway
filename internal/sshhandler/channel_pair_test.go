@@ -336,7 +336,7 @@ func TestChannelPair_ForwardsRequests(t *testing.T) {
 		{
 			// A malformed payload for a parsed type is still forwarded verbatim: the handler
 			// logs the parse error but does not drop the request. exec is parsed yet has no
-			// callback, so this row is direction-agnostic.
+			// callback, so this case is direction-agnostic.
 			name:      "malformed payload forwarded verbatim",
 			reqType:   "exec",
 			payload:   []byte("not-a-valid-exec-payload"),
