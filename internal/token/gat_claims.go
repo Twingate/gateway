@@ -25,10 +25,10 @@ const (
 )
 
 var (
-	errInvalidPublicKey   = errors.New("not a valid public key")
-	errUnsupportedVersion = errors.New("unsupported version")
-	errInvalidPort        = errors.New("invalid port")
-	errWildcardAlias      = errors.New("wildcard resource address cannot have an alias")
+	errInvalidPublicKey       = errors.New("not a valid public key")
+	errUnsupportedVersion     = errors.New("unsupported version")
+	errInvalidPort            = errors.New("invalid port")
+	errAliasOnWildcardAddress = errors.New("wildcard resource address cannot have an alias")
 )
 
 type GATClaims struct {
@@ -75,7 +75,7 @@ func (p GATClaims) Validate() error {
 	}
 
 	if p.Resource.Alias != "" && IsWildcardAddress(p.Resource.Address) {
-		return fmt.Errorf("%w: %w: address %q, alias %q", jwt.ErrTokenInvalidClaims, errWildcardAlias, p.Resource.Address, p.Resource.Alias)
+		return fmt.Errorf("%w: %w: address %q, alias %q", jwt.ErrTokenInvalidClaims, errAliasOnWildcardAddress, p.Resource.Address, p.Resource.Alias)
 	}
 
 	return nil

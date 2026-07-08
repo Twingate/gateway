@@ -168,7 +168,9 @@ func (v *MessageValidator) ParseConnect(req *http.Request, ekm []byte) (connectI
 func resolveUpstreamAddress(host, port string, resource token.Resource) (string, *HTTPError) {
 	switch {
 	case matchResourceAddress(resource.Address, host):
+		//	Keep existing upstream address
 	case matchResourceAlias(resource.Alias, host):
+		//	Rewrite upstream address to GAT token address
 		host = resource.Address
 	default:
 		return "", &HTTPError{
