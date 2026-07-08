@@ -5,14 +5,19 @@ package sshhandler
 
 import (
 	"bytes"
+	"errors"
 	"io"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
 	"golang.org/x/crypto/ssh"
+
+	"gateway/internal/sessionrecorder"
 )
 
 // testTimeout bounds every blocking wait in these tests.
@@ -28,6 +33,10 @@ const testTimeout = 5 * time.Second
 // The proxy-held ends feed SSHChannelPair (source = proxyDownstream, target = proxyUpstream).
 type proxyChannels struct {
 	channelType string
+
+	// recorder replaces the pair's real session recorder via a fakeRecorderFactory; its error
+	// fields may be set before serve() to inject recorder write failures.
+	recorder *fakeRecorder
 
 	// Optional per-test timeout overrides applied in serve(); zero leaves the pair's default.
 	sessionStartTimeout time.Duration
@@ -52,7 +61,7 @@ func newProxyChannels(t *testing.T, channelType string) *proxyChannels {
 		go ssh.DiscardRequests(end.requests)
 	}
 
-	channels := &proxyChannels{channelType: channelType}
+	channels := &proxyChannels{channelType: channelType, recorder: &fakeRecorder{}}
 	channels.client, channels.proxyDownstream = openChannel(t, clientConn, proxyDownstreamConn, channelType)
 	channels.proxyUpstream, channels.server = openChannel(t, proxyUpstreamConn, serverConn, channelType)
 
@@ -78,6 +87,7 @@ func (p *proxyChannels) serve(t *testing.T) <-chan struct{} {
 		p.proxyDownstream,
 		p.proxyUpstream,
 	)
+	pair.recorderFactory = &fakeRecorderFactory{recorder: p.recorder}
 
 	if p.sessionStartTimeout != 0 {
 		pair.sessionStartTimeout = p.sessionStartTimeout
@@ -105,6 +115,118 @@ func (p *proxyChannels) close(t *testing.T, done <-chan struct{}) {
 	_ = p.server.ch.Close()
 
 	waitServeDone(t, done)
+}
+
+// sendAckedRequest sends a WantReply request from the client, acknowledges it at the server,
+// and requires the success reply to round-trip. The reply also guarantees the proxy finished
+// handling the request (e.g. a session gate opened or a resize was recorded).
+func (p *proxyChannels) sendAckedRequest(t *testing.T, reqType string, payload []byte) {
+	t.Helper()
+
+	awaitReply := sendRequest(p.client.ch, reqType, true, payload)
+
+	forwarded := recvForwardedReq(t, p.server.requests, reqType)
+	require.NoError(t, forwarded.Reply(true, nil))
+
+	ok, err := awaitReply(t)
+	require.NoError(t, err)
+	require.True(t, ok, "%q request must succeed", reqType)
+}
+
+// sendWindowChange sends a window-change and waits for the proxy to finish handling it; the
+// acknowledged reply guarantees the resize was recorded before it returns.
+func (p *proxyChannels) sendWindowChange(t *testing.T, width, height uint32) {
+	t.Helper()
+
+	p.sendAckedRequest(t, requestTypeWindowChange, ssh.Marshal(windowChangeReq{
+		WidthColumns: width, HeightRows: height,
+	}))
+}
+
+// fakeRecorder is a sessionrecorder.Recorder that records every call it receives and returns
+// the injected errors, if any, from its write methods.
+type fakeRecorder struct {
+	mu sync.Mutex
+
+	// Injected results for WriteHeader / WriteResizeEvent; the calls are recorded regardless.
+	headerErr error
+	resizeErr error
+
+	header  *sessionrecorder.AsciicastHeader
+	output  bytes.Buffer
+	resizes []sessionrecorder.ResizeMsg
+	stopped bool
+}
+
+func (r *fakeRecorder) WriteHeader(h sessionrecorder.AsciicastHeader) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.header = &h
+
+	return r.headerErr
+}
+
+func (r *fakeRecorder) WriteOutputEvent(data []byte) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.output.Write(data)
+
+	return nil
+}
+
+func (r *fakeRecorder) WriteResizeEvent(width int, height int) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.resizes = append(r.resizes, sessionrecorder.ResizeMsg{Width: width, Height: height})
+
+	return r.resizeErr
+}
+
+func (r *fakeRecorder) IsHeaderWritten() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return r.header != nil
+}
+
+func (r *fakeRecorder) Stop() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.stopped = true
+}
+
+// recorderState is a point-in-time copy of everything a fakeRecorder observed; its zero value
+// means the recorder was never touched.
+type recorderState struct {
+	header  *sessionrecorder.AsciicastHeader
+	output  string
+	resizes []sessionrecorder.ResizeMsg
+	stopped bool
+}
+
+func (r *fakeRecorder) state() recorderState {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return recorderState{
+		header:  r.header,
+		output:  r.output.String(),
+		resizes: r.resizes,
+		stopped: r.stopped,
+	}
+}
+
+// fakeRecorderFactory implements SessionRecorderFactory by handing out the fixture's fakeRecorder.
+type fakeRecorderFactory struct {
+	recorder *fakeRecorder
+}
+
+func (f *fakeRecorderFactory) NewRecorder(*zap.Logger) sessionrecorder.Recorder {
+	return f.recorder
 }
 
 // openChannel opens a channel from opener to acceptor and returns both ends.
@@ -228,6 +350,22 @@ func readInFull(t *testing.T, reader io.Reader, n int) []byte {
 
 		return nil
 	}
+}
+
+// startRead begins reading exactly n bytes in the background and returns a channel that
+// delivers them once the read completes; the tests use it to assert that data does or does
+// not arrive across the session gate.
+func startRead(reader io.Reader, n int) <-chan []byte {
+	out := make(chan []byte, 1)
+
+	go func() {
+		buf := make([]byte, n)
+		if _, err := io.ReadFull(reader, buf); err == nil {
+			out <- buf
+		}
+	}()
+
+	return out
 }
 
 // assertEOF asserts the next read returns io.EOF within testTimeout.
@@ -470,4 +608,183 @@ func TestChannelPair_PeerAbortMidTransfer(t *testing.T) {
 
 	assertEOF(t, channels.client.ch)
 	waitServeDone(t, done)
+}
+
+func TestChannelPair_SessionWaitsForStart(t *testing.T) {
+	tests := []struct {
+		name    string
+		reqType string
+		payload []byte
+	}{
+		{name: "shell", reqType: "shell"},
+		{name: "exec", reqType: "exec", payload: ssh.Marshal(execReq{Command: "ls"})},
+		{name: "subsystem", reqType: "subsystem", payload: ssh.Marshal(subsystemReq{Name: "sftp"})},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			channels := newProxyChannels(t, "session")
+			done := channels.serve(t)
+
+			// Data written before the session starts is held back by the session gate.
+			_, err := channels.client.ch.Write([]byte("early-bytes"))
+			require.NoError(t, err)
+
+			read := startRead(channels.server.ch, len("early-bytes"))
+
+			select {
+			case <-read:
+				t.Fatal("data crossed the session gate before the session started")
+			case <-time.After(100 * time.Millisecond):
+			}
+
+			// Forwarding the session-start request opens the gate and the held-back
+			// bytes flow through.
+			channels.sendAckedRequest(t, tt.reqType, tt.payload)
+
+			select {
+			case got := <-read:
+				assert.Equal(t, "early-bytes", string(got))
+			case <-time.After(testTimeout):
+				t.Fatal("timed out waiting for data after session start")
+			}
+
+			channels.close(t, done)
+		})
+	}
+}
+
+func TestChannelPair_SessionStartTimeout(t *testing.T) {
+	channels := newProxyChannels(t, "session")
+	channels.sessionStartTimeout = 300 * time.Millisecond
+
+	start := time.Now()
+	done := channels.serve(t)
+
+	// No session-start request ever arrives, so this data must never be copied.
+	_, err := channels.client.ch.Write([]byte("never-copied"))
+	require.NoError(t, err)
+
+	read := startRead(channels.server.ch, len("never-copied"))
+
+	waitServeDone(t, done)
+	assert.GreaterOrEqual(t, time.Since(start), 300*time.Millisecond)
+
+	select {
+	case <-read:
+		t.Fatal("data was copied even though the session never started")
+	default:
+	}
+
+	assert.Equal(t, recorderState{}, channels.recorder.state(), "no session => no recorder")
+
+	channels.close(t, done)
+}
+
+func TestChannelPair_SessionShellRecording(t *testing.T) {
+	channels := newProxyChannels(t, "session")
+	done := channels.serve(t)
+
+	// pty-req precedes shell by convention; its dimensions seed the asciinema header.
+	channels.sendAckedRequest(t, "pty-req", ssh.Marshal(ptyReq{Term: "xterm", WidthColumns: 80, HeightRows: 24}))
+	channels.sendAckedRequest(t, "shell", nil)
+
+	// Only upstream->downstream data (terminal output) is recorded: client keystrokes
+	// must not show up as output events.
+	_, err := channels.client.ch.Write([]byte("keystrokes"))
+	require.NoError(t, err)
+	assert.Equal(t, "keystrokes", string(readInFull(t, channels.server.ch, len("keystrokes"))))
+
+	_, err = channels.server.ch.Write([]byte("terminal-output"))
+	require.NoError(t, err)
+	assert.Equal(t, "terminal-output", string(readInFull(t, channels.client.ch, len("terminal-output"))))
+
+	// The window-change is recorded as a resize event before it is forwarded upstream; the
+	// acked reply guarantees the resize was written before teardown.
+	channels.sendWindowChange(t, 120, 40)
+
+	channels.close(t, done)
+
+	state := channels.recorder.state()
+	require.NotNil(t, state.header)
+	assert.Equal(t, 80, state.header.Width)
+	assert.Equal(t, 24, state.header.Height)
+	assert.Equal(t, "shell", state.header.Command)
+	assert.Equal(t, "testuser", state.header.User)
+	assert.Equal(t, "terminal-output", state.output)
+	assert.Equal(t, []sessionrecorder.ResizeMsg{{Width: 120, Height: 40}}, state.resizes)
+	assert.True(t, state.stopped, "recorder must be stopped on teardown")
+}
+
+func TestChannelPair_SessionNonShellNoRecording(t *testing.T) {
+	tests := []struct {
+		name    string
+		reqType string
+		payload []byte
+	}{
+		{name: "exec", reqType: "exec", payload: ssh.Marshal(execReq{Command: "ls"})},
+		{name: "subsystem", reqType: "subsystem", payload: ssh.Marshal(subsystemReq{Name: "sftp"})},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			channels := newProxyChannels(t, "session")
+			done := channels.serve(t)
+
+			// The session starts and data flows...
+			channels.sendAckedRequest(t, tt.reqType, tt.payload)
+
+			_, err := channels.server.ch.Write([]byte("command-output"))
+			require.NoError(t, err)
+			assert.Equal(t, "command-output", string(readInFull(t, channels.client.ch, len("command-output"))))
+
+			channels.close(t, done)
+
+			// ...but nothing is recorded: only shell sessions create a recorder.
+			assert.Equal(t, recorderState{}, channels.recorder.state())
+		})
+	}
+}
+
+func TestChannelPair_SessionWindowChangeWithoutRecorder(t *testing.T) {
+	// Only shell sessions get a recorder, so on an exec session the resize callback holds a
+	// nil recorder. A window-change must hit that nil guard and forward cleanly rather than
+	// dereference the missing recorder and panic.
+	channels := newProxyChannels(t, "session")
+	done := channels.serve(t)
+
+	channels.sendAckedRequest(t, "exec", ssh.Marshal(execReq{Command: "top"}))
+	channels.sendWindowChange(t, 120, 40)
+
+	// The session is still alive after the window-change.
+	_, err := channels.server.ch.Write([]byte("still-alive"))
+	require.NoError(t, err)
+	assert.Equal(t, "still-alive", string(readInFull(t, channels.client.ch, len("still-alive"))))
+
+	channels.close(t, done)
+	assert.Equal(t, recorderState{}, channels.recorder.state())
+}
+
+func TestChannelPair_SessionRecorderWriteErrors(t *testing.T) {
+	channels := newProxyChannels(t, "session")
+	channels.recorder.headerErr = errors.New("header write failed")
+	channels.recorder.resizeErr = errors.New("resize write failed")
+	done := channels.serve(t)
+
+	channels.sendAckedRequest(t, "pty-req", ssh.Marshal(ptyReq{Term: "xterm", WidthColumns: 80, HeightRows: 24}))
+	channels.sendAckedRequest(t, "shell", nil)
+	channels.sendWindowChange(t, 120, 40)
+
+	// Both writes failed, yet the session keeps going: output still flows and is recorded.
+	_, err := channels.server.ch.Write([]byte("survives"))
+	require.NoError(t, err)
+	assert.Equal(t, "survives", string(readInFull(t, channels.client.ch, len("survives"))))
+
+	channels.close(t, done)
+
+	state := channels.recorder.state()
+	assert.NotNil(t, state.header, "header write must have been attempted")
+	assert.Len(t, state.resizes, 1, "resize write must have been attempted")
+	assert.Equal(t, "survives", state.output)
+	assert.True(t, state.stopped)
 }
