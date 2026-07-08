@@ -144,18 +144,7 @@ func (v *MessageValidator) ParseConnect(req *http.Request, ekm []byte) (connectI
 			}
 	}
 
-	if !matchResourceAddress(gatClaims.Resource.Address, host) {
-		return Info{
-				Claims: gatClaims,
-				ConnID: connID,
-			}, &HTTPError{
-				Code:    http.StatusBadRequest,
-				Message: fmt.Sprintf("failed to verify CONNECT destination: %s with token resource address %s", host, gatClaims.Resource.Address),
-				Err:     nil,
-			}
-	}
-
-	address, httpErr := resolveUpstreamAddress(host, port, gatClaims.Resource.GatewayMetadata)
+	address, httpErr := resolveUpstreamAddress(host, port, gatClaims.Resource)
 	if httpErr != nil {
 		return Info{
 			Claims: gatClaims,
@@ -171,11 +160,24 @@ func (v *MessageValidator) ParseConnect(req *http.Request, ekm []byte) (connectI
 	}, nil
 }
 
-// resolveUpstreamAddress verifies the CONNECT destination port matches the GAT
-// downstream port and maps it to the upstream port for backend forwarding. Both
-// ports are validated for presence and range when the token is parsed, so they
-// are guaranteed to be within the valid range here.
-func resolveUpstreamAddress(host, port string, metadata token.GatewayMetadata) (string, *HTTPError) {
+// resolveUpstreamAddress verifies the CONNECT destination against the GAT
+// resource and maps it to the upstream address for backend forwarding: a host
+// matching the resource alias maps to the resource address, and the downstream
+// port maps to the upstream port. Both ports are validated for presence and
+// range when the token is parsed.
+func resolveUpstreamAddress(host, port string, resource token.Resource) (string, *HTTPError) {
+	switch {
+	case matchResourceAddress(resource.Address, host):
+	case matchResourceAlias(resource.Alias, host):
+		host = resource.Address
+	default:
+		return "", &HTTPError{
+			Code:    http.StatusBadRequest,
+			Message: fmt.Sprintf("failed to verify CONNECT destination: %s with token resource address %s", host, resource.Address),
+			Err:     nil,
+		}
+	}
+
 	requestedPort, err := strconv.Atoi(port)
 	if err != nil {
 		return "", &HTTPError{
@@ -185,15 +187,15 @@ func resolveUpstreamAddress(host, port string, metadata token.GatewayMetadata) (
 		}
 	}
 
-	if requestedPort != metadata.Downstream.Port {
+	if requestedPort != resource.GatewayMetadata.Downstream.Port {
 		return "", &HTTPError{
 			Code:    http.StatusBadRequest,
-			Message: fmt.Sprintf("CONNECT destination port %d does not match token downstream port %d", requestedPort, metadata.Downstream.Port),
+			Message: fmt.Sprintf("CONNECT destination port %d does not match token downstream port %d", requestedPort, resource.GatewayMetadata.Downstream.Port),
 			Err:     nil,
 		}
 	}
 
-	return net.JoinHostPort(host, strconv.Itoa(metadata.Upstream.Port)), nil
+	return net.JoinHostPort(host, strconv.Itoa(resource.GatewayMetadata.Upstream.Port)), nil
 }
 
 var validDNSLabel = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$`)
@@ -218,4 +220,9 @@ func matchResourceAddress(pattern, host string) bool {
 	label := host[:len(host)-len(suffix)]
 
 	return validDNSLabel.MatchString(label)
+}
+
+// matchResourceAlias checks whether host matches the resource alias.
+func matchResourceAlias(alias, host string) bool {
+	return alias != "" && strings.EqualFold(alias, host)
 }

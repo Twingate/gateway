@@ -134,6 +134,7 @@ type Resource struct {
 	ID              string          `json:"id"`
 	Type            ResourceType    `json:"type"`
 	Address         string          `json:"address"`
+	Alias           string          `json:"alias,omitempty"`
 	GatewayMetadata GatewayMetadata `json:"gateway_metadata"` //nolint:tagliatelle // GAT wire format from the controller uses snake_case
 }
 

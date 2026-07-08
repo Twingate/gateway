@@ -340,6 +340,47 @@ func TestConnectValidator_ParseConnect(t *testing.T) {
 		assert.Equal(t, "example.com:8443", connectInfo.Address)
 		assert.Equal(t, "conn-id", connectInfo.ConnID)
 	})
+
+	t.Run("Connect via alias rewrites host to resource address", func(t *testing.T) {
+		claims := newGATTokenClaims(c.getPublicKey())
+		claims.Resource.Alias = "app.acme.internal"
+		claims.Resource.GatewayMetadata.Upstream = token.Upstream{Port: 8443}
+		parserAlias, tokenAlias := createParserAndGATToken(t, claims)
+		validator := &MessageValidator{TokenParser: parserAlias}
+
+		// client targets the resource alias; backend must be dialed on the resource address
+		req := httptest.NewRequest(http.MethodConnect, "App.Acme.Internal:443", nil)
+		req.Header.Set(AuthHeaderKey, "Bearer "+tokenAlias)
+
+		signature := c.sign(sigData)
+		req.Header.Set(AuthSignatureHeaderKey, signature)
+		req.Header.Set(ConnIDHeaderKey, "conn-id")
+
+		connectInfo, err := validator.ParseConnect(req, []byte(sigData))
+
+		require.NoError(t, err)
+		assert.Equal(t, "example.com:8443", connectInfo.Address)
+		assert.Equal(t, "conn-id", connectInfo.ConnID)
+	})
+
+	t.Run("Connect to wildcard resource keeps requested host", func(t *testing.T) {
+		claims := newGATTokenClaims(c.getPublicKey())
+		claims.Resource.Address = "*.example.com"
+		parserWildcard, tokenWildcard := createParserAndGATToken(t, claims)
+		validator := &MessageValidator{TokenParser: parserWildcard}
+
+		req := httptest.NewRequest(http.MethodConnect, "api.example.com:443", nil)
+		req.Header.Set(AuthHeaderKey, "Bearer "+tokenWildcard)
+
+		signature := c.sign(sigData)
+		req.Header.Set(AuthSignatureHeaderKey, signature)
+		req.Header.Set(ConnIDHeaderKey, "conn-id")
+
+		connectInfo, err := validator.ParseConnect(req, []byte(sigData))
+
+		require.NoError(t, err)
+		assert.Equal(t, "api.example.com:443", connectInfo.Address)
+	})
 }
 
 func TestHTTPError_Error(t *testing.T) {
@@ -390,7 +431,7 @@ func TestResolveUpstreamAddress(t *testing.T) {
 		name        string
 		host        string
 		port        string
-		metadata    token.GatewayMetadata
+		resource    token.Resource
 		wantAddress string
 		wantCode    int
 		wantMessage string
@@ -399,14 +440,36 @@ func TestResolveUpstreamAddress(t *testing.T) {
 			name:        "maps downstream port to upstream port",
 			host:        "example.com",
 			port:        "443",
-			metadata:    metadata,
+			resource:    token.Resource{Address: "example.com", GatewayMetadata: metadata},
 			wantAddress: "example.com:8443",
+		},
+		{
+			name:        "wildcard address keeps requested host",
+			host:        "api.example.com",
+			port:        "443",
+			resource:    token.Resource{Address: "*.example.com", GatewayMetadata: metadata},
+			wantAddress: "api.example.com:8443",
+		},
+		{
+			name:        "alias maps to resource address",
+			host:        "app.internal",
+			port:        "443",
+			resource:    token.Resource{Address: "10.0.0.5", Alias: "app.internal", GatewayMetadata: metadata},
+			wantAddress: "10.0.0.5:8443",
+		},
+		{
+			name:        "host matches neither address nor alias",
+			host:        "other.com",
+			port:        "443",
+			resource:    token.Resource{Address: "example.com", Alias: "app.internal", GatewayMetadata: metadata},
+			wantCode:    http.StatusBadRequest,
+			wantMessage: "failed to verify CONNECT destination",
 		},
 		{
 			name:        "non-numeric port",
 			host:        "example.com",
 			port:        "abc",
-			metadata:    metadata,
+			resource:    token.Resource{Address: "example.com", GatewayMetadata: metadata},
 			wantCode:    http.StatusBadRequest,
 			wantMessage: "failed to parse CONNECT destination port",
 		},
@@ -414,7 +477,7 @@ func TestResolveUpstreamAddress(t *testing.T) {
 			name:        "port mismatch with downstream port",
 			host:        "example.com",
 			port:        "8443",
-			metadata:    metadata,
+			resource:    token.Resource{Address: "example.com", GatewayMetadata: metadata},
 			wantCode:    http.StatusBadRequest,
 			wantMessage: "CONNECT destination port 8443 does not match token downstream port 443",
 		},
@@ -422,7 +485,7 @@ func TestResolveUpstreamAddress(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, httpErr := resolveUpstreamAddress(tt.host, tt.port, tt.metadata)
+			got, httpErr := resolveUpstreamAddress(tt.host, tt.port, tt.resource)
 
 			if tt.wantCode != 0 {
 				require.NotNil(t, httpErr)
@@ -535,6 +598,52 @@ func TestMatchResourceAddress(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.want, matchResourceAddress(tt.pattern, tt.host))
+		})
+	}
+}
+
+func TestMatchResourceAlias(t *testing.T) {
+	tests := []struct {
+		name  string
+		alias string
+		host  string
+		want  bool
+	}{
+		{
+			name:  "exact match",
+			alias: "app.internal",
+			host:  "app.internal",
+			want:  true,
+		},
+		{
+			name:  "exact match case insensitive",
+			alias: "App.Internal",
+			host:  "app.INTERNAL",
+			want:  true,
+		},
+		{
+			name:  "mismatch",
+			alias: "app.internal",
+			host:  "other.internal",
+			want:  false,
+		},
+		{
+			name:  "empty alias never matches",
+			alias: "",
+			host:  "app.internal",
+			want:  false,
+		},
+		{
+			name:  "empty alias does not match empty host",
+			alias: "",
+			host:  "",
+			want:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, matchResourceAlias(tt.alias, tt.host))
 		})
 	}
 }
