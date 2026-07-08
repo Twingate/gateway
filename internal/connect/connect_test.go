@@ -343,13 +343,14 @@ func TestConnectValidator_ParseConnect(t *testing.T) {
 
 	t.Run("Rewrites alias address to upstream address", func(t *testing.T) {
 		claims := newGATTokenClaims(c.getPublicKey())
-		claims.Resource.Alias = "app.acme.internal"
+		claims.Resource.Address = "10.0.0.1"
+		claims.Resource.Alias = "foo.int"
 		claims.Resource.GatewayMetadata.Upstream = token.Upstream{Port: 8443}
 		parserAlias, tokenAlias := createParserAndGATToken(t, claims)
 		validator := &MessageValidator{TokenParser: parserAlias}
 
 		// client targets the resource alias; backend must be dialed on the resource address
-		req := httptest.NewRequest(http.MethodConnect, "App.Acme.Internal:443", nil)
+		req := httptest.NewRequest(http.MethodConnect, "Foo.Int:443", nil)
 		req.Header.Set(AuthHeaderKey, "Bearer "+tokenAlias)
 
 		signature := c.sign(sigData)
@@ -359,7 +360,7 @@ func TestConnectValidator_ParseConnect(t *testing.T) {
 		connectInfo, err := validator.ParseConnect(req, []byte(sigData))
 
 		require.NoError(t, err)
-		assert.Equal(t, "example.com:8443", connectInfo.Address)
+		assert.Equal(t, "10.0.0.1:8443", connectInfo.Address)
 		assert.Equal(t, "conn-id", connectInfo.ConnID)
 	})
 }
