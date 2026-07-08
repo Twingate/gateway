@@ -49,6 +49,7 @@ linters:
         # golang.org/x/crypto/ssh
         - Signer
         - PublicKey
+        - NewChannel
     nolintlint:
       # Workaround for golangci-lint cache bug that causes false "unused nolint" reports.
       # See: https://github.com/golangci/golangci-lint/issues/3228

@@ -20,9 +20,6 @@ import (
 	"gateway/internal/sessionrecorder"
 )
 
-// testTimeout bounds every blocking wait in these tests.
-const testTimeout = 5 * time.Second
-
 // proxyChannels is the channel-layer fixture: one channel proxied between two real SSH
 // connections, exposing all four ends:
 //
@@ -62,8 +59,8 @@ func newProxyChannels(t *testing.T, channelType string) *proxyChannels {
 	}
 
 	channels := &proxyChannels{channelType: channelType, recorder: &fakeRecorder{}}
-	channels.client, channels.proxyDownstream = openChannel(t, clientConn, proxyDownstreamConn, channelType)
-	channels.proxyUpstream, channels.server = openChannel(t, proxyUpstreamConn, serverConn, channelType)
+	channels.client, channels.proxyDownstream = openChannel(t, clientConn, proxyDownstreamConn, channelType, nil)
+	channels.proxyUpstream, channels.server = openChannel(t, proxyUpstreamConn, serverConn, channelType, nil)
 
 	return channels
 }
@@ -73,16 +70,9 @@ func newProxyChannels(t *testing.T, channelType string) *proxyChannels {
 func (p *proxyChannels) serve(t *testing.T) <-chan struct{} {
 	t.Helper()
 
-	sshCtx := &sshContext{
-		id:            "test-conn",
-		username:      "testuser",
-		clientVersion: "SSH-2.0-client",
-		serverVersion: "SSH-2.0-server",
-	}
-
 	pair := NewSSHChannelPair(
 		zaptest.NewLogger(t),
-		newSSHChannelContext(sshCtx, p.channelType, labelDownstream, labelUpstream),
+		newSSHChannelContext(testSSHContext, p.channelType, labelDownstream, labelUpstream),
 		"testuser",
 		p.proxyDownstream,
 		p.proxyUpstream,
@@ -229,57 +219,6 @@ func (f *fakeRecorderFactory) NewRecorder(*zap.Logger) sessionrecorder.Recorder 
 	return f.recorder
 }
 
-// openChannel opens a channel from opener to acceptor and returns both ends.
-func openChannel(t *testing.T, opener, acceptor *connection, channelType string) (openerEnd, acceptorEnd channel) {
-	t.Helper()
-
-	type openResult struct {
-		channel channel
-		err     error
-	}
-
-	opened := make(chan openResult, 1)
-
-	go func() {
-		ch, requests, err := opener.conn.OpenChannel(channelType, nil)
-		opened <- openResult{channel: channel{ch: ch, requests: requests}, err: err}
-	}()
-
-	select {
-	case newChannel, ok := <-acceptor.channels:
-		require.True(t, ok, "channel stream closed")
-
-		ch, requests, err := newChannel.Accept()
-		require.NoError(t, err)
-
-		acceptorEnd = channel{ch: ch, requests: requests}
-	case <-time.After(testTimeout):
-		t.Fatal("timed out waiting for channel open")
-	}
-
-	select {
-	case result := <-opened:
-		require.NoError(t, result.err)
-
-		return result.channel, acceptorEnd
-	case <-time.After(testTimeout):
-		t.Fatal("timed out opening channel")
-
-		return channel{}, channel{}
-	}
-}
-
-// waitServeDone fails the test if serve() does not return within testTimeout.
-func waitServeDone(t *testing.T, done <-chan struct{}) {
-	t.Helper()
-
-	select {
-	case <-done:
-	case <-time.After(testTimeout):
-		t.Fatal("timed out waiting for serve() to return")
-	}
-}
-
 // sendRequest sends a channel request from a background goroutine and returns a function
 // that blocks for its (ok, err) result. SendRequest with WantReply blocks until the reply
 // arrives, which the test itself must produce at the far end, so the send cannot run on the
@@ -311,47 +250,6 @@ func sendRequest(ch ssh.Channel, name string, wantReply bool, payload []byte) fu
 	}
 }
 
-// recvForwardedReq receives the next request on the given stream and asserts its type.
-func recvForwardedReq(t *testing.T, reqs <-chan *ssh.Request, wantType string) *ssh.Request {
-	t.Helper()
-
-	select {
-	case req, ok := <-reqs:
-		require.True(t, ok, "request stream closed before %q arrived", wantType)
-		require.Equal(t, wantType, req.Type)
-
-		return req
-	case <-time.After(testTimeout):
-		t.Fatalf("timed out waiting for %q request", wantType)
-
-		return nil
-	}
-}
-
-// readInFull reads exactly n bytes within testTimeout.
-func readInFull(t *testing.T, reader io.Reader, n int) []byte {
-	t.Helper()
-
-	buf := make([]byte, n)
-	done := make(chan error, 1)
-
-	go func() {
-		_, err := io.ReadFull(reader, buf)
-		done <- err
-	}()
-
-	select {
-	case err := <-done:
-		require.NoError(t, err)
-
-		return buf
-	case <-time.After(testTimeout):
-		t.Fatal("timed out reading")
-
-		return nil
-	}
-}
-
 // startRead begins reading exactly n bytes in the background and returns a channel that
 // delivers them once the read completes; the tests use it to assert that data does or does
 // not arrive across the session gate.
@@ -366,25 +264,6 @@ func startRead(reader io.Reader, n int) <-chan []byte {
 	}()
 
 	return out
-}
-
-// assertEOF asserts the next read returns io.EOF within testTimeout.
-func assertEOF(t *testing.T, reader io.Reader) {
-	t.Helper()
-
-	done := make(chan error, 1)
-
-	go func() {
-		_, err := reader.Read(make([]byte, 1))
-		done <- err
-	}()
-
-	select {
-	case err := <-done:
-		require.ErrorIs(t, err, io.EOF)
-	case <-time.After(testTimeout):
-		t.Fatal("timed out waiting for EOF")
-	}
 }
 
 // waitReqChanClosed asserts the request stream closes within testTimeout without delivering

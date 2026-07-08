@@ -212,10 +212,6 @@ func (c *SSHConnPair) close() {
 }
 
 func replyToGlobalRequest(req *ssh.Request, ok bool, payload []byte, logger *zap.Logger) {
-	if !req.WantReply {
-		return
-	}
-
 	if err := req.Reply(ok, payload); err != nil {
 		logger.Error("Failed to reply to global request", zap.Error(err))
 	}
