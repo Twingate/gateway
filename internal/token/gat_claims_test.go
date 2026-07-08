@@ -88,6 +88,15 @@ func TestGATTokenClaims_Validate(t *testing.T) {
 		require.NoError(t, err)
 	})
 
+	t.Run("Valid claims with wildcard address", func(t *testing.T) {
+		claims := validClaims
+		claims.Resource.Address = "*.example.com"
+		claims.Resource.Alias = ""
+
+		err := claims.Validate()
+		require.NoError(t, err)
+	})
+
 	tests := []struct {
 		name                 string
 		setupFn              func(*GATClaims)
@@ -214,7 +223,7 @@ func TestGATTokenClaims_Validate(t *testing.T) {
 				claims.Resource.Address = "*.example.com"
 			},
 			expectedError:        jwt.ErrTokenInvalidClaims,
-			expectedErrorMessage: "resource with wildcard address cannot have an alias: address \"*.example.com\", alias \"app.internal\"",
+			expectedErrorMessage: "wildcard resource address cannot have an alias: address \"*.example.com\", alias \"app.internal\"",
 		},
 	}
 

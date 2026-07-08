@@ -28,7 +28,7 @@ var (
 	errInvalidPublicKey   = errors.New("not a valid public key")
 	errUnsupportedVersion = errors.New("unsupported version")
 	errInvalidPort        = errors.New("invalid port")
-	errWildcardAlias      = errors.New("resource with wildcard address cannot have an alias")
+	errWildcardAlias      = errors.New("wildcard resource address cannot have an alias")
 )
 
 type GATClaims struct {
