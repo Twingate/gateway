@@ -20,265 +20,6 @@ import (
 	"gateway/internal/sessionrecorder"
 )
 
-// proxyChannels is the channel-layer fixture: one channel proxied between two real SSH
-// connections, exposing all four ends:
-//
-//	        downstream channel  +----------------------------------+  upstream channel
-//	client <------------------> | proxyDownstream    proxyUpstream | <------------------> server
-//	                            +-------------- proxy -------------+
-//
-// The proxy-held ends feed SSHChannelPair (source = proxyDownstream, target = proxyUpstream).
-type proxyChannels struct {
-	channelType string
-
-	// recorder replaces the pair's real session recorder via a fakeRecorderFactory; its error
-	// fields may be set before serve() to inject recorder write failures.
-	recorder *fakeRecorder
-
-	// Optional per-test timeout overrides applied in serve(); zero leaves the pair's default.
-	sessionStartTimeout time.Duration
-	channelCloseTimeout time.Duration
-
-	client          channel
-	proxyDownstream channel
-	proxyUpstream   channel
-	server          channel
-}
-
-// newProxyChannels proxies one channel of the given type across two real SSH connections:
-// the client opens toward the proxy, and the proxy opens toward the server, mirroring
-// forwardChannels. Global requests on all connection ends are discarded.
-func newProxyChannels(t *testing.T, channelType string) *proxyChannels {
-	t.Helper()
-
-	clientConn, proxyDownstreamConn := sshPipe(t)
-	proxyUpstreamConn, serverConn := sshPipe(t)
-
-	for _, end := range []*connection{clientConn, proxyDownstreamConn, proxyUpstreamConn, serverConn} {
-		go ssh.DiscardRequests(end.requests)
-	}
-
-	channels := &proxyChannels{channelType: channelType, recorder: &fakeRecorder{}}
-	channels.client, channels.proxyDownstream = openChannel(t, clientConn, proxyDownstreamConn, channelType, nil)
-	channels.proxyUpstream, channels.server = openChannel(t, proxyUpstreamConn, serverConn, channelType, nil)
-
-	return channels
-}
-
-// serve builds an SSHChannelPair over the proxy-held ends and runs its serve() in the
-// background; the returned channel closes when serve returns.
-func (p *proxyChannels) serve(t *testing.T) <-chan struct{} {
-	t.Helper()
-
-	pair := NewSSHChannelPair(
-		zaptest.NewLogger(t),
-		newSSHChannelContext(testSSHContext, p.channelType, labelDownstream, labelUpstream),
-		"testuser",
-		p.proxyDownstream,
-		p.proxyUpstream,
-	)
-	pair.recorderFactory = &fakeRecorderFactory{recorder: p.recorder}
-
-	if p.sessionStartTimeout != 0 {
-		pair.sessionStartTimeout = p.sessionStartTimeout
-	}
-
-	if p.channelCloseTimeout != 0 {
-		pair.channelCloseTimeout = p.channelCloseTimeout
-	}
-
-	done := make(chan struct{})
-
-	go func() {
-		pair.serve()
-		close(done)
-	}()
-
-	return done
-}
-
-// close closes the client and server ends and waits for serve() to finish.
-func (p *proxyChannels) close(t *testing.T, done <-chan struct{}) {
-	t.Helper()
-
-	_ = p.client.ch.Close()
-	_ = p.server.ch.Close()
-
-	waitServeDone(t, done)
-}
-
-// sendAckedRequest sends a WantReply request from the client, acknowledges it at the server,
-// and requires the success reply to round-trip. The reply also guarantees the proxy finished
-// handling the request (e.g. a session gate opened or a resize was recorded).
-func (p *proxyChannels) sendAckedRequest(t *testing.T, reqType string, payload []byte) {
-	t.Helper()
-
-	awaitReply := sendRequest(p.client.ch, reqType, true, payload)
-
-	forwarded := recvForwardedReq(t, p.server.requests, reqType)
-	require.NoError(t, forwarded.Reply(true, nil))
-
-	ok, err := awaitReply(t)
-	require.NoError(t, err)
-	require.True(t, ok, "%q request must succeed", reqType)
-}
-
-// sendWindowChange sends a window-change and waits for the proxy to finish handling it; the
-// acknowledged reply guarantees the resize was recorded before it returns.
-func (p *proxyChannels) sendWindowChange(t *testing.T, width, height uint32) {
-	t.Helper()
-
-	p.sendAckedRequest(t, requestTypeWindowChange, ssh.Marshal(windowChangeReq{
-		WidthColumns: width, HeightRows: height,
-	}))
-}
-
-// fakeRecorder is a sessionrecorder.Recorder that records every call it receives and returns
-// the injected errors, if any, from its write methods.
-type fakeRecorder struct {
-	mu sync.Mutex
-
-	// Injected results for WriteHeader / WriteResizeEvent; the calls are recorded regardless.
-	headerErr error
-	resizeErr error
-
-	header  *sessionrecorder.AsciicastHeader
-	output  bytes.Buffer
-	resizes []sessionrecorder.ResizeMsg
-	stopped bool
-}
-
-func (r *fakeRecorder) WriteHeader(h sessionrecorder.AsciicastHeader) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	r.header = &h
-
-	return r.headerErr
-}
-
-func (r *fakeRecorder) WriteOutputEvent(data []byte) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	r.output.Write(data)
-
-	return nil
-}
-
-func (r *fakeRecorder) WriteResizeEvent(width int, height int) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	r.resizes = append(r.resizes, sessionrecorder.ResizeMsg{Width: width, Height: height})
-
-	return r.resizeErr
-}
-
-func (r *fakeRecorder) IsHeaderWritten() bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	return r.header != nil
-}
-
-func (r *fakeRecorder) Stop() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	r.stopped = true
-}
-
-// recorderState is a point-in-time copy of everything a fakeRecorder observed; its zero value
-// means the recorder was never touched.
-type recorderState struct {
-	header  *sessionrecorder.AsciicastHeader
-	output  string
-	resizes []sessionrecorder.ResizeMsg
-	stopped bool
-}
-
-func (r *fakeRecorder) state() recorderState {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	return recorderState{
-		header:  r.header,
-		output:  r.output.String(),
-		resizes: r.resizes,
-		stopped: r.stopped,
-	}
-}
-
-// fakeRecorderFactory implements SessionRecorderFactory by handing out the fixture's fakeRecorder.
-type fakeRecorderFactory struct {
-	recorder *fakeRecorder
-}
-
-func (f *fakeRecorderFactory) NewRecorder(*zap.Logger) sessionrecorder.Recorder {
-	return f.recorder
-}
-
-// sendRequest sends a channel request from a background goroutine and returns a function
-// that blocks for its (ok, err) result. SendRequest with WantReply blocks until the reply
-// arrives, which the test itself must produce at the far end, so the send cannot run on the
-// test goroutine. The returned function fails the test if no reply arrives within testTimeout.
-func sendRequest(ch ssh.Channel, name string, wantReply bool, payload []byte) func(t *testing.T) (ok bool, err error) {
-	type result struct {
-		ok  bool
-		err error
-	}
-
-	done := make(chan result, 1)
-
-	go func() {
-		ok, err := ch.SendRequest(name, wantReply, payload)
-		done <- result{ok: ok, err: err}
-	}()
-
-	return func(t *testing.T) (bool, error) {
-		t.Helper()
-
-		select {
-		case res := <-done:
-			return res.ok, res.err
-		case <-time.After(testTimeout):
-			t.Fatal("timed out waiting for request reply")
-
-			return false, nil
-		}
-	}
-}
-
-// startRead begins reading exactly n bytes in the background and returns a channel that
-// delivers them once the read completes; the tests use it to assert that data does or does
-// not arrive across the session gate.
-func startRead(reader io.Reader, n int) <-chan []byte {
-	out := make(chan []byte, 1)
-
-	go func() {
-		buf := make([]byte, n)
-		if _, err := io.ReadFull(reader, buf); err == nil {
-			out <- buf
-		}
-	}()
-
-	return out
-}
-
-// waitReqChanClosed asserts the request stream closes within testTimeout without delivering
-// another request.
-func waitReqChanClosed(t *testing.T, reqs <-chan *ssh.Request) {
-	t.Helper()
-
-	select {
-	case req, ok := <-reqs:
-		require.False(t, ok, "expected request stream to close, got request %v", req)
-	case <-time.After(testTimeout):
-		t.Fatal("timed out waiting for request stream to close")
-	}
-}
-
 func TestChannelPair_ForwardsData(t *testing.T) {
 	channels := newProxyChannels(t, "direct-tcpip")
 	done := channels.serve(t)
@@ -666,4 +407,263 @@ func TestChannelPair_SessionRecorderWriteErrors(t *testing.T) {
 	assert.Len(t, state.resizes, 1, "resize write must have been attempted")
 	assert.Equal(t, "survives", state.output)
 	assert.True(t, state.stopped)
+}
+
+// proxyChannels is the channel-layer fixture: one channel proxied between two real SSH
+// connections, exposing all four ends:
+//
+//	        downstream channel  +----------------------------------+  upstream channel
+//	client <------------------> | proxyDownstream    proxyUpstream | <------------------> server
+//	                            +-------------- proxy -------------+
+//
+// The proxy-held ends feed SSHChannelPair (source = proxyDownstream, target = proxyUpstream).
+type proxyChannels struct {
+	channelType string
+
+	// recorder replaces the pair's real session recorder via a fakeRecorderFactory; its error
+	// fields may be set before serve() to inject recorder write failures.
+	recorder *fakeRecorder
+
+	// Optional per-test timeout overrides applied in serve(); zero leaves the pair's default.
+	sessionStartTimeout time.Duration
+	channelCloseTimeout time.Duration
+
+	client          channel
+	proxyDownstream channel
+	proxyUpstream   channel
+	server          channel
+}
+
+// newProxyChannels proxies one channel of the given type across two real SSH connections:
+// the client opens toward the proxy, and the proxy opens toward the server, mirroring
+// forwardChannels. Global requests on all connection ends are discarded.
+func newProxyChannels(t *testing.T, channelType string) *proxyChannels {
+	t.Helper()
+
+	clientConn, proxyDownstreamConn := sshPipe(t)
+	proxyUpstreamConn, serverConn := sshPipe(t)
+
+	for _, end := range []*connection{clientConn, proxyDownstreamConn, proxyUpstreamConn, serverConn} {
+		go ssh.DiscardRequests(end.requests)
+	}
+
+	channels := &proxyChannels{channelType: channelType, recorder: &fakeRecorder{}}
+	channels.client, channels.proxyDownstream = openChannel(t, clientConn, proxyDownstreamConn, channelType, nil)
+	channels.proxyUpstream, channels.server = openChannel(t, proxyUpstreamConn, serverConn, channelType, nil)
+
+	return channels
+}
+
+// serve builds an SSHChannelPair over the proxy-held ends and runs its serve() in the
+// background; the returned channel closes when serve returns.
+func (p *proxyChannels) serve(t *testing.T) <-chan struct{} {
+	t.Helper()
+
+	pair := NewSSHChannelPair(
+		zaptest.NewLogger(t),
+		newSSHChannelContext(testSSHContext, p.channelType, labelDownstream, labelUpstream),
+		"testuser",
+		p.proxyDownstream,
+		p.proxyUpstream,
+	)
+	pair.recorderFactory = &fakeRecorderFactory{recorder: p.recorder}
+
+	if p.sessionStartTimeout != 0 {
+		pair.sessionStartTimeout = p.sessionStartTimeout
+	}
+
+	if p.channelCloseTimeout != 0 {
+		pair.channelCloseTimeout = p.channelCloseTimeout
+	}
+
+	done := make(chan struct{})
+
+	go func() {
+		pair.serve()
+		close(done)
+	}()
+
+	return done
+}
+
+// close closes the client and server ends and waits for serve() to finish.
+func (p *proxyChannels) close(t *testing.T, done <-chan struct{}) {
+	t.Helper()
+
+	_ = p.client.ch.Close()
+	_ = p.server.ch.Close()
+
+	waitServeDone(t, done)
+}
+
+// sendAckedRequest sends a WantReply request from the client, acknowledges it at the server,
+// and requires the success reply to round-trip. The reply also guarantees the proxy finished
+// handling the request (e.g. a session gate opened or a resize was recorded).
+func (p *proxyChannels) sendAckedRequest(t *testing.T, reqType string, payload []byte) {
+	t.Helper()
+
+	awaitReply := sendRequest(p.client.ch, reqType, true, payload)
+
+	forwarded := recvForwardedReq(t, p.server.requests, reqType)
+	require.NoError(t, forwarded.Reply(true, nil))
+
+	ok, err := awaitReply(t)
+	require.NoError(t, err)
+	require.True(t, ok, "%q request must succeed", reqType)
+}
+
+// sendWindowChange sends a window-change and waits for the proxy to finish handling it; the
+// acknowledged reply guarantees the resize was recorded before it returns.
+func (p *proxyChannels) sendWindowChange(t *testing.T, width, height uint32) {
+	t.Helper()
+
+	p.sendAckedRequest(t, requestTypeWindowChange, ssh.Marshal(windowChangeReq{
+		WidthColumns: width, HeightRows: height,
+	}))
+}
+
+// fakeRecorder is a sessionrecorder.Recorder that records every call it receives and returns
+// the injected errors, if any, from its write methods.
+type fakeRecorder struct {
+	mu sync.Mutex
+
+	// Injected results for WriteHeader / WriteResizeEvent; the calls are recorded regardless.
+	headerErr error
+	resizeErr error
+
+	header  *sessionrecorder.AsciicastHeader
+	output  bytes.Buffer
+	resizes []sessionrecorder.ResizeMsg
+	stopped bool
+}
+
+func (r *fakeRecorder) WriteHeader(h sessionrecorder.AsciicastHeader) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.header = &h
+
+	return r.headerErr
+}
+
+func (r *fakeRecorder) WriteOutputEvent(data []byte) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.output.Write(data)
+
+	return nil
+}
+
+func (r *fakeRecorder) WriteResizeEvent(width int, height int) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.resizes = append(r.resizes, sessionrecorder.ResizeMsg{Width: width, Height: height})
+
+	return r.resizeErr
+}
+
+func (r *fakeRecorder) IsHeaderWritten() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return r.header != nil
+}
+
+func (r *fakeRecorder) Stop() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.stopped = true
+}
+
+// recorderState is a point-in-time copy of everything a fakeRecorder observed; its zero value
+// means the recorder was never touched.
+type recorderState struct {
+	header  *sessionrecorder.AsciicastHeader
+	output  string
+	resizes []sessionrecorder.ResizeMsg
+	stopped bool
+}
+
+func (r *fakeRecorder) state() recorderState {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return recorderState{
+		header:  r.header,
+		output:  r.output.String(),
+		resizes: r.resizes,
+		stopped: r.stopped,
+	}
+}
+
+// fakeRecorderFactory implements SessionRecorderFactory by handing out the fixture's fakeRecorder.
+type fakeRecorderFactory struct {
+	recorder *fakeRecorder
+}
+
+func (f *fakeRecorderFactory) NewRecorder(*zap.Logger) sessionrecorder.Recorder {
+	return f.recorder
+}
+
+// sendRequest sends a channel request from a background goroutine and returns a function
+// that blocks for its (ok, err) result. SendRequest with WantReply blocks until the reply
+// arrives, which the test itself must produce at the far end, so the send cannot run on the
+// test goroutine. The returned function fails the test if no reply arrives within testTimeout.
+func sendRequest(ch ssh.Channel, name string, wantReply bool, payload []byte) func(t *testing.T) (ok bool, err error) {
+	type result struct {
+		ok  bool
+		err error
+	}
+
+	done := make(chan result, 1)
+
+	go func() {
+		ok, err := ch.SendRequest(name, wantReply, payload)
+		done <- result{ok: ok, err: err}
+	}()
+
+	return func(t *testing.T) (bool, error) {
+		t.Helper()
+
+		select {
+		case res := <-done:
+			return res.ok, res.err
+		case <-time.After(testTimeout):
+			t.Fatal("timed out waiting for request reply")
+
+			return false, nil
+		}
+	}
+}
+
+// startRead begins reading exactly n bytes in the background and returns a channel that
+// delivers them once the read completes; the tests use it to assert that data does or does
+// not arrive across the session gate.
+func startRead(reader io.Reader, n int) <-chan []byte {
+	out := make(chan []byte, 1)
+
+	go func() {
+		buf := make([]byte, n)
+		if _, err := io.ReadFull(reader, buf); err == nil {
+			out <- buf
+		}
+	}()
+
+	return out
+}
+
+// waitReqChanClosed asserts the request stream closes within testTimeout without delivering
+// another request.
+func waitReqChanClosed(t *testing.T, reqs <-chan *ssh.Request) {
+	t.Helper()
+
+	select {
+	case req, ok := <-reqs:
+		require.False(t, ok, "expected request stream to close, got request %v", req)
+	case <-time.After(testTimeout):
+		t.Fatal("timed out waiting for request stream to close")
+	}
 }

@@ -27,302 +27,6 @@ import (
 	"gateway/internal/token"
 )
 
-// testProxyUsername is the username the test proxy presents to upstream servers.
-const testProxyUsername = "proxy-user"
-
-// newTestProxy builds an SSHProxy in manual CA mode with its downstream config ready, so tests
-// can drive Serve/serveConn directly without going through Start. The proxy logs to a nop
-// logger: the host-cert renewal goroutine outlives the test and logs its shutdown when
-// t.Context() is canceled, which a t-bound logger would race with.
-func newTestProxy(t *testing.T) *SSHProxy {
-	t.Helper()
-
-	return newTestProxyWithLogger(t, zap.NewNop())
-}
-
-// newTestProxyWithLogger is newTestProxy logging to the given logger, so a test can assert on
-// log output.
-func newTestProxyWithLogger(t *testing.T, logger *zap.Logger) *SSHProxy {
-	t.Helper()
-
-	config, err := NewConfig(nil, &gatewayconfig.SSHConfig{
-		CA: gatewayconfig.SSHCAConfig{
-			Manual: &gatewayconfig.SSHCAManualConfig{PrivateKeyFile: "../../test/data/ssh/ca/ca"},
-		},
-		Gateway: gatewayconfig.SSHGatewayConfig{Username: testProxyUsername},
-	}, logger)
-	require.NoError(t, err)
-
-	sshProxy := NewProxy(*config)
-
-	downstreamConfig, err := config.GetDownstreamConfig(t.Context())
-	require.NoError(t, err)
-
-	sshProxy.downstreamConfig = downstreamConfig
-
-	return sshProxy
-}
-
-// caPublicKey returns the public key of the given certificate authority.
-func caPublicKey(t *testing.T, authority ca) ssh.PublicKey {
-	t.Helper()
-
-	pub, err := authority.publicKey(t.Context())
-	require.NoError(t, err)
-
-	return pub
-}
-
-// echoServer is a minimal in-memory upstream SSH server: it authenticates the proxy's user
-// certificate against the user CA it trusts (capturing the presented identity), accepts
-// direct-tcpip channels whose bytes it echoes back, and discards everything else.
-type echoServer struct {
-	addr string
-
-	mu       sync.Mutex
-	username string
-	userCert *ssh.Certificate
-}
-
-func newEchoServer(t *testing.T, userCAPub ssh.PublicKey) *echoServer {
-	t.Helper()
-
-	server := &echoServer{}
-
-	checker := &ssh.CertChecker{
-		IsUserAuthority: func(auth ssh.PublicKey) bool {
-			return keysEqual(auth, userCAPub)
-		},
-	}
-
-	config := &ssh.ServerConfig{
-		PublicKeyCallback: func(meta ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
-			permissions, err := checker.Authenticate(meta, key)
-			if err != nil {
-				return nil, err
-			}
-
-			server.captureIdentity(meta.User(), key)
-
-			return permissions, nil
-		},
-	}
-	config.AddHostKey(testSigner(t))
-
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-
-	t.Cleanup(func() { _ = listener.Close() })
-
-	server.addr = listener.Addr().String()
-
-	go func() {
-		conn, err := listener.Accept()
-		if err != nil {
-			return
-		}
-
-		server.serve(conn, config)
-	}()
-
-	return server
-}
-
-func (s *echoServer) serve(netConn net.Conn, config *ssh.ServerConfig) {
-	conn, channels, requests, err := ssh.NewServerConn(netConn, config)
-	if err != nil {
-		_ = netConn.Close()
-
-		return
-	}
-
-	defer conn.Close()
-
-	go ssh.DiscardRequests(requests)
-
-	for newChannel := range channels {
-		if newChannel.ChannelType() != "direct-tcpip" {
-			_ = newChannel.Reject(ssh.UnknownChannelType, "only direct-tcpip channels are supported")
-
-			continue
-		}
-
-		ch, chRequests, err := newChannel.Accept()
-		if err != nil {
-			continue
-		}
-
-		go ssh.DiscardRequests(chRequests)
-
-		go func() {
-			defer ch.Close()
-
-			_, _ = io.Copy(ch, ch)
-		}()
-	}
-}
-
-// captureIdentity records the username and the user certificate presented during authentication.
-func (s *echoServer) captureIdentity(username string, key ssh.PublicKey) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	s.username = username
-	s.userCert, _ = key.(*ssh.Certificate)
-}
-
-// identity returns the username and user certificate captured during public-key authentication.
-func (s *echoServer) identity() (username string, userCert *ssh.Certificate) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	return s.username, s.userCert
-}
-
-// newProxyConn wraps conn in the connect.ProxyConn the proxy serves, with test GAT claims and
-// the address of the upstream the proxy dials.
-func newProxyConn(conn net.Conn, upstreamAddr string) *connect.ProxyConn {
-	proxyConn := connect.NewProxyConn(conn, nil, nil, zap.NewNop(),
-		connect.CreateProxyConnMetrics(prometheus.NewRegistry()))
-	proxyConn.Claims = &token.GATClaims{}
-	proxyConn.Address = upstreamAddr
-	proxyConn.ID = "test-conn-id"
-
-	return proxyConn
-}
-
-// newDownstreamConn returns the two ends of the proxy's downstream connection: the raw client
-// end and the server end wrapped as the connect.Conn the proxy serves; upstreamAddr is the
-// upstream the proxy dials.
-func newDownstreamConn(t *testing.T, upstreamAddr string) (client net.Conn, server *connect.ProxyConn) {
-	t.Helper()
-
-	clientConn, serverConn := netPipe(t)
-
-	return clientConn, newProxyConn(serverConn, upstreamAddr)
-}
-
-// testListener is a real loopback listener presenting accepted connections as the connect.Conn
-// values the proxy's accept loop expects; the proxy dials upstreamAddr for each of them.
-type testListener struct {
-	net.Listener
-
-	upstreamAddr string
-}
-
-func newTestListener(t *testing.T, upstreamAddr string) *testListener {
-	t.Helper()
-
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-
-	t.Cleanup(func() { _ = listener.Close() })
-
-	return &testListener{Listener: listener, upstreamAddr: upstreamAddr}
-}
-
-func (l *testListener) Accept() (net.Conn, error) {
-	conn, err := l.Listener.Accept()
-	if err != nil {
-		return nil, err
-	}
-
-	return newProxyConn(conn, l.upstreamAddr), nil
-}
-
-// dialDownstream completes a real SSH client handshake with the proxy over clientConn,
-// verifying the proxy's host certificate against its host CA, and returns the SSH client.
-func dialDownstream(t *testing.T, sshProxy *SSHProxy, clientConn net.Conn) (*ssh.Client, error) {
-	t.Helper()
-
-	hostCAPub := caPublicKey(t, sshProxy.config.caConfig.GatewayHostCA)
-	checker := &ssh.CertChecker{
-		IsHostAuthority: func(auth ssh.PublicKey, _ string) bool {
-			return keysEqual(auth, hostCAPub)
-		},
-	}
-
-	clientConfig := &ssh.ClientConfig{
-		User:              "downstream-client",
-		HostKeyCallback:   checker.CheckHostKey,
-		HostKeyAlgorithms: []string{ssh.CertAlgoED25519v01},
-	}
-
-	// The server address is only used for error messages: host verification is by CA, and the
-	// gateway's host cert carries no principals, so no hostname match is enforced.
-	conn, channels, requests, err := ssh.NewClientConn(clientConn, "gateway:22", clientConfig)
-	if err != nil {
-		return nil, err
-	}
-
-	return ssh.NewClient(conn, channels, requests), nil
-}
-
-// closedPort reserves a loopback address and closes its listener, so connecting to it is
-// refused immediately.
-func closedPort(t *testing.T) string {
-	t.Helper()
-
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-
-	addr := listener.Addr().String()
-	require.NoError(t, listener.Close())
-
-	return addr
-}
-
-// newDeadVaultCA returns a vaultCA whose client points at a closed port with retries disabled,
-// so its publicKey and sign calls fail fast.
-func newDeadVaultCA(t *testing.T) *vaultCA {
-	t.Helper()
-
-	client, err := vault.NewClient(vault.DefaultConfig())
-	require.NoError(t, err)
-	require.NoError(t, client.SetAddress("http://"+closedPort(t)))
-	client.SetMaxRetries(0)
-
-	return &vaultCA{client: client, mount: "ssh", role: "test"}
-}
-
-// waitErr returns the error delivered on done, failing the test if none arrives within
-// testTimeout.
-func waitErr(t *testing.T, done <-chan error) error {
-	t.Helper()
-
-	select {
-	case err := <-done:
-		return err
-	case <-time.After(testTimeout):
-		t.Fatal("timed out waiting for a result")
-
-		return nil
-	}
-}
-
-// assertNetConnClosed fails the test unless conn drains to close (EOF or reset) within
-// testTimeout.
-func assertNetConnClosed(t *testing.T, conn net.Conn) {
-	t.Helper()
-
-	// Setting a deadline on an already-closed connection fails with net.ErrClosed, which is
-	// itself proof of closure.
-	if err := conn.SetReadDeadline(time.Now().Add(testTimeout)); errors.Is(err, net.ErrClosed) {
-		return
-	}
-
-	_, err := io.Copy(io.Discard, conn)
-	assert.NotErrorIs(t, err, os.ErrDeadlineExceeded, "connection was not closed")
-}
-
-// connCount returns the number of connections the proxy is currently tracking.
-func connCount(sshProxy *SSHProxy) int {
-	sshProxy.mu.Lock()
-	defer sshProxy.mu.Unlock()
-
-	return len(sshProxy.connsMap)
-}
-
 func TestProxy_ProxiesConnection(t *testing.T) {
 	// The one intentional overlap with the lower layers: a real client handshake through the
 	// accept loop, then a direct-tcpip round-trip to the echo upstream, proving the full wiring.
@@ -641,4 +345,300 @@ func TestProxy_Shutdown_ClosesActiveConnection(t *testing.T) {
 	assert.Zero(t, connCount(sshProxy))
 	assertConnClosed(t, client.Conn)
 	require.NoError(t, waitErr(t, serveDone))
+}
+
+// testProxyUsername is the username the test proxy presents to upstream servers.
+const testProxyUsername = "proxy-user"
+
+// newTestProxy builds an SSHProxy in manual CA mode with its downstream config ready, so tests
+// can drive Serve/serveConn directly without going through Start. The proxy logs to a nop
+// logger: the host-cert renewal goroutine outlives the test and logs its shutdown when
+// t.Context() is canceled, which a t-bound logger would race with.
+func newTestProxy(t *testing.T) *SSHProxy {
+	t.Helper()
+
+	return newTestProxyWithLogger(t, zap.NewNop())
+}
+
+// newTestProxyWithLogger is newTestProxy logging to the given logger, so a test can assert on
+// log output.
+func newTestProxyWithLogger(t *testing.T, logger *zap.Logger) *SSHProxy {
+	t.Helper()
+
+	config, err := NewConfig(nil, &gatewayconfig.SSHConfig{
+		CA: gatewayconfig.SSHCAConfig{
+			Manual: &gatewayconfig.SSHCAManualConfig{PrivateKeyFile: "../../test/data/ssh/ca/ca"},
+		},
+		Gateway: gatewayconfig.SSHGatewayConfig{Username: testProxyUsername},
+	}, logger)
+	require.NoError(t, err)
+
+	sshProxy := NewProxy(*config)
+
+	downstreamConfig, err := config.GetDownstreamConfig(t.Context())
+	require.NoError(t, err)
+
+	sshProxy.downstreamConfig = downstreamConfig
+
+	return sshProxy
+}
+
+// caPublicKey returns the public key of the given certificate authority.
+func caPublicKey(t *testing.T, authority ca) ssh.PublicKey {
+	t.Helper()
+
+	pub, err := authority.publicKey(t.Context())
+	require.NoError(t, err)
+
+	return pub
+}
+
+// echoServer is a minimal in-memory upstream SSH server: it authenticates the proxy's user
+// certificate against the user CA it trusts (capturing the presented identity), accepts
+// direct-tcpip channels whose bytes it echoes back, and discards everything else.
+type echoServer struct {
+	addr string
+
+	mu       sync.Mutex
+	username string
+	userCert *ssh.Certificate
+}
+
+func newEchoServer(t *testing.T, userCAPub ssh.PublicKey) *echoServer {
+	t.Helper()
+
+	server := &echoServer{}
+
+	checker := &ssh.CertChecker{
+		IsUserAuthority: func(auth ssh.PublicKey) bool {
+			return keysEqual(auth, userCAPub)
+		},
+	}
+
+	config := &ssh.ServerConfig{
+		PublicKeyCallback: func(meta ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
+			permissions, err := checker.Authenticate(meta, key)
+			if err != nil {
+				return nil, err
+			}
+
+			server.captureIdentity(meta.User(), key)
+
+			return permissions, nil
+		},
+	}
+	config.AddHostKey(testSigner(t))
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+
+	t.Cleanup(func() { _ = listener.Close() })
+
+	server.addr = listener.Addr().String()
+
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			return
+		}
+
+		server.serve(conn, config)
+	}()
+
+	return server
+}
+
+func (s *echoServer) serve(netConn net.Conn, config *ssh.ServerConfig) {
+	conn, channels, requests, err := ssh.NewServerConn(netConn, config)
+	if err != nil {
+		_ = netConn.Close()
+
+		return
+	}
+
+	defer conn.Close()
+
+	go ssh.DiscardRequests(requests)
+
+	for newChannel := range channels {
+		if newChannel.ChannelType() != "direct-tcpip" {
+			_ = newChannel.Reject(ssh.UnknownChannelType, "only direct-tcpip channels are supported")
+
+			continue
+		}
+
+		ch, chRequests, err := newChannel.Accept()
+		if err != nil {
+			continue
+		}
+
+		go ssh.DiscardRequests(chRequests)
+
+		go func() {
+			defer ch.Close()
+
+			_, _ = io.Copy(ch, ch)
+		}()
+	}
+}
+
+// captureIdentity records the username and the user certificate presented during authentication.
+func (s *echoServer) captureIdentity(username string, key ssh.PublicKey) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.username = username
+	s.userCert, _ = key.(*ssh.Certificate)
+}
+
+// identity returns the username and user certificate captured during public-key authentication.
+func (s *echoServer) identity() (username string, userCert *ssh.Certificate) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.username, s.userCert
+}
+
+// newProxyConn wraps conn in the connect.ProxyConn the proxy serves, with test GAT claims and
+// the address of the upstream the proxy dials.
+func newProxyConn(conn net.Conn, upstreamAddr string) *connect.ProxyConn {
+	proxyConn := connect.NewProxyConn(conn, nil, nil, zap.NewNop(),
+		connect.CreateProxyConnMetrics(prometheus.NewRegistry()))
+	proxyConn.Claims = &token.GATClaims{}
+	proxyConn.Address = upstreamAddr
+	proxyConn.ID = "test-conn-id"
+
+	return proxyConn
+}
+
+// newDownstreamConn returns the two ends of the proxy's downstream connection: the raw client
+// end and the server end wrapped as the connect.Conn the proxy serves; upstreamAddr is the
+// upstream the proxy dials.
+func newDownstreamConn(t *testing.T, upstreamAddr string) (client net.Conn, server *connect.ProxyConn) {
+	t.Helper()
+
+	clientConn, serverConn := netPipe(t)
+
+	return clientConn, newProxyConn(serverConn, upstreamAddr)
+}
+
+// testListener is a real loopback listener presenting accepted connections as the connect.Conn
+// values the proxy's accept loop expects; the proxy dials upstreamAddr for each of them.
+type testListener struct {
+	net.Listener
+
+	upstreamAddr string
+}
+
+func newTestListener(t *testing.T, upstreamAddr string) *testListener {
+	t.Helper()
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+
+	t.Cleanup(func() { _ = listener.Close() })
+
+	return &testListener{Listener: listener, upstreamAddr: upstreamAddr}
+}
+
+func (l *testListener) Accept() (net.Conn, error) {
+	conn, err := l.Listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+
+	return newProxyConn(conn, l.upstreamAddr), nil
+}
+
+// dialDownstream completes a real SSH client handshake with the proxy over clientConn,
+// verifying the proxy's host certificate against its host CA, and returns the SSH client.
+func dialDownstream(t *testing.T, sshProxy *SSHProxy, clientConn net.Conn) (*ssh.Client, error) {
+	t.Helper()
+
+	hostCAPub := caPublicKey(t, sshProxy.config.caConfig.GatewayHostCA)
+	checker := &ssh.CertChecker{
+		IsHostAuthority: func(auth ssh.PublicKey, _ string) bool {
+			return keysEqual(auth, hostCAPub)
+		},
+	}
+
+	clientConfig := &ssh.ClientConfig{
+		User:              "downstream-client",
+		HostKeyCallback:   checker.CheckHostKey,
+		HostKeyAlgorithms: []string{ssh.CertAlgoED25519v01},
+	}
+
+	// The server address is only used for error messages: host verification is by CA, and the
+	// gateway's host cert carries no principals, so no hostname match is enforced.
+	conn, channels, requests, err := ssh.NewClientConn(clientConn, "gateway:22", clientConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	return ssh.NewClient(conn, channels, requests), nil
+}
+
+// closedPort reserves a loopback address and closes its listener, so connecting to it is
+// refused immediately.
+func closedPort(t *testing.T) string {
+	t.Helper()
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+
+	addr := listener.Addr().String()
+	require.NoError(t, listener.Close())
+
+	return addr
+}
+
+// newDeadVaultCA returns a vaultCA whose client points at a closed port with retries disabled,
+// so its publicKey and sign calls fail fast.
+func newDeadVaultCA(t *testing.T) *vaultCA {
+	t.Helper()
+
+	client, err := vault.NewClient(vault.DefaultConfig())
+	require.NoError(t, err)
+	require.NoError(t, client.SetAddress("http://"+closedPort(t)))
+	client.SetMaxRetries(0)
+
+	return &vaultCA{client: client, mount: "ssh", role: "test"}
+}
+
+// waitErr returns the error delivered on done, failing the test if none arrives within
+// testTimeout.
+func waitErr(t *testing.T, done <-chan error) error {
+	t.Helper()
+
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(testTimeout):
+		t.Fatal("timed out waiting for a result")
+
+		return nil
+	}
+}
+
+// assertNetConnClosed fails the test unless conn drains to close (EOF or reset) within
+// testTimeout.
+func assertNetConnClosed(t *testing.T, conn net.Conn) {
+	t.Helper()
+
+	// Setting a deadline on an already-closed connection fails with net.ErrClosed, which is
+	// itself proof of closure.
+	if err := conn.SetReadDeadline(time.Now().Add(testTimeout)); errors.Is(err, net.ErrClosed) {
+		return
+	}
+
+	_, err := io.Copy(io.Discard, conn)
+	assert.NotErrorIs(t, err, os.ErrDeadlineExceeded, "connection was not closed")
+}
+
+// connCount returns the number of connections the proxy is currently tracking.
+func connCount(sshProxy *SSHProxy) int {
+	sshProxy.mu.Lock()
+	defer sshProxy.mu.Unlock()
+
+	return len(sshProxy.connsMap)
 }
