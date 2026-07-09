@@ -151,7 +151,7 @@ func openChannel(t *testing.T, opener, acceptor *connection, channelType string,
 
 	select {
 	case newChannel, ok := <-acceptor.channels:
-		require.True(t, ok, "channel stream closed")
+		require.True(t, ok, "incoming channels closed")
 		require.Equal(t, channelType, newChannel.ChannelType())
 		require.Equal(t, string(extraData), string(newChannel.ExtraData()))
 
@@ -201,11 +201,9 @@ func acceptChannel(t *testing.T, conn *connection) <-chan channel {
 	return accepted
 }
 
-// sendGlobalRequest sends a global request from a background goroutine and returns a function
-// that blocks for its (ok, replyPayload, err) result. SendRequest with WantReply blocks until
-// the reply arrives, which the test itself must produce at the far end, so the send cannot run
-// on the test goroutine. The returned function fails the test if no reply arrives within
-// testTimeout.
+// sendGlobalRequest sends a global request from a background goroutine, since SendRequest with
+// WantReply blocks until the far end (the test itself) replies. It returns a function that blocks
+// for the (ok, replyPayload, err) result, failing the test if none arrives within testTimeout.
 func sendGlobalRequest(conn ssh.Conn, name string, wantReply bool, payload []byte) func(t *testing.T) (ok bool, replyPayload []byte, err error) {
 	type result struct {
 		ok      bool
@@ -234,13 +232,14 @@ func sendGlobalRequest(conn ssh.Conn, name string, wantReply bool, payload []byt
 	}
 }
 
-// recvForwardedReq receives the next request on the given stream and asserts its type.
-func recvForwardedReq(t *testing.T, reqs <-chan *ssh.Request, wantType string) *ssh.Request {
+// assertSentRequest asserts that a request of wantType arrives on the requests channel within
+// testTimeout, and returns it.
+func assertSentRequest(t *testing.T, reqs <-chan *ssh.Request, wantType string) *ssh.Request {
 	t.Helper()
 
 	select {
 	case req, ok := <-reqs:
-		require.True(t, ok, "request stream closed before %q arrived", wantType)
+		require.True(t, ok, "requests channel closed before %q arrived", wantType)
 		require.Equal(t, wantType, req.Type)
 
 		return req
@@ -313,13 +312,13 @@ func assertConnClosed(t *testing.T, conn ssh.Conn) {
 	}
 }
 
-// waitServeDone fails the test if serve() does not return within testTimeout.
-func waitServeDone(t *testing.T, done <-chan struct{}) {
+// waitDone fails the test if done is not closed within testTimeout.
+func waitDone(t *testing.T, done <-chan struct{}) {
 	t.Helper()
 
 	select {
 	case <-done:
 	case <-time.After(testTimeout):
-		t.Fatal("timed out waiting for serve() to return")
+		t.Fatal("timed out waiting for done channel to close")
 	}
 }

@@ -74,7 +74,8 @@ func TestProxy_ProxiesConnection(t *testing.T) {
 }
 
 func TestProxy_StartFailure(t *testing.T) {
-	// Start must surface CA failures before it starts accepting connections.
+	// Start runs its CA and downstream-config setup synchronously and returns any failure
+	// before the accept loop, so these cases call it directly and assert the returned error.
 	tests := []struct {
 		name    string
 		setup   func(t *testing.T, caConfig *caConfig)
@@ -568,9 +569,7 @@ func dialDownstream(t *testing.T, sshProxy *SSHProxy, clientConn net.Conn) (*ssh
 		HostKeyAlgorithms: []string{ssh.CertAlgoED25519v01},
 	}
 
-	// The server address is only used for error messages: host verification is by CA, and the
-	// gateway's host cert carries no principals, so no hostname match is enforced.
-	conn, channels, requests, err := ssh.NewClientConn(clientConn, "gateway:22", clientConfig)
+	conn, channels, requests, err := ssh.NewClientConn(clientConn, "upstream:22", clientConfig)
 	if err != nil {
 		return nil, err
 	}

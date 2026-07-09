@@ -20,20 +20,23 @@ import (
 	"gateway/internal/sessionrecorder"
 )
 
+// shortTimeout shrinks the proxy's timeout knobs so their firing path runs fast in tests.
+const shortTimeout = 50 * time.Millisecond
+
 func TestChannelPair_ForwardsData(t *testing.T) {
 	channels := newProxyChannels(t, "direct-tcpip")
 	done := channels.serve(t)
 
 	// No session gate for non-"session" channel types: both directions flow immediately,
 	// written concurrently before either side reads.
-	_, err := channels.client.ch.Write([]byte("from downstream"))
+	_, err := channels.source.ch.Write([]byte("from source"))
 	require.NoError(t, err)
 
-	_, err = channels.server.ch.Write([]byte("from upstream"))
+	_, err = channels.target.ch.Write([]byte("from target"))
 	require.NoError(t, err)
 
-	assert.Equal(t, "from downstream", string(readInFull(t, channels.server.ch, len("from downstream"))))
-	assert.Equal(t, "from upstream", string(readInFull(t, channels.client.ch, len("from upstream"))))
+	assert.Equal(t, "from source", string(readInFull(t, channels.target.ch, len("from source"))))
+	assert.Equal(t, "from target", string(readInFull(t, channels.source.ch, len("from target"))))
 
 	channels.close(t, done)
 }
@@ -91,15 +94,14 @@ func TestChannelPair_ForwardsRequests(t *testing.T) {
 			channels := newProxyChannels(t, "direct-tcpip")
 			done := channels.serve(t)
 
-			// The client drives the source end, the server the target end.
-			from, to := channels.client, channels.server
+			from, to := channels.source, channels.target
 			if tt.fromTarget {
-				from, to = channels.server, channels.client
+				from, to = channels.target, channels.source
 			}
 
 			awaitReply := sendRequest(from.ch, tt.reqType, tt.wantReply, tt.payload)
 
-			forwarded := recvForwardedReq(t, to.requests, tt.reqType)
+			forwarded := assertSentRequest(t, to.requests, tt.reqType)
 			assert.Equal(t, tt.wantReply, forwarded.WantReply)
 			assert.Equal(t, tt.payload, forwarded.Payload)
 
@@ -120,30 +122,30 @@ func TestChannelPair_RequestForwardFailure(t *testing.T) {
 	// On a session channel the gate keeps the copiers un-started, so closing the target
 	// cannot race the failure reply against a concurrent source teardown.
 	channels := newProxyChannels(t, "session")
-	channels.sessionStartTimeout = 300 * time.Millisecond
+	channels.sessionStartTimeout = shortTimeout
 
 	// Kill the target before serving so the forward deterministically fails.
-	require.NoError(t, channels.server.ch.Close())
-	waitReqChanClosed(t, channels.proxyUpstream.requests)
+	require.NoError(t, channels.target.ch.Close())
+	waitReqChanClosed(t, channels.proxyTarget.requests)
 
 	done := channels.serve(t)
 
-	ok, err := sendRequest(channels.client.ch, "shell", true, nil)(t)
+	ok, err := sendRequest(channels.source.ch, "shell", true, nil)(t)
 	require.NoError(t, err)
 	assert.False(t, ok, "source must get a failure reply when the forward fails")
 
 	// The shell forward failed, so handleRequest never signals session-start; the session
 	// gate in serve() never opens, and serve() can only return via sessionStartTimeout.
-	waitServeDone(t, done)
+	waitDone(t, done)
 }
 
 func TestChannelPair_Teardown(t *testing.T) {
 	tests := []struct {
 		name             string
-		clientHalfCloses bool
+		sourceHalfCloses bool
 	}{
-		{name: "client half-closes first", clientHalfCloses: true},
-		{name: "server half-closes first", clientHalfCloses: false},
+		{name: "source half-closes first", sourceHalfCloses: true},
+		{name: "target half-closes first", sourceHalfCloses: false},
 	}
 
 	for _, tt := range tests {
@@ -151,51 +153,51 @@ func TestChannelPair_Teardown(t *testing.T) {
 			channels := newProxyChannels(t, "direct-tcpip")
 			done := channels.serve(t)
 
-			initiator, other := channels.client, channels.server
-			if !tt.clientHalfCloses {
-				initiator, other = channels.server, channels.client
+			initiator, other := channels.source, channels.target
+			if !tt.sourceHalfCloses {
+				initiator, other = channels.target, channels.source
 			}
 
 			_, err := initiator.ch.Write([]byte("last-bytes"))
 			require.NoError(t, err)
 			require.NoError(t, initiator.ch.CloseWrite())
 
-			// The other peer drains the remaining bytes, then sees EOF, while its request
-			// stream stays open.
+			// The other peer drains the remaining bytes, then sees EOF, while its requests
+			// channel stays open.
 			assert.Equal(t, "last-bytes", string(readInFull(t, other.ch, len("last-bytes"))))
 			assertEOF(t, other.ch)
 
-			// The request stream survives the half-close: a request sent after EOF still arrives.
+			// The requests channel survives the half-close: a request sent after EOF still arrives.
 			_, err = other.ch.SendRequest("exit-status", false, ssh.Marshal(struct{ Status uint32 }{Status: 0}))
 			require.NoError(t, err)
 
-			recvForwardedReq(t, initiator.requests, "exit-status")
+			assertSentRequest(t, initiator.requests, "exit-status")
 
-			// Full close propagates: the initiator sees EOF, its request stream closes, and
+			// Full close propagates: the initiator sees EOF, its requests channel closes, and
 			// serve() returns.
 			require.NoError(t, other.ch.Close())
 			assertEOF(t, initiator.ch)
 			waitReqChanClosed(t, initiator.requests)
-			waitServeDone(t, done)
+			waitDone(t, done)
 		})
 	}
 }
 
 func TestChannelPair_TeardownTimeout(t *testing.T) {
 	channels := newProxyChannels(t, "direct-tcpip")
-	channels.channelCloseTimeout = 300 * time.Millisecond
+	channels.channelCloseTimeout = shortTimeout
 	done := channels.serve(t)
 
 	start := time.Now()
 
-	require.NoError(t, channels.client.ch.CloseWrite())
-	assertEOF(t, channels.server.ch)
+	require.NoError(t, channels.source.ch.CloseWrite())
+	assertEOF(t, channels.target.ch)
 
-	// The server never closes after EOF: the proxy force-closes the channel after
+	// The target never closes after EOF: the proxy force-closes the channel after
 	// channelCloseTimeout instead of waiting forever.
-	waitServeDone(t, done)
-	assert.GreaterOrEqual(t, time.Since(start), 300*time.Millisecond)
-	waitReqChanClosed(t, channels.server.requests)
+	waitDone(t, done)
+	assert.GreaterOrEqual(t, time.Since(start), shortTimeout)
+	waitReqChanClosed(t, channels.target.requests)
 }
 
 func TestChannelPair_PeerAbortMidTransfer(t *testing.T) {
@@ -210,13 +212,13 @@ func TestChannelPair_PeerAbortMidTransfer(t *testing.T) {
 		// mid-write), so it must run off the test goroutine.
 		payload := bytes.Repeat([]byte("x"), 8<<20)
 
-		_, err := channels.client.ch.Write(payload)
+		_, err := channels.source.ch.Write(payload)
 		writeResult <- err
 	}()
 
 	// Receive a little to prove the transfer is live, then abort abruptly.
-	readInFull(t, channels.server.ch, 1024)
-	require.NoError(t, channels.server.ch.Close())
+	readInFull(t, channels.target.ch, 1024)
+	require.NoError(t, channels.target.ch.Close())
 
 	// The blocked transfer unblocks, the sender sees the abort, and teardown still completes.
 	select {
@@ -226,8 +228,8 @@ func TestChannelPair_PeerAbortMidTransfer(t *testing.T) {
 		t.Fatal("sender still blocked after the peer aborted")
 	}
 
-	assertEOF(t, channels.client.ch)
-	waitServeDone(t, done)
+	assertEOF(t, channels.source.ch)
+	waitDone(t, done)
 }
 
 func TestChannelPair_SessionWaitsForStart(t *testing.T) {
@@ -247,20 +249,20 @@ func TestChannelPair_SessionWaitsForStart(t *testing.T) {
 			done := channels.serve(t)
 
 			// Data written before the session starts is held back by the session gate.
-			_, err := channels.client.ch.Write([]byte("early-bytes"))
+			_, err := channels.source.ch.Write([]byte("early-bytes"))
 			require.NoError(t, err)
 
-			read := startRead(channels.server.ch, len("early-bytes"))
+			read := startRead(channels.target.ch, len("early-bytes"))
 
 			select {
 			case <-read:
 				t.Fatal("data crossed the session gate before the session started")
-			case <-time.After(100 * time.Millisecond):
+			case <-time.After(shortTimeout):
 			}
 
 			// Forwarding the session-start request opens the gate and the held-back
 			// bytes flow through.
-			channels.sendAckedRequest(t, tt.reqType, tt.payload)
+			channels.sendRequestAwaitReply(t, tt.reqType, tt.payload)
 
 			select {
 			case got := <-read:
@@ -276,19 +278,19 @@ func TestChannelPair_SessionWaitsForStart(t *testing.T) {
 
 func TestChannelPair_SessionStartTimeout(t *testing.T) {
 	channels := newProxyChannels(t, "session")
-	channels.sessionStartTimeout = 300 * time.Millisecond
+	channels.sessionStartTimeout = shortTimeout
 
 	start := time.Now()
 	done := channels.serve(t)
 
 	// No session-start request ever arrives, so this data must never be copied.
-	_, err := channels.client.ch.Write([]byte("never-copied"))
+	_, err := channels.source.ch.Write([]byte("never-copied"))
 	require.NoError(t, err)
 
-	read := startRead(channels.server.ch, len("never-copied"))
+	read := startRead(channels.target.ch, len("never-copied"))
 
-	waitServeDone(t, done)
-	assert.GreaterOrEqual(t, time.Since(start), 300*time.Millisecond)
+	waitDone(t, done)
+	assert.GreaterOrEqual(t, time.Since(start), shortTimeout)
 
 	select {
 	case <-read:
@@ -306,20 +308,20 @@ func TestChannelPair_SessionShellRecording(t *testing.T) {
 	done := channels.serve(t)
 
 	// pty-req precedes shell by convention; its dimensions seed the asciinema header.
-	channels.sendAckedRequest(t, "pty-req", ssh.Marshal(ptyReq{Term: "xterm", WidthColumns: 80, HeightRows: 24}))
-	channels.sendAckedRequest(t, "shell", nil)
+	channels.sendRequestAwaitReply(t, "pty-req", ssh.Marshal(ptyReq{Term: "xterm", WidthColumns: 80, HeightRows: 24}))
+	channels.sendRequestAwaitReply(t, "shell", nil)
 
-	// Only upstream->downstream data (terminal output) is recorded: client keystrokes
-	// must not show up as output events.
-	_, err := channels.client.ch.Write([]byte("keystrokes"))
+	// Only target->source data (terminal output) is recorded: source keystrokes
+	// (source->target) must not show up as output events.
+	_, err := channels.source.ch.Write([]byte("keystrokes"))
 	require.NoError(t, err)
-	assert.Equal(t, "keystrokes", string(readInFull(t, channels.server.ch, len("keystrokes"))))
+	assert.Equal(t, "keystrokes", string(readInFull(t, channels.target.ch, len("keystrokes"))))
 
-	_, err = channels.server.ch.Write([]byte("terminal-output"))
+	_, err = channels.target.ch.Write([]byte("terminal-output"))
 	require.NoError(t, err)
-	assert.Equal(t, "terminal-output", string(readInFull(t, channels.client.ch, len("terminal-output"))))
+	assert.Equal(t, "terminal-output", string(readInFull(t, channels.source.ch, len("terminal-output"))))
 
-	// The window-change is recorded as a resize event before it is forwarded upstream; the
+	// The window-change is recorded as a resize event before it is forwarded to the target; the
 	// acked reply guarantees the resize was written before teardown.
 	channels.sendWindowChange(t, 120, 40)
 
@@ -352,11 +354,11 @@ func TestChannelPair_SessionNonShellNoRecording(t *testing.T) {
 			done := channels.serve(t)
 
 			// The session starts and data flows...
-			channels.sendAckedRequest(t, tt.reqType, tt.payload)
+			channels.sendRequestAwaitReply(t, tt.reqType, tt.payload)
 
-			_, err := channels.server.ch.Write([]byte("command-output"))
+			_, err := channels.target.ch.Write([]byte("command-output"))
 			require.NoError(t, err)
-			assert.Equal(t, "command-output", string(readInFull(t, channels.client.ch, len("command-output"))))
+			assert.Equal(t, "command-output", string(readInFull(t, channels.source.ch, len("command-output"))))
 
 			channels.close(t, done)
 
@@ -373,13 +375,13 @@ func TestChannelPair_SessionWindowChangeWithoutRecorder(t *testing.T) {
 	channels := newProxyChannels(t, "session")
 	done := channels.serve(t)
 
-	channels.sendAckedRequest(t, "exec", ssh.Marshal(execReq{Command: "top"}))
+	channels.sendRequestAwaitReply(t, "exec", ssh.Marshal(execReq{Command: "top"}))
 	channels.sendWindowChange(t, 120, 40)
 
 	// The session is still alive after the window-change.
-	_, err := channels.server.ch.Write([]byte("still-alive"))
+	_, err := channels.target.ch.Write([]byte("still-alive"))
 	require.NoError(t, err)
-	assert.Equal(t, "still-alive", string(readInFull(t, channels.client.ch, len("still-alive"))))
+	assert.Equal(t, "still-alive", string(readInFull(t, channels.source.ch, len("still-alive"))))
 
 	channels.close(t, done)
 	assert.Equal(t, recorderState{}, channels.recorder.state())
@@ -391,14 +393,14 @@ func TestChannelPair_SessionRecorderWriteErrors(t *testing.T) {
 	channels.recorder.resizeErr = errors.New("resize write failed")
 	done := channels.serve(t)
 
-	channels.sendAckedRequest(t, "pty-req", ssh.Marshal(ptyReq{Term: "xterm", WidthColumns: 80, HeightRows: 24}))
-	channels.sendAckedRequest(t, "shell", nil)
+	channels.sendRequestAwaitReply(t, "pty-req", ssh.Marshal(ptyReq{Term: "xterm", WidthColumns: 80, HeightRows: 24}))
+	channels.sendRequestAwaitReply(t, "shell", nil)
 	channels.sendWindowChange(t, 120, 40)
 
 	// Both writes failed, yet the session keeps going: output still flows and is recorded.
-	_, err := channels.server.ch.Write([]byte("survives"))
+	_, err := channels.target.ch.Write([]byte("survives"))
 	require.NoError(t, err)
-	assert.Equal(t, "survives", string(readInFull(t, channels.client.ch, len("survives"))))
+	assert.Equal(t, "survives", string(readInFull(t, channels.source.ch, len("survives"))))
 
 	channels.close(t, done)
 
@@ -412,13 +414,18 @@ func TestChannelPair_SessionRecorderWriteErrors(t *testing.T) {
 // proxyChannels is the channel-layer fixture: one channel proxied between two real SSH
 // connections, exposing all four ends:
 //
-//	        downstream channel  +----------------------------------+  upstream channel
-//	client <------------------> | proxyDownstream    proxyUpstream | <------------------> server
-//	                            +-------------- proxy -------------+
+//	        source channel    +----------------------------------+  target channel
+//	source <----------------> | proxySource        proxyTarget   | <----------------> target
+//	                          +-------------- proxy -------------+
 //
-// The proxy-held ends feed SSHChannelPair (source = proxyDownstream, target = proxyUpstream).
+// The tests drive the far ends (source and target) and assert only there.
 type proxyChannels struct {
 	channelType string
+
+	source      channel
+	proxySource channel
+	proxyTarget channel
+	target      channel
 
 	// recorder replaces the pair's real session recorder via a fakeRecorderFactory; its error
 	// fields may be set before serve() to inject recorder write failures.
@@ -427,29 +434,24 @@ type proxyChannels struct {
 	// Optional per-test timeout overrides applied in serve(); zero leaves the pair's default.
 	sessionStartTimeout time.Duration
 	channelCloseTimeout time.Duration
-
-	client          channel
-	proxyDownstream channel
-	proxyUpstream   channel
-	server          channel
 }
 
 // newProxyChannels proxies one channel of the given type across two real SSH connections:
-// the client opens toward the proxy, and the proxy opens toward the server, mirroring
+// the source end opens toward the proxy, and the proxy opens toward the target, mirroring
 // forwardChannels. Global requests on all connection ends are discarded.
 func newProxyChannels(t *testing.T, channelType string) *proxyChannels {
 	t.Helper()
 
-	clientConn, proxyDownstreamConn := sshPipe(t)
-	proxyUpstreamConn, serverConn := sshPipe(t)
+	sourceConn, proxySourceConn := sshPipe(t)
+	proxyTargetConn, targetConn := sshPipe(t)
 
-	for _, end := range []*connection{clientConn, proxyDownstreamConn, proxyUpstreamConn, serverConn} {
+	for _, end := range []*connection{sourceConn, proxySourceConn, proxyTargetConn, targetConn} {
 		go ssh.DiscardRequests(end.requests)
 	}
 
 	channels := &proxyChannels{channelType: channelType, recorder: &fakeRecorder{}}
-	channels.client, channels.proxyDownstream = openChannel(t, clientConn, proxyDownstreamConn, channelType, nil)
-	channels.proxyUpstream, channels.server = openChannel(t, proxyUpstreamConn, serverConn, channelType, nil)
+	channels.source, channels.proxySource = openChannel(t, sourceConn, proxySourceConn, channelType, nil)
+	channels.proxyTarget, channels.target = openChannel(t, proxyTargetConn, targetConn, channelType, nil)
 
 	return channels
 }
@@ -463,8 +465,8 @@ func (p *proxyChannels) serve(t *testing.T) <-chan struct{} {
 		zaptest.NewLogger(t),
 		newSSHChannelContext(testSSHContext, p.channelType, labelDownstream, labelUpstream),
 		"testuser",
-		p.proxyDownstream,
-		p.proxyUpstream,
+		p.proxySource,
+		p.proxyTarget,
 	)
 	pair.recorderFactory = &fakeRecorderFactory{recorder: p.recorder}
 
@@ -486,25 +488,25 @@ func (p *proxyChannels) serve(t *testing.T) <-chan struct{} {
 	return done
 }
 
-// close closes the client and server ends and waits for serve() to finish.
+// close closes the source and target ends and waits for serve() to finish.
 func (p *proxyChannels) close(t *testing.T, done <-chan struct{}) {
 	t.Helper()
 
-	_ = p.client.ch.Close()
-	_ = p.server.ch.Close()
+	_ = p.source.ch.Close()
+	_ = p.target.ch.Close()
 
-	waitServeDone(t, done)
+	waitDone(t, done)
 }
 
-// sendAckedRequest sends a WantReply request from the client, acknowledges it at the server,
+// sendRequestAwaitReply sends a WantReply request from the source, replies success at the target,
 // and requires the success reply to round-trip. The reply also guarantees the proxy finished
 // handling the request (e.g. a session gate opened or a resize was recorded).
-func (p *proxyChannels) sendAckedRequest(t *testing.T, reqType string, payload []byte) {
+func (p *proxyChannels) sendRequestAwaitReply(t *testing.T, reqType string, payload []byte) {
 	t.Helper()
 
-	awaitReply := sendRequest(p.client.ch, reqType, true, payload)
+	awaitReply := sendRequest(p.source.ch, reqType, true, payload)
 
-	forwarded := recvForwardedReq(t, p.server.requests, reqType)
+	forwarded := assertSentRequest(t, p.target.requests, reqType)
 	require.NoError(t, forwarded.Reply(true, nil))
 
 	ok, err := awaitReply(t)
@@ -517,9 +519,68 @@ func (p *proxyChannels) sendAckedRequest(t *testing.T, reqType string, payload [
 func (p *proxyChannels) sendWindowChange(t *testing.T, width, height uint32) {
 	t.Helper()
 
-	p.sendAckedRequest(t, requestTypeWindowChange, ssh.Marshal(windowChangeReq{
+	p.sendRequestAwaitReply(t, requestTypeWindowChange, ssh.Marshal(windowChangeReq{
 		WidthColumns: width, HeightRows: height,
 	}))
+}
+
+// sendRequest sends a channel request from a background goroutine, since SendRequest with
+// WantReply blocks until the far end (the test itself) replies. It returns a function that blocks
+// for the (ok, err) result, failing the test if none arrives within testTimeout.
+func sendRequest(ch ssh.Channel, name string, wantReply bool, payload []byte) func(t *testing.T) (ok bool, err error) {
+	type result struct {
+		ok  bool
+		err error
+	}
+
+	done := make(chan result, 1)
+
+	go func() {
+		ok, err := ch.SendRequest(name, wantReply, payload)
+		done <- result{ok: ok, err: err}
+	}()
+
+	return func(t *testing.T) (bool, error) {
+		t.Helper()
+
+		select {
+		case res := <-done:
+			return res.ok, res.err
+		case <-time.After(testTimeout):
+			t.Fatal("timed out waiting for request reply")
+
+			return false, nil
+		}
+	}
+}
+
+// startRead begins reading exactly n bytes in the background and returns a channel that
+// delivers them once the read completes; the tests use it to assert that data does or does
+// not arrive across the session gate.
+func startRead(reader io.Reader, n int) <-chan []byte {
+	out := make(chan []byte, 1)
+
+	go func() {
+		buf := make([]byte, n)
+		if _, err := io.ReadFull(reader, buf); err == nil {
+			out <- buf
+		}
+	}()
+
+	return out
+}
+
+// waitReqChanClosed asserts the requests channel closes within testTimeout without delivering
+// another request.
+func waitReqChanClosed(t *testing.T, reqs <-chan *ssh.Request) {
+	t.Helper()
+
+	select {
+	case req, ok := <-reqs:
+		require.False(t, ok, "expected requests channel to close, got request %v", req)
+	case <-time.After(testTimeout):
+		t.Fatal("timed out waiting for requests channel to close")
+	}
 }
 
 // fakeRecorder is a sessionrecorder.Recorder that records every call it receives and returns
@@ -606,64 +667,4 @@ type fakeRecorderFactory struct {
 
 func (f *fakeRecorderFactory) NewRecorder(*zap.Logger) sessionrecorder.Recorder {
 	return f.recorder
-}
-
-// sendRequest sends a channel request from a background goroutine and returns a function
-// that blocks for its (ok, err) result. SendRequest with WantReply blocks until the reply
-// arrives, which the test itself must produce at the far end, so the send cannot run on the
-// test goroutine. The returned function fails the test if no reply arrives within testTimeout.
-func sendRequest(ch ssh.Channel, name string, wantReply bool, payload []byte) func(t *testing.T) (ok bool, err error) {
-	type result struct {
-		ok  bool
-		err error
-	}
-
-	done := make(chan result, 1)
-
-	go func() {
-		ok, err := ch.SendRequest(name, wantReply, payload)
-		done <- result{ok: ok, err: err}
-	}()
-
-	return func(t *testing.T) (bool, error) {
-		t.Helper()
-
-		select {
-		case res := <-done:
-			return res.ok, res.err
-		case <-time.After(testTimeout):
-			t.Fatal("timed out waiting for request reply")
-
-			return false, nil
-		}
-	}
-}
-
-// startRead begins reading exactly n bytes in the background and returns a channel that
-// delivers them once the read completes; the tests use it to assert that data does or does
-// not arrive across the session gate.
-func startRead(reader io.Reader, n int) <-chan []byte {
-	out := make(chan []byte, 1)
-
-	go func() {
-		buf := make([]byte, n)
-		if _, err := io.ReadFull(reader, buf); err == nil {
-			out <- buf
-		}
-	}()
-
-	return out
-}
-
-// waitReqChanClosed asserts the request stream closes within testTimeout without delivering
-// another request.
-func waitReqChanClosed(t *testing.T, reqs <-chan *ssh.Request) {
-	t.Helper()
-
-	select {
-	case req, ok := <-reqs:
-		require.False(t, ok, "expected request stream to close, got request %v", req)
-	case <-time.After(testTimeout):
-		t.Fatal("timed out waiting for request stream to close")
-	}
 }

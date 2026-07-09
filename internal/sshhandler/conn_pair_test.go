@@ -30,18 +30,18 @@ func TestConnPair_ForwardsChannels(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			conns := newServingConnPair(t)
+			conns := newProxyConns(t)
+			done := conns.serve(t)
 
 			opener, acceptor := conns.client, conns.server
 			if tt.fromUpstream {
 				opener, acceptor = conns.server, conns.client
 			}
 
-			// openChannel asserts the forwarded open preserves the type and extra data.
 			openChannel(t, opener, acceptor, tt.channelType, []byte("original-extra-data"))
 
 			// The count is only settled once serve() has returned.
-			conns.close(t)
+			conns.close(t, done)
 			assert.Equal(t, 1, conns.pair.ChannelsOpened())
 		})
 	}
@@ -49,7 +49,8 @@ func TestConnPair_ForwardsChannels(t *testing.T) {
 
 func TestConnPair_ConcurrentChannels(t *testing.T) {
 	// An open channel must not block new ones: each pair is served on its own goroutine.
-	conns := newServingConnPair(t)
+	conns := newProxyConns(t)
+	done := conns.serve(t)
 
 	firstOpener, firstAcceptor := openChannel(t, conns.client, conns.server, "direct-tcpip", nil)
 	secondOpener, secondAcceptor := openChannel(t, conns.client, conns.server, "direct-tcpip", nil)
@@ -63,7 +64,7 @@ func TestConnPair_ConcurrentChannels(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "first", string(readInFull(t, firstAcceptor.ch, len("first"))))
 
-	conns.close(t)
+	conns.close(t, done)
 	assert.Equal(t, 2, conns.pair.ChannelsOpened())
 }
 
@@ -80,7 +81,8 @@ func TestConnPair_ChannelPolicy(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			conns := newServingConnPair(t)
+			conns := newProxyConns(t)
+			done := conns.serve(t)
 
 			opener := conns.client
 			if tt.fromUpstream {
@@ -96,13 +98,14 @@ func TestConnPair_ChannelPolicy(t *testing.T) {
 				assert.Equal(t, ssh.Prohibited, openErr.Reason, "channel type %q must be rejected", channelType)
 			}
 
-			conns.close(t)
+			conns.close(t, done)
 		})
 	}
 }
 
 func TestConnPair_TargetOpenChannelFailure(t *testing.T) {
-	conns := newServingConnPair(t)
+	conns := newProxyConns(t)
+	done := conns.serve(t)
 
 	// The upstream server refuses every open with its own reason; the proxy must reject the
 	// source with ConnectionFailed, not echo the upstream's reason.
@@ -119,7 +122,7 @@ func TestConnPair_TargetOpenChannelFailure(t *testing.T) {
 	require.ErrorAs(t, err, &openErr)
 	assert.Equal(t, ssh.ConnectionFailed, openErr.Reason)
 
-	conns.close(t)
+	conns.close(t, done)
 	assert.Zero(t, conns.pair.ChannelsOpened())
 }
 
@@ -157,14 +160,12 @@ func TestConnPair_ForwardsGlobalRequests(t *testing.T) {
 		replyPayload []byte
 	}{
 		{
-			// tcpip-forward is client→server, so only the downstream end sends it; its success
-			// reply carries a payload (the bound port), which must round-trip.
 			name:         "downstream to upstream",
 			reqType:      "tcpip-forward",
 			payload:      []byte("forward-payload"),
 			wantReply:    true,
 			replyOK:      true,
-			replyPayload: ssh.Marshal(struct{ Port uint32 }{Port: 8022}),
+			replyPayload: []byte("reply-payload"),
 		},
 		{
 			name:         "upstream to downstream",
@@ -191,7 +192,8 @@ func TestConnPair_ForwardsGlobalRequests(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			conns := newServingConnPair(t)
+			conns := newProxyConns(t)
+			done := conns.serve(t)
 
 			sender, receiver := conns.client, conns.server
 			if tt.fromUpstream {
@@ -200,7 +202,7 @@ func TestConnPair_ForwardsGlobalRequests(t *testing.T) {
 
 			awaitReply := sendGlobalRequest(sender.conn, tt.reqType, tt.wantReply, tt.payload)
 
-			forwarded := recvForwardedReq(t, receiver.requests, tt.reqType)
+			forwarded := assertSentRequest(t, receiver.requests, tt.reqType)
 			assert.Equal(t, tt.wantReply, forwarded.WantReply)
 			assert.Equal(t, tt.payload, forwarded.Payload)
 
@@ -214,7 +216,7 @@ func TestConnPair_ForwardsGlobalRequests(t *testing.T) {
 			assert.Equal(t, tt.replyOK, ok)
 			assert.Equal(t, string(tt.replyPayload), string(replyPayload))
 
-			conns.close(t)
+			conns.close(t, done)
 		})
 	}
 }
@@ -233,7 +235,8 @@ func TestConnPair_GlobalRequestPolicy(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			conns := newServingConnPair(t)
+			conns := newProxyConns(t)
+			done := conns.serve(t)
 
 			sender := conns.client
 			if tt.fromUpstream {
@@ -246,7 +249,7 @@ func TestConnPair_GlobalRequestPolicy(t *testing.T) {
 				assert.False(t, ok, "global request type %q must be rejected", reqType)
 			}
 
-			conns.close(t)
+			conns.close(t, done)
 		})
 	}
 }
@@ -258,7 +261,7 @@ func TestConnPair_GlobalRequestSendError(t *testing.T) {
 	// already-closed target connection.
 	downstreamClient, proxyDownstream := sshPipe(t)
 	awaitReply := sendGlobalRequest(downstreamClient.conn, "tcpip-forward", true, []byte("payload"))
-	req := recvForwardedReq(t, proxyDownstream.requests, "tcpip-forward")
+	req := assertSentRequest(t, proxyDownstream.requests, "tcpip-forward")
 
 	proxyUpstream, _ := sshPipe(t)
 	require.NoError(t, proxyUpstream.conn.Close())
@@ -292,7 +295,8 @@ func TestConnPair_CrossClose(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			conns := newServingConnPair(t)
+			conns := newProxyConns(t)
+			done := conns.serve(t)
 
 			closing, other := conns.client, conns.server
 			if tt.closeUpstream {
@@ -302,7 +306,7 @@ func TestConnPair_CrossClose(t *testing.T) {
 			require.NoError(t, closing.conn.Close())
 
 			assertConnClosed(t, other.conn)
-			waitServeDone(t, conns.done)
+			waitDone(t, done)
 		})
 	}
 }
@@ -315,7 +319,7 @@ func TestConnPair_CloseErrors(t *testing.T) {
 		run     func(t *testing.T, logger *zap.Logger)
 	}{
 		{
-			name:    "close logs downstream close error",
+			name:    "logs downstream close error",
 			wantMsg: "Failed to close downstream connection",
 			run: func(t *testing.T, logger *zap.Logger) {
 				t.Helper()
@@ -327,7 +331,7 @@ func TestConnPair_CloseErrors(t *testing.T) {
 			},
 		},
 		{
-			name:    "close logs upstream close error",
+			name:    "logs upstream close error",
 			wantMsg: "Failed to close upstream connection",
 			run: func(t *testing.T, logger *zap.Logger) {
 				t.Helper()
@@ -339,7 +343,7 @@ func TestConnPair_CloseErrors(t *testing.T) {
 			},
 		},
 		{
-			name: "close ignores ErrClosed on already-closed connections",
+			name: "ignores ErrClosed on already-closed connections",
 			run: func(t *testing.T, logger *zap.Logger) {
 				t.Helper()
 
@@ -353,7 +357,7 @@ func TestConnPair_CloseErrors(t *testing.T) {
 			},
 		},
 		{
-			name:    "cross-close logs close error",
+			name:    "cross-close logs upstream close error",
 			wantMsg: "Failed to close upstream connection",
 			run: func(t *testing.T, logger *zap.Logger) {
 				t.Helper()
@@ -372,7 +376,7 @@ func TestConnPair_CloseErrors(t *testing.T) {
 				// Closing the downstream far end makes serve() cross-close the upstream
 				// connection, whose Close() fails.
 				require.NoError(t, downstreamClient.conn.Close())
-				waitServeDone(t, done)
+				waitDone(t, done)
 			},
 		},
 		{
@@ -395,7 +399,7 @@ func TestConnPair_CloseErrors(t *testing.T) {
 				// Closing the upstream far end makes serve() cross-close the downstream
 				// connection, whose Close() fails.
 				require.NoError(t, upstreamServer.conn.Close())
-				waitServeDone(t, done)
+				waitDone(t, done)
 			},
 		},
 		{
@@ -457,13 +461,10 @@ type proxyConns struct {
 
 	client *connection
 	server *connection
-
-	// done closes when the pair's serve() returns.
-	done <-chan struct{}
 }
 
-// newServingConnPair builds a proxyConns fixture and serves its SSHConnPair in the background.
-func newServingConnPair(t *testing.T) *proxyConns {
+// newProxyConns builds a proxyConns fixture over two real SSH connections.
+func newProxyConns(t *testing.T) *proxyConns {
 	t.Helper()
 
 	client, proxyDownstream := sshPipe(t)
@@ -471,24 +472,31 @@ func newServingConnPair(t *testing.T) *proxyConns {
 
 	pair := NewSSHConnPair(zaptest.NewLogger(t), testSSHContext, *proxyDownstream, *proxyUpstream)
 
+	return &proxyConns{pair: pair, client: client, server: server}
+}
+
+// serve runs the pair's serve() in the background; the returned channel closes when serve returns.
+func (p *proxyConns) serve(t *testing.T) <-chan struct{} {
+	t.Helper()
+
 	done := make(chan struct{})
 
 	go func() {
-		pair.serve()
+		p.pair.serve()
 		close(done)
 	}()
 
-	return &proxyConns{pair: pair, client: client, server: server, done: done}
+	return done
 }
 
 // close closes both far ends and waits for serve() to return.
-func (p *proxyConns) close(t *testing.T) {
+func (p *proxyConns) close(t *testing.T, done <-chan struct{}) {
 	t.Helper()
 
 	_ = p.client.conn.Close()
 	_ = p.server.conn.Close()
 
-	waitServeDone(t, p.done)
+	waitDone(t, done)
 }
 
 // newDeadChannel opens a channel of the given type from a real SSH client, captures the
@@ -518,7 +526,7 @@ func newDeadChannel(t *testing.T, channelType string) ssh.NewChannel {
 }
 
 // forwardDeadChannel drives forwardChannels (downstream direction) with a single dead source
-// channel of the given type over targetConn, returning once the one-shot stream drains.
+// channel of the given type over targetConn, returning once the one-shot input channel drains.
 func forwardDeadChannel(t *testing.T, pair *SSHConnPair, targetConn ssh.Conn, channelType string) {
 	t.Helper()
 
