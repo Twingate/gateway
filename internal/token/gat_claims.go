@@ -139,9 +139,7 @@ type Resource struct {
 	GatewayMetadata GatewayMetadata `json:"gateway_metadata"` //nolint:tagliatelle // GAT wire format from the controller uses snake_case
 }
 
-// Alias returns the resource's primary alias, or an empty string when the
-// resource has none. The controller omits the aliases claim for resources
-// without aliases, so a populated list always has at least one entry.
+// Alias returns the resource's primary alias, or an empty string when the resource has none.
 func (r Resource) Alias() string {
 	if len(r.Aliases) == 0 {
 		return ""

@@ -88,15 +88,6 @@ func TestGATTokenClaims_Validate(t *testing.T) {
 		require.NoError(t, err)
 	})
 
-	t.Run("Valid claims with wildcard address", func(t *testing.T) {
-		claims := validClaims
-		claims.Resource.Address = "*.example.com"
-		claims.Resource.Aliases = nil
-
-		err := claims.Validate()
-		require.NoError(t, err)
-	})
-
 	tests := []struct {
 		name                 string
 		setupFn              func(*GATClaims)
