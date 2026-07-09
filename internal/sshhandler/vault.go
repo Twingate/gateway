@@ -5,8 +5,10 @@ package sshhandler
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -120,6 +122,12 @@ type Vault struct {
 func newVault(vaultConfig *gatewayconfig.SSHCAVaultConfig, logger *zap.Logger) (*Vault, error) {
 	config := vault.DefaultConfig()
 	config.Address = vaultConfig.Address
+
+	//nolint:revive // unchecked-type-assertion: transport type guaranteed by DefaultConfig
+	transport := config.HttpClient.Transport.(*http.Transport)
+	// Enforce TLS 1.3 for the Vault client, which carries all CA signing requests.
+	// Vault's DefaultConfig sets only a TLS 1.2 minimum.
+	transport.TLSClientConfig.MinVersion = tls.VersionTLS13
 
 	if vaultConfig.CABundleFile != "" {
 		if err := config.ConfigureTLS(&vault.TLSConfig{
