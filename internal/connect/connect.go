@@ -169,13 +169,21 @@ func resolveUpstreamAddress(host, port string, resource token.Resource) (string,
 	switch {
 	case matchResourceAddress(resource.Address, host):
 		//	Keep existing upstream address
-	case matchResourceAlias(resource.Alias, host):
+	case matchResourceAlias(resource.Alias(), host):
 		//	Rewrite upstream address to GAT token address
 		host = resource.Address
 	default:
 		return "", &HTTPError{
 			Code:    http.StatusBadRequest,
 			Message: fmt.Sprintf("CONNECT destination address %s does not match token resource address %s", host, resource.Address),
+			Err:     nil,
+		}
+	}
+
+	if token.IsWildcardAddress(host) {
+		return "", &HTTPError{
+			Code:    http.StatusBadRequest,
+			Message: "CONNECT destination resolves to wildcard upstream address " + host,
 			Err:     nil,
 		}
 	}

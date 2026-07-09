@@ -75,7 +75,7 @@ func TestGATTokenClaims_Validate(t *testing.T) {
 			ID:      "resource-1",
 			Type:    "KUBERNETES",
 			Address: "resource.internal",
-			Alias:   "app.internal",
+			Aliases: []string{"app.internal"},
 			GatewayMetadata: GatewayMetadata{
 				Downstream: Downstream{Port: 443},
 				Upstream:   Upstream{Port: 8443},
@@ -91,7 +91,7 @@ func TestGATTokenClaims_Validate(t *testing.T) {
 	t.Run("Valid claims with wildcard address", func(t *testing.T) {
 		claims := validClaims
 		claims.Resource.Address = "*.example.com"
-		claims.Resource.Alias = ""
+		claims.Resource.Aliases = nil
 
 		err := claims.Validate()
 		require.NoError(t, err)
@@ -216,14 +216,6 @@ func TestGATTokenClaims_Validate(t *testing.T) {
 			},
 			expectedError:        jwt.ErrTokenInvalidClaims,
 			expectedErrorMessage: "invalid port \"resource.gateway_metadata.upstream.port\": 65536",
-		},
-		{
-			name: "Alias on wildcard address",
-			setupFn: func(claims *GATClaims) {
-				claims.Resource.Address = "*.example.com"
-			},
-			expectedError:        jwt.ErrTokenInvalidClaims,
-			expectedErrorMessage: "wildcard resource address cannot have an alias: address \"*.example.com\", alias \"app.internal\"",
 		},
 	}
 

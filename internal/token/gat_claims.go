@@ -25,10 +25,9 @@ const (
 )
 
 var (
-	errInvalidPublicKey       = errors.New("not a valid public key")
-	errUnsupportedVersion     = errors.New("unsupported version")
-	errInvalidPort            = errors.New("invalid port")
-	errAliasOnWildcardAddress = errors.New("wildcard resource address cannot have an alias")
+	errInvalidPublicKey   = errors.New("not a valid public key")
+	errUnsupportedVersion = errors.New("unsupported version")
+	errInvalidPort        = errors.New("invalid port")
 )
 
 type GATClaims struct {
@@ -70,15 +69,7 @@ func (p GATClaims) Validate() error {
 		return err
 	}
 
-	if err := validatePort(p.Resource.GatewayMetadata.Upstream.Port, "resource.gateway_metadata.upstream.port"); err != nil {
-		return err
-	}
-
-	if p.Resource.Alias != "" && IsWildcardAddress(p.Resource.Address) {
-		return fmt.Errorf("%w: %w: address %q, alias %q", jwt.ErrTokenInvalidClaims, errAliasOnWildcardAddress, p.Resource.Address, p.Resource.Alias)
-	}
-
-	return nil
+	return validatePort(p.Resource.GatewayMetadata.Upstream.Port, "resource.gateway_metadata.upstream.port")
 }
 
 // validatePort ensures a GAT-provided port is within the valid TCP range. A missing port (zero)
@@ -144,8 +135,19 @@ type Resource struct {
 	ID              string          `json:"id"`
 	Type            ResourceType    `json:"type"`
 	Address         string          `json:"address"`
-	Alias           string          `json:"alias,omitempty"`
+	Aliases         []string        `json:"aliases,omitempty"`
 	GatewayMetadata GatewayMetadata `json:"gateway_metadata"` //nolint:tagliatelle // GAT wire format from the controller uses snake_case
+}
+
+// Alias returns the resource's primary alias, or an empty string when the
+// resource has none. The controller omits the aliases claim for resources
+// without aliases, so a populated list always has at least one entry.
+func (r Resource) Alias() string {
+	if len(r.Aliases) == 0 {
+		return ""
+	}
+
+	return r.Aliases[0]
 }
 
 // IsWildcardAddress reports whether a resource address is an RFC 6125 wildcard

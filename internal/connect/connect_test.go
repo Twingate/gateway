@@ -344,7 +344,7 @@ func TestConnectValidator_ParseConnect(t *testing.T) {
 	t.Run("Rewrites alias address to upstream address", func(t *testing.T) {
 		claims := newGATTokenClaims(c.getPublicKey())
 		claims.Resource.Address = "10.0.0.1"
-		claims.Resource.Alias = "foo.int"
+		claims.Resource.Aliases = []string{"foo.int"}
 		claims.Resource.GatewayMetadata.Upstream = token.Upstream{Port: 8443}
 		parserAlias, tokenAlias := createParserAndGATToken(t, claims)
 		validator := &MessageValidator{TokenParser: parserAlias}
@@ -436,16 +436,40 @@ func TestResolveUpstreamAddress(t *testing.T) {
 			name:        "alias maps to resource address",
 			host:        "app.internal",
 			port:        "443",
-			resource:    token.Resource{Address: "10.0.0.5", Alias: "app.internal", GatewayMetadata: metadata},
+			resource:    token.Resource{Address: "10.0.0.5", Aliases: []string{"app.internal"}, GatewayMetadata: metadata},
 			wantAddress: "10.0.0.5:8443",
+		},
+		{
+			name:        "only first alias is honored",
+			host:        "second.internal",
+			port:        "443",
+			resource:    token.Resource{Address: "10.0.0.5", Aliases: []string{"first.internal", "second.internal"}, GatewayMetadata: metadata},
+			wantCode:    http.StatusBadRequest,
+			wantMessage: "CONNECT destination address second.internal does not match token resource address 10.0.0.5",
 		},
 		{
 			name:        "host matches neither address nor alias",
 			host:        "other.com",
 			port:        "443",
-			resource:    token.Resource{Address: "example.com", Alias: "app.internal", GatewayMetadata: metadata},
+			resource:    token.Resource{Address: "example.com", Aliases: []string{"app.internal"}, GatewayMetadata: metadata},
 			wantCode:    http.StatusBadRequest,
 			wantMessage: "CONNECT destination address other.com does not match token resource address example.com",
+		},
+		{
+			name:        "alias on wildcard resource address rejected",
+			host:        "app.internal",
+			port:        "443",
+			resource:    token.Resource{Address: "*.example.com", Aliases: []string{"app.internal"}, GatewayMetadata: metadata},
+			wantCode:    http.StatusBadRequest,
+			wantMessage: "CONNECT destination resolves to wildcard upstream address *.example.com",
+		},
+		{
+			name:        "wildcard address as literal host rejected",
+			host:        "*.example.com",
+			port:        "443",
+			resource:    token.Resource{Address: "*.example.com", GatewayMetadata: metadata},
+			wantCode:    http.StatusBadRequest,
+			wantMessage: "CONNECT destination resolves to wildcard upstream address *.example.com",
 		},
 		{
 			name:        "non-numeric port",
