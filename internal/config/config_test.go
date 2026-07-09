@@ -1042,6 +1042,31 @@ func TestSSHCAVaultAWSConfig_GetMount(t *testing.T) {
 	}
 }
 
+func TestSSHCAVaultAWSConfig_GetSignatureType(t *testing.T) {
+	tests := []struct {
+		name     string
+		cfg      *SSHCAVaultAWSConfig
+		expected string
+	}{
+		{
+			name:     "default to rsa2048 when unset",
+			cfg:      &SSHCAVaultAWSConfig{Role: "my-role", Type: "ec2"},
+			expected: "rsa2048",
+		},
+		{
+			name:     "explicit value preserved",
+			cfg:      &SSHCAVaultAWSConfig{Role: "my-role", Type: "ec2", SignatureType: "identity"},
+			expected: "identity",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, tt.cfg.GetSignatureType())
+		})
+	}
+}
+
 func TestSSHCAVaultAWSConfig_Validate(t *testing.T) {
 	tests := []struct {
 		name        string

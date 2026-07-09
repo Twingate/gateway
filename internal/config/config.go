@@ -175,7 +175,7 @@ type SSHCAVaultAWSConfig struct {
 	IAMServerIDHeader string `yaml:"iamServerIDHeader,omitempty"` // Value for the X-Vault-AWS-IAM-Server-ID header
 
 	// Fields for type "ec2".
-	SignatureType string `yaml:"signatureType,omitempty"` // "pkcs7" (default), "identity", or "rsa2048"
+	SignatureType string `yaml:"signatureType,omitempty"` // "rsa2048" (default), "identity", or "pkcs7"
 	Nonce         string `yaml:"nonce,omitempty"`
 }
 
@@ -574,7 +574,10 @@ func (g *SSHCAVaultGCPConfig) Validate() error {
 	}
 }
 
-const defaultAWSMount = "aws"
+const (
+	defaultAWSMount         = "aws"
+	defaultAWSSignatureType = "rsa2048"
+)
 
 // GetMount returns the AWS auth mount path, defaulting to "aws" if not specified.
 func (a *SSHCAVaultAWSConfig) GetMount() string {
@@ -583,6 +586,16 @@ func (a *SSHCAVaultAWSConfig) GetMount() string {
 	}
 
 	return defaultAWSMount
+}
+
+// GetSignatureType returns the EC2 auth signature type, defaulting to "rsa2048"
+// (SHA-256) when unset rather than the Vault SDK's pkcs7 (SHA-1) default.
+func (a *SSHCAVaultAWSConfig) GetSignatureType() string {
+	if a.SignatureType != "" {
+		return a.SignatureType
+	}
+
+	return defaultAWSSignatureType
 }
 
 func (a *SSHCAVaultAWSConfig) Validate() error {
