@@ -161,11 +161,9 @@ func (c *Config) GetUpstreamConfig(ctx context.Context, upstream upstream) (*ssh
 		ttl: c.userCertTTL,
 		permissions: ssh.Permissions{
 			Extensions: map[string]string{
-				"permit-X11-forwarding":   "",
-				"permit-agent-forwarding": "",
-				"permit-port-forwarding":  "",
-				"permit-pty":              "",
-				"permit-user-rc":          "",
+				"permit-port-forwarding": "",
+				"permit-pty":             "",
+				"permit-user-rc":         "",
 			},
 		},
 	}

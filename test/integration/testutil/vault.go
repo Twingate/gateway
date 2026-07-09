@@ -86,7 +86,7 @@ func SetupVaultServer(t *testing.T) (string, int) {
 		"key_type=ca",
 		"allow_user_certificates=true",
 		"allow_host_certificates=true",
-		"allowed_extensions=permit-X11-forwarding,permit-agent-forwarding,permit-port-forwarding,permit-pty,permit-user-rc",
+		"allowed_extensions=permit-port-forwarding,permit-pty,permit-user-rc",
 		"allow_empty_principals=true",
 		"allowed_users=admin",
 	))
