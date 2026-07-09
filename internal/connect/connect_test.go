@@ -72,8 +72,8 @@ func createParserAndGATToken(t *testing.T, claims token.GATClaims) (*token.Parse
 	require.NoError(t, err)
 
 	parser, err := token.NewParser(token.ParserConfig{
-		Network: "acme",
-		Host:    "twingate.com",
+		Issuer:   "twingate",
+		Audience: "acme",
 		Keyfunc: func(_token *jwt.Token) (any, error) {
 			return &privateKey.PublicKey, nil
 		},
