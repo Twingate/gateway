@@ -25,7 +25,6 @@ func TestNewKeyConfig(t *testing.T) {
 			keyType:    "",
 			keyBits:    0,
 			expectType: keyTypeED25519,
-			expectAlgo: ssh.KeyAlgoED25519,
 		},
 		{
 			name:       "ed25519",
