@@ -86,14 +86,14 @@ func rewrite(r *httputil.ProxyRequest, conn *connect.ProxyConn, headers map[stri
 	for headerName, value := range conn.GATClaims().Resource.GatewayMetadata.RequestHeaderRewrites {
 		tmpl, err := template.New(value)
 		if err != nil {
-			conn.Logger.Debug("skipping GAT request header rewrite", zap.String("header", headerName), zap.String("value", value), zap.Error(err))
+			conn.Logger.Warn("skipping GAT request header rewrite", zap.String("header", headerName), zap.Error(err))
 
 			continue
 		}
 
 		headerValue, err := tmpl.Evaluate(variables)
 		if err != nil {
-			conn.Logger.Debug("skipping GAT request header rewrite", zap.String("header", headerName), zap.String("value", value), zap.Error(err))
+			conn.Logger.Warn("skipping GAT request header rewrite", zap.String("header", headerName), zap.Error(err))
 
 			continue
 		}
