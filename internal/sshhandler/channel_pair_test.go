@@ -82,7 +82,7 @@ func TestChannelPair_ForwardsRequests(t *testing.T) {
 			// logs the parse error but does not drop the request. exec is parsed yet has no
 			// callback, so this case is direction-agnostic.
 			name:      "malformed payload forwarded verbatim",
-			reqType:   "exec",
+			reqType:   requestTypeExec,
 			payload:   []byte("not-a-valid-exec-payload"),
 			wantReply: true,
 			replyOK:   true,
@@ -130,7 +130,7 @@ func TestChannelPair_RequestForwardFailure(t *testing.T) {
 
 	done := channels.serve(t)
 
-	ok, err := sendRequest(channels.source.ch, "shell", true, nil)(t)
+	ok, err := sendRequest(channels.source.ch, requestTypeShell, true, nil)(t)
 	require.NoError(t, err)
 	assert.False(t, ok, "source must get a failure reply when the forward fails")
 
@@ -238,9 +238,9 @@ func TestChannelPair_SessionWaitsForStart(t *testing.T) {
 		reqType string
 		payload []byte
 	}{
-		{name: "shell", reqType: "shell"},
-		{name: "exec", reqType: "exec", payload: ssh.Marshal(execReq{Command: "ls"})},
-		{name: "subsystem", reqType: "subsystem", payload: ssh.Marshal(subsystemReq{Name: "sftp"})},
+		{name: "shell", reqType: requestTypeShell},
+		{name: "exec", reqType: requestTypeExec, payload: ssh.Marshal(execReq{Command: "whoami"})},
+		{name: "subsystem", reqType: requestTypeSubsystem, payload: ssh.Marshal(subsystemReq{Name: "sftp"})},
 	}
 
 	for _, tt := range tests {
@@ -308,8 +308,8 @@ func TestChannelPair_SessionShellRecording(t *testing.T) {
 	done := channels.serve(t)
 
 	// pty-req precedes shell by convention; its dimensions seed the asciinema header.
-	channels.sendRequestAwaitReply(t, "pty-req", ssh.Marshal(ptyReq{Term: "xterm", WidthColumns: 80, HeightRows: 24}))
-	channels.sendRequestAwaitReply(t, "shell", nil)
+	channels.sendRequestAwaitReply(t, requestTypePty, ssh.Marshal(ptyReq{Term: "xterm", WidthColumns: 80, HeightRows: 24}))
+	channels.sendRequestAwaitReply(t, requestTypeShell, nil)
 
 	// Only target->source data (terminal output) is recorded: source keystrokes
 	// (source->target) must not show up as output events.
@@ -331,7 +331,7 @@ func TestChannelPair_SessionShellRecording(t *testing.T) {
 	require.NotNil(t, state.header)
 	assert.Equal(t, 80, state.header.Width)
 	assert.Equal(t, 24, state.header.Height)
-	assert.Equal(t, "shell", state.header.Command)
+	assert.Equal(t, requestTypeShell, state.header.Command)
 	assert.Equal(t, "testuser", state.header.User)
 	assert.Equal(t, "terminal-output", state.output)
 	assert.Equal(t, []sessionrecorder.ResizeMsg{{Width: 120, Height: 40}}, state.resizes)
@@ -344,8 +344,8 @@ func TestChannelPair_SessionNonShellNoRecording(t *testing.T) {
 		reqType string
 		payload []byte
 	}{
-		{name: "exec", reqType: "exec", payload: ssh.Marshal(execReq{Command: "ls"})},
-		{name: "subsystem", reqType: "subsystem", payload: ssh.Marshal(subsystemReq{Name: "sftp"})},
+		{name: "exec", reqType: requestTypeExec, payload: ssh.Marshal(execReq{Command: "whoami"})},
+		{name: "subsystem", reqType: requestTypeSubsystem, payload: ssh.Marshal(subsystemReq{Name: "sftp"})},
 	}
 
 	for _, tt := range tests {
@@ -375,7 +375,7 @@ func TestChannelPair_SessionWindowChangeWithoutRecorder(t *testing.T) {
 	channels := newProxyChannels(t, "session")
 	done := channels.serve(t)
 
-	channels.sendRequestAwaitReply(t, "exec", ssh.Marshal(execReq{Command: "top"}))
+	channels.sendRequestAwaitReply(t, requestTypeExec, ssh.Marshal(execReq{Command: "whoami"}))
 	channels.sendWindowChange(t, 120, 40)
 
 	// The session is still alive after the window-change.
@@ -393,8 +393,8 @@ func TestChannelPair_SessionRecorderWriteErrors(t *testing.T) {
 	channels.recorder.resizeErr = errors.New("resize write failed")
 	done := channels.serve(t)
 
-	channels.sendRequestAwaitReply(t, "pty-req", ssh.Marshal(ptyReq{Term: "xterm", WidthColumns: 80, HeightRows: 24}))
-	channels.sendRequestAwaitReply(t, "shell", nil)
+	channels.sendRequestAwaitReply(t, requestTypePty, ssh.Marshal(ptyReq{Term: "xterm", WidthColumns: 80, HeightRows: 24}))
+	channels.sendRequestAwaitReply(t, requestTypeShell, nil)
 	channels.sendWindowChange(t, 120, 40)
 
 	// Both writes failed, yet the session keeps going: output still flows and is recorded.
