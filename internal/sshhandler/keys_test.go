@@ -21,6 +21,13 @@ func TestNewKeyConfig(t *testing.T) {
 		expectBits int
 	}{
 		{
+			name:       "empty defaults to ed25519",
+			keyType:    "",
+			keyBits:    0,
+			expectType: keyTypeED25519,
+			expectAlgo: ssh.KeyAlgoED25519,
+		},
+		{
 			name:       "ed25519",
 			keyType:    "ed25519",
 			keyBits:    0,
