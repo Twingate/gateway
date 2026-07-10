@@ -80,5 +80,26 @@ func rewrite(r *httputil.ProxyRequest, conn *connect.ProxyConn, headers map[stri
 		r.Out.Header.Set(headerName, headerValue)
 	}
 
+	// Per-resource request header rewrites from the GAT are applied last, so they override
+	// any config headers with the same name. Malformed or unsupported headers are skipped
+	// rather than failing the request.
+	for headerName, value := range conn.GATClaims().Resource.GatewayMetadata.RequestHeaderRewrites {
+		tmpl, err := template.New(value)
+		if err != nil {
+			conn.Logger.Warn("skipping GAT request header rewrite", zap.String("header", headerName), zap.Error(err))
+
+			continue
+		}
+
+		headerValue, err := tmpl.Evaluate(variables)
+		if err != nil {
+			conn.Logger.Warn("skipping GAT request header rewrite", zap.String("header", headerName), zap.Error(err))
+
+			continue
+		}
+
+		r.Out.Header.Set(headerName, headerValue)
+	}
+
 	return nil
 }
