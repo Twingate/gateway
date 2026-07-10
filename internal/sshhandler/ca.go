@@ -10,6 +10,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
 	"time"
 
@@ -311,15 +312,10 @@ func verifyCertificate(cert *ssh.Certificate, req *certificateRequest) error {
 		return fmt.Errorf("%w: certificate is bound to a different public key", errCertPolicyViolation)
 	}
 
-	requestedPrincipals := make(map[string]struct{}, len(req.principals))
-	for _, p := range req.principals {
-		requestedPrincipals[p] = struct{}{}
-	}
-
-	for _, p := range cert.ValidPrincipals {
-		if _, ok := requestedPrincipals[p]; !ok {
-			return fmt.Errorf("%w: unexpected principal %q", errCertPolicyViolation, p)
-		}
+	// Require exact equality: an empty principals list grants every principal, and any extra
+	// principal grants access the request never asked for.
+	if !maps.Equal(principalSet(cert.ValidPrincipals), principalSet(req.principals)) {
+		return fmt.Errorf("%w: granted principals %q do not match requested %q", errCertPolicyViolation, cert.ValidPrincipals, req.principals)
 	}
 
 	maxValidBefore := mustUint64(time.Now().Add(req.ttl).Add(clockSkewBuffer))
@@ -329,21 +325,8 @@ func verifyCertificate(cert *ssh.Certificate, req *certificateRequest) error {
 
 	// Critical options are restrictions, so dropping one widens privilege; require the
 	// cert's options to match the request exactly.
-	for opt, requested := range req.permissions.CriticalOptions {
-		granted, ok := cert.CriticalOptions[opt]
-		if !ok {
-			return fmt.Errorf("%w: missing requested critical option %q", errCertPolicyViolation, opt)
-		}
-
-		if granted != requested {
-			return fmt.Errorf("%w: critical option %q granted value %q, requested %q", errCertPolicyViolation, opt, granted, requested)
-		}
-	}
-
-	for opt := range cert.CriticalOptions {
-		if _, ok := req.permissions.CriticalOptions[opt]; !ok {
-			return fmt.Errorf("%w: unexpected critical option %q", errCertPolicyViolation, opt)
-		}
+	if !maps.Equal(cert.CriticalOptions, req.permissions.CriticalOptions) {
+		return fmt.Errorf("%w: granted critical options %q do not match requested %q", errCertPolicyViolation, cert.CriticalOptions, req.permissions.CriticalOptions)
 	}
 
 	// A missing extension only narrows privilege, so reject only unexpected extensions
@@ -360,4 +343,13 @@ func verifyCertificate(cert *ssh.Certificate, req *certificateRequest) error {
 	}
 
 	return nil
+}
+
+func principalSet(principals []string) map[string]struct{} {
+	set := make(map[string]struct{}, len(principals))
+	for _, p := range principals {
+		set[p] = struct{}{}
+	}
+
+	return set
 }

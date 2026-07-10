@@ -521,84 +521,124 @@ func TestVerifyCertificate(t *testing.T) {
 
 	now := time.Now()
 
-	userReq := &certificateRequest{
-		certType:   UserCert,
-		publicKey:  publicKey,
-		principals: []string{"alice"},
-		ttl:        time.Hour,
-		permissions: ssh.Permissions{
-			Extensions: map[string]string{"permit-pty": "", "permit-user-rc": ""},
-		},
-	}
-
-	hostReq := &certificateRequest{
-		certType:  HostCert,
-		publicKey: publicKey,
-		ttl:       24 * time.Hour,
-	}
-
 	tests := []struct {
 		name       string
-		req        *certificateRequest
-		setupFn    func(*ssh.Certificate)
+		setupFn    func(req *certificateRequest, cert *ssh.Certificate)
 		wantErrMsg string // substring expected in the error; empty means no error
 	}{
-		{name: "valid user cert", req: userReq, setupFn: func(*ssh.Certificate) {}},
-		{name: "valid host cert", req: hostReq, setupFn: func(c *ssh.Certificate) {
-			c.CertType = uint32(HostCert)
-			c.ValidPrincipals = nil
-			c.Extensions = nil
-		}},
-		{name: "wrong cert type", req: userReq, setupFn: func(c *ssh.Certificate) {
-			c.CertType = uint32(HostCert)
-		}, wantErrMsg: "cert type"},
-		{name: "wrong public key", req: userReq, setupFn: func(c *ssh.Certificate) {
-			c.Key = otherPublicKey
-		}, wantErrMsg: "different public key"},
-		{name: "extra principal", req: userReq, setupFn: func(c *ssh.Certificate) {
-			c.ValidPrincipals = []string{"alice", "root"}
-		}, wantErrMsg: "unexpected principal"},
-		{name: "validity exceeds TTL", req: userReq, setupFn: func(c *ssh.Certificate) {
-			c.ValidBefore = mustUint64(now.Add(2 * time.Hour))
-		}, wantErrMsg: "exceeds requested TTL"},
-		{name: "no expiry", req: userReq, setupFn: func(c *ssh.Certificate) {
-			c.ValidBefore = ssh.CertTimeInfinity
-		}, wantErrMsg: "exceeds requested TTL"},
-		{name: "unrequested critical option", req: userReq, setupFn: func(c *ssh.Certificate) {
-			c.CriticalOptions = map[string]string{"force-command": "/bin/false"}
-		}, wantErrMsg: "unexpected critical option"},
-		{name: "critical option value mismatch", req: &certificateRequest{
-			certType:   UserCert,
-			publicKey:  publicKey,
-			principals: []string{"alice"},
-			ttl:        time.Hour,
-			permissions: ssh.Permissions{
-				CriticalOptions: map[string]string{"force-command": "/usr/bin/allowed"},
+		{
+			name:    "valid user cert",
+			setupFn: func(*certificateRequest, *ssh.Certificate) {},
+		},
+		{
+			name: "valid host cert",
+			setupFn: func(req *certificateRequest, cert *ssh.Certificate) {
+				req.certType = HostCert
+				req.principals = nil
+				req.permissions.Extensions = nil
+				cert.CertType = uint32(HostCert)
+				cert.ValidPrincipals = nil
+				cert.Extensions = nil
 			},
-		}, setupFn: func(c *ssh.Certificate) {
-			c.CriticalOptions = map[string]string{"force-command": "/bin/sh"}
-		}, wantErrMsg: "critical option \"force-command\" granted value"},
-		{name: "missing requested critical option", req: &certificateRequest{
-			certType:   UserCert,
-			publicKey:  publicKey,
-			principals: []string{"alice"},
-			ttl:        time.Hour,
-			permissions: ssh.Permissions{
-				CriticalOptions: map[string]string{"force-command": "/usr/bin/allowed"},
+		},
+		{
+			name: "wrong cert type",
+			setupFn: func(_ *certificateRequest, cert *ssh.Certificate) {
+				cert.CertType = uint32(HostCert)
 			},
-		}, setupFn: func(c *ssh.Certificate) {
-			c.CriticalOptions = nil
-		}, wantErrMsg: "missing requested critical option"},
-		{name: "unrequested extension", req: userReq, setupFn: func(c *ssh.Certificate) {
-			c.Extensions["permit-port-forwarding"] = ""
-		}, wantErrMsg: "unexpected extension"},
-		{name: "extension value mismatch", req: userReq, setupFn: func(c *ssh.Certificate) {
-			c.Extensions["permit-pty"] = "unexpected"
-		}, wantErrMsg: "extension \"permit-pty\" granted value"},
+			wantErrMsg: "cert type",
+		},
+		{
+			name: "wrong public key",
+			setupFn: func(_ *certificateRequest, cert *ssh.Certificate) {
+				cert.Key = otherPublicKey
+			},
+			wantErrMsg: "different public key",
+		},
+		{
+			name: "extra principal",
+			setupFn: func(_ *certificateRequest, cert *ssh.Certificate) {
+				cert.ValidPrincipals = []string{"alice", "root"}
+			},
+			wantErrMsg: "do not match requested",
+		},
+		{
+			name: "empty principals is wildcard",
+			setupFn: func(_ *certificateRequest, cert *ssh.Certificate) {
+				cert.ValidPrincipals = nil
+			},
+			wantErrMsg: "do not match requested",
+		},
+		{
+			name: "empty principals matches empty request",
+			setupFn: func(req *certificateRequest, cert *ssh.Certificate) {
+				req.principals = nil
+				cert.ValidPrincipals = nil
+			},
+		},
+		{
+			name: "validity exceeds TTL",
+			setupFn: func(_ *certificateRequest, cert *ssh.Certificate) {
+				cert.ValidBefore = mustUint64(now.Add(2 * time.Hour))
+			},
+			wantErrMsg: "exceeds requested TTL",
+		},
+		{
+			name: "no expiry",
+			setupFn: func(_ *certificateRequest, cert *ssh.Certificate) {
+				cert.ValidBefore = ssh.CertTimeInfinity
+			},
+			wantErrMsg: "exceeds requested TTL",
+		},
+		{
+			name: "unrequested critical option",
+			setupFn: func(_ *certificateRequest, cert *ssh.Certificate) {
+				cert.CriticalOptions = map[string]string{"force-command": "/bin/false"}
+			},
+			wantErrMsg: "critical options",
+		},
+		{
+			name: "critical option value mismatch",
+			setupFn: func(req *certificateRequest, cert *ssh.Certificate) {
+				req.permissions.CriticalOptions = map[string]string{"force-command": "/usr/bin/allowed"}
+				cert.CriticalOptions = map[string]string{"force-command": "/bin/sh"}
+			},
+			wantErrMsg: "critical options",
+		},
+		{
+			name: "missing requested critical option",
+			setupFn: func(req *certificateRequest, _ *ssh.Certificate) {
+				req.permissions.CriticalOptions = map[string]string{"force-command": "/usr/bin/allowed"}
+			},
+			wantErrMsg: "critical options",
+		},
+		{
+			name: "unrequested extension",
+			setupFn: func(_ *certificateRequest, cert *ssh.Certificate) {
+				cert.Extensions["permit-port-forwarding"] = ""
+			},
+			wantErrMsg: "unexpected extension",
+		},
+		{
+			name: "extension value mismatch",
+			setupFn: func(_ *certificateRequest, cert *ssh.Certificate) {
+				cert.Extensions["permit-pty"] = "unexpected"
+			},
+			wantErrMsg: "extension \"permit-pty\" granted value",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			req := &certificateRequest{
+				certType:   UserCert,
+				publicKey:  publicKey,
+				principals: []string{"alice"},
+				ttl:        time.Hour,
+				permissions: ssh.Permissions{
+					Extensions: map[string]string{"permit-pty": ""},
+				},
+			}
 			cert := &ssh.Certificate{
 				Key:             publicKey,
 				CertType:        uint32(UserCert),
@@ -609,9 +649,9 @@ func TestVerifyCertificate(t *testing.T) {
 					Extensions: map[string]string{"permit-pty": ""},
 				},
 			}
-			tt.setupFn(cert)
+			tt.setupFn(req, cert)
 
-			err := verifyCertificate(cert, tt.req)
+			err := verifyCertificate(cert, req)
 			if tt.wantErrMsg != "" {
 				require.ErrorIs(t, err, errCertPolicyViolation)
 				assert.ErrorContains(t, err, tt.wantErrMsg)
