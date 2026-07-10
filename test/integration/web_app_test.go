@@ -48,7 +48,6 @@ func TestWebApp(t *testing.T) {
 		WebApp: &gatewayconfig.WebAppConfig{
 			Headers: map[string]string{
 				"Authorization":                 "Bearer {{jwt}}",
-				"X-Twingate-Username":           "Overridden by GAT Token",
 				"X-Twingate-Groups":             "{{groups}}",
 				"X-Twingate-Client-Geo-LatLong": "{{clientGeoLatLong}}",
 				"X-Twingate-Client-Geo-City":    "{{clientGeoCity}}",
@@ -88,7 +87,6 @@ func TestWebApp(t *testing.T) {
 		upstreamAddress,
 		controller.URL,
 		map[string]string{
-			"X-GAT-Token-Header":  "value preserved",
 			"X-Twingate-Username": "{{username}}",
 		},
 	)
@@ -120,7 +118,6 @@ func TestWebApp(t *testing.T) {
 		"X-Twingate-Client-Geo-Country": "US",
 		// From GAT Token
 		"X-Twingate-Username": "alex@acme.com",
-		"X-GAT-Token-Header":  "value preserved",
 	}
 
 	for header, expected := range expectedHeaders {

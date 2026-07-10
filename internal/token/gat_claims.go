@@ -117,7 +117,6 @@ type Resource struct {
 	GatewayMetadata GatewayMetadata `json:"gateway_metadata"` //nolint:tagliatelle // GAT wire format from the controller uses snake_case
 }
 
-// GatewayMetadata carries per-resource routing details from the GAT.
 type GatewayMetadata struct {
 	RequestHeaderRewrites map[string]string `json:"request_header_rewrites,omitempty"` //nolint:tagliatelle // GAT wire format from the controller uses snake_case
 }

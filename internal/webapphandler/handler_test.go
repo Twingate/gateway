@@ -122,32 +122,34 @@ func TestRewrite(t *testing.T) {
 			jwtToken: "test-token",
 			claims: withRequestHeaderRewrites(baseClaims, map[string]string{
 				"X-GAT-Static":   "static-value",
+				"X-Username":     "{{username}}",
 				"X-GAT-Username": "{{username}}",
 				"X-GAT-Auth":     "Bearer {{jwt}}",
-			}),
-			headers: map[string]string{
-				"X-Config": "{{groups}}",
-			},
-			wantHeaders: map[string]string{
-				"X-Config":       "Everyone,Engineering",
-				"X-GAT-Static":   "static-value",
-				"X-GAT-Username": "alice@acme.com",
-				"X-GAT-Auth":     "Bearer test-token",
-			},
-		},
-		{
-			name:     "GAT request header rewrites override config headers on conflict",
-			jwtToken: "test-token",
-			claims: withRequestHeaderRewrites(baseClaims, map[string]string{
-				"X-Username": "{{username}}",
 			}),
 			headers: map[string]string{
 				"X-Config":   "Dont override",
 				"X-Username": "Overridden by GAT Token",
 			},
 			wantHeaders: map[string]string{
-				"X-Config":   "Dont override",
-				"X-Username": "alice@acme.com",
+				"X-Config":       "Dont override",
+				"X-Username":     "alice@acme.com",
+				"X-GAT-Username": "alice@acme.com",
+				"X-GAT-Auth":     "Bearer test-token",
+			},
+		},
+		{
+			name:     "skips malformed and unsupported GAT request header rewrites",
+			jwtToken: "test-token",
+			claims: withRequestHeaderRewrites(baseClaims, map[string]string{
+				"X-GAT-Good":      "{{username}}",
+				"X-GAT-Malformed": "{{unclosed",
+				"X-GAT-Unknown":   "{{nonexistent}}",
+			}),
+			headers: map[string]string{},
+			wantHeaders: map[string]string{
+				"X-GAT-Good":      "alice@acme.com",
+				"X-GAT-Malformed": "",
+				"X-GAT-Unknown":   "",
 			},
 		},
 		{
