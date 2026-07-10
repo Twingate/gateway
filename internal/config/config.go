@@ -25,6 +25,14 @@ var (
 	ErrNegativeTTL       = errors.New("TTL must be non-negative")
 )
 
+var issuerByDomain = map[string]string{
+	"test":          "twingate-local",
+	"dev.opstg.com": "twingate-dev",
+	"stg.opstg.com": "twingate-stg",
+	"sec.opstg.com": "twingate-sec",
+	"twingate.com":  "twingate",
+}
+
 const (
 	defaultTwingateHost               = "twingate.com"
 	defaultPort                       = 8443
@@ -51,6 +59,16 @@ type WebAppConfig struct {
 type TwingateConfig struct {
 	Network string `yaml:"network"`
 	Host    string `yaml:"host"`
+}
+
+// JWKSURL returns the controller endpoint for fetching GAT signing keys.
+func (t TwingateConfig) JWKSURL() string {
+	return fmt.Sprintf("https://%s.%s/api/v1/jwk/ec", t.Network, t.Host)
+}
+
+// Issuer returns the expected JWT issuer for the configured controller host.
+func (t TwingateConfig) Issuer() string {
+	return issuerByDomain[trustedDomainFor(t.Host)]
 }
 
 type AuditLogConfig struct {
@@ -102,19 +120,22 @@ type SSHCAConfig struct {
 	Vault  *SSHCAVaultConfig  `yaml:"vault,omitempty"`
 }
 
+// SSHCAManualConfig configures an embedded CA loaded from key files.
 type SSHCAManualConfig struct {
-	PrivateKeyFile string `yaml:"privateKeyFile"`
+	PrivateKeyFile string `yaml:"privateKeyFile"` // Path to the unencrypted CA private key (OpenSSH or PEM encoded)
 }
 
+// SSHCAVaultConfig configures CAs backed by Vault's SSH secrets engine.
 type SSHCAVaultConfig struct {
-	Address      string               `yaml:"address"`
-	CABundleFile string               `yaml:"caBundleFile,omitempty"`
+	Address      string               `yaml:"address"`                // Vault server address, e.g. https://vault.example.com:8200
+	CABundleFile string               `yaml:"caBundleFile,omitempty"` // Path to a PEM CA bundle for verifying Vault's TLS certificate; omit to use the system trust store
 	Auth         SSHCAVaultAuthConfig `yaml:"auth"`
 
 	Namespace string `yaml:"namespace,omitempty"` // Optional Vault namespace
 
-	// Default mount point and role (used for all CAs unless overridden below)
-	Mount string `yaml:"mount,omitempty"`
+	// Default SSH secrets engine mount point and role (used for all CAs unless
+	// overridden below).
+	Mount string `yaml:"mount,omitempty"` // Defaults to "ssh"
 	Role  string `yaml:"role,omitempty"`
 
 	// Optional overrides for advanced setups with separate CAs
@@ -134,35 +155,45 @@ type SSHCAVaultMountConfig struct {
 	Mount string `yaml:"mount,omitempty"`
 }
 
+// SSHCAVaultAuthConfig configures how the Gateway authenticates to Vault.
+// At most one method may be set. If none is set, the token is read from the
+// VAULT_TOKEN environment variable.
 type SSHCAVaultAuthConfig struct {
-	Token   string                   `yaml:"token,omitempty"`
+	Token   string                   `yaml:"token,omitempty"` // Static Vault token. Inline tokens are for dev/testing only; in production deliver the token via the VAULT_TOKEN environment variable sourced from a secret store
 	AppRole *SSHCAVaultAppRoleConfig `yaml:"appRole,omitempty"`
 	GCP     *SSHCAVaultGCPConfig     `yaml:"gcp,omitempty"`
 	AWS     *SSHCAVaultAWSConfig     `yaml:"aws,omitempty"`
 }
 
+// SSHCAVaultAppRoleConfig configures Vault AppRole authentication.
+// Exactly one of SecretID or SecretIDFile must be set.
 type SSHCAVaultAppRoleConfig struct {
-	Mount        string `yaml:"mount,omitempty"`
+	Mount        string `yaml:"mount,omitempty"` // AppRole auth mount path. Defaults to "approle"
 	RoleID       string `yaml:"roleID"`
-	SecretID     string `yaml:"secretID"`
-	SecretIDFile string `yaml:"secretIDFile"`
+	SecretID     string `yaml:"secretID"`     // Inline SecretID, for dev/testing only
+	SecretIDFile string `yaml:"secretIDFile"` // Path to a file containing the SecretID; preferred in production
 }
 
+// SSHCAVaultGCPConfig configures Vault GCP authentication.
 type SSHCAVaultGCPConfig struct {
-	Mount               string `yaml:"mount,omitempty"`
-	Role                string `yaml:"role"`
-	Type                string `yaml:"type"`
-	ServiceAccountEmail string `yaml:"serviceAccountEmail,omitempty"` // Required for iam type
+	Mount string `yaml:"mount,omitempty"` // GCP auth mount path. Defaults to "gcp"
+	Role  string `yaml:"role"`            // Vault GCP auth role to login as
+	Type  string `yaml:"type"`            // "gce" or "iam"
+
+	// Fields for type "iam".
+	ServiceAccountEmail string `yaml:"serviceAccountEmail,omitempty"` // Required
 }
 
+// SSHCAVaultAWSConfig configures Vault AWS authentication.
 type SSHCAVaultAWSConfig struct {
-	Mount             string `yaml:"mount,omitempty"`
-	Role              string `yaml:"role"`
-	Type              string `yaml:"type"`
+	Mount             string `yaml:"mount,omitempty"` // AWS auth mount path. Defaults to "aws"
+	Role              string `yaml:"role"`            // Vault AWS auth role to login as
+	Type              string `yaml:"type"`            // "iam" or "ec2"
 	Region            string `yaml:"region,omitempty"`
-	IAMServerIDHeader string `yaml:"iamServerIDHeader,omitempty"`
-	// EC2-only options
-	SignatureType string `yaml:"signatureType,omitempty"`
+	IAMServerIDHeader string `yaml:"iamServerIDHeader,omitempty"` // Value for the X-Vault-AWS-IAM-Server-ID header
+
+	// Fields for type "ec2".
+	SignatureType string `yaml:"signatureType,omitempty"` // "rsa2048" (default), "identity", or "pkcs7"
 	Nonce         string `yaml:"nonce,omitempty"`
 }
 
@@ -238,8 +269,7 @@ func resolveTwingateHostname(targetURL, defaultHost string, retryMax int, logger
 }
 
 func (c *Config) ResolveTwingateHost(logger *zap.Logger) {
-	targetURL := fmt.Sprintf("https://%s.%s/api/v1/jwk/ec", c.Twingate.Network, c.Twingate.Host)
-	resolvedHostname := resolveTwingateHostname(targetURL, c.Twingate.Host, 2, logger)
+	resolvedHostname := resolveTwingateHostname(c.Twingate.JWKSURL(), c.Twingate.Host, 2, logger)
 
 	c.Twingate.Host = stripNetworkPrefix(resolvedHostname, c.Twingate.Network)
 }
@@ -561,7 +591,10 @@ func (g *SSHCAVaultGCPConfig) Validate() error {
 	}
 }
 
-const defaultAWSMount = "aws"
+const (
+	defaultAWSMount         = "aws"
+	defaultAWSSignatureType = "rsa2048"
+)
 
 // GetMount returns the AWS auth mount path, defaulting to "aws" if not specified.
 func (a *SSHCAVaultAWSConfig) GetMount() string {
@@ -570,6 +603,16 @@ func (a *SSHCAVaultAWSConfig) GetMount() string {
 	}
 
 	return defaultAWSMount
+}
+
+// GetSignatureType returns the EC2 auth signature type, defaulting to "rsa2048"
+// (SHA-256) when unset rather than the Vault SDK's pkcs7 (SHA-1) default.
+func (a *SSHCAVaultAWSConfig) GetSignatureType() string {
+	if a.SignatureType != "" {
+		return a.SignatureType
+	}
+
+	return defaultAWSSignatureType
 }
 
 func (a *SSHCAVaultAWSConfig) Validate() error {
@@ -662,6 +705,19 @@ func (v *SSHCAVaultConfig) GetUpstreamHostCAMount() string {
 	}
 
 	return defaultVaultSSHMount
+}
+
+// trustedDomainFor returns the trusted Twingate domain that host belongs to, or "" if none.
+// A host matches a domain exactly or as a subdomain, so sharded hosts like us1.twingate.com are
+// trusted.
+func trustedDomainFor(host string) string {
+	for domain := range issuerByDomain {
+		if host == domain || strings.HasSuffix(host, "."+domain) {
+			return domain
+		}
+	}
+
+	return ""
 }
 
 func validatePort(port int, fieldName string) error {

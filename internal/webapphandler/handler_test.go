@@ -46,7 +46,7 @@ func TestNewHandler_PanicsOnRewriteError(t *testing.T) {
 		User: token.User{Username: "alice@acme.com"},
 	}
 
-	unknownKeyTemplate, err := template.New("{{twingate.nonexistent}}")
+	unknownKeyTemplate, err := template.New("{{nonexistent}}")
 	require.NoError(t, err)
 
 	handler := NewHandler(Config{
@@ -62,6 +62,13 @@ func TestNewHandler_PanicsOnRewriteError(t *testing.T) {
 	assert.Panics(t, func() {
 		handler.ServeHTTP(httptest.NewRecorder(), req)
 	})
+}
+
+func withRequestHeaderRewrites(base *token.GATClaims, rewrites map[string]string) *token.GATClaims {
+	claims := *base
+	claims.Resource.GatewayMetadata.RequestHeaderRewrites = rewrites
+
+	return &claims
 }
 
 func TestRewrite(t *testing.T) {
@@ -90,13 +97,13 @@ func TestRewrite(t *testing.T) {
 			jwtToken: "test-token",
 			claims:   baseClaims,
 			headers: map[string]string{
-				"Authorization": "Bearer {{twingate.jwt}}",
-				"X-Username":    "{{twingate.username}}",
-				"X-Groups":      "{{twingate.groups}}",
-				"X-LatLong":     "{{twingate.clientGeoLatLong}}",
-				"X-City":        "{{twingate.clientGeoCity}}",
-				"X-Region":      "{{twingate.clientGeoRegion}}",
-				"X-Country":     "{{twingate.clientGeoCountry}}",
+				"Authorization": "Bearer {{jwt}}",
+				"X-Username":    "{{username}}",
+				"X-Groups":      "{{groups}}",
+				"X-LatLong":     "{{clientGeoLatLong}}",
+				"X-City":        "{{clientGeoCity}}",
+				"X-Region":      "{{clientGeoRegion}}",
+				"X-Country":     "{{clientGeoCountry}}",
 				"Existing":      "new-value",
 			},
 			wantHeaders: map[string]string{
@@ -111,6 +118,52 @@ func TestRewrite(t *testing.T) {
 			},
 		},
 		{
+			name:     "applies GAT request header rewrites with template values",
+			jwtToken: "test-token",
+			claims: withRequestHeaderRewrites(baseClaims, map[string]string{
+				"X-GAT-Static":   "static-value",
+				"X-GAT-Username": "{{username}}",
+				"X-GAT-Auth":     "Bearer {{jwt}}",
+			}),
+			headers: map[string]string{},
+			wantHeaders: map[string]string{
+				"X-GAT-Static":   "static-value",
+				"X-GAT-Username": "alice@acme.com",
+				"X-GAT-Auth":     "Bearer test-token",
+			},
+		},
+		{
+			name:     "GAT request header rewrites override config headers on conflict",
+			jwtToken: "test-token",
+			claims: withRequestHeaderRewrites(baseClaims, map[string]string{
+				"X-Username": "{{username}}",
+			}),
+			headers: map[string]string{
+				"X-Config":   "Dont override",
+				"X-Username": "Overridden by GAT Token",
+			},
+			wantHeaders: map[string]string{
+				"X-Config":   "Dont override",
+				"X-Username": "alice@acme.com",
+			},
+		},
+		{
+			name:     "preserve config header when conflict with unsupported GAT request header rewrites",
+			jwtToken: "test-token",
+			claims: withRequestHeaderRewrites(baseClaims, map[string]string{
+				"X-Malformed": "{{unclosed",
+				"X-Unknown":   "{{nonexistent}}",
+			}),
+			headers: map[string]string{
+				"X-Malformed": "Config value",
+				"X-Unknown":   "Config value",
+			},
+			wantHeaders: map[string]string{
+				"X-Malformed": "Config value",
+				"X-Unknown":   "Config value",
+			},
+		},
+		{
 			name:     "empty lat/lon with non-empty geo fields",
 			jwtToken: "test-token",
 			claims: &token.GATClaims{
@@ -118,10 +171,10 @@ func TestRewrite(t *testing.T) {
 				Device: token.Device{ID: "device-1", Location: token.GeoIPLocation{Country: "US", Region: "CA", City: "San Mateo"}},
 			},
 			headers: map[string]string{
-				"X-LatLong": "{{twingate.clientGeoLatLong}}",
-				"X-City":    "{{twingate.clientGeoCity}}",
-				"X-Region":  "{{twingate.clientGeoRegion}}",
-				"X-Country": "{{twingate.clientGeoCountry}}",
+				"X-LatLong": "{{clientGeoLatLong}}",
+				"X-City":    "{{clientGeoCity}}",
+				"X-Region":  "{{clientGeoRegion}}",
+				"X-Country": "{{clientGeoCountry}}",
 			},
 			wantHeaders: map[string]string{
 				"X-LatLong": "",
@@ -167,6 +220,31 @@ func TestRewrite(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRewrite_SkipsInvalidGATHeaders(t *testing.T) {
+	baseClaims := &token.GATClaims{
+		User: token.User{ID: "user-1", Username: "alice@acme.com"},
+	}
+
+	connMetrics := connect.CreateProxyConnMetrics(prometheus.NewRegistry())
+	conn := connect.NewProxyConn(nil, nil, nil, zap.NewNop(), connMetrics)
+	conn.Token = "test-token"
+	conn.Claims = withRequestHeaderRewrites(baseClaims, map[string]string{
+		"X-Malformed": "{{unclosed",
+		"X-Unknown":   "{{nonexistent}}",
+	})
+
+	proxyReq := &httputil.ProxyRequest{
+		In:  httptest.NewRequest(http.MethodGet, "http://test/api/resource", nil),
+		Out: httptest.NewRequest(http.MethodGet, "http://test/api/resource", nil),
+	}
+
+	err := rewrite(proxyReq, conn, nil)
+	require.NoError(t, err)
+
+	assert.Empty(t, proxyReq.Out.Header.Values("X-Malformed"), "malformed header should not be set")
+	assert.Empty(t, proxyReq.Out.Header.Values("X-Unknown"), "unknown header should not be set")
 }
 
 func TestBuildVariables_CoversAllowedKeys(t *testing.T) {

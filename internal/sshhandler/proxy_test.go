@@ -660,7 +660,7 @@ func TestSSHProxy_Shutdown_WithActiveConnection(t *testing.T) {
 	serveDone := make(chan error, 1)
 
 	go func() {
-		serveDone <- sshProxy.Serve(t.Context(), testConn)
+		serveDone <- sshProxy.serveConn(t.Context(), testConn)
 	}()
 
 	// Wait for serve to start and connection to be added
