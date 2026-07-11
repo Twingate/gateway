@@ -226,8 +226,9 @@ func Load(path string) (*Config, error) {
 	return cfg, nil
 }
 
+// stripNetworkPrefix lowercases hostname and removes a leading "<network>." label if present.
 func stripNetworkPrefix(hostname, network string) string {
-	return strings.TrimPrefix(hostname, network+".")
+	return strings.TrimPrefix(strings.ToLower(hostname), strings.ToLower(network)+".")
 }
 
 func resolveTwingateHostname(targetURL, defaultHost string, retryMax int, logger *zap.Logger) string {

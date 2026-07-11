@@ -27,6 +27,8 @@ func TestStripNetworkPrefix(t *testing.T) {
 		{name: "non-sharded host", hostname: "acme.test.com", network: "acme", expected: "test.com"},
 		{name: "no network prefix", hostname: "test.com", network: "acme", expected: "test.com"},
 		{name: "empty network", hostname: "us1.twingate.com", network: "", expected: "us1.twingate.com"},
+		{name: "uppercase host prefix", hostname: "ACME.us1.twingate.com", network: "acme", expected: "us1.twingate.com"},
+		{name: "uppercase network", hostname: "acme.us1.twingate.com", network: "ACME", expected: "us1.twingate.com"},
 	}
 
 	for _, tt := range tests {
