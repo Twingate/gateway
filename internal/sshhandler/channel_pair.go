@@ -136,13 +136,7 @@ func (c *SSHChannelPair) serve() {
 
 	// Handle the target channel's requests
 	targetEOFTrigger := make(chan SSHRequestHandlerFlushTrigger, 1)
-	targetChannelCtx := &sshChannelContext{
-		sshContext:  c.sshChannelCtx.sshContext,
-		channelID:   c.sshChannelCtx.channelID,
-		channelType: c.sshChannelCtx.channelType,
-		sourceLabel: c.sshChannelCtx.targetLabel,
-		targetLabel: c.sshChannelCtx.sourceLabel,
-	}
+	targetChannelCtx := c.sshChannelCtx.reversed()
 	targetRequestHandler := &SSHRequestHandler{
 		logger:            c.logger,
 		sshChannelCtx:     targetChannelCtx,
@@ -156,7 +150,7 @@ func (c *SSHChannelPair) serve() {
 
 	var command string
 
-	if c.sshChannelCtx.channelType == "session" {
+	if c.sshChannelCtx.channelType == channelTypeSession {
 		// Wait for session to start from source prior to starting the data copying
 		select {
 		case command = <-sourceSessionSignals.started:

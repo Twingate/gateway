@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
+	"go.uber.org/zap/zaptest/observer"
 	"golang.org/x/crypto/ssh"
 
 	"gateway/internal/sessionrecorder"
@@ -116,6 +117,29 @@ func TestChannelPair_ForwardsRequests(t *testing.T) {
 			channels.close(t, done)
 		})
 	}
+}
+
+func TestChannelPair_RequestLogsCarryChannelExtraBothDirections(t *testing.T) {
+	// The forwarding details parsed at channel open must appear on request logs for both
+	// directions; the target->source handler works on a reversed copy of the channel context.
+	core, logs := observer.New(zap.DebugLevel)
+	channels := newProxyChannels(t, channelTypeDirectTCPIP)
+	channels.logger = zap.New(core)
+	channels.extra = map[string]any{"test-extra": "test-value"}
+	done := channels.serve(t)
+
+	awaitReply := sendRequest(channels.target.ch, "test-req@twingate.com", true, nil)
+	forwarded := assertSentRequest(t, channels.source.requests, "test-req@twingate.com")
+	require.NoError(t, forwarded.Reply(true, nil))
+	_, err := awaitReply(t)
+	require.NoError(t, err)
+
+	channels.close(t, done)
+
+	channelField, isMap := observedSSHField(t, logs, "Channel request")["channel"].(map[string]any)
+	require.True(t, isMap)
+	assert.Equal(t, "test-value", channelField["test-extra"])
+	assert.Equal(t, labelUpstream, channelField["source"], "target-side logs swap the direction labels")
 }
 
 func TestChannelPair_RequestForwardFailure(t *testing.T) {
@@ -457,6 +481,12 @@ type proxyChannels struct {
 	// fields may be set before serve() to inject recorder write failures.
 	recorder *fakeRecorder
 
+	// logger overrides the pair's logger, for tests asserting its log output; nil uses zaptest.
+	logger *zap.Logger
+
+	// extra sets the channel context's open details, as parsed at channel open by forwardChannels.
+	extra map[string]any
+
 	// Optional per-test timeout overrides applied in serve(); zero leaves the pair's default.
 	sessionStartTimeout time.Duration
 	channelEOFTimeout   time.Duration
@@ -488,9 +518,14 @@ func newProxyChannels(t *testing.T, channelType string) *proxyChannels {
 func (p *proxyChannels) serve(t *testing.T) <-chan struct{} {
 	t.Helper()
 
+	logger := p.logger
+	if logger == nil {
+		logger = zaptest.NewLogger(t)
+	}
+
 	pair := NewSSHChannelPair(
-		zaptest.NewLogger(t),
-		newSSHChannelContext(testSSHContext, p.channelType, labelDownstream, labelUpstream),
+		logger,
+		newSSHChannelContext(testSSHContext, p.channelType, labelDownstream, labelUpstream, p.extra),
 		"testuser",
 		p.proxySource,
 		p.proxyTarget,

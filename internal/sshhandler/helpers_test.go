@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap/zaptest/observer"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -321,4 +322,18 @@ func waitDone(t *testing.T, done <-chan struct{}) {
 	case <-time.After(testTimeout):
 		t.Fatal("timed out waiting for done channel to close")
 	}
+}
+
+// observedSSHField returns the "ssh" audit map of the single observed log entry with the given
+// message.
+func observedSSHField(t *testing.T, logs *observer.ObservedLogs, msg string) map[string]any {
+	t.Helper()
+
+	entries := logs.FilterMessage(msg).All()
+	require.Len(t, entries, 1)
+
+	sshField, isMap := entries[0].ContextMap()["ssh"].(map[string]any)
+	require.True(t, isMap, "log entry %q has no ssh map field", msg)
+
+	return sshField
 }

@@ -47,6 +47,80 @@ func TestConnPair_ForwardsChannels(t *testing.T) {
 	}
 }
 
+func TestConnPair_LogsChannelForwardingDetails(t *testing.T) {
+	// The destination and originator in direct-tcpip / forwarded-tcpip open payloads
+	// (RFC 4254 §7.2) must reach the audit log; a malformed payload is logged and the channel
+	// still forwarded opaquely.
+	openPayload := ssh.Marshal(&tcpipChannelOpen{
+		DestAddr: "internal.example.com",
+		DestPort: 5432,
+		OrigAddr: "192.0.2.10",
+		OrigPort: 43210,
+	})
+
+	wantChannelFields := map[string]any{
+		"destination_address": "internal.example.com",
+		"destination_port":    uint32(5432),
+		"originator_address":  "192.0.2.10",
+		"originator_port":     uint32(43210),
+	}
+
+	tests := []struct {
+		name         string
+		channelType  string
+		fromUpstream bool
+		extraData    []byte
+		// wantFields are the forwarding details the channel log must carry; nil expects a parse
+		// failure instead.
+		wantFields map[string]any
+	}{
+		{
+			name:        "direct-tcpip from downstream",
+			channelType: channelTypeDirectTCPIP,
+			extraData:   openPayload,
+			wantFields:  wantChannelFields,
+		},
+		{
+			name:         "forwarded-tcpip from upstream",
+			channelType:  channelTypeForwardedTCPIP,
+			fromUpstream: true,
+			extraData:    openPayload,
+			wantFields:   wantChannelFields,
+		},
+		{
+			name:        "malformed payload is logged and still forwarded",
+			channelType: channelTypeDirectTCPIP,
+			extraData:   []byte("not-a-tcpip-payload"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			core, logs := observer.New(zap.DebugLevel)
+			conns := newProxyConnsWithLogger(t, zap.New(core))
+			done := conns.serve(t)
+
+			opener, acceptor := conns.client, conns.server
+			if tt.fromUpstream {
+				opener, acceptor = conns.server, conns.client
+			}
+
+			openChannel(t, opener, acceptor, tt.channelType, tt.extraData)
+			conns.close(t, done)
+
+			channelField, isMap := observedSSHField(t, logs, "SSH channel opened")["channel"].(map[string]any)
+			require.True(t, isMap)
+
+			if tt.wantFields == nil {
+				assert.NotEmpty(t, logs.FilterMessage("Failed to parse channel open").All())
+				assert.NotContains(t, channelField, "destination_address")
+			}
+
+			assert.Subset(t, channelField, tt.wantFields)
+		})
+	}
+}
+
 func TestConnPair_ConcurrentChannels(t *testing.T) {
 	// An open channel must not block new ones: each pair is served on its own goroutine.
 	conns := newProxyConns(t)
@@ -219,6 +293,108 @@ func TestConnPair_ForwardsGlobalRequests(t *testing.T) {
 			conns.close(t, done)
 		})
 	}
+}
+
+func TestConnPair_LogsGlobalRequestForwardingDetails(t *testing.T) {
+	// The bind address and port in tcpip-forward / cancel-tcpip-forward payloads (RFC 4254 §7.1)
+	// must reach the audit log; a malformed payload is logged and the request still forwarded opaquely.
+	forwardPayload := ssh.Marshal(&tcpipForwardReq{BindAddr: "0.0.0.0", BindPort: 8080})
+
+	wantRequestFields := map[string]any{
+		"bind_address": "0.0.0.0",
+		"bind_port":    uint32(8080),
+	}
+
+	tests := []struct {
+		name    string
+		reqType string
+		payload []byte
+		// replyPayload is what the far end replies with; a tcpip-forward that asked for bind
+		// port 0 gets the dynamically allocated port back in it (RFC 4254 §7.1).
+		replyPayload []byte
+		// wantFields are the forwarding details the request log must carry; nil expects a parse
+		// failure instead.
+		wantFields map[string]any
+	}{
+		{
+			name:       "tcpip-forward",
+			reqType:    globalRequestTCPIPForward,
+			payload:    forwardPayload,
+			wantFields: wantRequestFields,
+		},
+		{
+			name:         "tcpip-forward with dynamically allocated port",
+			reqType:      globalRequestTCPIPForward,
+			payload:      ssh.Marshal(&tcpipForwardReq{BindAddr: "0.0.0.0", BindPort: 0}),
+			replyPayload: ssh.Marshal(&tcpipForwardReply{BoundPort: 54321}),
+			wantFields: map[string]any{
+				"bind_address":   "0.0.0.0",
+				"bind_port":      uint32(0),
+				"allocated_port": uint32(54321),
+			},
+		},
+		{
+			name:       "cancel-tcpip-forward",
+			reqType:    globalRequestCancelTCPIPForward,
+			payload:    forwardPayload,
+			wantFields: wantRequestFields,
+		},
+		{
+			name:    "malformed payload is logged and still forwarded",
+			reqType: globalRequestTCPIPForward,
+			payload: []byte("garbage"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			core, logs := observer.New(zap.DebugLevel)
+			conns := newProxyConnsWithLogger(t, zap.New(core))
+			done := conns.serve(t)
+
+			awaitReply := sendGlobalRequest(conns.client.conn, tt.reqType, true, tt.payload)
+
+			forwarded := assertSentRequest(t, conns.server.requests, tt.reqType)
+			require.NoError(t, forwarded.Reply(true, tt.replyPayload))
+
+			ok, _, err := awaitReply(t)
+			require.NoError(t, err)
+			assert.True(t, ok)
+
+			conns.close(t, done)
+
+			requestField, isMap := observedSSHField(t, logs, "SSH global request")["global_request"].(map[string]any)
+			require.True(t, isMap)
+
+			if tt.wantFields == nil {
+				assert.NotEmpty(t, logs.FilterMessage("Failed to parse global request").All())
+				assert.NotContains(t, requestField, "bind_address")
+			}
+
+			assert.Subset(t, requestField, tt.wantFields)
+			assert.Equal(t, true, requestField["accepted"])
+		})
+	}
+}
+
+func TestConnPair_LogsRejectedGlobalRequestDetails(t *testing.T) {
+	core, logs := observer.New(zap.DebugLevel)
+	conns := newProxyConnsWithLogger(t, zap.New(core))
+	done := conns.serve(t)
+
+	payload := ssh.Marshal(&tcpipForwardReq{BindAddr: "0.0.0.0", BindPort: 8080})
+	ok, _, err := sendGlobalRequest(conns.server.conn, globalRequestTCPIPForward, true, payload)(t)
+	require.NoError(t, err)
+	assert.False(t, ok, "upstream tcpip-forward must be rejected")
+
+	conns.close(t, done)
+
+	requestField, isMap := observedSSHField(t, logs, "SSH global request rejected")["global_request"].(map[string]any)
+	require.True(t, isMap)
+	assert.Subset(t, requestField, map[string]any{
+		"bind_address": "0.0.0.0",
+		"bind_port":    uint32(8080),
+	})
 }
 
 func TestConnPair_GlobalRequestPolicy(t *testing.T) {
@@ -467,10 +643,18 @@ type proxyConns struct {
 func newProxyConns(t *testing.T) *proxyConns {
 	t.Helper()
 
+	return newProxyConnsWithLogger(t, zaptest.NewLogger(t))
+}
+
+// newProxyConnsWithLogger is newProxyConns with a caller-supplied logger, for tests asserting
+// the pair's log output.
+func newProxyConnsWithLogger(t *testing.T, logger *zap.Logger) *proxyConns {
+	t.Helper()
+
 	client, proxyDownstream := sshPipe(t)
 	proxyUpstream, server := sshPipe(t)
 
-	pair := NewSSHConnPair(zaptest.NewLogger(t), testSSHContext, *proxyDownstream, *proxyUpstream)
+	pair := NewSSHConnPair(logger, testSSHContext, *proxyDownstream, *proxyUpstream)
 
 	return &proxyConns{pair: pair, client: client, server: server}
 }
