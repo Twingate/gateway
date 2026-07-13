@@ -292,13 +292,15 @@ func TestChannelPair_PeerAbortMidTransfer(t *testing.T) {
 
 func TestChannelPair_SessionWaitsForStart(t *testing.T) {
 	tests := []struct {
-		name    string
-		reqType string
-		payload []byte
+		name      string
+		reqType   string
+		payload   []byte
+		wantReply bool
 	}{
-		{name: "shell", reqType: requestTypeShell},
-		{name: "exec", reqType: requestTypeExec, payload: ssh.Marshal(execReq{Command: "whoami"})},
-		{name: "subsystem", reqType: requestTypeSubsystem, payload: ssh.Marshal(subsystemReq{Name: "sftp"})},
+		{name: "shell", reqType: requestTypeShell, wantReply: true},
+		{name: "exec", reqType: requestTypeExec, payload: ssh.Marshal(execReq{Command: "whoami"}), wantReply: true},
+		{name: "subsystem", reqType: requestTypeSubsystem, payload: ssh.Marshal(subsystemReq{Name: "sftp"}), wantReply: true},
+		{name: "shell without reply", reqType: requestTypeShell},
 	}
 
 	for _, tt := range tests {
@@ -320,7 +322,13 @@ func TestChannelPair_SessionWaitsForStart(t *testing.T) {
 
 			// Forwarding the session-start request opens the gate and the held-back
 			// bytes flow through.
-			channels.sendRequestAwaitReply(t, tt.reqType, tt.payload)
+			if tt.wantReply {
+				channels.sendRequestAwaitReply(t, tt.reqType, tt.payload)
+			} else {
+				_, err := channels.source.ch.SendRequest(tt.reqType, false, tt.payload)
+				require.NoError(t, err)
+				assertSentRequest(t, channels.target.requests, tt.reqType)
+			}
 
 			select {
 			case got := <-read:
@@ -332,6 +340,36 @@ func TestChannelPair_SessionWaitsForStart(t *testing.T) {
 			channels.close(t, done)
 		})
 	}
+}
+
+func TestChannelPair_SessionStartRejected(t *testing.T) {
+	channels := newProxyChannels(t, "session")
+	done := channels.serve(t)
+
+	channels.sendRequestRejected(t, requestTypeExec, ssh.Marshal(execReq{Command: "whoami"}))
+
+	_, err := channels.source.ch.Write([]byte("gated-bytes"))
+	require.NoError(t, err)
+
+	read := startRead(channels.target.ch, len("gated-bytes"))
+
+	select {
+	case <-read:
+		t.Fatal("data crossed the session gate after a rejected session start")
+	case <-time.After(shortTimeout):
+	}
+
+	// The rejection leaves the channel free to start a session with a later request.
+	channels.sendRequestAwaitReply(t, requestTypeShell, nil)
+
+	select {
+	case got := <-read:
+		assert.Equal(t, "gated-bytes", string(got))
+	case <-time.After(testTimeout):
+		t.Fatal("timed out waiting for data after the retried session start")
+	}
+
+	channels.close(t, done)
 }
 
 func TestChannelPair_RejectsDuplicateSessionStart(t *testing.T) {
@@ -615,6 +653,21 @@ func (p *proxyChannels) sendRequestAwaitReply(t *testing.T, reqType string, payl
 	ok, err := awaitReply(t)
 	require.NoError(t, err)
 	require.True(t, ok, "%q request must succeed", reqType)
+}
+
+// sendRequestRejected sends a WantReply request from the source, rejects it at the target, and
+// requires the rejection to round-trip back to the source.
+func (p *proxyChannels) sendRequestRejected(t *testing.T, reqType string, payload []byte) {
+	t.Helper()
+
+	awaitReply := sendRequest(p.source.ch, reqType, true, payload)
+
+	forwarded := assertSentRequest(t, p.target.requests, reqType)
+	require.NoError(t, forwarded.Reply(false, nil))
+
+	ok, err := awaitReply(t)
+	require.NoError(t, err)
+	require.False(t, ok, "%q request must be rejected", reqType)
 }
 
 // sendWindowChange sends a window-change and waits for the proxy to finish handling it; the

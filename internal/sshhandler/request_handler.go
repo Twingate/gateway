@@ -145,7 +145,8 @@ func (h *SSHRequestHandler) handleRequest(req *ssh.Request, sessionSignals SSHSe
 			zap.Any("ssh", h.sshChannelCtx.withRequest(req.Type, extra)))
 	}
 
-	if err := forwardRequest(h.targetChannel, req); err != nil {
+	accepted, err := forwardRequest(h.targetChannel, req)
+	if err != nil {
 		h.logger.Error("Failed to forward request",
 			zap.Any("ssh", h.sshChannelCtx.withRequest(req.Type, nil)),
 			zap.Error(err))
@@ -153,8 +154,9 @@ func (h *SSHRequestHandler) handleRequest(req *ssh.Request, sessionSignals SSHSe
 		return
 	}
 
-	// Close the session started channel to signal that the session has started
-	if sessionStarted {
+	// A session starts only when the target accepted the request; without WantReply there is
+	// no confirmation and the session starts unconditionally (RFC 4254, Section 6.5).
+	if sessionStarted && (accepted || !req.WantReply) {
 		h.sessionStarted = true
 
 		sessionSignals.started <- command
@@ -244,13 +246,15 @@ func (h *SSHRequestHandler) handleRequests() SSHSessionSignals {
 	return sessionSignals
 }
 
-func forwardRequest(channel ssh.Channel, request *ssh.Request) error {
+// forwardRequest relays a request to the channel and the reply back; the returned accepted
+// result is meaningless when the request does not want a reply.
+func forwardRequest(channel ssh.Channel, request *ssh.Request) (bool, error) {
 	reply, requestErr := channel.SendRequest(request.Type, request.WantReply, request.Payload)
 	if requestErr != nil {
 		_ = request.Reply(false, nil)
 
-		return requestErr
+		return false, requestErr
 	}
 
-	return request.Reply(reply, nil)
+	return reply, request.Reply(reply, nil)
 }
