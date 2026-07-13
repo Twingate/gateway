@@ -382,7 +382,7 @@ func TestConfig_Validate(t *testing.T) {
 				Kubernetes:  &KubernetesConfig{},
 			},
 			wantErr:     true,
-			errContains: "must be 1-63 lowercase letters or digits",
+			errContains: "must be 1-63 lowercase alphanumeric characters",
 		},
 		{
 			name: "network with uppercase letters",
@@ -394,7 +394,7 @@ func TestConfig_Validate(t *testing.T) {
 				Kubernetes:  &KubernetesConfig{},
 			},
 			wantErr:     true,
-			errContains: "must be 1-63 lowercase letters or digits",
+			errContains: "must be 1-63 lowercase alphanumeric characters",
 		},
 		{
 			name: "network with hyphen",
@@ -406,7 +406,7 @@ func TestConfig_Validate(t *testing.T) {
 				Kubernetes:  &KubernetesConfig{},
 			},
 			wantErr:     true,
-			errContains: "must be 1-63 lowercase letters or digits",
+			errContains: "must be 1-63 lowercase alphanumeric characters",
 		},
 		{
 			name: "network at max length",
@@ -429,7 +429,7 @@ func TestConfig_Validate(t *testing.T) {
 				Kubernetes:  &KubernetesConfig{},
 			},
 			wantErr:     true,
-			errContains: "must be 1-63 lowercase letters or digits",
+			errContains: "must be 1-63 lowercase alphanumeric characters",
 		},
 		{
 			name: "host with opstg suffix",

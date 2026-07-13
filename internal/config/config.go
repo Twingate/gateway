@@ -28,7 +28,7 @@ var (
 	ErrNegativeTTL       = errors.New("TTL must be non-negative")
 )
 
-// networkRegexp matches a twingate.network slug: 1-63 lowercase letters and digits.
+// networkRegexp matches a twingate.network slug: 1-63 lowercase alphanumeric characters.
 var networkRegexp = regexp.MustCompile(`^[a-z0-9]{1,63}$`)
 
 // hostnameRegexp allows only valid DNS-label characters, permitting a single label (e.g. "test").
@@ -297,7 +297,7 @@ func (c *Config) Validate() error {
 	}
 
 	if !networkRegexp.MatchString(c.Twingate.Network) {
-		return fmt.Errorf("%w: must be 1-63 lowercase letters or digits: %q", ErrInvalidNetwork, c.Twingate.Network)
+		return fmt.Errorf("%w: must be 1-63 lowercase alphanumeric characters: %q", ErrInvalidNetwork, c.Twingate.Network)
 	}
 
 	if err := validateHost(c.Twingate.Host); err != nil {
