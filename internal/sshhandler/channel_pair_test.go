@@ -183,6 +183,32 @@ func TestChannelPair_Teardown(t *testing.T) {
 	}
 }
 
+func TestChannelPair_EOFFlushTimeout(t *testing.T) {
+	channels := newProxyChannels(t, "direct-tcpip")
+	channels.channelEOFTimeout = shortTimeout
+	done := channels.serve(t)
+
+	// Block the request handler: it forwards a wantReply request to the target and waits
+	// for a reply that never comes, so it cannot service the pre-EOF flush trigger.
+	awaitReply := sendRequest(channels.source.ch, "test-req@twingate.com", true, nil)
+	assertSentRequest(t, channels.target.requests, "test-req@twingate.com")
+
+	start := time.Now()
+
+	require.NoError(t, channels.source.ch.CloseWrite())
+
+	// The flush can never complete: the proxy gives up after channelEOFTimeout and EOF
+	// still reaches the target.
+	assertEOF(t, channels.target.ch)
+	assert.GreaterOrEqual(t, time.Since(start), shortTimeout)
+
+	// Closing both ends unblocks the pending forward; the source's request must not be
+	// left hanging.
+	channels.close(t, done)
+
+	_, _ = awaitReply(t)
+}
+
 func TestChannelPair_TeardownTimeout(t *testing.T) {
 	channels := newProxyChannels(t, "direct-tcpip")
 	channels.channelCloseTimeout = shortTimeout
@@ -433,6 +459,7 @@ type proxyChannels struct {
 
 	// Optional per-test timeout overrides applied in serve(); zero leaves the pair's default.
 	sessionStartTimeout time.Duration
+	channelEOFTimeout   time.Duration
 	channelCloseTimeout time.Duration
 }
 
@@ -472,6 +499,10 @@ func (p *proxyChannels) serve(t *testing.T) <-chan struct{} {
 
 	if p.sessionStartTimeout != 0 {
 		pair.sessionStartTimeout = p.sessionStartTimeout
+	}
+
+	if p.channelEOFTimeout != 0 {
+		pair.channelEOFTimeout = p.channelEOFTimeout
 	}
 
 	if p.channelCloseTimeout != 0 {
