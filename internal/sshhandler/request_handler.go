@@ -180,7 +180,7 @@ type SSHRequestHandler struct {
 	// Target SSH channel to forward SSH channel requests to
 	targetChannel ssh.Channel
 
-	// Whether a session-start request (shell, exec, or subsystem) has already been forwarded;
+	// Whether a session-start request (shell, exec, or subsystem) has already started a session;
 	// only the handleRequests goroutine touches it
 	sessionStarted bool
 
