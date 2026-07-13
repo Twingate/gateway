@@ -10,6 +10,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
 	"time"
 
@@ -22,8 +23,9 @@ import (
 )
 
 var (
-	errVaultCAFailed   = errors.New("failed to get CA from Vault")
-	errVaultSignFailed = errors.New("failed to sign certificate with Vault")
+	errVaultCAFailed       = errors.New("failed to get CA from Vault")
+	errVaultSignFailed     = errors.New("failed to sign certificate with Vault")
+	errCertPolicyViolation = errors.New("CA-issued certificate violates the requested policy")
 )
 
 // ca signs SSH certificates.
@@ -288,5 +290,66 @@ func (ca *vaultCA) sign(ctx context.Context, req *certificateRequest) (*ssh.Cert
 		return nil, errVaultSignFailed
 	}
 
-	return parseCertificate([]byte(certStr))
+	cert, err := parseCertificate([]byte(certStr))
+	if err != nil {
+		return nil, err
+	}
+
+	if err := verifyCertificate(cert, req); err != nil {
+		return nil, err
+	}
+
+	return cert, nil
+}
+
+// verifyCertificate rejects a CA-issued certificate that grants more than the request asked for.
+func verifyCertificate(cert *ssh.Certificate, req *certificateRequest) error {
+	if cert.CertType != uint32(req.certType) {
+		return fmt.Errorf("%w: cert type %q does not match requested %q", errCertPolicyViolation, certType(cert.CertType), req.certType)
+	}
+
+	if !keysEqual(cert.Key, req.publicKey) {
+		return fmt.Errorf("%w: certificate is bound to a different public key", errCertPolicyViolation)
+	}
+
+	// Require exact equality: an empty principals list grants every principal, and any extra
+	// principal grants access the request never asked for.
+	if !maps.Equal(principalSet(cert.ValidPrincipals), principalSet(req.principals)) {
+		return fmt.Errorf("%w: granted principals %q do not match requested %q", errCertPolicyViolation, cert.ValidPrincipals, req.principals)
+	}
+
+	maxValidBefore := mustUint64(time.Now().Add(req.ttl).Add(clockSkewBuffer))
+	if cert.ValidBefore > maxValidBefore {
+		return fmt.Errorf("%w: validity %d exceeds requested TTL (max %d)", errCertPolicyViolation, cert.ValidBefore, maxValidBefore)
+	}
+
+	// Critical options are restrictions, so dropping one widens privilege; require the
+	// cert's options to match the request exactly.
+	if !maps.Equal(cert.CriticalOptions, req.permissions.CriticalOptions) {
+		return fmt.Errorf("%w: granted critical options %q do not match requested %q", errCertPolicyViolation, cert.CriticalOptions, req.permissions.CriticalOptions)
+	}
+
+	// A missing extension only narrows privilege, so reject only unexpected extensions
+	// or values.
+	for ext, granted := range cert.Extensions {
+		requested, ok := req.permissions.Extensions[ext]
+		if !ok {
+			return fmt.Errorf("%w: unexpected extension %q", errCertPolicyViolation, ext)
+		}
+
+		if granted != requested {
+			return fmt.Errorf("%w: extension %q granted value %q, requested %q", errCertPolicyViolation, ext, granted, requested)
+		}
+	}
+
+	return nil
+}
+
+func principalSet(principals []string) map[string]struct{} {
+	set := make(map[string]struct{}, len(principals))
+	for _, p := range principals {
+		set[p] = struct{}{}
+	}
+
+	return set
 }
