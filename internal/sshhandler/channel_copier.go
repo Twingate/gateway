@@ -126,9 +126,13 @@ func (c *BidirectionalCopier) start() {
 	var wg sync.WaitGroup
 
 	wg.Go(func() {
+		defer recoverPanic(c.logger)
+
 		c.SourceToTarget.copy()
 	})
 	wg.Go(func() {
+		defer recoverPanic(c.logger)
+
 		c.TargetToSource.copy()
 	})
 

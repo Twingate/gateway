@@ -72,6 +72,8 @@ func (p *SSHProxy) Start(ctx context.Context, listener net.Listener) error {
 
 		// Serve SSH connection in a separate goroutine
 		go func() {
+			defer recoverPanic(p.config.logger)
+
 			err := p.serveConn(ctx, conn.(connect.Conn))
 			if err != nil {
 				p.config.logger.Error("Failed to serve SSH connection", zap.Error(err))
@@ -178,24 +180,31 @@ func (p *SSHProxy) serveConn(ctx context.Context, conn connect.Conn) error {
 
 	// Serve the SSH connection pair
 	p.wg.Add(1)
+	defer p.wg.Done()
 
-	// Add the open SSH connection pair to the map
 	p.mu.Lock()
 	p.connsMap[sshConnPair] = struct{}{}
 	p.mu.Unlock()
+
+	defer func() {
+		p.mu.Lock()
+		delete(p.connsMap, sshConnPair)
+		p.mu.Unlock()
+	}()
 
 	sshConnPair.serve()
 
 	logger.Info("SSH connection closed", zap.Any("ssh", sshCtx.withConnectionClose(sshConnPair.ChannelsOpened())))
 
-	// Remove the closed SSH connection pair from the map
-	p.mu.Lock()
-	delete(p.connsMap, sshConnPair)
-	p.mu.Unlock()
-
-	p.wg.Done()
-
 	return nil
+}
+
+// recoverPanic is deferred in every connection-serving goroutine to keep a panic in one
+// connection from crashing the whole process.
+func recoverPanic(logger *zap.Logger) {
+	if recovered := recover(); recovered != nil { //nolint:revive // recoverPanic itself is the deferred function
+		logger.Error("Recovered from panic", zap.Any("panic", recovered), zap.Stack("stacktrace"))
+	}
 }
 
 // closeDownstreamSSH closes the connection and rejects any queued channels.

@@ -173,6 +173,7 @@ func (h *SSHRequestHandler) handleRequests() SSHSessionSignals {
 
 	go func() {
 		defer close(sessionSignals.finished)
+		defer recoverPanic(h.logger)
 
 		for {
 			select {
