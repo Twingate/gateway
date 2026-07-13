@@ -172,9 +172,7 @@ func (v *MessageValidator) ParseConnect(req *http.Request, ekm []byte) (connectI
 }
 
 // resolveUpstreamAddress verifies the CONNECT destination port matches the GAT
-// downstream port and maps it to the upstream port for backend forwarding. Both
-// ports are validated for presence and range when the token is parsed, so they
-// are guaranteed to be within the valid range here.
+// downstream port and maps it to the upstream port for backend forwarding.
 func resolveUpstreamAddress(host, port string, metadata token.GatewayMetadata) (string, *HTTPError) {
 	requestedPort, err := strconv.Atoi(port)
 	if err != nil {
