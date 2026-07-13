@@ -154,19 +154,21 @@ func IsWildcardAddress(address string) bool {
 	return strings.HasPrefix(address, "*.")
 }
 
-// GatewayMetadata carries per-resource routing details from the GAT.
 type GatewayMetadata struct {
-	Downstream Downstream `json:"downstream"`
-	Upstream   Upstream   `json:"upstream"`
+	Downstream            Downstream        `json:"downstream"`
+	Upstream              Upstream          `json:"upstream"`
+	RequestHeaderRewrites map[string]string `json:"request_header_rewrites,omitempty"` //nolint:tagliatelle // GAT wire format from the controller uses snake_case
 }
 
-// Downstream is the client-facing endpoint the CONNECT destination must target.
+// Downstream describes the connection between the protocol client and the Gateway.
 type Downstream struct {
+	// Port is the port that the protocol client connects to.
 	Port int `json:"port"`
 }
 
-// Upstream is the backend endpoint the CONNECT destination is forwarded to.
+// Upstream describes the connection between the Gateway and the upstream resource.
 type Upstream struct {
+	// Port is the port on the upstream resource that the Gateway forwards the connection to.
 	Port int `json:"port"`
 }
 

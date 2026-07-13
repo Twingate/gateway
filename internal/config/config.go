@@ -25,6 +25,14 @@ var (
 	ErrNegativeTTL       = errors.New("TTL must be non-negative")
 )
 
+var issuerByDomain = map[string]string{
+	"test":          "twingate-local",
+	"dev.opstg.com": "twingate-dev",
+	"stg.opstg.com": "twingate-stg",
+	"sec.opstg.com": "twingate-sec",
+	"twingate.com":  "twingate",
+}
+
 const (
 	defaultTwingateHost               = "twingate.com"
 	defaultPort                       = 8443
@@ -51,6 +59,16 @@ type WebAppConfig struct {
 type TwingateConfig struct {
 	Network string `yaml:"network"`
 	Host    string `yaml:"host"`
+}
+
+// JWKSURL returns the controller endpoint for fetching GAT signing keys.
+func (t TwingateConfig) JWKSURL() string {
+	return fmt.Sprintf("https://%s.%s/api/v1/jwk/ec", t.Network, t.Host)
+}
+
+// Issuer returns the expected JWT issuer for the configured controller host.
+func (t TwingateConfig) Issuer() string {
+	return issuerByDomain[trustedDomainFor(t.Host)]
 }
 
 type AuditLogConfig struct {
@@ -175,7 +193,7 @@ type SSHCAVaultAWSConfig struct {
 	IAMServerIDHeader string `yaml:"iamServerIDHeader,omitempty"` // Value for the X-Vault-AWS-IAM-Server-ID header
 
 	// Fields for type "ec2".
-	SignatureType string `yaml:"signatureType,omitempty"` // "pkcs7" (default), "identity", or "rsa2048"
+	SignatureType string `yaml:"signatureType,omitempty"` // "rsa2048" (default), "identity", or "pkcs7"
 	Nonce         string `yaml:"nonce,omitempty"`
 }
 
@@ -251,8 +269,7 @@ func resolveTwingateHostname(targetURL, defaultHost string, retryMax int, logger
 }
 
 func (c *Config) ResolveTwingateHost(logger *zap.Logger) {
-	targetURL := fmt.Sprintf("https://%s.%s/api/v1/jwk/ec", c.Twingate.Network, c.Twingate.Host)
-	resolvedHostname := resolveTwingateHostname(targetURL, c.Twingate.Host, 2, logger)
+	resolvedHostname := resolveTwingateHostname(c.Twingate.JWKSURL(), c.Twingate.Host, 2, logger)
 
 	c.Twingate.Host = stripNetworkPrefix(resolvedHostname, c.Twingate.Network)
 }
@@ -574,7 +591,10 @@ func (g *SSHCAVaultGCPConfig) Validate() error {
 	}
 }
 
-const defaultAWSMount = "aws"
+const (
+	defaultAWSMount         = "aws"
+	defaultAWSSignatureType = "rsa2048"
+)
 
 // GetMount returns the AWS auth mount path, defaulting to "aws" if not specified.
 func (a *SSHCAVaultAWSConfig) GetMount() string {
@@ -583,6 +603,16 @@ func (a *SSHCAVaultAWSConfig) GetMount() string {
 	}
 
 	return defaultAWSMount
+}
+
+// GetSignatureType returns the EC2 auth signature type, defaulting to "rsa2048"
+// (SHA-256) when unset rather than the Vault SDK's pkcs7 (SHA-1) default.
+func (a *SSHCAVaultAWSConfig) GetSignatureType() string {
+	if a.SignatureType != "" {
+		return a.SignatureType
+	}
+
+	return defaultAWSSignatureType
 }
 
 func (a *SSHCAVaultAWSConfig) Validate() error {
@@ -675,6 +705,19 @@ func (v *SSHCAVaultConfig) GetUpstreamHostCAMount() string {
 	}
 
 	return defaultVaultSSHMount
+}
+
+// trustedDomainFor returns the trusted Twingate domain that host belongs to, or "" if none.
+// A host matches a domain exactly or as a subdomain, so sharded hosts like us1.twingate.com are
+// trusted.
+func trustedDomainFor(host string) string {
+	for domain := range issuerByDomain {
+		if host == domain || strings.HasSuffix(host, "."+domain) {
+			return domain
+		}
+	}
+
+	return ""
 }
 
 func validatePort(port int, fieldName string) error {
