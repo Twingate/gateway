@@ -172,8 +172,8 @@ func (h *SSHRequestHandler) handleRequests() SSHSessionSignals {
 	}
 
 	go func() {
+		defer closeOnPanic(h.logger, func() { _ = h.targetChannel.Close() })
 		defer close(sessionSignals.finished)
-		defer recoverPanic(h.logger)
 
 		for {
 			select {

@@ -437,6 +437,45 @@ func TestChannelPair_SessionRecorderWriteErrors(t *testing.T) {
 	assert.True(t, state.stopped)
 }
 
+func TestChannelPair_CopyPanicClosesChannels(t *testing.T) {
+	// A panic in one copy direction (here from the recording tap) must close both channel ends
+	// so the opposite direction unblocks and serve() returns, instead of leaving the channel
+	// half-open with a dead copier.
+	channels := newProxyChannels(t, "session")
+	channels.recorder.outputPanic = "injected tap panic"
+	done := channels.serve(t)
+
+	channels.sendRequestAwaitReply(t, requestTypeShell, nil)
+
+	// Terminal output hits the panicking tap...
+	_, err := channels.target.ch.Write([]byte("terminal-output"))
+	require.NoError(t, err)
+
+	// ...and both far ends see their channel close.
+	assertEOF(t, channels.source.ch)
+	assertEOF(t, channels.target.ch)
+	waitDone(t, done)
+}
+
+func TestChannelPair_RequestPanicClosesChannels(t *testing.T) {
+	// A panic in a request handler (here from the recorder's resize write) must tear down the
+	// channel instead of leaving it open with nobody consuming its requests.
+	channels := newProxyChannels(t, "session")
+	channels.recorder.resizePanic = "injected resize panic"
+	done := channels.serve(t)
+
+	channels.sendRequestAwaitReply(t, requestTypeShell, nil)
+
+	// The handler panics before forwarding the window-change, so no reply can be awaited...
+	_ = sendRequest(channels.source.ch, requestTypeWindowChange, false,
+		ssh.Marshal(windowChangeReq{WidthColumns: 120, HeightRows: 40}))
+
+	// ...and both far ends see their channel close.
+	assertEOF(t, channels.source.ch)
+	assertEOF(t, channels.target.ch)
+	waitDone(t, done)
+}
+
 // proxyChannels is the channel-layer fixture: one channel proxied between two real SSH
 // connections, exposing all four ends:
 //
@@ -623,6 +662,11 @@ type fakeRecorder struct {
 	headerErr error
 	resizeErr error
 
+	// Injected panic values for WriteOutputEvent / WriteResizeEvent, panicking the copy
+	// direction that taps the recorder and the request handler that records resizes.
+	outputPanic any
+	resizePanic any
+
 	header  *sessionrecorder.AsciicastHeader
 	output  bytes.Buffer
 	resizes []sessionrecorder.ResizeMsg
@@ -644,6 +688,10 @@ func (r *fakeRecorder) WriteOutputEvent(data []byte) error {
 
 	r.output.Write(data)
 
+	if r.outputPanic != nil {
+		panic(r.outputPanic)
+	}
+
 	return nil
 }
 
@@ -652,6 +700,10 @@ func (r *fakeRecorder) WriteResizeEvent(width int, height int) error {
 	defer r.mu.Unlock()
 
 	r.resizes = append(r.resizes, sessionrecorder.ResizeMsg{Width: width, Height: height})
+
+	if r.resizePanic != nil {
+		panic(r.resizePanic)
+	}
 
 	return r.resizeErr
 }

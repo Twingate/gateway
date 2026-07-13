@@ -81,7 +81,7 @@ func (c *SSHConnPair) ChannelsOpened() int {
 func (c *SSHConnPair) serve() {
 	// When either side closes, close the other to unblock all ranging goroutines.
 	c.wg.Go(func() {
-		defer recoverPanic(c.logger)
+		defer closeOnPanic(c.logger, c.close)
 
 		_ = c.downstream.conn.Wait()
 
@@ -91,7 +91,7 @@ func (c *SSHConnPair) serve() {
 	})
 
 	c.wg.Go(func() {
-		defer recoverPanic(c.logger)
+		defer closeOnPanic(c.logger, c.close)
 
 		_ = c.upstream.conn.Wait()
 
@@ -102,26 +102,26 @@ func (c *SSHConnPair) serve() {
 
 	// Forward global requests in both directions
 	c.wg.Go(func() {
-		defer recoverPanic(c.logger)
+		defer closeOnPanic(c.logger, c.close)
 
 		c.forwardGlobalRequests(c.downstream.requests, c.upstream.conn, nil, labelDownstream, labelUpstream)
 	})
 
 	c.wg.Go(func() {
-		defer recoverPanic(c.logger)
+		defer closeOnPanic(c.logger, c.close)
 
 		c.forwardGlobalRequests(c.upstream.requests, c.downstream.conn, disallowedUpstreamGlobalRequests, labelUpstream, labelDownstream)
 	})
 
 	// Forward channels in both directions
 	c.wg.Go(func() {
-		defer recoverPanic(c.logger)
+		defer closeOnPanic(c.logger, c.close)
 
 		c.forwardChannels(c.downstream.channels, c.upstream.conn, disallowedDownstreamChannelTypes, labelDownstream, labelUpstream)
 	})
 
 	c.wg.Go(func() {
-		defer recoverPanic(c.logger)
+		defer closeOnPanic(c.logger, c.close)
 
 		c.forwardChannels(c.upstream.channels, c.downstream.conn, disallowedUpstreamChannelTypes, labelUpstream, labelDownstream)
 	})
@@ -182,7 +182,9 @@ func (c *SSHConnPair) forwardChannels(channels <-chan ssh.NewChannel, targetConn
 		)
 
 		c.wg.Go(func() {
-			defer recoverPanic(c.logger)
+			// A panic closes both channel ends, so a dead serving goroutine cannot leave the
+			// pair half-open.
+			defer closeOnPanic(c.logger, channelPair.close)
 
 			channelPair.serve()
 			logger.Info("SSH channel closed")

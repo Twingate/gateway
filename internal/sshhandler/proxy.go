@@ -72,7 +72,7 @@ func (p *SSHProxy) Start(ctx context.Context, listener net.Listener) error {
 
 		// Serve SSH connection in a separate goroutine
 		go func() {
-			defer recoverPanic(p.config.logger)
+			defer closeOnPanic(p.config.logger, func() { _ = conn.Close() })
 
 			err := p.serveConn(ctx, conn.(connect.Conn))
 			if err != nil {
@@ -199,11 +199,10 @@ func (p *SSHProxy) serveConn(ctx context.Context, conn connect.Conn) error {
 	return nil
 }
 
-// recoverPanic is deferred in every connection-serving goroutine to keep a panic in one
-// connection from crashing the whole process.
-func recoverPanic(logger *zap.Logger) {
-	if recovered := recover(); recovered != nil { //nolint:revive // recoverPanic itself is the deferred function
+func closeOnPanic(logger *zap.Logger, closeFn func()) {
+	if recovered := recover(); recovered != nil { //nolint:revive // closeOnPanic itself is the deferred function
 		logger.Error("Recovered from panic", zap.Any("panic", recovered), zap.Stack("stacktrace"))
+		closeFn()
 	}
 }
 

@@ -311,6 +311,30 @@ func TestConnPair_CrossClose(t *testing.T) {
 	}
 }
 
+func TestConnPair_ServePanicClosesConnections(t *testing.T) {
+	// A panic in one of serve's goroutines must tear down both connections rather than leave
+	// the pair half-alive with a dead forwarder, and serve() must still return.
+	client, proxyDownstream := sshPipe(t)
+	proxyUpstream, server := sshPipe(t)
+
+	channels := make(chan ssh.NewChannel, 1)
+	channels <- panickingNewChannel{}
+
+	downstream := connection{conn: proxyDownstream.conn, channels: channels, requests: proxyDownstream.requests}
+	pair := NewSSHConnPair(zaptest.NewLogger(t), testSSHContext, downstream, *proxyUpstream)
+
+	done := make(chan struct{})
+
+	go func() {
+		pair.serve()
+		close(done)
+	}()
+
+	assertConnClosed(t, client.conn)
+	assertConnClosed(t, server.conn)
+	waitDone(t, done)
+}
+
 func TestConnPair_CloseErrors(t *testing.T) {
 	tests := []struct {
 		name string
@@ -537,3 +561,14 @@ func forwardDeadChannel(t *testing.T, pair *SSHConnPair, targetConn ssh.Conn, ch
 
 	pair.forwardChannels(channels, targetConn, disallowedDownstreamChannelTypes, labelDownstream, labelUpstream)
 }
+
+// panickingNewChannel is an ssh.NewChannel whose inspection panics, so a serving conn pair's
+// channel forwarder panics on it.
+type panickingNewChannel struct{}
+
+func (panickingNewChannel) Accept() (ssh.Channel, <-chan *ssh.Request, error) {
+	panic("injected forward panic")
+}
+func (panickingNewChannel) Reject(ssh.RejectionReason, string) error { panic("injected forward panic") }
+func (panickingNewChannel) ChannelType() string                      { panic("injected forward panic") }
+func (panickingNewChannel) ExtraData() []byte                        { panic("injected forward panic") }

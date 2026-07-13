@@ -125,17 +125,24 @@ type BidirectionalCopier struct {
 func (c *BidirectionalCopier) start() {
 	var wg sync.WaitGroup
 
+	// Either direction panicking closes both channel ends, so a dead copy direction cannot
+	// leave the other blocked.
 	wg.Go(func() {
-		defer recoverPanic(c.logger)
+		defer closeOnPanic(c.logger, c.close)
 
 		c.SourceToTarget.copy()
 	})
 	wg.Go(func() {
-		defer recoverPanic(c.logger)
+		defer closeOnPanic(c.logger, c.close)
 
 		c.TargetToSource.copy()
 	})
 
 	// Wait for both directions to finish
 	wg.Wait()
+}
+
+func (c *BidirectionalCopier) close() {
+	_ = c.SourceToTarget.Src.Close()
+	_ = c.SourceToTarget.Dst.Close()
 }
