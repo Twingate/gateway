@@ -136,7 +136,7 @@ func TestChannelPair_RequestLogsCarryChannelExtraBothDirections(t *testing.T) {
 
 	channels.close(t, done)
 
-	channelField, isMap := observedSSHField(t, logs, "Channel request")["channel"].(map[string]any)
+	channelField, isMap := observedSSHField(t, logs, "SSH channel request")["channel"].(map[string]any)
 	require.True(t, isMap)
 	assert.Equal(t, "test-value", channelField["test-extra"])
 	assert.Equal(t, labelUpstream, channelField["source"], "target-side logs swap the direction labels")
