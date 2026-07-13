@@ -46,7 +46,7 @@ func TestWebApp(t *testing.T) {
 			PrivateKeyFile:  "../data/proxy/tls.key",
 		},
 		WebApp: &gatewayconfig.WebAppConfig{
-			Headers: map[string]string{
+			RequestHeaders: map[string]string{
 				"Authorization":                 "Bearer {{jwt}}",
 				"X-Twingate-Groups":             "{{groups}}",
 				"X-Twingate-Client-Geo-LatLong": "{{clientGeoLatLong}}",

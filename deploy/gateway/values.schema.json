@@ -313,7 +313,7 @@
           "description": "Enable HTTP web app proxying.",
           "default": false
         },
-        "headers": {
+        "requestHeaders": {
           "type": "object",
           "description": "Custom HTTP headers to inject into proxied requests. Values may use template expressions with the twingate namespace (e.g. {{username}}, {{groups}}, {{jwt}}, {{clientGeoLoc}}).",
           "additionalProperties": {
