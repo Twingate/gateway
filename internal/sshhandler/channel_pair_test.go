@@ -394,13 +394,14 @@ func TestChannelPair_RejectsDuplicateSessionStart(t *testing.T) {
 
 			channels.sendRequestAwaitReply(t, requestTypeExec, ssh.Marshal(execReq{Command: "whoami"}))
 
-			// WantReply is false so SendRequest returns without waiting for a reply. The duplicate
-			// is deliberately never answered at the target (assertNoRequest only observes it), so a
-			// blocking request would stall the test; a non-blocking send lets a mis-forwarded
-			// duplicate reach the session-start signal instead.
-			_, err := channels.source.ch.SendRequest(tt.reqType, false, tt.payload)
-			require.NoError(t, err)
+			// The duplicate is never answered at the target, so the failure reply can only
+			// come from the proxy's own rejection.
+			awaitReply := sendRequest(channels.source.ch, tt.reqType, true, tt.payload)
 			assertNoRequest(t, channels.target.requests)
+
+			ok, err := awaitReply(t)
+			require.NoError(t, err)
+			assert.False(t, ok, "duplicate session start must be rejected")
 
 			// The original session is intact: data still flows.
 			_, err = channels.source.ch.Write([]byte("still-alive"))
