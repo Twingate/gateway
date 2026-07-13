@@ -291,7 +291,7 @@ func TestConnectValidator_ParseConnect(t *testing.T) {
 		require.ErrorAs(t, err, &httpErr)
 		require.NoError(t, httpErr.Err)
 		assert.Equal(t, http.StatusBadRequest, httpErr.Code)
-		assert.Contains(t, httpErr.Error(), "failed to verify CONNECT destination")
+		assert.Contains(t, httpErr.Error(), "CONNECT destination address website.com does not match token resource address example.com")
 		assert.Equal(t, *connectInfo.Claims, gatClaims)
 		assert.Equal(t, "conn-id", connectInfo.ConnID)
 	})
@@ -338,6 +338,29 @@ func TestConnectValidator_ParseConnect(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Equal(t, "example.com:8443", connectInfo.Address)
+		assert.Equal(t, "conn-id", connectInfo.ConnID)
+	})
+
+	t.Run("Rewrites alias address to upstream address", func(t *testing.T) {
+		claims := newGATTokenClaims(c.getPublicKey())
+		claims.Resource.Address = "10.0.0.1"
+		claims.Resource.Aliases = []string{"foo.int"}
+		claims.Resource.GatewayMetadata.Upstream = token.Upstream{Port: 8443}
+		parserAlias, tokenAlias := createParserAndGATToken(t, claims)
+		validator := &MessageValidator{TokenParser: parserAlias}
+
+		// client targets the resource alias; backend must be dialed on the resource address
+		req := httptest.NewRequest(http.MethodConnect, "Foo.Int:443", nil)
+		req.Header.Set(AuthHeaderKey, "Bearer "+tokenAlias)
+
+		signature := c.sign(sigData)
+		req.Header.Set(AuthSignatureHeaderKey, signature)
+		req.Header.Set(ConnIDHeaderKey, "conn-id")
+
+		connectInfo, err := validator.ParseConnect(req, []byte(sigData))
+
+		require.NoError(t, err)
+		assert.Equal(t, "10.0.0.1:8443", connectInfo.Address)
 		assert.Equal(t, "conn-id", connectInfo.ConnID)
 	})
 }
@@ -388,33 +411,69 @@ func TestResolveUpstreamAddress(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		host        string
-		port        string
-		metadata    token.GatewayMetadata
+		address     string
+		resource    token.Resource
 		wantAddress string
 		wantCode    int
 		wantMessage string
 	}{
 		{
 			name:        "maps downstream port to upstream port",
-			host:        "example.com",
-			port:        "443",
-			metadata:    metadata,
+			address:     "example.com:443",
+			resource:    token.Resource{Address: "example.com", GatewayMetadata: metadata},
 			wantAddress: "example.com:8443",
 		},
 		{
+			name:        "wildcard address keeps requested host",
+			address:     "api.example.com:443",
+			resource:    token.Resource{Address: "*.example.com", GatewayMetadata: metadata},
+			wantAddress: "api.example.com:8443",
+		},
+		{
+			name:        "alias maps to upstream resource address",
+			address:     "second.internal:443",
+			resource:    token.Resource{Address: "10.0.0.5", Aliases: []string{"first.internal", "second.internal"}, GatewayMetadata: metadata},
+			wantAddress: "10.0.0.5:8443",
+		},
+		{
+			name:        "host matches neither address nor alias",
+			address:     "other.com:443",
+			resource:    token.Resource{Address: "example.com", Aliases: []string{"app.internal"}, GatewayMetadata: metadata},
+			wantCode:    http.StatusBadRequest,
+			wantMessage: "CONNECT destination address other.com does not match token resource address example.com",
+		},
+		{
+			name:        "rejects wildcard upstream resource address",
+			address:     "app.internal:443",
+			resource:    token.Resource{Address: "*.example.com", Aliases: []string{"app.internal"}, GatewayMetadata: metadata},
+			wantCode:    http.StatusBadRequest,
+			wantMessage: "CONNECT destination resolves to wildcard upstream address *.example.com",
+		},
+		{
+			name:        "wildcard address as literal host rejected",
+			address:     "*.example.com:443",
+			resource:    token.Resource{Address: "*.example.com", GatewayMetadata: metadata},
+			wantCode:    http.StatusBadRequest,
+			wantMessage: "CONNECT destination resolves to wildcard upstream address *.example.com",
+		},
+		{
+			name:        "malformed CONNECT destination (no port)",
+			address:     "example.com",
+			resource:    token.Resource{Address: "example.com", GatewayMetadata: metadata},
+			wantCode:    http.StatusBadRequest,
+			wantMessage: "failed to parse CONNECT destination",
+		},
+		{
 			name:        "non-numeric port",
-			host:        "example.com",
-			port:        "abc",
-			metadata:    metadata,
+			address:     "example.com:abc",
+			resource:    token.Resource{Address: "example.com", GatewayMetadata: metadata},
 			wantCode:    http.StatusBadRequest,
 			wantMessage: "failed to parse CONNECT destination port",
 		},
 		{
 			name:        "port mismatch with downstream port",
-			host:        "example.com",
-			port:        "8443",
-			metadata:    metadata,
+			address:     "example.com:8443",
+			resource:    token.Resource{Address: "example.com", GatewayMetadata: metadata},
 			wantCode:    http.StatusBadRequest,
 			wantMessage: "CONNECT destination port 8443 does not match token downstream port 443",
 		},
@@ -422,7 +481,7 @@ func TestResolveUpstreamAddress(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, httpErr := resolveUpstreamAddress(tt.host, tt.port, tt.metadata)
+			got, httpErr := resolveUpstreamAddress(tt.address, tt.resource)
 
 			if tt.wantCode != 0 {
 				require.NotNil(t, httpErr)
@@ -535,6 +594,64 @@ func TestMatchResourceAddress(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.want, matchResourceAddress(tt.pattern, tt.host))
+		})
+	}
+}
+
+func TestMatchResourceAliases(t *testing.T) {
+	tests := []struct {
+		name    string
+		aliases []string
+		host    string
+		want    bool
+	}{
+		{
+			name:    "exact match",
+			aliases: []string{"app.internal"},
+			host:    "app.internal",
+			want:    true,
+		},
+		{
+			name:    "exact match case insensitive",
+			aliases: []string{"App.Internal"},
+			host:    "app.INTERNAL",
+			want:    true,
+		},
+		{
+			name:    "matches other aliases",
+			aliases: []string{"first.internal", "second.internal"},
+			host:    "second.internal",
+			want:    true,
+		},
+		{
+			name:    "mismatch",
+			aliases: []string{"app.internal"},
+			host:    "other.internal",
+			want:    false,
+		},
+		{
+			name:    "no aliases never matches",
+			aliases: nil,
+			host:    "app.internal",
+			want:    false,
+		},
+		{
+			name:    "empty alias never matches",
+			aliases: []string{""},
+			host:    "app.internal",
+			want:    false,
+		},
+		{
+			name:    "empty alias does not match empty host",
+			aliases: []string{""},
+			host:    "",
+			want:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, matchResourceAliases(tt.aliases, tt.host))
 		})
 	}
 }

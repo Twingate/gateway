@@ -75,6 +75,7 @@ func TestGATTokenClaims_Validate(t *testing.T) {
 			ID:      "resource-1",
 			Type:    "KUBERNETES",
 			Address: "resource.internal",
+			Aliases: []string{"app.internal"},
 			GatewayMetadata: GatewayMetadata{
 				Downstream: Downstream{Port: 443},
 				Upstream:   Upstream{Port: 8443},
