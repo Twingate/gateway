@@ -70,9 +70,9 @@ func (h *SSHRequestHandler) parseRequestPayload(req *ssh.Request, target any) {
 func (h *SSHRequestHandler) handleRequest(req *ssh.Request, sessionSignals SSHSessionSignals) {
 	h.logger.Debug("Channel request", zap.Any("ssh", h.sshChannelCtx.withRequest(req.Type, nil)))
 
-	// Sessions are started when a shell, exec, or subsystem request is received
+	// A shell, exec, or subsystem request starts the session
 	// see: https://datatracker.ietf.org/doc/html/rfc4254#section-6.5
-	sessionStarted := false
+	isSessionStartReq := false
 	command := ""
 
 	shouldLog := false
@@ -89,12 +89,12 @@ func (h *SSHRequestHandler) handleRequest(req *ssh.Request, sessionSignals SSHSe
 
 		shouldLog = true
 	case requestTypeShell:
-		sessionStarted = true
+		isSessionStartReq = true
 		command = req.Type
 
 		shouldLog = true
 	case requestTypeExec:
-		sessionStarted = true
+		isSessionStartReq = true
 
 		var execReq execReq
 		h.parseRequestPayload(req, &execReq)
@@ -104,7 +104,7 @@ func (h *SSHRequestHandler) handleRequest(req *ssh.Request, sessionSignals SSHSe
 		shouldLog = true
 		extra["command"] = execReq.Command
 	case requestTypeSubsystem:
-		sessionStarted = true
+		isSessionStartReq = true
 
 		var subsystemReq subsystemReq
 		h.parseRequestPayload(req, &subsystemReq)
@@ -127,7 +127,7 @@ func (h *SSHRequestHandler) handleRequest(req *ssh.Request, sessionSignals SSHSe
 	// A channel runs at most one shell, exec, or subsystem request (RFC 4254, Section 6.5).
 	// Reject duplicates without forwarding: signaling a second session start would send on
 	// the already-closed started channel.
-	if sessionStarted && h.sessionStarted {
+	if isSessionStartReq && h.sessionStarted {
 		h.logger.Warn("Rejecting duplicate session start request",
 			zap.Any("ssh", h.sshChannelCtx.withRequest(req.Type, extra)))
 
@@ -156,7 +156,7 @@ func (h *SSHRequestHandler) handleRequest(req *ssh.Request, sessionSignals SSHSe
 
 	// A session starts only when the target accepted the request; without WantReply there is
 	// no confirmation and the session starts unconditionally (RFC 4254, Section 6.5).
-	if sessionStarted && (accepted || !req.WantReply) {
+	if isSessionStartReq && (accepted || !req.WantReply) {
 		h.sessionStarted = true
 
 		sessionSignals.started <- command
