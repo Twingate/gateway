@@ -83,7 +83,9 @@ func (h *SSHRequestHandler) handleRequest(req *ssh.Request, sessionSignals SSHSe
 		var ptyReq ptyReq
 		h.parseRequestPayload(req, &ptyReq)
 
-		h.onPtyRequest(ptyReq)
+		if h.onPtyRequest != nil {
+			h.onPtyRequest(ptyReq)
+		}
 
 		shouldLog = true
 	case requestTypeShell:
@@ -115,9 +117,27 @@ func (h *SSHRequestHandler) handleRequest(req *ssh.Request, sessionSignals SSHSe
 		var windowChangeReq windowChangeReq
 		h.parseRequestPayload(req, &windowChangeReq)
 
-		h.onWindowChange(windowChangeReq)
+		if h.onWindowChange != nil {
+			h.onWindowChange(windowChangeReq)
+		}
 	default:
 		// No special handling
+	}
+
+	// A channel runs at most one shell, exec, or subsystem request (RFC 4254, Section 6.5).
+	// Reject duplicates without forwarding: signaling a second session start would send on
+	// the already-closed started channel.
+	if sessionStarted && h.sessionStarted {
+		h.logger.Warn("Rejecting duplicate session start request",
+			zap.Any("ssh", h.sshChannelCtx.withRequest(req.Type, extra)))
+
+		if err := req.Reply(false, nil); err != nil {
+			h.logger.Error("Failed to reply to request",
+				zap.Any("ssh", h.sshChannelCtx.withRequest(req.Type, nil)),
+				zap.Error(err))
+		}
+
+		return
 	}
 
 	if shouldLog {
@@ -135,6 +155,8 @@ func (h *SSHRequestHandler) handleRequest(req *ssh.Request, sessionSignals SSHSe
 
 	// Close the session started channel to signal that the session has started
 	if sessionStarted {
+		h.sessionStarted = true
+
 		sessionSignals.started <- command
 
 		close(sessionSignals.started)
@@ -156,10 +178,14 @@ type SSHRequestHandler struct {
 	// Target SSH channel to forward SSH channel requests to
 	targetChannel ssh.Channel
 
-	// Callback for when a pty request is received providing the width and height of the terminal
+	// Whether a session-start request (shell, exec, or subsystem) has already been forwarded;
+	// only the handleRequests goroutine touches it
+	sessionStarted bool
+
+	// Optional callback for when a pty request is received providing the width and height of the terminal
 	onPtyRequest func(req ptyReq)
 
-	// Callback for when a window-change request is received
+	// Optional callback for when a window-change request is received
 	onWindowChange func(req windowChangeReq)
 }
 

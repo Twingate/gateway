@@ -118,6 +118,38 @@ func TestChannelPair_ForwardsRequests(t *testing.T) {
 	}
 }
 
+func TestChannelPair_ForwardsTargetPtyAndWindowChange(t *testing.T) {
+	// The target-side request handler has no pty/window-change callbacks: requests of those
+	// types arriving from the target must hit the nil-callback guards and forward cleanly
+	// instead of panicking.
+	tests := []struct {
+		name    string
+		payload []byte
+	}{
+		{name: requestTypePty, payload: ssh.Marshal(ptyReq{Term: "xterm", WidthColumns: 80, HeightRows: 24})},
+		{name: requestTypeWindowChange, payload: ssh.Marshal(windowChangeReq{WidthColumns: 120, HeightRows: 40})},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			channels := newProxyChannels(t, "direct-tcpip")
+			done := channels.serve(t)
+
+			awaitReply := sendRequest(channels.target.ch, tt.name, true, tt.payload)
+
+			forwarded := assertSentRequest(t, channels.source.requests, tt.name)
+			assert.Equal(t, tt.payload, forwarded.Payload)
+			require.NoError(t, forwarded.Reply(true, nil))
+
+			ok, err := awaitReply(t)
+			require.NoError(t, err)
+			assert.True(t, ok)
+
+			channels.close(t, done)
+		})
+	}
+}
+
 func TestChannelPair_RequestForwardFailure(t *testing.T) {
 	// On a session channel the gate keeps the copiers un-started, so closing the target
 	// cannot race the failure reply against a concurrent source teardown.
@@ -296,6 +328,46 @@ func TestChannelPair_SessionWaitsForStart(t *testing.T) {
 			case <-time.After(testTimeout):
 				t.Fatal("timed out waiting for data after session start")
 			}
+
+			channels.close(t, done)
+		})
+	}
+}
+
+func TestChannelPair_RejectsDuplicateSessionStart(t *testing.T) {
+	// A channel runs at most one shell, exec, or subsystem request (RFC 4254, Section 6.5). The
+	// started signal is closed on first use, so forwarding a second session start would signal on
+	// a closed channel and panic, killing every session on the proxy. The duplicate must be
+	// rejected at the proxy without being forwarded.
+	tests := []struct {
+		name    string
+		reqType string
+		payload []byte
+	}{
+		{name: "shell", reqType: requestTypeShell},
+		{name: "exec", reqType: requestTypeExec, payload: ssh.Marshal(execReq{Command: "whoami"})},
+		{name: "subsystem", reqType: requestTypeSubsystem, payload: ssh.Marshal(subsystemReq{Name: "sftp"})},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			channels := newProxyChannels(t, "session")
+			done := channels.serve(t)
+
+			channels.sendRequestAwaitReply(t, requestTypeExec, ssh.Marshal(execReq{Command: "whoami"}))
+
+			// WantReply is false so SendRequest returns without waiting for a reply. The duplicate
+			// is deliberately never answered at the target (assertNoRequest only observes it), so a
+			// blocking request would stall the test; a non-blocking send lets a mis-forwarded
+			// duplicate reach the session-start signal instead.
+			_, err := channels.source.ch.SendRequest(tt.reqType, false, tt.payload)
+			require.NoError(t, err)
+			assertNoRequest(t, channels.target.requests)
+
+			// The original session is intact: data still flows.
+			_, err = channels.source.ch.Write([]byte("still-alive"))
+			require.NoError(t, err)
+			assert.Equal(t, "still-alive", string(readInFull(t, channels.target.ch, len("still-alive"))))
 
 			channels.close(t, done)
 		})
@@ -599,6 +671,19 @@ func startRead(reader io.Reader, n int) <-chan []byte {
 	}()
 
 	return out
+}
+
+// assertNoRequest asserts that no request arrives on the requests channel within shortTimeout.
+func assertNoRequest(t *testing.T, reqs <-chan *ssh.Request) {
+	t.Helper()
+
+	select {
+	case req, ok := <-reqs:
+		if ok {
+			t.Fatalf("unexpected %q request", req.Type)
+		}
+	case <-time.After(shortTimeout):
+	}
 }
 
 // waitReqChanClosed asserts the requests channel closes within testTimeout without delivering
