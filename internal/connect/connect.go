@@ -129,22 +129,8 @@ func (v *MessageValidator) ParseConnect(req *http.Request, ekm []byte) (connectI
 			}
 	}
 
-	// verify address in CONNECT with the GAT token
-	address := req.RequestURI
-
-	host, port, hostErr := net.SplitHostPort(address)
-	if hostErr != nil {
-		return Info{
-				Claims: gatClaims,
-				ConnID: connID,
-			}, &HTTPError{
-				Code:    http.StatusBadRequest,
-				Message: fmt.Sprintf("failed to parse CONNECT destination: %v", hostErr),
-				Err:     hostErr,
-			}
-	}
-
-	address, httpErr := resolveUpstreamAddress(host, port, gatClaims.Resource)
+	// verify the CONNECT destination against the GAT token and map it to the upstream address
+	address, httpErr := resolveUpstreamAddress(req.RequestURI, gatClaims.Resource)
 	if httpErr != nil {
 		return Info{
 			Claims: gatClaims,
@@ -162,14 +148,22 @@ func (v *MessageValidator) ParseConnect(req *http.Request, ekm []byte) (connectI
 
 // resolveUpstreamAddress verifies the CONNECT destination against the GAT
 // resource and maps it to the upstream address for backend forwarding: a host
-// matching the resource alias maps to the resource address, and the downstream
-// port maps to the upstream port. Both ports are validated for presence and
-// range when the token is parsed.
-func resolveUpstreamAddress(host, port string, resource token.Resource) (string, *HTTPError) {
+// matching the resource address or any alias maps to the resource address, and
+// the downstream port maps to the upstream port.
+func resolveUpstreamAddress(address string, resource token.Resource) (string, *HTTPError) {
+	host, port, err := net.SplitHostPort(address)
+	if err != nil {
+		return "", &HTTPError{
+			Code:    http.StatusBadRequest,
+			Message: fmt.Sprintf("failed to parse CONNECT destination: %v", err),
+			Err:     err,
+		}
+	}
+
 	switch {
 	case matchResourceAddress(resource.Address, host):
 		//	Keep existing upstream address
-	case matchResourceAlias(resource.Alias(), host):
+	case matchResourceAliases(resource.Aliases, host):
 		//	Rewrite upstream address to GAT token address
 		host = resource.Address
 	default:
@@ -233,7 +227,13 @@ func matchResourceAddress(pattern, host string) bool {
 	return validDNSLabel.MatchString(label)
 }
 
-// matchResourceAlias checks whether host matches the resource alias.
-func matchResourceAlias(alias, host string) bool {
-	return alias != "" && strings.EqualFold(alias, host)
+// matchResourceAliases reports whether host matches any of the resource aliases.
+func matchResourceAliases(aliases []string, host string) bool {
+	for _, alias := range aliases {
+		if alias != "" && strings.EqualFold(alias, host) {
+			return true
+		}
+	}
+
+	return false
 }

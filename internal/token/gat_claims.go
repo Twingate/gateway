@@ -139,15 +139,6 @@ type Resource struct {
 	GatewayMetadata GatewayMetadata `json:"gateway_metadata"` //nolint:tagliatelle // GAT wire format from the controller uses snake_case
 }
 
-// Alias returns the resource's primary alias, or an empty string when the resource has none.
-func (r Resource) Alias() string {
-	if len(r.Aliases) == 0 {
-		return ""
-	}
-
-	return r.Aliases[0]
-}
-
 // IsWildcardAddress reports whether a resource address is an RFC 6125 wildcard
 // pattern such as *.example.com.
 func IsWildcardAddress(address string) bool {
