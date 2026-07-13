@@ -136,7 +136,7 @@ func (p *SSHProxy) Start(ctx context.Context, listener net.Listener) error {
 
 		// Serve SSH connection in a separate goroutine
 		go func() {
-			err := p.Serve(ctx, conn.(connect.Conn))
+			err := p.serveConn(ctx, conn.(connect.Conn))
 			if err != nil {
 				p.config.logger.Error("Failed to serve SSH connection", zap.Error(err))
 			}
@@ -144,25 +144,6 @@ func (p *SSHProxy) Start(ctx context.Context, listener net.Listener) error {
 	}
 
 	return nil
-}
-
-func (p *SSHProxy) Serve(ctx context.Context, conn connect.Conn) error {
-	p.mu.Lock()
-
-	if p.shuttingDown {
-		p.mu.Unlock()
-		// reject the connection and return error
-		err := conn.Close()
-		if err != nil {
-			p.config.logger.Error("Failed to close connection", zap.Error(err))
-		}
-
-		return errShuttingDown
-	}
-
-	p.mu.Unlock()
-
-	return p.serveConn(ctx, conn)
 }
 
 func (p *SSHProxy) Shutdown(_ctx context.Context) {
