@@ -62,12 +62,22 @@ func buildVariables(conn *connect.ProxyConn) map[string]string {
 	}
 }
 
+// clientIdentityHeaders are stripped from the upstream request so a client cannot spoof its
+// identity. The stdlib reverse proxy already strips the standard Forwarded/X-Forwarded-* set;
+// these are the identity headers it leaves in place.
+var clientIdentityHeaders = []string{"X-Real-IP", "X-Forwarded-Port", "X-Forwarded-Server"}
+
 func rewrite(r *httputil.ProxyRequest, conn *connect.ProxyConn, headers map[string]*template.Template) error {
 	targetURL := &url.URL{
 		Scheme: "http", // plain HTTP — no upstream TLS
 		Host:   conn.GetAddress(),
 	}
 	r.SetURL(targetURL)
+	r.Out.Host = r.In.Host // preserve the client's Host
+
+	for _, headerName := range clientIdentityHeaders {
+		r.Out.Header.Del(headerName)
+	}
 
 	variables := buildVariables(conn)
 
