@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -73,9 +72,9 @@ func (c *CustomClaims) getHeaderType() string {
 func TestParser_ParseWithClaims(t *testing.T) {
 	tokenService := newTokenService()
 	parser, _ := NewParser(ParserConfig{
-		Network: "acme",
-		Host:    "twingate.com",
-		Keyfunc: tokenService.keyfunc,
+		Issuer:   "twingate",
+		Audience: "acme",
+		Keyfunc:  tokenService.keyfunc,
 	})
 
 	t.Run("Valid token type", func(t *testing.T) {
@@ -128,9 +127,9 @@ func TestNewParser(t *testing.T) {
 	tokenService := newTokenService()
 
 	parser, err := NewParser(ParserConfig{
-		Network: "acme",
-		Host:    "twingate.com",
-		Keyfunc: tokenService.keyfunc,
+		Issuer:   "twingate",
+		Audience: "acme",
+		Keyfunc:  tokenService.keyfunc,
 	})
 	require.NoError(t, err)
 	require.NotNil(t, parser)
@@ -203,24 +202,6 @@ func TestNewParser(t *testing.T) {
 
 			require.ErrorIs(t, err, tt.expectedError)
 			require.Nil(t, token)
-		})
-	}
-}
-
-func TestGetIssuer(t *testing.T) {
-	tests := []struct {
-		name   string
-		host   string
-		issuer string
-	}{
-		{name: "exact match", host: "twingate.com", issuer: "twingate"},
-		{name: "sharded host", host: "us1.twingate.com", issuer: "twingate"},
-		{name: "unknown host", host: "unknown-dev.opstg.com", issuer: ""},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.issuer, getIssuer(tt.host))
 		})
 	}
 }

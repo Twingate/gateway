@@ -43,9 +43,10 @@ type Client struct {
 	proxyAddress  string
 	controllerURL string
 
-	resourceHostname string
-	resourcePort     string
-	resourceType     token.ResourceType
+	resourceHostname      string
+	resourcePort          string
+	resourceType          token.ResourceType
+	requestHeaderRewrites map[string]string
 
 	cancel context.CancelFunc
 	wg     *sync.WaitGroup
@@ -53,8 +54,18 @@ type Client struct {
 	logger *zap.Logger
 }
 
+// Option configures a Client at construction time.
+type Option func(*Client)
+
+// WithRequestHeaderRewrites sets the Web App request header rewrites carried in the GAT.
+func WithRequestHeaderRewrites(rewrites map[string]string) Option {
+	return func(c *Client) {
+		c.requestHeaderRewrites = rewrites
+	}
+}
+
 // NewClient creates a new Client. upstreamAddress must include both the host and the port.
-func NewClient(user *token.User, geoIPLocation token.GeoIPLocation, proxyAddress, controllerURL, upstreamAddress string, resourceType token.ResourceType) *Client {
+func NewClient(user *token.User, geoIPLocation token.GeoIPLocation, proxyAddress, controllerURL, upstreamAddress string, resourceType token.ResourceType, opts ...Option) *Client {
 	logger := zap.Must(zap.NewDevelopment()).Named(fmt.Sprintf("client-%s-%s", user.ID, user.Username))
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -87,6 +98,11 @@ func NewClient(user *token.User, geoIPLocation token.GeoIPLocation, proxyAddress
 		wg:               &sync.WaitGroup{},
 		logger:           logger,
 	}
+
+	for _, opt := range opts {
+		opt(c)
+	}
+
 	go c.serve(ctx)
 
 	return c
@@ -234,6 +250,9 @@ func (c *Client) fetchGAT() (string, error) {
 			ID:      "resource-1",
 			Type:    c.resourceType,
 			Address: c.resourceHostname,
+			GatewayMetadata: token.GatewayMetadata{
+				RequestHeaderRewrites: c.requestHeaderRewrites,
+			},
 		},
 	}
 

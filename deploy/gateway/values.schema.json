@@ -206,7 +206,7 @@
                     },
                     "token": {
                       "type": "string",
-                      "description": "Vault token."
+                      "description": "Vault token in plaintext (dev/testing only; use existingTokenSecret in production)."
                     },
                     "appRole": {
                       "type": "object",
@@ -224,7 +224,7 @@
                         },
                         "secretId": {
                           "type": "string",
-                          "description": "AppRole Secret ID in plaintext string."
+                          "description": "AppRole Secret ID in plaintext (dev/testing only; use existingSecretIdSecret in production)."
                         },
                         "existingSecretIdSecret": {
                           "type": "string",
@@ -329,7 +329,7 @@
         },
         "headers": {
           "type": "object",
-          "description": "Custom HTTP headers to inject into proxied requests. Values may use template expressions with the twingate namespace (e.g. {{twingate.username}}, {{twingate.groups}}, {{twingate.jwt}}, {{twingate.clientGeoLoc}}).",
+          "description": "Custom HTTP headers to inject into proxied requests. Values may use template expressions with the twingate namespace (e.g. {{username}}, {{groups}}, {{jwt}}, {{clientGeoLoc}}).",
           "additionalProperties": {
             "type": "string"
           }

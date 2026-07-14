@@ -65,16 +65,19 @@ ssh:
     #   existingCABundleSecret: ""  # Name of existing secret containing CA bundle (key name: ca.crt)
     #
     #   # Auth configuration
+    #   # Inline credentials (token, secretId) are for dev/testing only; in
+    #   # production use existingTokenSecret / existingSecretIdSecret so raw
+    #   # credentials never appear in Helm values.
     #   auth:
     #     # Option 1: Token auth
     #     existingTokenSecret: ""  # Name of existing secret containing the token (key name: token)
-    #     token: ""  # Token value
+    #     token: ""  # Token value (dev/testing only)
     #
     #     # Option 2: AppRole auth
     #     appRole:
     #       mount: "approle"
     #       roleId: ""
-    #       secretId: ""
+    #       secretId: ""  # SecretID value (dev/testing only)
     #       existingSecretIdSecret: ""  # Name of existing secret containing the AppRole SecretID (key name: secretId)
     #
     #   # Default mount/role (can be overridden per-CA)
