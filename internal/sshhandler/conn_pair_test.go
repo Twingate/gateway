@@ -312,9 +312,12 @@ func TestConnPair_LogsGlobalRequestForwardingDetails(t *testing.T) {
 		// replyPayload is what the far end replies with; a tcpip-forward that asked for bind
 		// port 0 gets the dynamically allocated port back in it (RFC 4254 §7.1).
 		replyPayload []byte
-		// wantFields are the forwarding details the request log must carry; nil expects a parse
-		// failure instead.
+		// wantFields are the forwarding details the request log must carry; nil expects a request
+		// parse failure instead.
 		wantFields map[string]any
+		// wantReplyParseFailure expects the reply payload to fail parsing, logged separately from
+		// the request itself.
+		wantReplyParseFailure bool
 	}{
 		{
 			name:       "tcpip-forward",
@@ -344,6 +347,14 @@ func TestConnPair_LogsGlobalRequestForwardingDetails(t *testing.T) {
 			reqType: globalRequestTCPIPForward,
 			payload: []byte("garbage"),
 		},
+		{
+			name:                  "malformed reply payload is logged and still forwarded",
+			reqType:               globalRequestTCPIPForward,
+			payload:               forwardPayload,
+			replyPayload:          []byte("garbage"),
+			wantFields:            wantRequestFields,
+			wantReplyParseFailure: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -369,6 +380,11 @@ func TestConnPair_LogsGlobalRequestForwardingDetails(t *testing.T) {
 			if tt.wantFields == nil {
 				assert.NotEmpty(t, logs.FilterMessage("Failed to parse global request").All())
 				assert.NotContains(t, requestField, "bind_address")
+			}
+
+			if tt.wantReplyParseFailure {
+				assert.NotEmpty(t, logs.FilterMessage("Failed to parse global request reply").All())
+				assert.NotContains(t, requestField, "allocated_port")
 			}
 
 			assert.Subset(t, requestField, tt.wantFields)
