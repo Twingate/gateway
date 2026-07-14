@@ -27,7 +27,7 @@ func NewHandler(cfg Config) *Handler {
 		Rewrite: func(r *httputil.ProxyRequest) {
 			conn := httpproxy.ProxyConnFromContext(r.In.Context())
 
-			if err := rewrite(r, conn, cfg.headers); err != nil {
+			if err := rewrite(r, conn, cfg.requestHeaders); err != nil {
 				cfg.logger.Error("failed to rewrite headers", zap.Error(err))
 				panic(err)
 			}

@@ -62,7 +62,7 @@ type Config struct {
 }
 
 type WebAppConfig struct {
-	Headers map[string]string `yaml:"headers,omitempty"`
+	RequestHeaders map[string]string `yaml:"requestHeaders,omitempty"`
 }
 
 type TwingateConfig struct {

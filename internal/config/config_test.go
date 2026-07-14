@@ -342,7 +342,7 @@ func TestConfig_Validate(t *testing.T) {
 				},
 				Kubernetes: &KubernetesConfig{},
 				WebApp: &WebAppConfig{
-					Headers: map[string]string{"Authorization": "Bearer {{jwt}}"},
+					RequestHeaders: map[string]string{"Authorization": "Bearer {{jwt}}"},
 				},
 			},
 			wantErr: false,

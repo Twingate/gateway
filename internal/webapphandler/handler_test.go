@@ -50,7 +50,7 @@ func TestNewHandler_PanicsOnRewriteError(t *testing.T) {
 	require.NoError(t, err)
 
 	handler := NewHandler(Config{
-		headers:             map[string]*template.Template{"X-Bad": unknownKeyTemplate},
+		requestHeaders:      map[string]*template.Template{"X-Bad": unknownKeyTemplate},
 		roundTripperMetrics: metrics.RegisterRoundTripperMetrics(prometheus.NewRegistry()),
 		logger:              zap.NewNop(),
 	})

@@ -81,7 +81,7 @@ func TestNewProxy_Success(t *testing.T) {
 func TestNewProxy_HTTPOnly(t *testing.T) {
 	config := fullConfig
 	config.SSH = nil
-	config.WebApp = &gatewayconfig.WebAppConfig{Headers: map[string]string{}}
+	config.WebApp = &gatewayconfig.WebAppConfig{RequestHeaders: map[string]string{}}
 
 	registry := prometheus.NewRegistry()
 	logger, err := NewLogger(DefaultLoggerName, false)

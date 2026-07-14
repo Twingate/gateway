@@ -98,7 +98,7 @@ webApp:
   enabled: false
 
   # Custom HTTP headers to inject into proxied requests.
-  headers: {}
+  requestHeaders: {}
 
 clusterDomain: cluster.local
 

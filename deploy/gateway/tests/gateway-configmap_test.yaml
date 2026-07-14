@@ -417,7 +417,7 @@ tests:
   - it: should render webApp with custom headers
     set:
       webApp:
-        headers:
+        requestHeaders:
           X-Groups: "{{groups}}"
           X-User: "{{username}}"
     asserts:
@@ -440,7 +440,7 @@ tests:
               privateKeyFile: "/etc/gateway/tls/tls.key"
 
             webApp:
-              headers:
+              requestHeaders:
                 X-Groups: '{{groups}}'
                 X-User: '{{username}}'
   - it: should not render webApp when disabled
