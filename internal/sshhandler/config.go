@@ -152,8 +152,6 @@ func (c *Config) GetDownstreamConfig(ctx context.Context) (*ssh.ServerConfig, er
 	}()
 
 	downstreamSSHConfig.AddHostKey(hostCertSigner)
-	// Add the public key as a fallback for clients that don't support certificate-based host key algorithms.
-	downstreamSSHConfig.AddHostKey(hostCertSigner.keySigner)
 
 	return downstreamSSHConfig, nil
 }
