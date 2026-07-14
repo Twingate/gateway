@@ -476,6 +476,34 @@ func TestChannelPair_RequestPanicClosesChannels(t *testing.T) {
 	waitDone(t, done)
 }
 
+func TestChannelPair_ServePanicClosesChannels(t *testing.T) {
+	// A panic in serve()'s own frame (here from the recorder's header write, before the copiers
+	// start) is recovered by the forwardChannels wrapper, which must close both channel ends via
+	// SSHChannelPair.close() instead of leaking the accepted channel.
+	channels := newProxyChannels(t, "session")
+	channels.recorder.headerPanic = "injected header panic"
+
+	pair := channels.newPair(t)
+	done := make(chan struct{})
+
+	// Wrap serve() in the same panic recovery as forwardChannels, so the synchronous panic
+	// tears the pair down instead of crashing the test goroutine.
+	go func() {
+		defer close(done)
+		defer closeOnPanic(pair.logger, pair.close)
+
+		pair.serve()
+	}()
+
+	// The shell request opens the session gate; serve() then builds the recorder and panics
+	// writing its header.
+	_ = sendRequest(channels.source.ch, requestTypeShell, false, nil)
+
+	assertEOF(t, channels.source.ch)
+	assertEOF(t, channels.target.ch)
+	waitDone(t, done)
+}
+
 // proxyChannels is the channel-layer fixture: one channel proxied between two real SSH
 // connections, exposing all four ends:
 //
@@ -522,9 +550,9 @@ func newProxyChannels(t *testing.T, channelType string) *proxyChannels {
 	return channels
 }
 
-// serve builds an SSHChannelPair over the proxy-held ends and runs its serve() in the
-// background; the returned channel closes when serve returns.
-func (p *proxyChannels) serve(t *testing.T) <-chan struct{} {
+// newPair builds an SSHChannelPair over the proxy-held ends, wired to the fixture's fake
+// recorder and any per-test timeout overrides.
+func (p *proxyChannels) newPair(t *testing.T) *SSHChannelPair {
 	t.Helper()
 
 	pair := NewSSHChannelPair(
@@ -547,6 +575,16 @@ func (p *proxyChannels) serve(t *testing.T) <-chan struct{} {
 	if p.channelCloseTimeout != 0 {
 		pair.channelCloseTimeout = p.channelCloseTimeout
 	}
+
+	return pair
+}
+
+// serve runs the pair's serve() in the background; the returned channel closes when serve
+// returns.
+func (p *proxyChannels) serve(t *testing.T) <-chan struct{} {
+	t.Helper()
+
+	pair := p.newPair(t)
 
 	done := make(chan struct{})
 
@@ -662,8 +700,10 @@ type fakeRecorder struct {
 	headerErr error
 	resizeErr error
 
-	// Injected panic values for WriteOutputEvent / WriteResizeEvent, panicking the copy
-	// direction that taps the recorder and the request handler that records resizes.
+	// Injected panic values for the code paths that call the recorder: WriteHeader runs
+	// synchronously in serve(), WriteOutputEvent in the copy direction that taps the recorder,
+	// and WriteResizeEvent in the request handler that records resizes.
+	headerPanic any
 	outputPanic any
 	resizePanic any
 
@@ -678,6 +718,10 @@ func (r *fakeRecorder) WriteHeader(h sessionrecorder.AsciicastHeader) error {
 	defer r.mu.Unlock()
 
 	r.header = &h
+
+	if r.headerPanic != nil {
+		panic(r.headerPanic)
+	}
 
 	return r.headerErr
 }
