@@ -122,8 +122,7 @@ type SSHCertificateConfig struct {
 	TTL time.Duration `yaml:"ttl"`
 }
 
-// SSHCAConfig represents the CA configuration. Only one of Manual or Vault should be set.
-// If neither is set, auto-generated CA is used.
+// SSHCAConfig represents the CA configuration. Exactly one of Manual or Vault must be set.
 type SSHCAConfig struct {
 	Manual *SSHCAManualConfig `yaml:"manual,omitempty"`
 	Vault  *SSHCAVaultConfig  `yaml:"vault,omitempty"`
@@ -437,9 +436,16 @@ func (c *SSHCertificateConfig) Validate() error {
 	return nil
 }
 
-var ErrConflictingCAConfig = errors.New("only one of 'manual' or 'vault' can be specified for CA config")
+var (
+	ErrMissingCAConfig     = errors.New("either 'manual' or 'vault' must be specified for CA config")
+	ErrConflictingCAConfig = errors.New("only one of 'manual' or 'vault' can be specified for CA config")
+)
 
 func (c *SSHCAConfig) Validate() error {
+	if c.Manual == nil && c.Vault == nil {
+		return ErrMissingCAConfig
+	}
+
 	if c.Manual != nil && c.Vault != nil {
 		return ErrConflictingCAConfig
 	}

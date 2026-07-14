@@ -729,7 +729,7 @@ func TestSSHConfig_Validate(t *testing.T) {
 		errContains string
 	}{
 		{
-			name: "valid with auto-generated CA",
+			name: "missing CA config",
 			ssh: SSHConfig{
 				Gateway: SSHGatewayConfig{
 					Username: "gateway",
@@ -740,7 +740,8 @@ func TestSSHConfig_Validate(t *testing.T) {
 				},
 				CA: SSHCAConfig{},
 			},
-			wantErr: false,
+			wantErr:     true,
+			errContains: "either 'manual' or 'vault' must be specified",
 		},
 		{
 			name: "valid with manual CA",

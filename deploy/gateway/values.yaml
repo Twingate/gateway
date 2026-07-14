@@ -46,8 +46,7 @@ ssh:
     userCertificate:
       ttl: "5m"
 
-  # CA configuration - only one option should be specified
-  # If neither manual nor vault is configured, auto-generated CA is used
+  # CA configuration - exactly one of manual or vault must be specified when SSH is enabled
   ca: {}
     # Manual CA configuration
     # manual:

@@ -51,7 +51,11 @@ var fullConfig = gatewayconfig.Config{
 			HostCertificate: gatewayconfig.SSHCertificateConfig{},
 			UserCertificate: gatewayconfig.SSHCertificateConfig{},
 		},
-		CA: gatewayconfig.SSHCAConfig{},
+		CA: gatewayconfig.SSHCAConfig{
+			Manual: &gatewayconfig.SSHCAManualConfig{
+				PrivateKeyFile: "../../test/data/ssh/ca/ca",
+			},
+		},
 	},
 }
 
