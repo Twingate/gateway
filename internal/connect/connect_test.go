@@ -115,9 +115,31 @@ func TestConnectValidator_ParseConnect(t *testing.T) {
 		connectInfo, err := validator.ParseConnect(req, []byte(sigData))
 
 		require.NoError(t, err)
+		assert.Equal(t, "Example.com:443", connectInfo.Address)
 		assert.Equal(t, *connectInfo.Claims, gatClaims)
 		assert.Equal(t, "conn-id", connectInfo.ConnID)
 		assert.Equal(t, signedToken, connectInfo.Token)
+	})
+
+	t.Run("Rewrites destination port to upstream port", func(t *testing.T) {
+		claims := newGATTokenClaims(c.getPublicKey())
+		claims.Resource.GatewayMetadata.Upstream = token.Upstream{Port: 8443}
+		parserRewrite, tokenRewrite := createParserAndGATToken(t, claims)
+		validator := &MessageValidator{TokenParser: parserRewrite}
+
+		// client targets the downstream port 443; backend must be dialed on upstream 8443
+		req := httptest.NewRequest(http.MethodConnect, "example.com:443", nil)
+		req.Header.Set(AuthHeaderKey, "Bearer "+tokenRewrite)
+
+		signature := c.sign(sigData)
+		req.Header.Set(AuthSignatureHeaderKey, signature)
+		req.Header.Set(ConnIDHeaderKey, "conn-id")
+
+		connectInfo, err := validator.ParseConnect(req, []byte(sigData))
+
+		require.NoError(t, err)
+		assert.Equal(t, "example.com:8443", connectInfo.Address)
+		assert.Equal(t, "conn-id", connectInfo.ConnID)
 	})
 
 	t.Run("Non-CONNECT method", func(t *testing.T) {
@@ -315,52 +337,8 @@ func TestConnectValidator_ParseConnect(t *testing.T) {
 		require.ErrorAs(t, err, &httpErr)
 		require.Error(t, httpErr.Err)
 		assert.Equal(t, http.StatusBadRequest, httpErr.Code)
-		assert.Contains(t, httpErr.Error(), "failed to parse CONNECT destination")
+		assert.Contains(t, httpErr.Error(), "failed to parse CONNECT target")
 		assert.Equal(t, *connectInfo.Claims, gatClaims)
-		assert.Equal(t, "conn-id", connectInfo.ConnID)
-	})
-
-	t.Run("Rewrites destination port to upstream port", func(t *testing.T) {
-		claims := newGATTokenClaims(c.getPublicKey())
-		claims.Resource.GatewayMetadata.Upstream = token.Upstream{Port: 8443}
-		parserRewrite, tokenRewrite := createParserAndGATToken(t, claims)
-		validator := &MessageValidator{TokenParser: parserRewrite}
-
-		// client targets the downstream port 443; backend must be dialed on upstream 8443
-		req := httptest.NewRequest(http.MethodConnect, "example.com:443", nil)
-		req.Header.Set(AuthHeaderKey, "Bearer "+tokenRewrite)
-
-		signature := c.sign(sigData)
-		req.Header.Set(AuthSignatureHeaderKey, signature)
-		req.Header.Set(ConnIDHeaderKey, "conn-id")
-
-		connectInfo, err := validator.ParseConnect(req, []byte(sigData))
-
-		require.NoError(t, err)
-		assert.Equal(t, "example.com:8443", connectInfo.Address)
-		assert.Equal(t, "conn-id", connectInfo.ConnID)
-	})
-
-	t.Run("Rewrites alias address to upstream address", func(t *testing.T) {
-		claims := newGATTokenClaims(c.getPublicKey())
-		claims.Resource.Address = "10.0.0.1"
-		claims.Resource.Aliases = []string{"foo.int"}
-		claims.Resource.GatewayMetadata.Upstream = token.Upstream{Port: 8443}
-		parserAlias, tokenAlias := createParserAndGATToken(t, claims)
-		validator := &MessageValidator{TokenParser: parserAlias}
-
-		// client targets the resource alias; backend must be dialed on the resource address
-		req := httptest.NewRequest(http.MethodConnect, "Foo.Int:443", nil)
-		req.Header.Set(AuthHeaderKey, "Bearer "+tokenAlias)
-
-		signature := c.sign(sigData)
-		req.Header.Set(AuthSignatureHeaderKey, signature)
-		req.Header.Set(ConnIDHeaderKey, "conn-id")
-
-		connectInfo, err := validator.ParseConnect(req, []byte(sigData))
-
-		require.NoError(t, err)
-		assert.Equal(t, "10.0.0.1:8443", connectInfo.Address)
 		assert.Equal(t, "conn-id", connectInfo.ConnID)
 	})
 }
@@ -506,19 +484,19 @@ func TestMatchResourceAddress(t *testing.T) {
 		want    bool
 	}{
 		{
-			name:    "exact match",
+			name:    "match same host",
 			pattern: "api.example.com",
 			host:    "api.example.com",
 			want:    true,
 		},
 		{
-			name:    "exact match case insensitive",
+			name:    "match case insensitive",
 			pattern: "api.example.com",
 			host:    "Api.example.coM",
 			want:    true,
 		},
 		{
-			name:    "exact match mismatch",
+			name:    "fail to match different host",
 			pattern: "api.example.com",
 			host:    "other.example.com",
 			want:    false,
@@ -606,13 +584,13 @@ func TestMatchResourceAliases(t *testing.T) {
 		want    bool
 	}{
 		{
-			name:    "exact match",
+			name:    "match same alias",
 			aliases: []string{"app.internal"},
 			host:    "app.internal",
 			want:    true,
 		},
 		{
-			name:    "exact match case insensitive",
+			name:    "match case insensitive",
 			aliases: []string{"App.Internal"},
 			host:    "app.INTERNAL",
 			want:    true,
