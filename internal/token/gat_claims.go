@@ -11,7 +11,6 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/golang-jwt/jwt/v5"
 	"go.uber.org/zap/zapcore"
@@ -137,12 +136,6 @@ type Resource struct {
 	Address         string          `json:"address"`
 	Aliases         []string        `json:"aliases,omitempty"`
 	GatewayMetadata GatewayMetadata `json:"gateway_metadata"` //nolint:tagliatelle // GAT wire format from the controller uses snake_case
-}
-
-// IsWildcardAddress reports whether a resource address is an RFC 6125 wildcard
-// pattern such as *.example.com.
-func IsWildcardAddress(address string) bool {
-	return strings.HasPrefix(address, "*.")
 }
 
 type GatewayMetadata struct {
