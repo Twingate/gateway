@@ -154,7 +154,7 @@
         },
         "ca": {
           "type": "object",
-          "description": "CA configuration. If neither manual nor vault is configured, auto-generated CA is used.",
+          "description": "CA configuration. Exactly one of manual or vault must be configured when SSH is enabled.",
           "properties": {
             "manual": {
               "type": "object",
@@ -299,8 +299,22 @@
               "additionalProperties": false
             }
           },
-          "maxProperties": 1,
           "additionalProperties": false
+        }
+      },
+      "if": {
+        "properties": {"enabled": {"const": true}},
+        "required": ["enabled"]
+      },
+      "then": {
+        "required": ["ca"],
+        "properties": {
+          "ca": {
+            "oneOf": [
+              {"required": ["manual"]},
+              {"required": ["vault"]}
+            ]
+          }
         }
       },
       "additionalProperties": false
@@ -313,7 +327,7 @@
           "description": "Enable HTTP web app proxying.",
           "default": false
         },
-        "headers": {
+        "requestHeaders": {
           "type": "object",
           "description": "Custom HTTP headers to inject into proxied requests. Values may use template expressions with the twingate namespace (e.g. {{username}}, {{groups}}, {{jwt}}, {{clientGeoLoc}}).",
           "additionalProperties": {
