@@ -121,7 +121,7 @@ func TestConnectValidator_ParseConnect(t *testing.T) {
 		assert.Equal(t, signedToken, connectInfo.Token)
 	})
 
-	t.Run("Rewrites destination port to upstream port", func(t *testing.T) {
+	t.Run("Rewrites target port to upstream port", func(t *testing.T) {
 		claims := newGATTokenClaims(c.getPublicKey())
 		claims.Resource.GatewayMetadata.Upstream = token.Upstream{Port: 8443}
 		parserRewrite, tokenRewrite := createParserAndGATToken(t, claims)
@@ -294,7 +294,7 @@ func TestConnectValidator_ParseConnect(t *testing.T) {
 		assert.Equal(t, "conn-id", connectInfo.ConnID)
 	})
 
-	t.Run("Invalid destination (not in token)", func(t *testing.T) {
+	t.Run("Invalid target (not in token)", func(t *testing.T) {
 		validator := &MessageValidator{TokenParser: parser}
 
 		// create request
@@ -318,7 +318,7 @@ func TestConnectValidator_ParseConnect(t *testing.T) {
 		assert.Equal(t, "conn-id", connectInfo.ConnID)
 	})
 
-	t.Run("Invalid destination, missing", func(t *testing.T) {
+	t.Run("Invalid target, missing", func(t *testing.T) {
 		validator := &MessageValidator{TokenParser: parser}
 
 		// create request

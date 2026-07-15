@@ -130,7 +130,7 @@ func (v *MessageValidator) ParseConnect(req *http.Request, ekm []byte) (connectI
 			}
 	}
 
-	// verify the CONNECT destination against the GAT token and map it to the upstream address
+	// verify the CONNECT target against the GAT token and map it to the upstream address
 	address, httpErr := resolveUpstreamAddress(req.RequestURI, gatClaims.Resource)
 	if httpErr != nil {
 		return Info{
