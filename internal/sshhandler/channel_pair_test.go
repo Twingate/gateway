@@ -122,7 +122,7 @@ func TestChannelPair_RequestForwardFailure(t *testing.T) {
 	// On a session channel the gate keeps the copiers un-started, so closing the target
 	// cannot race the failure reply against a concurrent source teardown.
 	channels := newProxyChannels(t, "session")
-	channels.sessionStartTimeout = shortTimeout
+	channels.pair.sessionStartTimeout = shortTimeout
 
 	// Kill the target before serving so the forward deterministically fails.
 	require.NoError(t, channels.target.ch.Close())
@@ -185,7 +185,7 @@ func TestChannelPair_Teardown(t *testing.T) {
 
 func TestChannelPair_EOFFlushTimeout(t *testing.T) {
 	channels := newProxyChannels(t, "direct-tcpip")
-	channels.channelEOFTimeout = shortTimeout
+	channels.pair.channelEOFTimeout = shortTimeout
 	done := channels.serve(t)
 
 	// Block the request handler: it forwards a wantReply request to the target and waits
@@ -211,7 +211,7 @@ func TestChannelPair_EOFFlushTimeout(t *testing.T) {
 
 func TestChannelPair_TeardownTimeout(t *testing.T) {
 	channels := newProxyChannels(t, "direct-tcpip")
-	channels.channelCloseTimeout = shortTimeout
+	channels.pair.channelCloseTimeout = shortTimeout
 	done := channels.serve(t)
 
 	start := time.Now()
@@ -304,7 +304,7 @@ func TestChannelPair_SessionWaitsForStart(t *testing.T) {
 
 func TestChannelPair_SessionStartTimeout(t *testing.T) {
 	channels := newProxyChannels(t, "session")
-	channels.sessionStartTimeout = shortTimeout
+	channels.pair.sessionStartTimeout = shortTimeout
 
 	start := time.Now()
 	done := channels.serve(t)
@@ -483,16 +483,15 @@ func TestChannelPair_ServePanicClosesChannels(t *testing.T) {
 	channels := newProxyChannels(t, "session")
 	channels.recorder.headerPanic = "injected header panic"
 
-	pair := channels.newPair(t)
 	done := make(chan struct{})
 
 	// Wrap serve() in the same panic recovery as forwardChannels, so the synchronous panic
 	// tears the pair down instead of crashing the test goroutine.
 	go func() {
 		defer close(done)
-		defer closeOnPanic(pair.logger, pair.close)
+		defer closeOnPanic(channels.pair.logger, channels.pair.close)
 
-		pair.serve()
+		channels.pair.serve()
 	}()
 
 	// The shell request opens the session gate; serve() then builds the recorder and panics
@@ -504,35 +503,30 @@ func TestChannelPair_ServePanicClosesChannels(t *testing.T) {
 	waitDone(t, done)
 }
 
-// proxyChannels is the channel-layer fixture: one channel proxied between two real SSH
-// connections, exposing all four ends:
+// proxyChannels is the channel-layer fixture: an SSHChannelPair serving one channel between two
+// real SSH connections, with the source end opening toward the proxy and the proxy opening toward
+// the target, mirroring forwardChannels:
 //
 //	        source channel    +----------------------------------+  target channel
 //	source <----------------> | proxySource        proxyTarget   | <----------------> target
 //	                          +-------------- proxy -------------+
 //
-// The tests drive the far ends (source and target) and assert only there.
+// Global requests on all connection ends are discarded. The tests drive the far ends (source and
+// target) and assert only there.
 type proxyChannels struct {
-	channelType string
+	pair *SSHChannelPair
 
 	source      channel
 	proxySource channel
 	proxyTarget channel
 	target      channel
 
-	// recorder replaces the pair's real session recorder via a fakeRecorderFactory; its error
-	// fields may be set before serve() to inject recorder write failures.
+	// recorder replaces the pair's real session recorder via a fakeRecorderFactory; its fields
+	// may be set before serve() to inject recorder write failures or panics.
 	recorder *fakeRecorder
-
-	// Optional per-test timeout overrides applied in serve(); zero leaves the pair's default.
-	sessionStartTimeout time.Duration
-	channelEOFTimeout   time.Duration
-	channelCloseTimeout time.Duration
 }
 
-// newProxyChannels proxies one channel of the given type across two real SSH connections:
-// the source end opens toward the proxy, and the proxy opens toward the target, mirroring
-// forwardChannels. Global requests on all connection ends are discarded.
+// newProxyChannels builds a proxyChannels fixture with one channel of the given type.
 func newProxyChannels(t *testing.T, channelType string) *proxyChannels {
 	t.Helper()
 
@@ -543,40 +537,20 @@ func newProxyChannels(t *testing.T, channelType string) *proxyChannels {
 		go ssh.DiscardRequests(end.requests)
 	}
 
-	channels := &proxyChannels{channelType: channelType, recorder: &fakeRecorder{}}
+	channels := &proxyChannels{recorder: &fakeRecorder{}}
 	channels.source, channels.proxySource = openChannel(t, sourceConn, proxySourceConn, channelType, nil)
 	channels.proxyTarget, channels.target = openChannel(t, proxyTargetConn, targetConn, channelType, nil)
 
-	return channels
-}
-
-// newPair builds an SSHChannelPair over the proxy-held ends, wired to the fixture's fake
-// recorder and any per-test timeout overrides.
-func (p *proxyChannels) newPair(t *testing.T) *SSHChannelPair {
-	t.Helper()
-
-	pair := NewSSHChannelPair(
+	channels.pair = NewSSHChannelPair(
 		zaptest.NewLogger(t),
-		newSSHChannelContext(testSSHContext, p.channelType, labelDownstream, labelUpstream),
+		newSSHChannelContext(testSSHContext, channelType, labelDownstream, labelUpstream),
 		"testuser",
-		p.proxySource,
-		p.proxyTarget,
+		channels.proxySource,
+		channels.proxyTarget,
 	)
-	pair.recorderFactory = &fakeRecorderFactory{recorder: p.recorder}
+	channels.pair.recorderFactory = &fakeRecorderFactory{recorder: channels.recorder}
 
-	if p.sessionStartTimeout != 0 {
-		pair.sessionStartTimeout = p.sessionStartTimeout
-	}
-
-	if p.channelEOFTimeout != 0 {
-		pair.channelEOFTimeout = p.channelEOFTimeout
-	}
-
-	if p.channelCloseTimeout != 0 {
-		pair.channelCloseTimeout = p.channelCloseTimeout
-	}
-
-	return pair
+	return channels
 }
 
 // serve runs the pair's serve() in the background; the returned channel closes when serve
@@ -584,12 +558,10 @@ func (p *proxyChannels) newPair(t *testing.T) *SSHChannelPair {
 func (p *proxyChannels) serve(t *testing.T) <-chan struct{} {
 	t.Helper()
 
-	pair := p.newPair(t)
-
 	done := make(chan struct{})
 
 	go func() {
-		pair.serve()
+		p.pair.serve()
 		close(done)
 	}()
 
