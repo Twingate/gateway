@@ -173,7 +173,7 @@ func resolveUpstreamAddress(address string, resource token.Resource) (string, *H
 		}
 	}
 
-	if token.IsWildcardAddress(host) {
+	if !config.HostnameRegexp.MatchString(host) {
 		return "", &HTTPError{
 			Code:    http.StatusBadRequest,
 			Message: "CONNECT host resolves to an invalid host: " + host,
