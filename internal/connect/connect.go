@@ -161,9 +161,9 @@ func resolveUpstreamAddress(address string, resource token.Resource) (string, *H
 
 	switch {
 	case matchResourceAddress(resource.Address, host):
-		//	Keep existing upstream address
+		// host matches the resource address; forward to the same host
 	case matchResourceAliases(resource.Aliases, host):
-		//	Rewrite upstream address to GAT token address
+		// host matches an alias; forward to the resource's address
 		host = resource.Address
 	default:
 		return "", &HTTPError{
