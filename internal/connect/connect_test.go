@@ -291,7 +291,7 @@ func TestConnectValidator_ParseConnect(t *testing.T) {
 		require.ErrorAs(t, err, &httpErr)
 		require.NoError(t, httpErr.Err)
 		assert.Equal(t, http.StatusBadRequest, httpErr.Code)
-		assert.Contains(t, httpErr.Error(), "CONNECT destination address website.com does not match token resource address example.com")
+		assert.Contains(t, httpErr.Error(), "CONNECT host website.com does not match resource address example.com or aliases []")
 		assert.Equal(t, *connectInfo.Claims, gatClaims)
 		assert.Equal(t, "conn-id", connectInfo.ConnID)
 	})
@@ -440,42 +440,42 @@ func TestResolveUpstreamAddress(t *testing.T) {
 			address:     "other.com:443",
 			resource:    token.Resource{Address: "example.com", Aliases: []string{"app.internal"}, GatewayMetadata: metadata},
 			wantCode:    http.StatusBadRequest,
-			wantMessage: "CONNECT destination address other.com does not match token resource address example.com",
+			wantMessage: "CONNECT host other.com does not match resource address example.com or aliases [app.internal]",
 		},
 		{
 			name:        "rejects wildcard upstream resource address",
 			address:     "app.internal:443",
 			resource:    token.Resource{Address: "*.example.com", Aliases: []string{"app.internal"}, GatewayMetadata: metadata},
 			wantCode:    http.StatusBadRequest,
-			wantMessage: "CONNECT destination resolves to wildcard upstream address *.example.com",
+			wantMessage: "CONNECT host resolves to an invalid host: *.example.com",
 		},
 		{
 			name:        "wildcard address as literal host rejected",
 			address:     "*.example.com:443",
 			resource:    token.Resource{Address: "*.example.com", GatewayMetadata: metadata},
 			wantCode:    http.StatusBadRequest,
-			wantMessage: "CONNECT destination resolves to wildcard upstream address *.example.com",
+			wantMessage: "CONNECT host resolves to an invalid host: *.example.com",
 		},
 		{
-			name:        "malformed CONNECT destination (no port)",
+			name:        "malformed CONNECT target (no port)",
 			address:     "example.com",
 			resource:    token.Resource{Address: "example.com", GatewayMetadata: metadata},
 			wantCode:    http.StatusBadRequest,
-			wantMessage: "failed to parse CONNECT destination",
+			wantMessage: "failed to parse CONNECT target",
 		},
 		{
 			name:        "non-numeric port",
 			address:     "example.com:abc",
 			resource:    token.Resource{Address: "example.com", GatewayMetadata: metadata},
 			wantCode:    http.StatusBadRequest,
-			wantMessage: "failed to parse CONNECT destination port",
+			wantMessage: "failed to parse CONNECT target port",
 		},
 		{
 			name:        "port mismatch with downstream port",
 			address:     "example.com:8443",
 			resource:    token.Resource{Address: "example.com", GatewayMetadata: metadata},
 			wantCode:    http.StatusBadRequest,
-			wantMessage: "CONNECT destination port 8443 does not match token downstream port 443",
+			wantMessage: "CONNECT port 8443 does not match token downstream port 443",
 		},
 	}
 

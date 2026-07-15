@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
+	"gateway/internal/config"
 	"net"
 	"net/http"
 	"regexp"
@@ -146,14 +147,14 @@ func (v *MessageValidator) ParseConnect(req *http.Request, ekm []byte) (connectI
 	}, nil
 }
 
-// resolveUpstreamAddress verifies the CONNECT destination against the GAT
+// resolveUpstreamAddress verifies the CONNECT target against the GAT
 // resource and maps it to the upstream address for backend forwarding.
 func resolveUpstreamAddress(address string, resource token.Resource) (string, *HTTPError) {
 	host, port, err := net.SplitHostPort(address)
 	if err != nil {
 		return "", &HTTPError{
 			Code:    http.StatusBadRequest,
-			Message: fmt.Sprintf("failed to parse CONNECT destination: %v", err),
+			Message: fmt.Sprintf("failed to parse CONNECT target: %v", err),
 			Err:     err,
 		}
 	}
@@ -167,7 +168,7 @@ func resolveUpstreamAddress(address string, resource token.Resource) (string, *H
 	default:
 		return "", &HTTPError{
 			Code:    http.StatusBadRequest,
-			Message: fmt.Sprintf("CONNECT destination address %s does not match token resource address %s", host, resource.Address),
+			Message: fmt.Sprintf("CONNECT host %s does not match resource address %s or aliases %v", host, resource.Address, resource.Aliases),
 			Err:     nil,
 		}
 	}
@@ -175,7 +176,7 @@ func resolveUpstreamAddress(address string, resource token.Resource) (string, *H
 	if token.IsWildcardAddress(host) {
 		return "", &HTTPError{
 			Code:    http.StatusBadRequest,
-			Message: "CONNECT destination resolves to wildcard upstream address " + host,
+			Message: "CONNECT host resolves to an invalid host: " + host,
 			Err:     nil,
 		}
 	}
@@ -184,7 +185,7 @@ func resolveUpstreamAddress(address string, resource token.Resource) (string, *H
 	if err != nil {
 		return "", &HTTPError{
 			Code:    http.StatusBadRequest,
-			Message: fmt.Sprintf("failed to parse CONNECT destination port: %v", err),
+			Message: fmt.Sprintf("failed to parse CONNECT target port: %v", err),
 			Err:     err,
 		}
 	}
@@ -193,7 +194,7 @@ func resolveUpstreamAddress(address string, resource token.Resource) (string, *H
 	if requestedPort != metadata.Downstream.Port {
 		return "", &HTTPError{
 			Code:    http.StatusBadRequest,
-			Message: fmt.Sprintf("CONNECT destination port %d does not match token downstream port %d", requestedPort, metadata.Downstream.Port),
+			Message: fmt.Sprintf("CONNECT port %d does not match token downstream port %d", requestedPort, metadata.Downstream.Port),
 			Err:     nil,
 		}
 	}
