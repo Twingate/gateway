@@ -484,19 +484,19 @@ func TestMatchResourceAddress(t *testing.T) {
 		want    bool
 	}{
 		{
-			name:    "match same host",
+			name:    "exact match",
 			pattern: "api.example.com",
 			host:    "api.example.com",
 			want:    true,
 		},
 		{
-			name:    "match case insensitive",
+			name:    "exact match case insensitive",
 			pattern: "api.example.com",
 			host:    "Api.example.coM",
 			want:    true,
 		},
 		{
-			name:    "fail to match different host",
+			name:    "exact match mismatch",
 			pattern: "api.example.com",
 			host:    "other.example.com",
 			want:    false,
