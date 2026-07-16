@@ -34,12 +34,26 @@ var (
 	}
 )
 
-// Denylists for global request types per direction (RFC 4254).
+// Denylists for global request types per direction.
+//
+// The OpenSSH host-key advertisement/proof extension manages host keys between two directly
+// connected SSH peers, so both of its request types are blocked in both directions rather than
+// relayed across the proxy's two connections: forwarding it would leak the upstream's host keys
+// and internal hostname to the client. See
+// https://datatracker.ietf.org/doc/draft-miller-sshm-hostkey-update/.
 var (
+	// disallowedDownstreamGlobalRequests are global request types not allowed from downstream client.
+	disallowedDownstreamGlobalRequests = map[string]bool{
+		"hostkeys-00@openssh.com":       true, // not proxied across connections
+		"hostkeys-prove-00@openssh.com": true, // not proxied across connections
+	}
+
 	// disallowedUpstreamGlobalRequests are global request types not allowed from upstream server.
 	disallowedUpstreamGlobalRequests = map[string]bool{
-		"tcpip-forward":        true, // client→server per RFC 4254 §7.1
-		"cancel-tcpip-forward": true, // client→server per RFC 4254 §7.1
+		"tcpip-forward":                 true, // client→server per RFC 4254 §7.1
+		"cancel-tcpip-forward":          true, // client→server per RFC 4254 §7.1
+		"hostkeys-00@openssh.com":       true, // not proxied across connections
+		"hostkeys-prove-00@openssh.com": true, // not proxied across connections
 	}
 )
 
@@ -98,7 +112,7 @@ func (c *SSHConnPair) serve() {
 
 	// Forward global requests in both directions
 	c.wg.Go(func() {
-		c.forwardGlobalRequests(c.downstream.requests, c.upstream.conn, nil, labelDownstream, labelUpstream)
+		c.forwardGlobalRequests(c.downstream.requests, c.upstream.conn, disallowedDownstreamGlobalRequests, labelDownstream, labelUpstream)
 	})
 
 	c.wg.Go(func() {

@@ -230,7 +230,8 @@ func TestConnPair_GlobalRequestPolicy(t *testing.T) {
 		fromUpstream    bool
 		disallowedTypes []string
 	}{
-		{name: "from upstream", fromUpstream: true, disallowedTypes: []string{"tcpip-forward", "cancel-tcpip-forward"}},
+		{name: "from downstream", disallowedTypes: []string{"hostkeys-00@openssh.com", "hostkeys-prove-00@openssh.com"}},
+		{name: "from upstream", fromUpstream: true, disallowedTypes: []string{"tcpip-forward", "cancel-tcpip-forward", "hostkeys-00@openssh.com", "hostkeys-prove-00@openssh.com"}},
 	}
 
 	for _, tt := range tests {
