@@ -188,6 +188,23 @@ func TestProxy_ServeConnPanicRecovered(t *testing.T) {
 	require.NoError(t, waitErr(t, startDone))
 }
 
+func TestCloseOnPanic_CleanupPanicRecovered(t *testing.T) {
+	// closeOnPanic is the outermost defer in every serving goroutine, so a panic in its
+	// cleanup must be recovered too rather than escape and crash the process.
+	core, logs := observer.New(zap.ErrorLevel)
+	logger := zap.New(core)
+
+	require.NotPanics(t, func() {
+		defer closeOnPanic(logger, func() { panic("cleanup boom") })
+
+		panic("serve boom")
+	})
+
+	assert.Equal(t, 2, logs.Len())
+	assert.Equal(t, "Recovered from panic", logs.All()[0].Message)
+	assert.Equal(t, "Recovered from panic during cleanup", logs.All()[1].Message)
+}
+
 func TestProxy_DownstreamHandshakeFailure(t *testing.T) {
 	tests := []struct {
 		name string

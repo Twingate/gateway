@@ -200,10 +200,22 @@ func (p *SSHProxy) serveConn(ctx context.Context, conn connect.Conn) error {
 }
 
 func closeOnPanic(logger *zap.Logger, closeFn func()) {
-	if recovered := recover(); recovered != nil { //nolint:revive // closeOnPanic itself is the deferred function
-		logger.Error("Recovered from panic", zap.Any("panic", recovered), zap.Stack("stacktrace"))
-		closeFn()
+	recovered := recover() //nolint:revive // closeOnPanic itself is the deferred function
+	if recovered == nil {
+		return
 	}
+
+	logger.Error("Recovered from panic", zap.Any("panic", recovered), zap.Stack("stacktrace"))
+
+	// closeFn is the last line of defense, so recover again: a panic during cleanup must
+	// not escape and crash the process.
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Error("Recovered from panic during cleanup", zap.Any("panic", r), zap.Stack("stacktrace"))
+		}
+	}()
+
+	closeFn()
 }
 
 // closeDownstreamSSH closes the connection and rejects any queued channels.
