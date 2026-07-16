@@ -71,7 +71,7 @@ type Config struct {
 
 // NewConfig creates an SSH handler config from the config package types.
 func NewConfig(auditLogConfig *config.AuditLogConfig, sshCfg *config.SSHConfig, logger *zap.Logger) (*Config, error) {
-	caConfig, err := newCAFromConfig(&sshCfg.CA, logger)
+	caConfig, err := newCAFromConfig(sshCfg.CA, logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create ca: %w", err)
 	}
@@ -152,8 +152,6 @@ func (c *Config) GetDownstreamConfig(ctx context.Context) (*ssh.ServerConfig, er
 	}()
 
 	downstreamSSHConfig.AddHostKey(hostCertSigner)
-	// Add the public key as a fallback for clients that don't support certificate-based host key algorithms.
-	downstreamSSHConfig.AddHostKey(hostCertSigner.keySigner)
 
 	return downstreamSSHConfig, nil
 }
@@ -168,11 +166,9 @@ func (c *Config) GetUpstreamConfig(ctx context.Context, upstream upstream) (*ssh
 		ttl: c.userCertTTL,
 		permissions: ssh.Permissions{
 			Extensions: map[string]string{
-				"permit-X11-forwarding":   "",
-				"permit-agent-forwarding": "",
-				"permit-port-forwarding":  "",
-				"permit-pty":              "",
-				"permit-user-rc":          "",
+				"permit-port-forwarding": "",
+				"permit-pty":             "",
+				"permit-user-rc":         "",
 			},
 		},
 	}

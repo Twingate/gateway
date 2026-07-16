@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -19,11 +20,19 @@ import (
 
 var (
 	ErrRequired          = errors.New("required field is missing")
+	ErrInvalidNetwork    = errors.New("invalid twingate.network")
+	ErrInvalidHost       = errors.New("invalid twingate.host")
 	ErrInvalidPort       = errors.New("invalid port number")
 	ErrDuplicateUpstream = errors.New("duplicate upstream name")
 	ErrInvalidSSHKeyType = errors.New("invalid SSH key type")
 	ErrNegativeTTL       = errors.New("TTL must be non-negative")
 )
+
+// networkRegexp matches a twingate.network slug: 1-63 lowercase alphanumeric characters.
+var networkRegexp = regexp.MustCompile(`^[a-z0-9]{1,63}$`)
+
+// hostnameRegexp allows only valid DNS-label characters, permitting a single label (e.g. "test").
+var hostnameRegexp = regexp.MustCompile(`^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)*[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$`)
 
 var issuerByDomain = map[string]string{
 	"test":          "twingate-local",
@@ -53,7 +62,7 @@ type Config struct {
 }
 
 type WebAppConfig struct {
-	Headers map[string]string `yaml:"headers,omitempty"`
+	RequestHeaders map[string]string `yaml:"requestHeaders,omitempty"`
 }
 
 type TwingateConfig struct {
@@ -113,8 +122,7 @@ type SSHCertificateConfig struct {
 	TTL time.Duration `yaml:"ttl"`
 }
 
-// SSHCAConfig represents the CA configuration. Only one of Manual or Vault should be set.
-// If neither is set, auto-generated CA is used.
+// SSHCAConfig represents the CA configuration. Exactly one of Manual or Vault must be set.
 type SSHCAConfig struct {
 	Manual *SSHCAManualConfig `yaml:"manual,omitempty"`
 	Vault  *SSHCAVaultConfig  `yaml:"vault,omitempty"`
@@ -226,8 +234,9 @@ func Load(path string) (*Config, error) {
 	return cfg, nil
 }
 
+// stripNetworkPrefix lowercases hostname and removes a leading "<network>." label if present.
 func stripNetworkPrefix(hostname, network string) string {
-	return strings.TrimPrefix(hostname, network+".")
+	return strings.TrimPrefix(strings.ToLower(hostname), strings.ToLower(network)+".")
 }
 
 func resolveTwingateHostname(targetURL, defaultHost string, retryMax int, logger *zap.Logger) string {
@@ -263,6 +272,13 @@ func resolveTwingateHostname(targetURL, defaultHost string, retryMax int, logger
 	}
 
 	resolved := location.Hostname()
+	if err := validateHost(resolved); err != nil {
+		logger.Warn("Resolved Twingate host failed validation, keeping configured host",
+			zap.String("resolvedHost", resolved), zap.Error(err))
+
+		return defaultHost
+	}
+
 	logger.Info("Resolved Twingate hostname", zap.String("hostname", resolved))
 
 	return resolved
@@ -277,6 +293,14 @@ func (c *Config) ResolveTwingateHost(logger *zap.Logger) {
 func (c *Config) Validate() error {
 	if c.Twingate.Network == "" {
 		return fmt.Errorf("%w: twingate.network", ErrRequired)
+	}
+
+	if !networkRegexp.MatchString(c.Twingate.Network) {
+		return fmt.Errorf("%w: must be 1-63 lowercase alphanumeric characters: %q", ErrInvalidNetwork, c.Twingate.Network)
+	}
+
+	if err := validateHost(c.Twingate.Host); err != nil {
+		return err
 	}
 
 	if err := validatePort(c.Port, "port"); err != nil {
@@ -412,9 +436,16 @@ func (c *SSHCertificateConfig) Validate() error {
 	return nil
 }
 
-var ErrConflictingCAConfig = errors.New("only one of 'manual' or 'vault' can be specified for CA config")
+var (
+	ErrMissingCAConfig     = errors.New("either 'manual' or 'vault' must be specified for CA config")
+	ErrConflictingCAConfig = errors.New("only one of 'manual' or 'vault' can be specified for CA config")
+)
 
 func (c *SSHCAConfig) Validate() error {
+	if c.Manual == nil && c.Vault == nil {
+		return ErrMissingCAConfig
+	}
+
 	if c.Manual != nil && c.Vault != nil {
 		return ErrConflictingCAConfig
 	}
@@ -707,12 +738,26 @@ func (v *SSHCAVaultConfig) GetUpstreamHostCAMount() string {
 	return defaultVaultSSHMount
 }
 
+// validateHost checks host is a well-formed hostname for a trusted Twingate controller domain.
+func validateHost(host string) error {
+	if !hostnameRegexp.MatchString(host) {
+		return fmt.Errorf("%w: not a valid hostname: %q", ErrInvalidHost, host)
+	}
+
+	if trustedDomainFor(host) == "" {
+		return fmt.Errorf("%w: not a trusted Twingate domain: %q", ErrInvalidHost, host)
+	}
+
+	return nil
+}
+
 // trustedDomainFor returns the trusted Twingate domain that host belongs to, or "" if none.
 // A host matches a domain exactly or as a subdomain, so sharded hosts like us1.twingate.com are
-// trusted.
+// trusted. Matching is case-insensitive.
 func trustedDomainFor(host string) string {
+	lowered := strings.ToLower(host)
 	for domain := range issuerByDomain {
-		if host == domain || strings.HasSuffix(host, "."+domain) {
+		if lowered == domain || strings.HasSuffix(lowered, "."+domain) {
 			return domain
 		}
 	}

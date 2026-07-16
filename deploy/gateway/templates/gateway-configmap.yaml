@@ -105,9 +105,9 @@ data:
 
     {{ with .Values.webApp -}}
     {{ if .enabled -}}
-    {{ with .headers -}}
+    {{ with .requestHeaders -}}
     webApp:
-      headers:
+      requestHeaders:
         {{- . | toYaml | nindent 8 }}
     {{ else -}}
     webApp: {}
