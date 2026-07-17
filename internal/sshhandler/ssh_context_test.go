@@ -32,16 +32,52 @@ func Test_sshContext_baseFields(t *testing.T) {
 }
 
 func Test_sshContext_withGlobalRequest(t *testing.T) {
-	ctx := newTestSSHContext()
+	tests := []struct {
+		name    string
+		reqType string
+		extra   map[string]any
+		wantReq map[string]any
+	}{
+		{
+			name:    "without extra data",
+			reqType: "keepalive@openssh.com",
+			wantReq: map[string]any{
+				"type":   "keepalive@openssh.com",
+				"source": "downstream",
+				"target": "upstream",
+			},
+		},
+		{
+			name:    "with accumulated request and reply fields",
+			reqType: "tcpip-forward",
+			extra: map[string]any{
+				"bind_address":   "0.0.0.0",
+				"bind_port":      uint32(0),
+				"accepted":       true,
+				"allocated_port": uint32(8080),
+			},
+			wantReq: map[string]any{
+				"type":           "tcpip-forward",
+				"source":         "downstream",
+				"target":         "upstream",
+				"bind_address":   "0.0.0.0",
+				"bind_port":      uint32(0),
+				"accepted":       true,
+				"allocated_port": uint32(8080),
+			},
+		},
+	}
 
-	result := ctx.withGlobalRequest("tcpip-forward", "downstream", "upstream")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := newTestSSHContext()
 
-	assert.Equal(t, "abc123", result["id"])
-	assert.Equal(t, map[string]any{
-		"type":   "tcpip-forward",
-		"source": "downstream",
-		"target": "upstream",
-	}, result["global_request"])
+			result := ctx.withGlobalRequest(tt.reqType, "downstream", "upstream", tt.extra)
+
+			assert.Equal(t, "abc123", result["id"])
+			assert.Equal(t, tt.wantReq, result["global_request"])
+		})
+	}
 }
 
 func Test_sshContext_withConnectionClose(t *testing.T) {
@@ -92,6 +128,11 @@ func newTestSSHChannelContext() *sshChannelContext {
 
 func Test_sshChannelContext_baseFields(t *testing.T) {
 	ctx := newTestSSHChannelContext()
+	ctx.channelType = "direct-tcpip"
+	ctx.extra = map[string]any{
+		"destination_address": "internal.example.com",
+		"destination_port":    uint32(5432),
+	}
 
 	result := ctx.baseFields()
 
@@ -100,10 +141,12 @@ func Test_sshChannelContext_baseFields(t *testing.T) {
 	assert.Equal(t, "SSH-2.0-OpenSSH_10.2", result["client_version"])
 	assert.Equal(t, "SSH-2.0-OpenSSH_9.6", result["server_version"])
 	assert.Equal(t, map[string]any{
-		"id":     "ch-1",
-		"type":   "session",
-		"source": "downstream",
-		"target": "upstream",
+		"id":                  "ch-1",
+		"type":                "direct-tcpip",
+		"source":              "downstream",
+		"target":              "upstream",
+		"destination_address": "internal.example.com",
+		"destination_port":    uint32(5432),
 	}, result["channel"])
 }
 
@@ -174,4 +217,17 @@ func Test_sshChannelContext_withRequest(t *testing.T) {
 			assert.Equal(t, tt.wantReq, result["request"])
 		})
 	}
+}
+
+func Test_sshChannelContext_reversed(t *testing.T) {
+	ctx := newTestSSHChannelContext()
+	ctx.extra = map[string]any{"destination_address": "internal.example.com"}
+
+	reversed := ctx.reversed()
+
+	assert.Equal(t, "upstream", reversed.sourceLabel)
+	assert.Equal(t, "downstream", reversed.targetLabel)
+	assert.Equal(t, ctx.channelID, reversed.channelID)
+	assert.Equal(t, ctx.channelType, reversed.channelType)
+	assert.Equal(t, ctx.extra, reversed.extra)
 }

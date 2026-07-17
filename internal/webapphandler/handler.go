@@ -27,7 +27,7 @@ func NewHandler(cfg Config) *Handler {
 		Rewrite: func(r *httputil.ProxyRequest) {
 			conn := httpproxy.ProxyConnFromContext(r.In.Context())
 
-			if err := rewrite(r, conn, cfg.headers); err != nil {
+			if err := rewrite(r, conn, cfg.requestHeaders); err != nil {
 				cfg.logger.Error("failed to rewrite headers", zap.Error(err))
 				panic(err)
 			}
@@ -62,12 +62,22 @@ func buildVariables(conn *connect.ProxyConn) map[string]string {
 	}
 }
 
+// clientIdentityHeaders are stripped from the upstream request so a client cannot spoof its
+// identity. The stdlib reverse proxy already strips the standard Forwarded/X-Forwarded-* set;
+// these are the identity headers it leaves in place.
+var clientIdentityHeaders = []string{"X-Real-IP", "X-Forwarded-Port", "X-Forwarded-Server"}
+
 func rewrite(r *httputil.ProxyRequest, conn *connect.ProxyConn, headers map[string]*template.Template) error {
 	targetURL := &url.URL{
 		Scheme: "http", // plain HTTP — no upstream TLS
 		Host:   conn.GetAddress(),
 	}
 	r.SetURL(targetURL)
+	r.Out.Host = r.In.Host // preserve the client's Host
+
+	for _, headerName := range clientIdentityHeaders {
+		r.Out.Header.Del(headerName)
+	}
 
 	variables := buildVariables(conn)
 
@@ -75,6 +85,27 @@ func rewrite(r *httputil.ProxyRequest, conn *connect.ProxyConn, headers map[stri
 		headerValue, err := tmpl.Evaluate(variables)
 		if err != nil {
 			return fmt.Errorf("header %q: %w", headerName, err)
+		}
+
+		r.Out.Header.Set(headerName, headerValue)
+	}
+
+	// Per-resource request header rewrites from the GAT are applied last, so they override
+	// any config headers with the same name. Malformed or unsupported headers are skipped
+	// rather than failing the request.
+	for headerName, value := range conn.GATClaims().Resource.GatewayMetadata.RequestHeaderRewrites {
+		tmpl, err := template.New(value)
+		if err != nil {
+			conn.Logger.Warn("skipping GAT request header rewrite", zap.String("header", headerName), zap.Error(err))
+
+			continue
+		}
+
+		headerValue, err := tmpl.Evaluate(variables)
+		if err != nil {
+			conn.Logger.Warn("skipping GAT request header rewrite", zap.String("header", headerName), zap.Error(err))
+
+			continue
 		}
 
 		r.Out.Header.Set(headerName, headerValue)

@@ -50,7 +50,7 @@ func TestNewHandler_PanicsOnRewriteError(t *testing.T) {
 	require.NoError(t, err)
 
 	handler := NewHandler(Config{
-		headers:             map[string]*template.Template{"X-Bad": unknownKeyTemplate},
+		requestHeaders:      map[string]*template.Template{"X-Bad": unknownKeyTemplate},
 		roundTripperMetrics: metrics.RegisterRoundTripperMetrics(prometheus.NewRegistry()),
 		logger:              zap.NewNop(),
 	})
@@ -62,6 +62,13 @@ func TestNewHandler_PanicsOnRewriteError(t *testing.T) {
 	assert.Panics(t, func() {
 		handler.ServeHTTP(httptest.NewRecorder(), req)
 	})
+}
+
+func withRequestHeaderRewrites(base *token.GATClaims, rewrites map[string]string) *token.GATClaims {
+	claims := *base
+	claims.Resource.GatewayMetadata.RequestHeaderRewrites = rewrites
+
+	return &claims
 }
 
 func TestRewrite(t *testing.T) {
@@ -108,6 +115,52 @@ func TestRewrite(t *testing.T) {
 				"X-Region":      "CA",
 				"X-Country":     "US",
 				"Existing":      "new-value",
+			},
+		},
+		{
+			name:     "applies GAT request header rewrites with template values",
+			jwtToken: "test-token",
+			claims: withRequestHeaderRewrites(baseClaims, map[string]string{
+				"X-GAT-Static":   "static-value",
+				"X-GAT-Username": "{{username}}",
+				"X-GAT-Auth":     "Bearer {{jwt}}",
+			}),
+			headers: map[string]string{},
+			wantHeaders: map[string]string{
+				"X-GAT-Static":   "static-value",
+				"X-GAT-Username": "alice@acme.com",
+				"X-GAT-Auth":     "Bearer test-token",
+			},
+		},
+		{
+			name:     "GAT request header rewrites override config headers on conflict",
+			jwtToken: "test-token",
+			claims: withRequestHeaderRewrites(baseClaims, map[string]string{
+				"X-Username": "{{username}}",
+			}),
+			headers: map[string]string{
+				"X-Config":   "Dont override",
+				"X-Username": "Overridden by GAT Token",
+			},
+			wantHeaders: map[string]string{
+				"X-Config":   "Dont override",
+				"X-Username": "alice@acme.com",
+			},
+		},
+		{
+			name:     "preserve config header when conflict with unsupported GAT request header rewrites",
+			jwtToken: "test-token",
+			claims: withRequestHeaderRewrites(baseClaims, map[string]string{
+				"X-Malformed": "{{unclosed",
+				"X-Unknown":   "{{nonexistent}}",
+			}),
+			headers: map[string]string{
+				"X-Malformed": "Config value",
+				"X-Unknown":   "Config value",
+			},
+			wantHeaders: map[string]string{
+				"X-Malformed": "Config value",
+				"X-Unknown":   "Config value",
 			},
 		},
 		{
@@ -167,6 +220,73 @@ func TestRewrite(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRewrite_PreservesClientHost(t *testing.T) {
+	connMetrics := connect.CreateProxyConnMetrics(prometheus.NewRegistry())
+	conn := connect.NewProxyConn(nil, nil, nil, zap.NewNop(), connMetrics)
+	conn.Address = "admin.example.int:80"
+	conn.Claims = &token.GATClaims{}
+
+	proxyReq := &httputil.ProxyRequest{
+		In:  httptest.NewRequest(http.MethodGet, "http://admin.example.int/path", nil),
+		Out: httptest.NewRequest(http.MethodGet, "http://admin.example.int/path", nil),
+	}
+
+	err := rewrite(proxyReq, conn, nil)
+	require.NoError(t, err)
+
+	assert.Equal(t, "admin.example.int", proxyReq.Out.Host, "client Host must be preserved without the upstream port")
+	assert.Equal(t, "admin.example.int:80", proxyReq.Out.URL.Host, "dial target must keep the port")
+}
+
+func TestRewrite_StripsClientIdentityHeaders(t *testing.T) {
+	connMetrics := connect.CreateProxyConnMetrics(prometheus.NewRegistry())
+	conn := connect.NewProxyConn(nil, nil, nil, zap.NewNop(), connMetrics)
+	conn.Address = "admin.example.int:80"
+	conn.Claims = &token.GATClaims{}
+
+	outReq := httptest.NewRequest(http.MethodGet, "http://admin.example.int/path", nil)
+	for _, headerName := range clientIdentityHeaders {
+		outReq.Header.Set(headerName, "spoofed")
+	}
+
+	proxyReq := &httputil.ProxyRequest{
+		In:  httptest.NewRequest(http.MethodGet, "http://admin.example.int/path", nil),
+		Out: outReq,
+	}
+
+	err := rewrite(proxyReq, conn, nil)
+	require.NoError(t, err)
+
+	for _, headerName := range clientIdentityHeaders {
+		assert.Empty(t, proxyReq.Out.Header.Values(headerName), "client-supplied %s must be stripped", headerName)
+	}
+}
+
+func TestRewrite_SkipsInvalidGATHeaders(t *testing.T) {
+	baseClaims := &token.GATClaims{
+		User: token.User{ID: "user-1", Username: "alice@acme.com"},
+	}
+
+	connMetrics := connect.CreateProxyConnMetrics(prometheus.NewRegistry())
+	conn := connect.NewProxyConn(nil, nil, nil, zap.NewNop(), connMetrics)
+	conn.Token = "test-token"
+	conn.Claims = withRequestHeaderRewrites(baseClaims, map[string]string{
+		"X-Malformed": "{{unclosed",
+		"X-Unknown":   "{{nonexistent}}",
+	})
+
+	proxyReq := &httputil.ProxyRequest{
+		In:  httptest.NewRequest(http.MethodGet, "http://test/api/resource", nil),
+		Out: httptest.NewRequest(http.MethodGet, "http://test/api/resource", nil),
+	}
+
+	err := rewrite(proxyReq, conn, nil)
+	require.NoError(t, err)
+
+	assert.Empty(t, proxyReq.Out.Header.Values("X-Malformed"), "malformed header should not be set")
+	assert.Empty(t, proxyReq.Out.Header.Values("X-Unknown"), "unknown header should not be set")
 }
 
 func TestBuildVariables_CoversAllowedKeys(t *testing.T) {

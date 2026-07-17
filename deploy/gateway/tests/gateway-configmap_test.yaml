@@ -193,35 +193,6 @@ set:
     gateway:
       username: "gateway"
 tests:
-  - it: should include SSH without any CA (using auto-generated CA)
-    asserts:
-      - equal:
-          path: data["config.yaml"]
-          value: |-
-            twingate:
-              network: "acme"
-              host: "twingate.com"
-
-            port: 8443
-            metricsPort: 9090
-
-            auditLog:
-              flushInterval: 5m
-              flushSizeThreshold: 1e+06
-
-            tls:
-              certificateFile: "/etc/gateway/tls/tls.crt"
-              privateKeyFile: "/etc/gateway/tls/tls.key"
-
-            ssh:
-              gateway:
-                username: "gateway"
-                key:
-                  type: "ed25519"
-                hostCertificate:
-                  ttl: "24h"
-                userCertificate:
-                  ttl: "5m"
   - it: should include SSH with manual CA
     set:
       ssh:
@@ -383,9 +354,26 @@ tests:
       ssh:
         gateway:
           username: ""
+        ca:
+          manual:
+            privateKey: "my-private-key"
     asserts:
       - failedTemplate:
           errorPattern: "ssh.gateway.username is required"
+  - it: should error when SSH is enabled but ca is omitted
+    set:
+      ssh:
+        ca: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/ssh': missing property 'ca'"
+  - it: should error when SSH is enabled but neither CA backend is configured
+    set:
+      ssh:
+        ca: {}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/ssh/ca': 'oneOf' failed, none matched"
   - it: should error when both manual and Vault config are provided
     set:
       ssh:
@@ -394,7 +382,7 @@ tests:
           vault: {}
     asserts:
       - failedTemplate:
-          errorPattern: "at '/ssh/ca': maxProperties: got 2, want 1"
+          errorPattern: "at '/ssh/ca': 'oneOf' failed, subschemas 0, 1 matched"
 ---
 suite: Gateway configmap with WebApp
 templates:
@@ -429,7 +417,7 @@ tests:
   - it: should render webApp with custom headers
     set:
       webApp:
-        headers:
+        requestHeaders:
           X-Groups: "{{groups}}"
           X-User: "{{username}}"
     asserts:
@@ -452,7 +440,7 @@ tests:
               privateKeyFile: "/etc/gateway/tls/tls.key"
 
             webApp:
-              headers:
+              requestHeaders:
                 X-Groups: '{{groups}}'
                 X-User: '{{username}}'
   - it: should not render webApp when disabled

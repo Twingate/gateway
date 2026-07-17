@@ -5,7 +5,9 @@ package sshhandler
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
+	"net/http"
 	"sync"
 	"testing"
 	"testing/synctest"
@@ -14,13 +16,29 @@ import (
 	"github.com/hashicorp/vault/api/auth/approle"
 	"github.com/hashicorp/vault/api/auth/aws"
 	"github.com/hashicorp/vault/api/auth/gcp"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 
 	vault "github.com/hashicorp/vault/api"
 
 	gatewayconfig "gateway/internal/config"
 )
+
+func TestNewVault_EnforcesTLS13(t *testing.T) {
+	v, err := newVault(&gatewayconfig.SSHCAVaultConfig{
+		Address: "https://vault.example.com",
+		Auth:    gatewayconfig.SSHCAVaultAuthConfig{Token: "test-token"},
+	}, zap.NewNop())
+	require.NoError(t, err)
+
+	transport, ok := v.client.CloneConfig().HttpClient.Transport.(*http.Transport)
+	require.True(t, ok)
+	require.NotNil(t, transport.TLSClientConfig)
+	assert.Equal(t, uint16(tls.VersionTLS13), transport.TLSClientConfig.MinVersion)
+}
 
 func TestNewVaultAuthMethod_AppRole(t *testing.T) {
 	t.Run("with secretID", func(t *testing.T) {
@@ -32,7 +50,7 @@ func TestNewVaultAuthMethod_AppRole(t *testing.T) {
 			},
 		}
 
-		authMethod, err := newVaultAuthMethod(cfg)
+		authMethod, err := newVaultAuthMethod(cfg, zap.NewNop())
 		require.NoError(t, err)
 		require.IsType(t, &approle.AppRoleAuth{}, authMethod)
 	})
@@ -46,7 +64,7 @@ func TestNewVaultAuthMethod_AppRole(t *testing.T) {
 			},
 		}
 
-		authMethod, err := newVaultAuthMethod(cfg)
+		authMethod, err := newVaultAuthMethod(cfg, zap.NewNop())
 		require.NoError(t, err)
 		require.IsType(t, &approle.AppRoleAuth{}, authMethod)
 	})
@@ -62,7 +80,7 @@ func TestNewVaultAuthMethod_GCP(t *testing.T) {
 		},
 	}
 
-	authMethod, err := newVaultAuthMethod(cfg)
+	authMethod, err := newVaultAuthMethod(cfg, zap.NewNop())
 	require.NoError(t, err)
 	require.IsType(t, &gcp.GCPAuth{}, authMethod)
 }
@@ -79,7 +97,7 @@ func TestNewVaultAuthMethod_AWS(t *testing.T) {
 			},
 		}
 
-		authMethod, err := newVaultAuthMethod(cfg)
+		authMethod, err := newVaultAuthMethod(cfg, zap.NewNop())
 		require.NoError(t, err)
 		require.IsType(t, &aws.AWSAuth{}, authMethod)
 	})
@@ -95,16 +113,34 @@ func TestNewVaultAuthMethod_AWS(t *testing.T) {
 			},
 		}
 
-		authMethod, err := newVaultAuthMethod(cfg)
+		authMethod, err := newVaultAuthMethod(cfg, zap.NewNop())
 		require.NoError(t, err)
 		require.IsType(t, &aws.AWSAuth{}, authMethod)
+	})
+
+	t.Run("EC2 pkcs7 emits deprecation warning", func(t *testing.T) {
+		core, logs := observer.New(zapcore.WarnLevel)
+
+		cfg := &gatewayconfig.SSHCAVaultAuthConfig{
+			AWS: &gatewayconfig.SSHCAVaultAWSConfig{
+				Role:          "my-role",
+				Type:          "ec2",
+				SignatureType: "pkcs7",
+			},
+		}
+
+		authMethod, err := newVaultAuthMethod(cfg, zap.New(core))
+		require.NoError(t, err)
+		require.IsType(t, &aws.AWSAuth{}, authMethod)
+
+		require.Len(t, logs.FilterMessageSnippet("deprecated").All(), 1)
 	})
 }
 
 func TestNewVaultAuthMethod_NoAuth(t *testing.T) {
 	cfg := &gatewayconfig.SSHCAVaultAuthConfig{}
 
-	authMethod, err := newVaultAuthMethod(cfg)
+	authMethod, err := newVaultAuthMethod(cfg, zap.NewNop())
 	require.ErrorIs(t, err, errVaultAuthMethodNotConfigured)
 	require.Nil(t, authMethod)
 }
