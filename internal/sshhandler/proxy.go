@@ -221,7 +221,7 @@ func closeDownstreamSSH(downstream connection, logger *zap.Logger, sshCtx *sshCo
 	_ = downstream.conn.Close()
 
 	for newChannel := range downstream.channels {
-		chCtx := newSSHChannelContext(sshCtx, newChannel.ChannelType(), labelDownstream, labelUpstream)
+		chCtx := newSSHChannelContext(sshCtx, newChannel.ChannelType(), labelDownstream, labelUpstream, nil)
 		chLogger := logger.With(zap.Any("ssh", chCtx.baseFields()))
 		chLogger.Debug("Rejecting channel")
 

@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
+	"go.uber.org/zap/zaptest/observer"
 	"golang.org/x/crypto/ssh"
 
 	"gateway/internal/sessionrecorder"
@@ -118,11 +119,66 @@ func TestChannelPair_ForwardsRequests(t *testing.T) {
 	}
 }
 
+func TestChannelPair_RequestLogsCarryChannelExtraBothDirections(t *testing.T) {
+	// The forwarding details parsed at channel open must appear on request logs for both
+	// directions; the target->source handler works on a reversed copy of the channel context.
+	core, logs := observer.New(zap.DebugLevel)
+	channels := newProxyChannels(t, channelTypeDirectTCPIP)
+	channels.logger = zap.New(core)
+	channels.extra = map[string]any{"test-extra": "test-value"}
+	done := channels.serve(t)
+
+	awaitReply := sendRequest(channels.target.ch, "test-req@twingate.com", true, nil)
+	forwarded := assertSentRequest(t, channels.source.requests, "test-req@twingate.com")
+	require.NoError(t, forwarded.Reply(true, nil))
+	_, err := awaitReply(t)
+	require.NoError(t, err)
+
+	channels.close(t, done)
+
+	channelField, isMap := observedSSHField(t, logs, "Channel request")["channel"].(map[string]any)
+	require.True(t, isMap)
+	assert.Equal(t, "test-value", channelField["test-extra"])
+	assert.Equal(t, labelUpstream, channelField["source"], "target-side logs swap the direction labels")
+}
+
+func TestChannelPair_ForwardsTargetPtyAndWindowChange(t *testing.T) {
+	// The target-side request handler has no pty/window-change callbacks: requests of those
+	// types arriving from the target must hit the nil-callback guards and forward cleanly
+	// instead of panicking.
+	tests := []struct {
+		name    string
+		payload []byte
+	}{
+		{name: requestTypePty, payload: ssh.Marshal(ptyReq{Term: "xterm", WidthColumns: 80, HeightRows: 24})},
+		{name: requestTypeWindowChange, payload: ssh.Marshal(windowChangeReq{WidthColumns: 120, HeightRows: 40})},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			channels := newProxyChannels(t, "direct-tcpip")
+			done := channels.serve(t)
+
+			awaitReply := sendRequest(channels.target.ch, tt.name, true, tt.payload)
+
+			forwarded := assertSentRequest(t, channels.source.requests, tt.name)
+			assert.Equal(t, tt.payload, forwarded.Payload)
+			require.NoError(t, forwarded.Reply(true, nil))
+
+			ok, err := awaitReply(t)
+			require.NoError(t, err)
+			assert.True(t, ok)
+
+			channels.close(t, done)
+		})
+	}
+}
+
 func TestChannelPair_RequestForwardFailure(t *testing.T) {
 	// On a session channel the gate keeps the copiers un-started, so closing the target
 	// cannot race the failure reply against a concurrent source teardown.
 	channels := newProxyChannels(t, "session")
-	channels.pair.sessionStartTimeout = shortTimeout
+	channels.sessionStartTimeout = shortTimeout
 
 	// Kill the target before serving so the forward deterministically fails.
 	require.NoError(t, channels.target.ch.Close())
@@ -185,7 +241,7 @@ func TestChannelPair_Teardown(t *testing.T) {
 
 func TestChannelPair_EOFFlushTimeout(t *testing.T) {
 	channels := newProxyChannels(t, "direct-tcpip")
-	channels.pair.channelEOFTimeout = shortTimeout
+	channels.channelEOFTimeout = shortTimeout
 	done := channels.serve(t)
 
 	// Block the request handler: it forwards a wantReply request to the target and waits
@@ -211,7 +267,7 @@ func TestChannelPair_EOFFlushTimeout(t *testing.T) {
 
 func TestChannelPair_TeardownTimeout(t *testing.T) {
 	channels := newProxyChannels(t, "direct-tcpip")
-	channels.pair.channelCloseTimeout = shortTimeout
+	channels.channelCloseTimeout = shortTimeout
 	done := channels.serve(t)
 
 	start := time.Now()
@@ -260,13 +316,15 @@ func TestChannelPair_PeerAbortMidTransfer(t *testing.T) {
 
 func TestChannelPair_SessionWaitsForStart(t *testing.T) {
 	tests := []struct {
-		name    string
-		reqType string
-		payload []byte
+		name      string
+		reqType   string
+		payload   []byte
+		wantReply bool
 	}{
-		{name: "shell", reqType: requestTypeShell},
-		{name: "exec", reqType: requestTypeExec, payload: ssh.Marshal(execReq{Command: "whoami"})},
-		{name: "subsystem", reqType: requestTypeSubsystem, payload: ssh.Marshal(subsystemReq{Name: "sftp"})},
+		{name: "shell", reqType: requestTypeShell, wantReply: true},
+		{name: "exec", reqType: requestTypeExec, payload: ssh.Marshal(execReq{Command: "whoami"}), wantReply: true},
+		{name: "subsystem", reqType: requestTypeSubsystem, payload: ssh.Marshal(subsystemReq{Name: "sftp"}), wantReply: true},
+		{name: "shell without reply", reqType: requestTypeShell},
 	}
 
 	for _, tt := range tests {
@@ -288,7 +346,13 @@ func TestChannelPair_SessionWaitsForStart(t *testing.T) {
 
 			// Forwarding the session-start request opens the gate and the held-back
 			// bytes flow through.
-			channels.sendRequestAwaitReply(t, tt.reqType, tt.payload)
+			if tt.wantReply {
+				channels.sendRequestAwaitReply(t, tt.reqType, tt.payload)
+			} else {
+				_, err := channels.source.ch.SendRequest(tt.reqType, false, tt.payload)
+				require.NoError(t, err)
+				assertSentRequest(t, channels.target.requests, tt.reqType)
+			}
 
 			select {
 			case got := <-read:
@@ -302,9 +366,80 @@ func TestChannelPair_SessionWaitsForStart(t *testing.T) {
 	}
 }
 
+func TestChannelPair_SessionStartRejected(t *testing.T) {
+	channels := newProxyChannels(t, "session")
+	done := channels.serve(t)
+
+	channels.sendRequestRejected(t, requestTypeExec, ssh.Marshal(execReq{Command: "whoami"}))
+
+	_, err := channels.source.ch.Write([]byte("gated-bytes"))
+	require.NoError(t, err)
+
+	read := startRead(channels.target.ch, len("gated-bytes"))
+
+	select {
+	case <-read:
+		t.Fatal("data crossed the session gate after a rejected session start")
+	case <-time.After(shortTimeout):
+	}
+
+	// The rejection leaves the channel free to start a session with a later request.
+	channels.sendRequestAwaitReply(t, requestTypeShell, nil)
+
+	select {
+	case got := <-read:
+		assert.Equal(t, "gated-bytes", string(got))
+	case <-time.After(testTimeout):
+		t.Fatal("timed out waiting for data after the retried session start")
+	}
+
+	channels.close(t, done)
+}
+
+func TestChannelPair_RejectsDuplicateSessionStart(t *testing.T) {
+	// A channel runs at most one shell, exec, or subsystem request (RFC 4254, Section 6.5). The
+	// started signal is closed on first use, so forwarding a second session start would signal on
+	// a closed channel and panic, killing every session on the proxy. The duplicate must be
+	// rejected at the proxy without being forwarded.
+	tests := []struct {
+		name    string
+		reqType string
+		payload []byte
+	}{
+		{name: "shell", reqType: requestTypeShell},
+		{name: "exec", reqType: requestTypeExec, payload: ssh.Marshal(execReq{Command: "whoami"})},
+		{name: "subsystem", reqType: requestTypeSubsystem, payload: ssh.Marshal(subsystemReq{Name: "sftp"})},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			channels := newProxyChannels(t, "session")
+			done := channels.serve(t)
+
+			channels.sendRequestAwaitReply(t, requestTypeExec, ssh.Marshal(execReq{Command: "whoami"}))
+
+			// The duplicate is never answered at the target, so the failure reply can only
+			// come from the proxy's own rejection.
+			awaitReply := sendRequest(channels.source.ch, tt.reqType, true, tt.payload)
+			assertNoRequest(t, channels.target.requests)
+
+			ok, err := awaitReply(t)
+			require.NoError(t, err)
+			assert.False(t, ok, "duplicate session start must be rejected")
+
+			// The original session is intact: data still flows.
+			_, err = channels.source.ch.Write([]byte("still-alive"))
+			require.NoError(t, err)
+			assert.Equal(t, "still-alive", string(readInFull(t, channels.target.ch, len("still-alive"))))
+
+			channels.close(t, done)
+		})
+	}
+}
+
 func TestChannelPair_SessionStartTimeout(t *testing.T) {
 	channels := newProxyChannels(t, "session")
-	channels.pair.sessionStartTimeout = shortTimeout
+	channels.sessionStartTimeout = shortTimeout
 
 	start := time.Now()
 	done := channels.serve(t)
@@ -483,15 +618,16 @@ func TestChannelPair_ServePanicClosesChannels(t *testing.T) {
 	channels := newProxyChannels(t, "session")
 	channels.recorder.headerPanic = "injected header panic"
 
+	pair := channels.newPair(t)
 	done := make(chan struct{})
 
 	// Wrap serve() in the same panic recovery as forwardChannels, so the synchronous panic
 	// tears the pair down instead of crashing the test goroutine.
 	go func() {
 		defer close(done)
-		defer closeOnPanic(channels.pair.logger, channels.pair.close)
+		defer closeOnPanic(pair.logger, pair.close)
 
-		channels.pair.serve()
+		pair.serve()
 	}()
 
 	// The shell request opens the session gate; serve() then builds the recorder and panics
@@ -514,7 +650,7 @@ func TestChannelPair_ServePanicClosesChannels(t *testing.T) {
 // Global requests on all connection ends are discarded. The tests drive the far ends (source and
 // target) and assert only there.
 type proxyChannels struct {
-	pair *SSHChannelPair
+	channelType string
 
 	source      channel
 	proxySource channel
@@ -524,6 +660,17 @@ type proxyChannels struct {
 	// recorder replaces the pair's real session recorder via a fakeRecorderFactory; its fields
 	// may be set before serve() to inject recorder write failures or panics.
 	recorder *fakeRecorder
+
+	// logger overrides the pair's logger, for tests asserting its log output; nil uses zaptest.
+	logger *zap.Logger
+
+	// extra sets the channel context's open details, as parsed at channel open by forwardChannels.
+	extra map[string]any
+
+	// Optional per-test timeout overrides applied in serve(); zero leaves the pair's default.
+	sessionStartTimeout time.Duration
+	channelEOFTimeout   time.Duration
+	channelCloseTimeout time.Duration
 }
 
 // newProxyChannels builds a proxyChannels fixture with one channel of the given type.
@@ -537,31 +684,57 @@ func newProxyChannels(t *testing.T, channelType string) *proxyChannels {
 		go ssh.DiscardRequests(end.requests)
 	}
 
-	channels := &proxyChannels{recorder: &fakeRecorder{}}
+	channels := &proxyChannels{channelType: channelType, recorder: &fakeRecorder{}}
 	channels.source, channels.proxySource = openChannel(t, sourceConn, proxySourceConn, channelType, nil)
 	channels.proxyTarget, channels.target = openChannel(t, proxyTargetConn, targetConn, channelType, nil)
-
-	channels.pair = NewSSHChannelPair(
-		zaptest.NewLogger(t),
-		newSSHChannelContext(testSSHContext, channelType, labelDownstream, labelUpstream),
-		"testuser",
-		channels.proxySource,
-		channels.proxyTarget,
-	)
-	channels.pair.recorderFactory = &fakeRecorderFactory{recorder: channels.recorder}
 
 	return channels
 }
 
-// serve runs the pair's serve() in the background; the returned channel closes when serve
-// returns.
+// newPair builds the SSHChannelPair over the proxy-held ends, applying the fixture's logger,
+// channel-open extra, and timeout overrides.
+func (p *proxyChannels) newPair(t *testing.T) *SSHChannelPair {
+	t.Helper()
+
+	logger := p.logger
+	if logger == nil {
+		logger = zaptest.NewLogger(t)
+	}
+
+	pair := NewSSHChannelPair(
+		logger,
+		newSSHChannelContext(testSSHContext, p.channelType, labelDownstream, labelUpstream, p.extra),
+		"testuser",
+		p.proxySource,
+		p.proxyTarget,
+	)
+	pair.recorderFactory = &fakeRecorderFactory{recorder: p.recorder}
+
+	if p.sessionStartTimeout != 0 {
+		pair.sessionStartTimeout = p.sessionStartTimeout
+	}
+
+	if p.channelEOFTimeout != 0 {
+		pair.channelEOFTimeout = p.channelEOFTimeout
+	}
+
+	if p.channelCloseTimeout != 0 {
+		pair.channelCloseTimeout = p.channelCloseTimeout
+	}
+
+	return pair
+}
+
+// serve builds the pair and runs its serve() in the background; the returned channel closes when
+// serve returns.
 func (p *proxyChannels) serve(t *testing.T) <-chan struct{} {
 	t.Helper()
 
+	pair := p.newPair(t)
 	done := make(chan struct{})
 
 	go func() {
-		p.pair.serve()
+		pair.serve()
 		close(done)
 	}()
 
@@ -592,6 +765,21 @@ func (p *proxyChannels) sendRequestAwaitReply(t *testing.T, reqType string, payl
 	ok, err := awaitReply(t)
 	require.NoError(t, err)
 	require.True(t, ok, "%q request must succeed", reqType)
+}
+
+// sendRequestRejected sends a WantReply request from the source, rejects it at the target, and
+// requires the rejection to round-trip back to the source.
+func (p *proxyChannels) sendRequestRejected(t *testing.T, reqType string, payload []byte) {
+	t.Helper()
+
+	awaitReply := sendRequest(p.source.ch, reqType, true, payload)
+
+	forwarded := assertSentRequest(t, p.target.requests, reqType)
+	require.NoError(t, forwarded.Reply(false, nil))
+
+	ok, err := awaitReply(t)
+	require.NoError(t, err)
+	require.False(t, ok, "%q request must be rejected", reqType)
 }
 
 // sendWindowChange sends a window-change and waits for the proxy to finish handling it; the
@@ -648,6 +836,19 @@ func startRead(reader io.Reader, n int) <-chan []byte {
 	}()
 
 	return out
+}
+
+// assertNoRequest asserts that no request arrives on the requests channel within shortTimeout.
+func assertNoRequest(t *testing.T, reqs <-chan *ssh.Request) {
+	t.Helper()
+
+	select {
+	case req, ok := <-reqs:
+		if ok {
+			t.Fatalf("unexpected %q request", req.Type)
+		}
+	case <-time.After(shortTimeout):
+	}
 }
 
 // waitReqChanClosed asserts the requests channel closes within testTimeout without delivering

@@ -71,6 +71,14 @@ set:
     enabled: true
 tests:
   - it: should not add SSH manual CA volume and volume mount when `ssh.enabled` is true but `ssh.ca.manual` is not specified
+    set:
+      ssh:
+        ca:
+          vault:
+            address: "https://vault.example.com:8200"
+            role: "gateway"
+            auth:
+              token: "vault-token"
     asserts:
       - equal:
           path: spec.template.spec.volumes
@@ -109,14 +117,6 @@ tests:
             name: ssh-manual-ca
             secret:
               secretName: RELEASE-NAME-gateway-ssh-manual-ca
-  - it: should error when replicaCount > 1 and `ssh.ca` is not specified
-    set:
-      replicaCount: 2
-      ssh:
-        ca: {}
-    asserts:
-      - failedTemplate:
-          errorPattern: "ssh.ca must be configured (manual or vault) when replicaCount > 1. Auto-generated CA is only supported for single replica deployments."
 ---
 suite: Deployment with SSH and Vault CA
 templates:

@@ -70,9 +70,9 @@ func (h *SSHRequestHandler) parseRequestPayload(req *ssh.Request, target any) {
 func (h *SSHRequestHandler) handleRequest(req *ssh.Request, sessionSignals SSHSessionSignals) {
 	h.logger.Debug("Channel request", zap.Any("ssh", h.sshChannelCtx.withRequest(req.Type, nil)))
 
-	// Sessions are started when a shell, exec, or subsystem request is received
+	// A shell, exec, or subsystem request starts the session
 	// see: https://datatracker.ietf.org/doc/html/rfc4254#section-6.5
-	sessionStarted := false
+	isSessionStartReq := false
 	command := ""
 
 	shouldLog := false
@@ -83,16 +83,18 @@ func (h *SSHRequestHandler) handleRequest(req *ssh.Request, sessionSignals SSHSe
 		var ptyReq ptyReq
 		h.parseRequestPayload(req, &ptyReq)
 
-		h.onPtyRequest(ptyReq)
+		if h.onPtyRequest != nil {
+			h.onPtyRequest(ptyReq)
+		}
 
 		shouldLog = true
 	case requestTypeShell:
-		sessionStarted = true
+		isSessionStartReq = true
 		command = req.Type
 
 		shouldLog = true
 	case requestTypeExec:
-		sessionStarted = true
+		isSessionStartReq = true
 
 		var execReq execReq
 		h.parseRequestPayload(req, &execReq)
@@ -102,7 +104,7 @@ func (h *SSHRequestHandler) handleRequest(req *ssh.Request, sessionSignals SSHSe
 		shouldLog = true
 		extra["command"] = execReq.Command
 	case requestTypeSubsystem:
-		sessionStarted = true
+		isSessionStartReq = true
 
 		var subsystemReq subsystemReq
 		h.parseRequestPayload(req, &subsystemReq)
@@ -115,9 +117,27 @@ func (h *SSHRequestHandler) handleRequest(req *ssh.Request, sessionSignals SSHSe
 		var windowChangeReq windowChangeReq
 		h.parseRequestPayload(req, &windowChangeReq)
 
-		h.onWindowChange(windowChangeReq)
+		if h.onWindowChange != nil {
+			h.onWindowChange(windowChangeReq)
+		}
 	default:
 		// No special handling
+	}
+
+	// A channel runs at most one shell, exec, or subsystem request (RFC 4254, Section 6.5).
+	// Reject duplicates without forwarding: signaling a second session start would send on
+	// the already-closed started channel.
+	if isSessionStartReq && h.sessionStarted {
+		h.logger.Warn("Rejecting duplicate session start request",
+			zap.Any("ssh", h.sshChannelCtx.withRequest(req.Type, extra)))
+
+		if err := req.Reply(false, nil); err != nil {
+			h.logger.Error("Failed to reply to request",
+				zap.Any("ssh", h.sshChannelCtx.withRequest(req.Type, nil)),
+				zap.Error(err))
+		}
+
+		return
 	}
 
 	if shouldLog {
@@ -125,7 +145,8 @@ func (h *SSHRequestHandler) handleRequest(req *ssh.Request, sessionSignals SSHSe
 			zap.Any("ssh", h.sshChannelCtx.withRequest(req.Type, extra)))
 	}
 
-	if err := forwardRequest(h.targetChannel, req); err != nil {
+	accepted, err := forwardRequest(h.targetChannel, req)
+	if err != nil {
 		h.logger.Error("Failed to forward request",
 			zap.Any("ssh", h.sshChannelCtx.withRequest(req.Type, nil)),
 			zap.Error(err))
@@ -133,8 +154,11 @@ func (h *SSHRequestHandler) handleRequest(req *ssh.Request, sessionSignals SSHSe
 		return
 	}
 
-	// Close the session started channel to signal that the session has started
-	if sessionStarted {
+	// A session starts only when the target accepted the request; without WantReply there is
+	// no confirmation and the session starts unconditionally (RFC 4254, Section 6.5).
+	if isSessionStartReq && (accepted || !req.WantReply) {
+		h.sessionStarted = true
+
 		sessionSignals.started <- command
 
 		close(sessionSignals.started)
@@ -156,10 +180,14 @@ type SSHRequestHandler struct {
 	// Target SSH channel to forward SSH channel requests to
 	targetChannel ssh.Channel
 
-	// Callback for when a pty request is received providing the width and height of the terminal
+	// Whether a session-start request (shell, exec, or subsystem) has already started a session;
+	// only the handleRequests goroutine touches it
+	sessionStarted bool
+
+	// Optional callback for when a pty request is received providing the width and height of the terminal
 	onPtyRequest func(req ptyReq)
 
-	// Callback for when a window-change request is received
+	// Optional callback for when a window-change request is received
 	onWindowChange func(req windowChangeReq)
 }
 
@@ -219,13 +247,15 @@ func (h *SSHRequestHandler) handleRequests() SSHSessionSignals {
 	return sessionSignals
 }
 
-func forwardRequest(channel ssh.Channel, request *ssh.Request) error {
+// forwardRequest relays a request to the channel and the reply back; the returned accepted
+// result is meaningless when the request does not want a reply.
+func forwardRequest(channel ssh.Channel, request *ssh.Request) (bool, error) {
 	reply, requestErr := channel.SendRequest(request.Type, request.WantReply, request.Payload)
 	if requestErr != nil {
 		_ = request.Reply(false, nil)
 
-		return requestErr
+		return false, requestErr
 	}
 
-	return request.Reply(reply, nil)
+	return reply, request.Reply(reply, nil)
 }
