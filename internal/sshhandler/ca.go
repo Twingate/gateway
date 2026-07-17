@@ -43,13 +43,12 @@ type caConfig struct {
 	GatewayUserCA  ca // Signs Gateway's user certificates (presented to upstreams)
 	UpstreamHostCA ca // Verifies upstream host certificates (only publicKey is used). If nil, defaults to TOFU verification with upstream's public key.
 
-	vault       *Vault       // Vault client for token lifecycle management (nil for non-Vault CAs)
-	keyReloader *keyReloader // Reloads the CA private key on file change (nil for non-manual CAs)
+	vault       *Vault       // Vault client for token lifecycle management (nil for Manual CAs)
+	keyReloader *keyReloader // Reloads the CA private key on file change (nil for Vault CA)
 }
 
-// Start begins background CA maintenance: it reloads the manual CA private key on file change.
-// For Vault CAs, performs initial Vault authentication and starts the token renewal loop.
-// For auto-generated CAs, this is a no-op.
+// Start performs initial Vault authentication and starts the token renewal loop.
+// For manual CA, it starts background CA maintenance to reloads the CA private key on file change.
 func (c *caConfig) Start(ctx context.Context) error {
 	if c.keyReloader != nil {
 		c.keyReloader.Run(ctx)
