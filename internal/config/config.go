@@ -31,8 +31,8 @@ var (
 // networkRegexp matches a twingate.network slug: 1-63 lowercase alphanumeric characters.
 var networkRegexp = regexp.MustCompile(`^[a-z0-9]{1,63}$`)
 
-// hostnameRegexp allows only valid DNS-label characters, permitting a single label (e.g. "test").
-var hostnameRegexp = regexp.MustCompile(`^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)*[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$`)
+// HostnameRegexp allows only valid DNS-label characters, permitting a single label (e.g. "test").
+var HostnameRegexp = regexp.MustCompile(`^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)*[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$`)
 
 var issuerByDomain = map[string]string{
 	"test":          "twingate-local",
@@ -740,7 +740,7 @@ func (v *SSHCAVaultConfig) GetUpstreamHostCAMount() string {
 
 // validateHost checks host is a well-formed hostname for a trusted Twingate controller domain.
 func validateHost(host string) error {
-	if !hostnameRegexp.MatchString(host) {
+	if !HostnameRegexp.MatchString(host) {
 		return fmt.Errorf("%w: not a valid hostname: %q", ErrInvalidHost, host)
 	}
 

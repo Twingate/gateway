@@ -18,9 +18,15 @@ import (
 
 const supportedVersion = "1"
 
+const (
+	minPort = 1
+	maxPort = 65535
+)
+
 var (
 	errInvalidPublicKey   = errors.New("not a valid public key")
 	errUnsupportedVersion = errors.New("unsupported version")
+	errInvalidPort        = errors.New("invalid port")
 )
 
 type GATClaims struct {
@@ -56,6 +62,20 @@ func (p GATClaims) Validate() error {
 
 	if p.Version != supportedVersion {
 		return fmt.Errorf("%w: %w %q", jwt.ErrTokenInvalidClaims, errUnsupportedVersion, p.Version)
+	}
+
+	if err := validatePort(p.Resource.GatewayMetadata.Downstream.Port, "resource.gateway_metadata.downstream.port"); err != nil {
+		return err
+	}
+
+	return validatePort(p.Resource.GatewayMetadata.Upstream.Port, "resource.gateway_metadata.upstream.port")
+}
+
+// validatePort ensures a GAT-provided port is within the valid TCP range. A missing port (zero)
+// is treated as invalid.
+func validatePort(port int, fieldName string) error {
+	if port < minPort || port > maxPort {
+		return fmt.Errorf("%w: %w %q: %d", jwt.ErrTokenInvalidClaims, errInvalidPort, fieldName, port)
 	}
 
 	return nil
@@ -114,11 +134,26 @@ type Resource struct {
 	ID              string          `json:"id"`
 	Type            ResourceType    `json:"type"`
 	Address         string          `json:"address"`
+	Aliases         []string        `json:"aliases,omitempty"`
 	GatewayMetadata GatewayMetadata `json:"gateway_metadata"` //nolint:tagliatelle // GAT wire format from the controller uses snake_case
 }
 
 type GatewayMetadata struct {
+	Downstream            Downstream        `json:"downstream"`
+	Upstream              Upstream          `json:"upstream"`
 	RequestHeaderRewrites map[string]string `json:"request_header_rewrites,omitempty"` //nolint:tagliatelle // GAT wire format from the controller uses snake_case
+}
+
+// Downstream describes the connection between the protocol client and the Gateway.
+type Downstream struct {
+	// Port is the port that the protocol client connects to.
+	Port int `json:"port"`
+}
+
+// Upstream describes the connection between the Gateway and the upstream resource.
+type Upstream struct {
+	// Port is the port on the upstream resource that the Gateway forwards the connection to.
+	Port int `json:"port"`
 }
 
 // PublicKey is a wrapper for ecdsa.PublicKey that adds support for JSON
