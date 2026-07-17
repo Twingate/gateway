@@ -72,6 +72,8 @@ func (p *SSHProxy) Start(ctx context.Context, listener net.Listener) error {
 
 		// Serve SSH connection in a separate goroutine
 		go func() {
+			defer closeOnPanic(p.config.logger, func() { _ = conn.Close() })
+
 			err := p.serveConn(ctx, conn.(connect.Conn))
 			if err != nil {
 				p.config.logger.Error("Failed to serve SSH connection", zap.Error(err))
@@ -156,14 +158,14 @@ func (p *SSHProxy) serveConn(ctx context.Context, conn connect.Conn) error {
 		return err
 	}
 
+	defer func() { _ = upstreamNetConn.Close() }()
+
 	// Open the SSH connection to the upstream server
 	upstreamSSHConn, upstreamChannels, upstreamRequests, err := ssh.NewClientConn(upstreamNetConn, upstream.address, upstreamConfig)
 	if err != nil {
 		logger.Error("Failed to connect to upstream SSH server", zap.Error(err))
 
 		closeDownstreamSSH(downstreamConn, logger, sshCtx)
-
-		_ = upstreamNetConn.Close()
 
 		return err
 	}
@@ -178,24 +180,40 @@ func (p *SSHProxy) serveConn(ctx context.Context, conn connect.Conn) error {
 
 	// Serve the SSH connection pair
 	p.wg.Add(1)
+	defer p.wg.Done()
 
-	// Add the open SSH connection pair to the map
 	p.mu.Lock()
 	p.connsMap[sshConnPair] = struct{}{}
 	p.mu.Unlock()
+
+	defer func() {
+		p.mu.Lock()
+		delete(p.connsMap, sshConnPair)
+		p.mu.Unlock()
+	}()
 
 	sshConnPair.serve()
 
 	logger.Info("SSH connection closed", zap.Any("ssh", sshCtx.withConnectionClose(sshConnPair.ChannelsOpened())))
 
-	// Remove the closed SSH connection pair from the map
-	p.mu.Lock()
-	delete(p.connsMap, sshConnPair)
-	p.mu.Unlock()
-
-	p.wg.Done()
-
 	return nil
+}
+
+func closeOnPanic(logger *zap.Logger, closeFn func()) {
+	recovered := recover() //nolint:revive // closeOnPanic itself is the deferred function
+	if recovered == nil {
+		return
+	}
+
+	logger.Error("Recovered from panic", zap.Any("panic", recovered), zap.Stack("stacktrace"))
+
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Error("Recovered from panic during cleanup", zap.Any("panic", r), zap.Stack("stacktrace"))
+		}
+	}()
+
+	closeFn()
 }
 
 // closeDownstreamSSH closes the connection and rejects any queued channels.

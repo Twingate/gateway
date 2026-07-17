@@ -50,6 +50,7 @@ linters:
         - Signer
         - PublicKey
         - NewChannel
+        - Channel
     nolintlint:
       # Workaround for golangci-lint cache bug that causes false "unused nolint" reports.
       # See: https://github.com/golangci/golangci-lint/issues/3228

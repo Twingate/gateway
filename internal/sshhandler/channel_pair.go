@@ -212,3 +212,8 @@ func (c *SSHChannelPair) serve() {
 
 	copier.start()
 }
+
+func (c *SSHChannelPair) close() {
+	_ = c.source.ch.Close()
+	_ = c.target.ch.Close()
+}

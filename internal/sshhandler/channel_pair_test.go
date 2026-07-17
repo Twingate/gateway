@@ -572,14 +572,83 @@ func TestChannelPair_SessionRecorderWriteErrors(t *testing.T) {
 	assert.True(t, state.stopped)
 }
 
-// proxyChannels is the channel-layer fixture: one channel proxied between two real SSH
-// connections, exposing all four ends:
+func TestChannelPair_CopyPanicClosesChannels(t *testing.T) {
+	// A panic in one copy direction (here from the recording tap) must close both channel ends
+	// so the opposite direction unblocks and serve() returns, instead of leaving the channel
+	// half-open with a dead copier.
+	channels := newProxyChannels(t, "session")
+	channels.recorder.outputPanic = "injected tap panic"
+	done := channels.serve(t)
+
+	channels.sendRequestAwaitReply(t, requestTypeShell, nil)
+
+	// Terminal output hits the panicking tap...
+	_, err := channels.target.ch.Write([]byte("terminal-output"))
+	require.NoError(t, err)
+
+	// ...and both far ends see their channel close.
+	assertEOF(t, channels.source.ch)
+	assertEOF(t, channels.target.ch)
+	waitDone(t, done)
+}
+
+func TestChannelPair_RequestPanicClosesChannels(t *testing.T) {
+	// A panic in a request handler (here from the recorder's resize write) must tear down the
+	// channel instead of leaving it open with nobody consuming its requests.
+	channels := newProxyChannels(t, "session")
+	channels.recorder.resizePanic = "injected resize panic"
+	done := channels.serve(t)
+
+	channels.sendRequestAwaitReply(t, requestTypeShell, nil)
+
+	// The handler panics before forwarding the window-change, so no reply can be awaited...
+	_ = sendRequest(channels.source.ch, requestTypeWindowChange, false,
+		ssh.Marshal(windowChangeReq{WidthColumns: 120, HeightRows: 40}))
+
+	// ...and both far ends see their channel close.
+	assertEOF(t, channels.source.ch)
+	assertEOF(t, channels.target.ch)
+	waitDone(t, done)
+}
+
+func TestChannelPair_ServePanicClosesChannels(t *testing.T) {
+	// A panic in serve()'s own frame (here from the recorder's header write, before the copiers
+	// start) is recovered by the forwardChannels wrapper, which must close both channel ends via
+	// SSHChannelPair.close() instead of leaking the accepted channel.
+	channels := newProxyChannels(t, "session")
+	channels.recorder.headerPanic = "injected header panic"
+
+	pair := channels.newPair(t)
+	done := make(chan struct{})
+
+	// Wrap serve() in the same panic recovery as forwardChannels, so the synchronous panic
+	// tears the pair down instead of crashing the test goroutine.
+	go func() {
+		defer close(done)
+		defer closeOnPanic(pair.logger, pair.close)
+
+		pair.serve()
+	}()
+
+	// The shell request opens the session gate; serve() then builds the recorder and panics
+	// writing its header.
+	_ = sendRequest(channels.source.ch, requestTypeShell, false, nil)
+
+	assertEOF(t, channels.source.ch)
+	assertEOF(t, channels.target.ch)
+	waitDone(t, done)
+}
+
+// proxyChannels is the channel-layer fixture: an SSHChannelPair serving one channel between two
+// real SSH connections, with the source end opening toward the proxy and the proxy opening toward
+// the target, mirroring forwardChannels:
 //
 //	        source channel    +----------------------------------+  target channel
 //	source <----------------> | proxySource        proxyTarget   | <----------------> target
 //	                          +-------------- proxy -------------+
 //
-// The tests drive the far ends (source and target) and assert only there.
+// Global requests on all connection ends are discarded. The tests drive the far ends (source and
+// target) and assert only there.
 type proxyChannels struct {
 	channelType string
 
@@ -588,8 +657,8 @@ type proxyChannels struct {
 	proxyTarget channel
 	target      channel
 
-	// recorder replaces the pair's real session recorder via a fakeRecorderFactory; its error
-	// fields may be set before serve() to inject recorder write failures.
+	// recorder replaces the pair's real session recorder via a fakeRecorderFactory; its fields
+	// may be set before serve() to inject recorder write failures or panics.
 	recorder *fakeRecorder
 
 	// logger overrides the pair's logger, for tests asserting its log output; nil uses zaptest.
@@ -604,9 +673,7 @@ type proxyChannels struct {
 	channelCloseTimeout time.Duration
 }
 
-// newProxyChannels proxies one channel of the given type across two real SSH connections:
-// the source end opens toward the proxy, and the proxy opens toward the target, mirroring
-// forwardChannels. Global requests on all connection ends are discarded.
+// newProxyChannels builds a proxyChannels fixture with one channel of the given type.
 func newProxyChannels(t *testing.T, channelType string) *proxyChannels {
 	t.Helper()
 
@@ -624,9 +691,9 @@ func newProxyChannels(t *testing.T, channelType string) *proxyChannels {
 	return channels
 }
 
-// serve builds an SSHChannelPair over the proxy-held ends and runs its serve() in the
-// background; the returned channel closes when serve returns.
-func (p *proxyChannels) serve(t *testing.T) <-chan struct{} {
+// newPair builds the SSHChannelPair over the proxy-held ends, applying the fixture's logger,
+// channel-open extra, and timeout overrides.
+func (p *proxyChannels) newPair(t *testing.T) *SSHChannelPair {
 	t.Helper()
 
 	logger := p.logger
@@ -655,6 +722,15 @@ func (p *proxyChannels) serve(t *testing.T) <-chan struct{} {
 		pair.channelCloseTimeout = p.channelCloseTimeout
 	}
 
+	return pair
+}
+
+// serve builds the pair and runs its serve() in the background; the returned channel closes when
+// serve returns.
+func (p *proxyChannels) serve(t *testing.T) <-chan struct{} {
+	t.Helper()
+
+	pair := p.newPair(t)
 	done := make(chan struct{})
 
 	go func() {
@@ -797,6 +873,13 @@ type fakeRecorder struct {
 	headerErr error
 	resizeErr error
 
+	// Injected panic values for the code paths that call the recorder: WriteHeader runs
+	// synchronously in serve(), WriteOutputEvent in the copy direction that taps the recorder,
+	// and WriteResizeEvent in the request handler that records resizes.
+	headerPanic any
+	outputPanic any
+	resizePanic any
+
 	header  *sessionrecorder.AsciicastHeader
 	output  bytes.Buffer
 	resizes []sessionrecorder.ResizeMsg
@@ -809,6 +892,10 @@ func (r *fakeRecorder) WriteHeader(h sessionrecorder.AsciicastHeader) error {
 
 	r.header = &h
 
+	if r.headerPanic != nil {
+		panic(r.headerPanic)
+	}
+
 	return r.headerErr
 }
 
@@ -818,6 +905,10 @@ func (r *fakeRecorder) WriteOutputEvent(data []byte) error {
 
 	r.output.Write(data)
 
+	if r.outputPanic != nil {
+		panic(r.outputPanic)
+	}
+
 	return nil
 }
 
@@ -826,6 +917,10 @@ func (r *fakeRecorder) WriteResizeEvent(width int, height int) error {
 	defer r.mu.Unlock()
 
 	r.resizes = append(r.resizes, sessionrecorder.ResizeMsg{Width: width, Height: height})
+
+	if r.resizePanic != nil {
+		panic(r.resizePanic)
+	}
 
 	return r.resizeErr
 }
