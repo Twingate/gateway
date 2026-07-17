@@ -366,6 +366,39 @@ func TestProxy_UpstreamFailures(t *testing.T) {
 	}
 }
 
+func TestProxy_ClosesUpstreamOnPanicBeforeServe(t *testing.T) {
+	// A panic after the upstream is dialed but before serve() takes ownership must not leak the
+	// upstream connection. ssh.NewClientConn signs a userauth request with the proxy's user
+	// signer during the upstream handshake, so a signer that panics injects the panic there.
+	sshProxy := newTestProxy(t)
+	sshProxy.config.userSigner = panicOnSignSigner{sshProxy.config.userSigner}
+
+	upstreamAddr, upstreamConn := newBareUpstream(t)
+	clientConn, serverConn := newDownstreamConn(t, upstreamAddr)
+
+	var recovered any
+
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+		defer func() { recovered = recover() }()
+
+		_ = sshProxy.serveConn(t.Context(), serverConn)
+	}()
+
+	// The downstream handshake succeeds before the proxy dials the upstream.
+	_, err := dialDownstream(t, sshProxy, clientConn)
+	require.NoError(t, err)
+
+	// The upstream handshake panics, and the deferred cleanup closes the upstream connection
+	// without tracking the pair.
+	waitDone(t, done)
+	require.NotNil(t, recovered, "serveConn did not panic")
+	assertNetConnClosed(t, <-upstreamConn)
+	assert.Zero(t, connCount(sshProxy))
+}
+
 func TestProxy_RejectsWhenShuttingDown(t *testing.T) {
 	sshProxy := newTestProxy(t)
 	sshProxy.Shutdown(t.Context())
@@ -649,6 +682,48 @@ func dialDownstream(t *testing.T, sshProxy *SSHProxy, clientConn net.Conn) (*ssh
 	}
 
 	return ssh.NewClient(conn, channels, requests), nil
+}
+
+// panicOnSignSigner is an ssh.Signer whose Sign panics, used to inject a panic into the upstream
+// handshake after the upstream connection has been dialed.
+type panicOnSignSigner struct{ ssh.Signer }
+
+func (panicOnSignSigner) Sign(_ io.Reader, _ []byte) (*ssh.Signature, error) {
+	panic("injected upstream handshake panic")
+}
+
+// newBareUpstream starts an SSH server that accepts any public key, so a connecting client
+// proceeds to sign its userauth request. It returns the listen address and a channel delivering
+// the accepted connection so a test can assert the client closes it.
+func newBareUpstream(t *testing.T) (string, <-chan net.Conn) {
+	t.Helper()
+
+	config := &ssh.ServerConfig{
+		PublicKeyCallback: func(ssh.ConnMetadata, ssh.PublicKey) (*ssh.Permissions, error) {
+			return &ssh.Permissions{}, nil
+		},
+	}
+	config.AddHostKey(testSigner(t))
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+
+	t.Cleanup(func() { _ = listener.Close() })
+
+	conn := make(chan net.Conn, 1)
+
+	go func() {
+		accepted, err := listener.Accept()
+		if err != nil {
+			return
+		}
+
+		conn <- accepted
+
+		_, _, _, _ = ssh.NewServerConn(accepted, config)
+	}()
+
+	return listener.Addr().String(), conn
 }
 
 // closedPort reserves a loopback address and closes its listener, so connecting to it is

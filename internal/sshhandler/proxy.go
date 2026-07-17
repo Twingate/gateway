@@ -158,14 +158,14 @@ func (p *SSHProxy) serveConn(ctx context.Context, conn connect.Conn) error {
 		return err
 	}
 
+	defer func() { _ = upstreamNetConn.Close() }()
+
 	// Open the SSH connection to the upstream server
 	upstreamSSHConn, upstreamChannels, upstreamRequests, err := ssh.NewClientConn(upstreamNetConn, upstream.address, upstreamConfig)
 	if err != nil {
 		logger.Error("Failed to connect to upstream SSH server", zap.Error(err))
 
 		closeDownstreamSSH(downstreamConn, logger, sshCtx)
-
-		_ = upstreamNetConn.Close()
 
 		return err
 	}
@@ -207,8 +207,6 @@ func closeOnPanic(logger *zap.Logger, closeFn func()) {
 
 	logger.Error("Recovered from panic", zap.Any("panic", recovered), zap.Stack("stacktrace"))
 
-	// closeFn is the last line of defense, so recover again: a panic during cleanup must
-	// not escape and crash the process.
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Error("Recovered from panic during cleanup", zap.Any("panic", r), zap.Stack("stacktrace"))
