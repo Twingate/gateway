@@ -156,6 +156,11 @@ func (c *SSHChannelPair) serve() {
 		case command = <-sourceSessionSignals.started:
 			logger.Debug("Source session started", zap.String("command", command))
 			asciinemaHeader.Command = command
+		case <-sourceSessionSignals.finished:
+			// Source ended before starting a session; nothing to record or copy.
+			logger.Debug("Source ended before session start")
+
+			return
 		case <-time.After(c.sessionStartTimeout):
 			logger.Error("Timeout waiting for source session to start")
 
