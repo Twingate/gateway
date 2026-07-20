@@ -46,6 +46,7 @@ main.go → cmd/start.go → proxy.NewProxy() → proxy.Start()
 **`internal/sshhandler/`** - SSH proxy:
 
 - SSH server with CA-signed certificates (manual/Vault)
+- Manual CA private key hot-reloads on file change (`key_reloader.go`)
 - Bidirectional channel forwarding to upstreams
 - Host certs (gateway→client) + User certs (gateway→upstream)
 

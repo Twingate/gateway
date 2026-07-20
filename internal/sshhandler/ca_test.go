@@ -31,7 +31,7 @@ func TestEmbeddedCA_PublicKey(t *testing.T) {
 	require.NoError(t, err)
 
 	ca := &embeddedCA{
-		signer: signer,
+		getSigner: staticSigner(signer),
 	}
 
 	got, err := ca.publicKey(context.Background())
@@ -44,7 +44,7 @@ func TestEmbeddedCA_Sign(t *testing.T) {
 	require.NoError(t, err)
 
 	ca := &embeddedCA{
-		signer: caSigner,
+		getSigner: staticSigner(caSigner),
 	}
 
 	publicKey, err := parsePublicKey(data.SSHHostPublicKey)
@@ -96,6 +96,7 @@ func TestNewManualCA_Success(t *testing.T) {
 	require.NotNil(t, caConfig.GatewayHostCA)
 	require.NotNil(t, caConfig.GatewayUserCA)
 	require.Nil(t, caConfig.UpstreamHostCA, "UpstreamHostCA should be nil for TOFU mode")
+	require.NotNil(t, caConfig.keyReloader, "keyReloader should watch the manual CA key file")
 
 	require.Same(t, caConfig.GatewayHostCA, caConfig.GatewayUserCA, "GatewayHostCA and GatewayUserCA should be the same instance")
 
@@ -112,6 +113,41 @@ func TestNewManualCA_Success(t *testing.T) {
 	log := allLogs[0]
 	require.Equal(t, "Using manual CA for SSH authentication", log.Message)
 	require.Equal(t, strings.TrimSpace(string(ssh.MarshalAuthorizedKey(pubKey))), log.ContextMap()["ca_public_key"])
+}
+
+func TestNewManualCA_ReloadsPrivateKey(t *testing.T) {
+	keyPEM, publicKey := generateCAKey(t)
+	keyFile := createCAKeyFile(t, keyPEM)
+
+	caConfig, err := newManualCA(keyFile, zap.NewNop())
+	require.NoError(t, err)
+	require.NoError(t, caConfig.Start(t.Context()))
+
+	initialPublicKey, err := caConfig.GatewayHostCA.publicKey(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, publicKey.Marshal(), initialPublicKey.Marshal())
+
+	newKeyPEM, newPublicKey := generateCAKey(t)
+	replaceCAKeyFile(t, keyFile, newKeyPEM)
+
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		reloadedPublicKey, err := caConfig.GatewayHostCA.publicKey(t.Context())
+		require.NoError(c, err)
+
+		require.Equal(c, newPublicKey.Marshal(), reloadedPublicKey.Marshal())
+	}, time.Second, 5*time.Millisecond, "CA public key was not reloaded")
+
+	// Certificates signed after the reload are signed by the new CA key
+	_, subjectPublicKey, err := keyConfig{}.Generate(rand.Reader)
+	require.NoError(t, err)
+
+	cert, err := caConfig.GatewayUserCA.sign(t.Context(), &certificateRequest{
+		certType:  UserCert,
+		publicKey: subjectPublicKey,
+		ttl:       time.Minute,
+	})
+	require.NoError(t, err)
+	require.Equal(t, newPublicKey.Marshal(), cert.SignatureKey.Marshal())
 }
 
 func TestNewManualCA_PrivateKeyFileNotFound(t *testing.T) {
@@ -164,7 +200,7 @@ func TestUpstreamHostKeyCallback_WithUpstreamHostCA(t *testing.T) {
 	require.NoError(t, err)
 
 	upstreamCA := &embeddedCA{
-		signer: caSigner,
+		getSigner: staticSigner(caSigner),
 	}
 
 	caConfig := &caConfig{
@@ -200,7 +236,7 @@ func TestUpstreamHostKeyCallback_WithUpstreamHostCA_RejectsPublicKey(t *testing.
 	require.NoError(t, err)
 
 	upstreamCA := &embeddedCA{
-		signer: caSigner,
+		getSigner: staticSigner(caSigner),
 	}
 
 	caConfig := &caConfig{
@@ -239,6 +275,13 @@ func TestMustUint64_PanicsOnNegativeTime(t *testing.T) {
 	require.Panics(t, func() {
 		mustUint64(time.Unix(-1, 0))
 	})
+}
+
+// staticSigner returns a signer getter for a CA whose key never changes.
+func staticSigner(signer ssh.Signer) func() ssh.Signer {
+	return func() ssh.Signer {
+		return signer
+	}
 }
 
 // newVaultTestCA returns a vaultCA whose client talks to a test server running handler.

@@ -321,7 +321,7 @@ func TestProxy_UpstreamFailures(t *testing.T) {
 
 				// The proxy requires host certificates from this CA, but the upstream presents
 				// a plain host key, so host verification fails.
-				sshProxy.config.caConfig.UpstreamHostCA = &embeddedCA{signer: testSigner(t)}
+				sshProxy.config.caConfig.UpstreamHostCA = &embeddedCA{getSigner: staticSigner(testSigner(t))}
 
 				return newEchoServer(t, caPublicKey(t, sshProxy.config.caConfig.GatewayUserCA)).addr
 			},

@@ -37,18 +37,29 @@ type ca interface {
 	sign(ctx context.Context, req *certificateRequest) (*ssh.Certificate, error)
 }
 
+// rotatingCA is a CA whose signing key can rotate during the process lifetime.
+// The channel returned by rotated receives a value after each rotation.
+type rotatingCA interface {
+	rotated() <-chan struct{}
+}
+
 // caConfig contains the CAs needed for SSH authentication operations.
 type caConfig struct {
 	GatewayHostCA  ca // Signs Gateway's host certificates (presented to clients)
 	GatewayUserCA  ca // Signs Gateway's user certificates (presented to upstreams)
 	UpstreamHostCA ca // Verifies upstream host certificates (only publicKey is used). If nil, defaults to TOFU verification with upstream's public key.
 
-	vault *Vault // Vault client for token lifecycle management (nil for non-Vault CAs)
+	vault       *Vault       // Vault client for token lifecycle management (nil for Manual CAs)
+	keyReloader *keyReloader // Reloads the CA private key on file change (nil for Vault CA)
 }
 
 // Start performs initial Vault authentication and starts the token renewal loop.
-// For non-Vault CAs, this is a no-op.
+// For manual CA, it starts background CA maintenance to reloads the CA private key on file change.
 func (c *caConfig) Start(ctx context.Context) error {
+	if c.keyReloader != nil {
+		c.keyReloader.Run(ctx)
+	}
+
 	if c.vault == nil || c.vault.authMethod == nil {
 		return nil
 	}
@@ -77,24 +88,27 @@ func newCAFromConfig(config gatewayconfig.SSHCAConfig, logger *zap.Logger) (*caC
 	}
 }
 
-// newManualCA creates an embedded CA with keys loaded from files.
+// newManualCA creates an embedded CA with keys loaded from files. The private key is
+// reloaded when the file changes, so it can be rotated without a restart.
 // The CA signs gateway host and user certificates, and upstream host authentication is verified using TOFU.
 func newManualCA(privateKeyFile string, logger *zap.Logger) (*caConfig, error) {
-	privateKey, err := loadPrivateKey(privateKeyFile)
-	if err != nil {
+	reloader := newKeyReloader(privateKeyFile, logger)
+	if err := reloader.load(); err != nil {
 		return nil, err
 	}
 
 	ca := &embeddedCA{
-		signer: privateKey,
+		getSigner: reloader.getSigner,
+		rotateCh:  reloader.reloadCh,
 	}
 
-	publicKeyStr := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(privateKey.PublicKey())))
+	publicKeyStr := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(reloader.getSigner().PublicKey())))
 	logger.Info("Using manual CA for SSH authentication", zap.String("ca_public_key", publicKeyStr))
 
 	return &caConfig{
 		GatewayHostCA: ca,
 		GatewayUserCA: ca,
+		keyReloader:   reloader,
 	}, nil
 }
 
@@ -153,12 +167,19 @@ func (c *caConfig) upstreamHostKeyCallback(ctx context.Context, upstreamAddress 
 
 const clockSkewBuffer = 30 * time.Second
 
+// embeddedCA signs certificates with a signer held in process. The signer is read
+// through a getter on every operation, so it can be swapped by a keyReloader.
 type embeddedCA struct {
-	signer ssh.Signer
+	getSigner func() ssh.Signer
+	rotateCh  <-chan struct{} // Receives a value after each key rotation (implements rotatingCA)
+}
+
+func (ca *embeddedCA) rotated() <-chan struct{} {
+	return ca.rotateCh
 }
 
 func (ca *embeddedCA) publicKey(_ context.Context) (ssh.PublicKey, error) {
-	return ca.signer.PublicKey(), nil
+	return ca.getSigner().PublicKey(), nil
 }
 
 func (ca *embeddedCA) sign(_ context.Context, req *certificateRequest) (*ssh.Certificate, error) {
@@ -181,7 +202,7 @@ func (ca *embeddedCA) sign(_ context.Context, req *certificateRequest) (*ssh.Cer
 		Permissions:     req.permissions,
 	}
 
-	if err := cert.SignCert(rand.Reader, ca.signer); err != nil {
+	if err := cert.SignCert(rand.Reader, ca.getSigner()); err != nil {
 		return nil, fmt.Errorf("failed to sign certificate: %w", err)
 	}
 

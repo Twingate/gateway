@@ -54,6 +54,7 @@ type autoRenewingCertSigner struct {
 	ca        ca
 	certReq   *certificateRequest
 	keySigner ssh.Signer
+	renewCh   <-chan struct{} // Signals an immediate re-sign after a CA key rotation
 	logger    *zap.Logger
 
 	mu         sync.RWMutex
@@ -66,6 +67,12 @@ func newAutoRenewingCertSigner(ctx context.Context, ca ca, certReq *certificateR
 		certReq:   certReq,
 		keySigner: keySigner,
 		logger:    logger,
+	}
+
+	// When the CA can rotate its key, re-sign as soon as it does rather than
+	// waiting for the certificate to near expiry.
+	if rotating, ok := ca.(rotatingCA); ok {
+		certSigner.renewCh = rotating.rotated()
 	}
 
 	_, err := certSigner.updateCertSigner(ctx)
@@ -109,21 +116,24 @@ func (s *autoRenewingCertSigner) renewalLoop(ctx context.Context) error {
 	for {
 		select {
 		case <-timer.C:
-			nextRenewal, err := s.updateCertSigner(ctx)
-			if err != nil {
-				timer.Reset(retryInterval)
-
-				break
-			}
-
-			if nextRenewal.IsZero() {
-				return nil
-			}
-
-			timer.Reset(time.Until(nextRenewal))
+		case <-s.renewCh:
+			s.logger.Info("CA key reloaded, re-signing certificate", zap.String("cert_type", s.certReq.certType.String()))
 		case <-ctx.Done():
 			return ctx.Err()
 		}
+
+		nextRenewal, err := s.updateCertSigner(ctx)
+		if err != nil {
+			timer.Reset(retryInterval)
+
+			continue
+		}
+
+		if nextRenewal.IsZero() {
+			return nil
+		}
+
+		timer.Reset(time.Until(nextRenewal))
 	}
 }
 
