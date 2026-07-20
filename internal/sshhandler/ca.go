@@ -37,6 +37,12 @@ type ca interface {
 	sign(ctx context.Context, req *certificateRequest) (*ssh.Certificate, error)
 }
 
+// rotatingCA is a CA whose signing key can rotate during the process lifetime.
+// The channel returned by rotated receives a value after each rotation.
+type rotatingCA interface {
+	rotated() <-chan struct{}
+}
+
 // caConfig contains the CAs needed for SSH authentication operations.
 type caConfig struct {
 	GatewayHostCA  ca // Signs Gateway's host certificates (presented to clients)
@@ -93,6 +99,7 @@ func newManualCA(privateKeyFile string, logger *zap.Logger) (*caConfig, error) {
 
 	ca := &embeddedCA{
 		getSigner: reloader.getSigner,
+		rotateCh:  reloader.reloadCh,
 	}
 
 	publicKeyStr := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(reloader.getSigner().PublicKey())))
@@ -164,6 +171,11 @@ const clockSkewBuffer = 30 * time.Second
 // through a getter on every operation, so it can be swapped by a keyReloader.
 type embeddedCA struct {
 	getSigner func() ssh.Signer
+	rotateCh  <-chan struct{} // Receives a value after each key rotation (implements rotatingCA)
+}
+
+func (ca *embeddedCA) rotated() <-chan struct{} {
+	return ca.rotateCh
 }
 
 func (ca *embeddedCA) publicKey(_ context.Context) (ssh.PublicKey, error) {

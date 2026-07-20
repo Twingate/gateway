@@ -86,7 +86,7 @@ func TestAutoRenewingCertSigner_RenewsAtExpectedTime(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
 
-		s, err := newAutoRenewingCertSigner(ctx, ca, req, keySigner, nil, logger)
+		s, err := newAutoRenewingCertSigner(ctx, ca, req, keySigner, logger)
 		require.NoError(t, err)
 		require.NotNil(t, s.PublicKey())
 		require.IsType(t, &ssh.Certificate{}, s.PublicKey())
@@ -147,7 +147,7 @@ func TestAutoRenewingCertSigner_RetriesOnRenewError(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
 
-		s, err := newAutoRenewingCertSigner(ctx, ca, req, keySigner, nil, logger)
+		s, err := newAutoRenewingCertSigner(ctx, ca, req, keySigner, logger)
 		require.NoError(t, err)
 
 		errCh := make(chan error, 1)
@@ -194,9 +194,10 @@ func TestAutoRenewingCertSigner_ResignsOnCAKeyRotation(t *testing.T) {
 
 	ca := &embeddedCA{
 		getSigner: keyReloader.getSigner,
+		rotateCh:  keyReloader.reloadCh,
 	}
 
-	s, err := newAutoRenewingCertSigner(t.Context(), ca, req, keySigner, keyReloader.reloadCh, zap.NewNop())
+	s, err := newAutoRenewingCertSigner(t.Context(), ca, req, keySigner, zap.NewNop())
 	require.NoError(t, err)
 
 	go func() {
