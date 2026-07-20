@@ -88,6 +88,8 @@ func TestKeyReloaderReloadWhenKubernetesSecretUpdated(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(newDataDir, "ca"), newKeyPEM, 0600))
 	require.NoError(t, os.Symlink("..timestamp2", filepath.Join(mount, "..data_tmp")))
 	require.NoError(t, os.Rename(filepath.Join(mount, "..data_tmp"), filepath.Join(mount, "..data")))
+	// The symlink swap emits no fsnotify event. Removing the old data dir triggers the reload
+	// and by then ..data already resolves to the new key.
 	require.NoError(t, os.RemoveAll(oldDataDir))
 
 	assert.EventuallyWithT(t, func(c *assert.CollectT) {
