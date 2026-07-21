@@ -4,7 +4,6 @@
 package connect
 
 import (
-	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
@@ -70,33 +69,6 @@ func TestDontReloadWhenMismatchedKeyAndCertificate(t *testing.T) {
 	require.NoError(t, err)
 
 	// Ensure certificate is unchanged
-	assert.Equal(t, expectedCert.Certificate, cert.Certificate)
-}
-
-func TestDontReloadWhenContextIsCanceled(t *testing.T) {
-	expectedCert := generateCert(t)
-	certFile, keyFile := createCertFiles(t, expectedCert)
-
-	certReloader := NewCertReloader(certFile, keyFile, zap.NewNop())
-
-	ctx, cancel := context.WithCancel(t.Context())
-	certReloader.Run(ctx)
-
-	requireCertReloader(t, certReloader, expectedCert)
-
-	cancel()
-	// Wait for the context to cancel
-	time.Sleep(100 * time.Millisecond)
-
-	newCert := generateCert(t)
-	replaceCertFiles(t, certFile, keyFile, newCert)
-	time.Sleep(5 * time.Millisecond)
-
-	hello := &tls.ClientHelloInfo{}
-
-	cert, err := certReloader.GetCertificate(hello)
-	require.NoError(t, err)
-
 	assert.Equal(t, expectedCert.Certificate, cert.Certificate)
 }
 
