@@ -183,7 +183,7 @@ func (c *Config) GetUpstreamConfig(ctx context.Context, upstream upstream) (*ssh
 		return nil, fmt.Errorf("failed to create Gateway's user certificate: %w", err)
 	}
 
-	hostKeyCallback, err := upstreamHostKeyCallback(ctx, c.caProvider.upstreamHostCA(), upstream.address)
+	hostKeyCallback, err := c.caProvider.upstreamHostKeyCallback(ctx, upstream.address)
 	if err != nil {
 		return nil, err
 	}

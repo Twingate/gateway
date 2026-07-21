@@ -326,10 +326,9 @@ func TestProxy_UpstreamFailures(t *testing.T) {
 			setup: func(t *testing.T, sshProxy *SSHProxy) string {
 				t.Helper()
 
-				// The proxy requires host certificates from this CA, but the upstream presents
-				// a plain host key, so host verification fails.
+				// Upstream host verification rejects the key the upstream presents.
 				fake := newFakeCAProvider(sshProxy.config.caProvider)
-				fake.upstream = &embeddedCA{getSigner: staticSigner(testSigner(t))}
+				fake.rejectUpstreamHost = true
 				sshProxy.config.caProvider = fake
 
 				return newEchoServer(t, caPublicKey(t, sshProxy.config.caProvider.gatewayUserCA())).addr
@@ -452,24 +451,36 @@ const testProxyUsername = "proxy-user"
 // fakeCAProvider is a caProvider whose CAs a test sets directly, so failure paths can
 // inject stub CAs without a real backend.
 type fakeCAProvider struct {
-	host, user, upstream ca
+	host, user ca
+
+	// rejectUpstreamHost makes upstreamHostKeyCallback reject the upstream host key, so a
+	// test can exercise the proxy's upstream host-verification failure path.
+	rejectUpstreamHost bool
 }
 
 func (p *fakeCAProvider) Start(_ context.Context) error {
 	return nil
 }
 
-func (p *fakeCAProvider) gatewayHostCA() ca  { return p.host }
-func (p *fakeCAProvider) gatewayUserCA() ca  { return p.user }
-func (p *fakeCAProvider) upstreamHostCA() ca { return p.upstream }
+func (p *fakeCAProvider) gatewayHostCA() ca { return p.host }
+func (p *fakeCAProvider) gatewayUserCA() ca { return p.user }
 
-// newFakeCAProvider returns a fake seeded with the given provider's CAs, so a test can
-// replace a single CA while leaving the rest intact.
+func (p *fakeCAProvider) upstreamHostKeyCallback(_ context.Context, _ string) (ssh.HostKeyCallback, error) {
+	return func(_ string, _ net.Addr, _ ssh.PublicKey) error {
+		if p.rejectUpstreamHost {
+			return errors.New("upstream host key rejected")
+		}
+
+		return nil
+	}, nil
+}
+
+// newFakeCAProvider returns a fake seeded with the given provider's CAs, so a
+// test can replace a single CA while leaving the rest intact.
 func newFakeCAProvider(current caProvider) *fakeCAProvider {
 	return &fakeCAProvider{
-		host:     current.gatewayHostCA(),
-		user:     current.gatewayUserCA(),
-		upstream: current.upstreamHostCA(),
+		host: current.gatewayHostCA(),
+		user: current.gatewayUserCA(),
 	}
 }
 
