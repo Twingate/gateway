@@ -56,7 +56,7 @@ func (cr *CertReloader) load() error {
 	cr.cert = &cert
 	cr.mu.Unlock()
 
-	cr.logger.Info("reloaded cert and key files")
+	cr.logger.Info("loaded cert and key files")
 
 	return nil
 }

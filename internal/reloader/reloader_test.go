@@ -76,8 +76,7 @@ func TestReloadsWhenFileChanged(t *testing.T) {
 	file := createFile(t, dir, "test_file", "old")
 	rec := &recorder{file: file}
 
-	reloader := New("test file", zap.NewNop(), rec.load, file)
-	reloader.Run(t.Context())
+	New("test file", zap.NewNop(), rec.load, file).Run(t.Context())
 
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		assert.Equal(c, "old", rec.get())
@@ -95,8 +94,7 @@ func TestReloadsWhenFileReplacedAtomically(t *testing.T) {
 	file := createFile(t, dir, "test_file", "old")
 	rec := &recorder{file: file}
 
-	reloader := New("test file", zap.NewNop(), rec.load, file)
-	reloader.Run(t.Context())
+	New("test file", zap.NewNop(), rec.load, file).Run(t.Context())
 
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		assert.Equal(c, "old", rec.get())
@@ -128,8 +126,7 @@ func TestReloadsAfterKubernetesSecretUpdate(t *testing.T) {
 	watched := filepath.Join(mount, "file")
 	rec := &recorder{file: watched}
 
-	reloader := New("test file", zap.NewNop(), rec.load, watched)
-	reloader.Run(t.Context())
+	New("test file", zap.NewNop(), rec.load, watched).Run(t.Context())
 
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		assert.Equal(c, "old", rec.get())
@@ -166,8 +163,7 @@ func TestReloadsMultipleFiles(t *testing.T) {
 		return nil
 	}
 
-	reloader := New("a and b", zap.NewNop(), reload, fileA, fileB)
-	reloader.Run(t.Context())
+	New("a and b", zap.NewNop(), reload, fileA, fileB).Run(t.Context())
 
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		mu.Lock()
@@ -195,8 +191,7 @@ func TestKeepsWatchingAfterLoadError(t *testing.T) {
 	file := createFile(t, dir, "test_file", "old")
 	rec := &recorder{file: file}
 
-	reloader := New("test file", zap.New(core), rec.load, file)
-	reloader.Run(t.Context())
+	New("test file", zap.New(core), rec.load, file).Run(t.Context())
 
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		assert.Equal(c, "old", rec.get())
