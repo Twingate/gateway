@@ -115,6 +115,49 @@ func TestNewManualCA_Success(t *testing.T) {
 	require.Equal(t, strings.TrimSpace(string(ssh.MarshalAuthorizedKey(pubKey))), log.ContextMap()["ca_public_key"])
 }
 
+func TestNewManualCA_ReloadsPrivateKey(t *testing.T) {
+	keyPEM, publicKey := generateCAKey(t)
+	keyFile := createCAKeyFile(t, keyPEM)
+
+	core, logs := observer.New(zapcore.InfoLevel)
+
+	caConfig, err := newManualCA(keyFile, zap.New(core))
+	require.NoError(t, err)
+	require.NoError(t, caConfig.Start(t.Context()))
+
+	initialPublicKey, err := caConfig.GatewayHostCA.publicKey(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, publicKey.Marshal(), initialPublicKey.Marshal())
+
+	// Wait until the watcher is registered and its initial load is done, so the replacement
+	// below is observed as a change instead of racing watcher setup.
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		require.NotEmpty(c, logs.FilterMessage("Start watching CA private key file changes").All())
+	}, time.Second, 5*time.Millisecond)
+
+	newKeyPEM, newPublicKey := generateCAKey(t)
+	replaceCAKeyFile(t, keyFile, newKeyPEM)
+
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		reloadedPublicKey, err := caConfig.GatewayHostCA.publicKey(t.Context())
+		require.NoError(c, err)
+
+		require.Equal(c, newPublicKey.Marshal(), reloadedPublicKey.Marshal())
+	}, time.Second, 5*time.Millisecond, "CA public key was not reloaded")
+
+	// Certificates signed after the reload are signed by the new CA key
+	_, subjectPublicKey, err := keyConfig{}.Generate(rand.Reader)
+	require.NoError(t, err)
+
+	cert, err := caConfig.GatewayUserCA.sign(t.Context(), &certificateRequest{
+		certType:  UserCert,
+		publicKey: subjectPublicKey,
+		ttl:       time.Minute,
+	})
+	require.NoError(t, err)
+	require.Equal(t, newPublicKey.Marshal(), cert.SignatureKey.Marshal())
+}
+
 func TestNewManualCA_PrivateKeyFileNotFound(t *testing.T) {
 	_, err := newManualCA("/nonexistent/ca", zap.NewNop())
 	require.Error(t, err)
