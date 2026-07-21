@@ -241,23 +241,26 @@ func TestRetriesWatchWhenFileRemoved(t *testing.T) {
 }
 
 func TestDoesNotReloadWhenContextCanceled(t *testing.T) {
+	core, logs := observer.New(zapcore.InfoLevel)
+
 	dir := t.TempDir()
 	file := createFile(t, dir, "test_file", "old")
 	rec := &recorder{file: file}
 
 	ctx, cancel := context.WithCancel(t.Context())
-	New("test file", zap.NewNop(), rec.load, file).Run(ctx)
+	New("test file", zap.New(core), rec.load, file).Run(ctx)
 
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		assert.Equal(c, "old", rec.get())
 	}, time.Second, 5*time.Millisecond)
 
+	// Wait until the watcher confirms it stopped, so the write below cannot race an in-flight watch.
 	cancel()
-	time.Sleep(100 * time.Millisecond)
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		require.NotEmpty(c, logs.FilterMessage("Stopped watching test file changes").All())
+	}, time.Second, 5*time.Millisecond)
 
 	require.NoError(t, os.WriteFile(file, []byte("new"), 0600))
-	time.Sleep(5 * time.Millisecond)
-
 	assert.Equal(t, "old", rec.get())
 }
 
