@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -18,23 +17,38 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-func TestKeyReloaderReloadWhenFileChanged(t *testing.T) {
-	oldKeyPEM, oldPublicKey := generateCAKey(t)
-	keyFile := createCAKeyFile(t, oldKeyPEM)
-	keyReloader := newKeyReloader(keyFile, zap.NewNop())
-	keyReloader.Run(t.Context())
+func TestKeyReloader_load(t *testing.T) {
+	keyPEM, publicKey := generateCAKey(t)
+	keyFile := createCAKeyFile(t, keyPEM)
+	invalidKeyFile := createCAKeyFile(t, []byte("not a private key"))
 
-	requireKeyReloaderSigner(t, keyReloader, oldPublicKey)
+	tests := []struct {
+		name    string
+		keyFile string
+		wantErr bool
+	}{
+		{name: "valid key", keyFile: keyFile},
+		{name: "invalid key", keyFile: invalidKeyFile, wantErr: true},
+		{name: "missing file", keyFile: "nonexistent", wantErr: true},
+	}
 
-	newKeyPEM, newPublicKey := generateCAKey(t)
-	replaceCAKeyFile(t, keyFile, newKeyPEM)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			kr := newKeyReloader(tt.keyFile, zap.NewNop())
 
-	assert.EventuallyWithT(t, func(c *assert.CollectT) {
-		signer := keyReloader.getSigner()
-		require.NotNil(c, signer)
+			if tt.wantErr {
+				require.Error(t, kr.load())
 
-		assert.Equal(c, newPublicKey.Marshal(), signer.PublicKey().Marshal())
-	}, time.Second, 5*time.Millisecond)
+				return
+			}
+
+			require.NoError(t, kr.load())
+
+			signer := kr.getSigner()
+			require.NotNil(t, signer)
+			assert.Equal(t, publicKey.Marshal(), signer.PublicKey().Marshal())
+		})
+	}
 }
 
 func TestKeyReloaderSignalsReloadOnKeyChange(t *testing.T) {
@@ -74,17 +88,6 @@ func TestKeyReloaderSignalsReloadOnKeyChange(t *testing.T) {
 	}
 
 	requireNoReloadSignal()
-}
-
-func requireKeyReloaderSigner(t *testing.T, keyReloader *keyReloader, expectedPublicKey ssh.PublicKey) {
-	t.Helper()
-
-	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		signer := keyReloader.getSigner()
-		require.NotNil(c, signer)
-
-		require.Equal(c, expectedPublicKey.Marshal(), signer.PublicKey().Marshal())
-	}, time.Second, 5*time.Millisecond, "failed to get signer")
 }
 
 func generateCAKey(t *testing.T) (keyPEM []byte, publicKey ssh.PublicKey) {

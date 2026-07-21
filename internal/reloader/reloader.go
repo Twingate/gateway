@@ -1,7 +1,6 @@
 // Copyright (c) Twingate Inc.
 // SPDX-License-Identifier: MPL-2.0
 
-// Package reloader watches files and reloads their backing resource on change.
 package reloader
 
 import (
@@ -14,31 +13,31 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 )
 
-// Reloader watches a set of files and invokes reload whenever any of them
+// Reloader watches a set of files and invokes load whenever any of them
 // changes, retrying the watch loop after transient failures.
 type Reloader struct {
 	name   string
 	files  []string
-	reload func() error
+	load   func() error
 	logger *zap.Logger
 }
 
-// New creates a Reloader that watches files and calls reload on every change.
-func New(name string, logger *zap.Logger, reload func() error, files ...string) *Reloader {
+// New creates a Reloader that watches files and calls load on every change.
+func New(name string, logger *zap.Logger, load func() error, files ...string) *Reloader {
 	return &Reloader{
 		name:   name,
 		files:  files,
-		reload: reload,
+		load:   load,
 		logger: logger,
 	}
 }
 
-// Run watches the files in the background until ctx is canceled, restarting the
+// Run watches the files in the background until context is canceled and restarting the
 // watch loop after transient failures.
 func (r *Reloader) Run(ctx context.Context) {
 	go wait.Until(func() {
 		if err := r.watch(ctx); err != nil {
-			r.logger.Error(fmt.Sprintf("failed to watch %s, will retry later", r.name), zap.Error(err))
+			r.logger.Error(fmt.Sprintf("Failed to watch %s, will retry later", r.name), zap.Error(err))
 		}
 	}, time.Minute, ctx.Done())
 }
@@ -56,7 +55,7 @@ func (r *Reloader) watch(ctx context.Context) error {
 		}
 	}
 
-	if err := r.reload(); err != nil {
+	if err := r.load(); err != nil {
 		return fmt.Errorf("error loading %s: %w", r.name, err)
 	}
 
@@ -82,15 +81,15 @@ func (r *Reloader) handleWatchEvent(event fsnotify.Event, watcher *fsnotify.Watc
 	r.logger.Debug("Received watch event", zap.Any("event", event))
 
 	if !event.Has(fsnotify.Remove) && !event.Has(fsnotify.Rename) {
-		if err := r.reload(); err != nil {
-			r.logger.Error("failed to load "+r.name, zap.Error(err))
+		if err := r.load(); err != nil {
+			r.logger.Error("Failed to load "+r.name, zap.Error(err))
 		}
 
 		return nil
 	}
 
 	if err := watcher.Remove(event.Name); err != nil {
-		r.logger.Info("failed to remove file watch, it may have been deleted", zap.Error(err))
+		r.logger.Info("Failed to remove file watch, it may have been deleted", zap.Error(err))
 	}
 
 	return watcher.Add(event.Name)

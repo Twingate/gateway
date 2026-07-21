@@ -20,18 +20,17 @@ import (
 	"go.uber.org/zap/zaptest/observer"
 )
 
-// recorder loads a file's content through the reload callback in a
+// recorder loads a file's content through the load callback in a
 // concurrency-safe way so tests can observe reloads.
 type recorder struct {
 	file string
 
-	mu      sync.Mutex
+	mu      sync.RWMutex
 	content string
-	loads   int
 	failNow bool
 }
 
-func (r *recorder) reload() error {
+func (r *recorder) load() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -45,14 +44,13 @@ func (r *recorder) reload() error {
 	}
 
 	r.content = string(data)
-	r.loads++
 
 	return nil
 }
 
 func (r *recorder) get() string {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 
 	return r.content
 }
@@ -64,7 +62,7 @@ func (r *recorder) setFailNow(fail bool) {
 	r.failNow = fail
 }
 
-func writeFile(t *testing.T, dir, name, content string) string {
+func createFile(t *testing.T, dir, name, content string) string {
 	t.Helper()
 
 	path := filepath.Join(dir, name)
@@ -75,10 +73,11 @@ func writeFile(t *testing.T, dir, name, content string) string {
 
 func TestReloadsWhenFileChanged(t *testing.T) {
 	dir := t.TempDir()
-	file := writeFile(t, dir, "resource", "old")
+	file := createFile(t, dir, "test_file", "old")
 	rec := &recorder{file: file}
 
-	New("resource", zap.NewNop(), rec.reload, file).Run(t.Context())
+	reloader := New("test file", zap.NewNop(), rec.load, file)
+	reloader.Run(t.Context())
 
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		assert.Equal(c, "old", rec.get())
@@ -93,16 +92,17 @@ func TestReloadsWhenFileChanged(t *testing.T) {
 
 func TestReloadsWhenFileReplacedAtomically(t *testing.T) {
 	dir := t.TempDir()
-	file := writeFile(t, dir, "resource", "old")
+	file := createFile(t, dir, "test_file", "old")
 	rec := &recorder{file: file}
 
-	New("resource", zap.NewNop(), rec.reload, file).Run(t.Context())
+	reloader := New("test file", zap.NewNop(), rec.load, file)
+	reloader.Run(t.Context())
 
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		assert.Equal(c, "old", rec.get())
 	}, time.Second, 5*time.Millisecond)
 
-	tmp := filepath.Join(dir, "resource.new")
+	tmp := filepath.Join(dir, "test_file.new")
 	require.NoError(t, os.WriteFile(tmp, []byte("new"), 0600))
 	require.NoError(t, os.Rename(tmp, file))
 
@@ -128,7 +128,8 @@ func TestReloadsAfterKubernetesSecretUpdate(t *testing.T) {
 	watched := filepath.Join(mount, "file")
 	rec := &recorder{file: watched}
 
-	New("resource", zap.NewNop(), rec.reload, watched).Run(t.Context())
+	reloader := New("test file", zap.NewNop(), rec.load, watched)
+	reloader.Run(t.Context())
 
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		assert.Equal(c, "old", rec.get())
@@ -150,8 +151,8 @@ func TestReloadsAfterKubernetesSecretUpdate(t *testing.T) {
 
 func TestReloadsMultipleFiles(t *testing.T) {
 	dir := t.TempDir()
-	fileA := writeFile(t, dir, "a", "a1")
-	fileB := writeFile(t, dir, "b", "b1")
+	fileA := createFile(t, dir, "a", "a1")
+	fileB := createFile(t, dir, "b", "b1")
 
 	var mu sync.Mutex
 
@@ -165,7 +166,8 @@ func TestReloadsMultipleFiles(t *testing.T) {
 		return nil
 	}
 
-	New("a and b", zap.NewNop(), reload, fileA, fileB).Run(t.Context())
+	reloader := New("a and b", zap.NewNop(), reload, fileA, fileB)
+	reloader.Run(t.Context())
 
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		mu.Lock()
@@ -190,10 +192,11 @@ func TestKeepsWatchingAfterLoadError(t *testing.T) {
 	core, logs := observer.New(zapcore.ErrorLevel)
 
 	dir := t.TempDir()
-	file := writeFile(t, dir, "resource", "old")
+	file := createFile(t, dir, "test_file", "old")
 	rec := &recorder{file: file}
 
-	New("resource", zap.New(core), rec.reload, file).Run(t.Context())
+	reloader := New("test file", zap.New(core), rec.load, file)
+	reloader.Run(t.Context())
 
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		assert.Equal(c, "old", rec.get())
@@ -203,7 +206,7 @@ func TestKeepsWatchingAfterLoadError(t *testing.T) {
 	require.NoError(t, os.WriteFile(file, []byte("bad"), 0600))
 
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		require.NotEmpty(c, logs.FilterMessage("failed to load resource").All())
+		require.NotEmpty(c, logs.FilterMessage("Failed to load test file").All())
 	}, time.Second, 5*time.Millisecond)
 
 	assert.Equal(t, "old", rec.get())
@@ -220,10 +223,10 @@ func TestRetriesWatchWhenFileRemoved(t *testing.T) {
 	core, logs := observer.New(zapcore.ErrorLevel)
 
 	dir := t.TempDir()
-	file := writeFile(t, dir, "resource", "old")
+	file := createFile(t, dir, "test_file", "old")
 	rec := &recorder{file: file}
 
-	New("resource", zap.New(core), rec.reload, file).Run(t.Context())
+	New("test file", zap.New(core), rec.load, file).Run(t.Context())
 
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		assert.Equal(c, "old", rec.get())
@@ -233,17 +236,17 @@ func TestRetriesWatchWhenFileRemoved(t *testing.T) {
 
 	// Re-adding the watch fails because the file is gone: the watch exits and retries later.
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		require.NotEmpty(c, logs.FilterMessage("failed to watch resource, will retry later").All())
+		require.NotEmpty(c, logs.FilterMessage("Failed to watch test file, will retry later").All())
 	}, time.Second, 5*time.Millisecond)
 }
 
 func TestDoesNotReloadWhenContextCanceled(t *testing.T) {
 	dir := t.TempDir()
-	file := writeFile(t, dir, "resource", "old")
+	file := createFile(t, dir, "test_file", "old")
 	rec := &recorder{file: file}
 
 	ctx, cancel := context.WithCancel(t.Context())
-	New("resource", zap.NewNop(), rec.reload, file).Run(ctx)
+	New("test file", zap.NewNop(), rec.load, file).Run(ctx)
 
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		assert.Equal(c, "old", rec.get())
@@ -263,17 +266,17 @@ func TestLogsRetryWhenInitialLoadFails(t *testing.T) {
 		core, logs := observer.New(zapcore.DebugLevel)
 
 		dir := t.TempDir()
-		file := writeFile(t, dir, "resource", "old")
+		file := createFile(t, dir, "test_file", "old")
 		rec := &recorder{file: file, failNow: true}
 
-		New("resource", zap.New(core), rec.reload, file).Run(t.Context())
+		New("test file", zap.New(core), rec.load, file).Run(t.Context())
 
 		synctest.Wait()
 
 		all := logs.All()
 		require.NotEmpty(t, all)
 		assert.Equal(t, zapcore.ErrorLevel, all[0].Level)
-		assert.Equal(t, "failed to watch resource, will retry later", all[0].Message)
+		assert.Equal(t, "Failed to watch test file, will retry later", all[0].Message)
 	})
 }
 
@@ -282,13 +285,13 @@ func TestLogsRetryWhenFileMissing(t *testing.T) {
 		core, logs := observer.New(zapcore.DebugLevel)
 		rec := &recorder{file: "/nonexistent/resource"}
 
-		New("resource", zap.New(core), rec.reload, "/nonexistent/resource").Run(t.Context())
+		New("test file", zap.New(core), rec.load, "/nonexistent/resource").Run(t.Context())
 
 		synctest.Wait()
 
 		all := logs.All()
 		require.NotEmpty(t, all)
 		assert.Equal(t, zapcore.ErrorLevel, all[0].Level)
-		assert.Equal(t, "failed to watch resource, will retry later", all[0].Message)
+		assert.Equal(t, "Failed to watch test file, will retry later", all[0].Message)
 	})
 }
