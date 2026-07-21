@@ -108,10 +108,12 @@ func TestProxy_StartFailure(t *testing.T) {
 			setup: func(t *testing.T, sshProxy *SSHProxy) {
 				t.Helper()
 
-				overrideCAProvider(sshProxy).host = &stubCA{
+				fake := newFakeCAProvider(sshProxy.config.caProvider)
+				fake.host = &stubCA{
 					signer:     testSigner(t),
 					errOnCalls: map[int]error{1: errors.New("sign failed")},
 				}
+				sshProxy.config.caProvider = fake
 			},
 			wantErr: "host cert signer",
 		},
@@ -274,10 +276,12 @@ func TestProxy_UpstreamFailures(t *testing.T) {
 
 				// The proxy signs a fresh user certificate per connection; a stub CA that
 				// fails to sign breaks that before anything is dialed.
-				overrideCAProvider(sshProxy).user = &stubCA{
+				fake := newFakeCAProvider(sshProxy.config.caProvider)
+				fake.user = &stubCA{
 					signer:     testSigner(t),
 					errOnCalls: map[int]error{1: errors.New("sign failed")},
 				}
+				sshProxy.config.caProvider = fake
 
 				return "unused:22"
 			},
@@ -324,7 +328,9 @@ func TestProxy_UpstreamFailures(t *testing.T) {
 
 				// The proxy requires host certificates from this CA, but the upstream presents
 				// a plain host key, so host verification fails.
-				overrideCAProvider(sshProxy).upstream = &embeddedCA{getSigner: staticSigner(testSigner(t))}
+				fake := newFakeCAProvider(sshProxy.config.caProvider)
+				fake.upstream = &embeddedCA{getSigner: staticSigner(testSigner(t))}
+				sshProxy.config.caProvider = fake
 
 				return newEchoServer(t, caPublicKey(t, sshProxy.config.caProvider.gatewayUserCA())).addr
 			},
@@ -443,37 +449,28 @@ func TestProxy_Shutdown_ClosesActiveConnection(t *testing.T) {
 // testProxyUsername is the username the test proxy presents to upstream servers.
 const testProxyUsername = "proxy-user"
 
-// fakeCAProvider is a caProvider whose CAs and Start behavior a test sets directly,
-// so failure paths can inject stub CAs without a real backend.
+// fakeCAProvider is a caProvider whose CAs a test sets directly, so failure paths can
+// inject stub CAs without a real backend.
 type fakeCAProvider struct {
 	host, user, upstream ca
-	start                func(ctx context.Context) error
 }
 
-func (p *fakeCAProvider) Start(ctx context.Context) error {
-	if p.start == nil {
-		return nil
-	}
-
-	return p.start(ctx)
+func (p *fakeCAProvider) Start(_ context.Context) error {
+	return nil
 }
 
 func (p *fakeCAProvider) gatewayHostCA() ca  { return p.host }
 func (p *fakeCAProvider) gatewayUserCA() ca  { return p.user }
 func (p *fakeCAProvider) upstreamHostCA() ca { return p.upstream }
 
-// overrideCAProvider swaps the proxy's caProvider for a fake seeded with the current
-// CAs and returns it, so a test can replace a single CA while leaving the rest intact.
-func overrideCAProvider(sshProxy *SSHProxy) *fakeCAProvider {
-	current := sshProxy.config.caProvider
-	fake := &fakeCAProvider{
+// newFakeCAProvider returns a fake seeded with the given provider's CAs, so a test can
+// replace a single CA while leaving the rest intact.
+func newFakeCAProvider(current caProvider) *fakeCAProvider {
+	return &fakeCAProvider{
 		host:     current.gatewayHostCA(),
 		user:     current.gatewayUserCA(),
 		upstream: current.upstreamHostCA(),
 	}
-	sshProxy.config.caProvider = fake
-
-	return fake
 }
 
 // newTestProxy builds an SSHProxy in manual CA mode with its downstream config ready, so tests
