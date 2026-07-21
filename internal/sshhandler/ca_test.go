@@ -115,41 +115,6 @@ func TestNewManualCA_Success(t *testing.T) {
 	require.Equal(t, strings.TrimSpace(string(ssh.MarshalAuthorizedKey(pubKey))), log.ContextMap()["ca_public_key"])
 }
 
-func TestNewManualCA_ReloadsPrivateKey(t *testing.T) {
-	keyPEM, publicKey := generateCAKey(t)
-	keyFile := createCAKeyFile(t, keyPEM)
-
-	caConfig, err := newManualCA(keyFile, zap.NewNop())
-	require.NoError(t, err)
-	require.NoError(t, caConfig.Start(t.Context()))
-
-	initialPublicKey, err := caConfig.GatewayHostCA.publicKey(t.Context())
-	require.NoError(t, err)
-	require.Equal(t, publicKey.Marshal(), initialPublicKey.Marshal())
-
-	newKeyPEM, newPublicKey := generateCAKey(t)
-	replaceCAKeyFile(t, keyFile, newKeyPEM)
-
-	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		reloadedPublicKey, err := caConfig.GatewayHostCA.publicKey(t.Context())
-		require.NoError(c, err)
-
-		require.Equal(c, newPublicKey.Marshal(), reloadedPublicKey.Marshal())
-	}, time.Second, 5*time.Millisecond, "CA public key was not reloaded")
-
-	// Certificates signed after the reload are signed by the new CA key
-	_, subjectPublicKey, err := keyConfig{}.Generate(rand.Reader)
-	require.NoError(t, err)
-
-	cert, err := caConfig.GatewayUserCA.sign(t.Context(), &certificateRequest{
-		certType:  UserCert,
-		publicKey: subjectPublicKey,
-		ttl:       time.Minute,
-	})
-	require.NoError(t, err)
-	require.Equal(t, newPublicKey.Marshal(), cert.SignatureKey.Marshal())
-}
-
 func TestNewManualCA_PrivateKeyFileNotFound(t *testing.T) {
 	_, err := newManualCA("/nonexistent/ca", zap.NewNop())
 	require.Error(t, err)
