@@ -150,7 +150,7 @@ func newVaultCA(vaultConfig *gatewayconfig.SSHCAVaultConfig, logger *zap.Logger)
 
 // Start performs initial Vault authentication and starts the token renewal loop.
 func (p *vaultCAProvider) Start(ctx context.Context) error {
-	if p.vault == nil || p.vault.authMethod == nil {
+	if p.vault.authMethod == nil {
 		return nil
 	}
 
