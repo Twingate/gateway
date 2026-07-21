@@ -90,20 +90,20 @@ func TestNewManualCA_Success(t *testing.T) {
 	core, logs := observer.New(zapcore.InfoLevel)
 	logger := zap.New(core)
 
-	caConfig, err := newManualCA("../../test/data/ssh/ca/ca", logger)
+	provider, err := newManualCA("../../test/data/ssh/ca/ca", logger)
 	require.NoError(t, err)
 
-	require.NotNil(t, caConfig.GatewayHostCA)
-	require.NotNil(t, caConfig.GatewayUserCA)
-	require.Nil(t, caConfig.UpstreamHostCA, "UpstreamHostCA should be nil for TOFU mode")
-	require.NotNil(t, caConfig.keyReloader, "keyReloader should watch the manual CA key file")
+	require.NotNil(t, provider.gatewayHostCA())
+	require.NotNil(t, provider.gatewayUserCA())
+	require.Nil(t, provider.upstreamHostCA(), "upstreamHostCA should be nil for TOFU mode")
+	require.NotNil(t, provider.keyReloader, "keyReloader should watch the manual CA key file")
 
-	require.Same(t, caConfig.GatewayHostCA, caConfig.GatewayUserCA, "GatewayHostCA and GatewayUserCA should be the same instance")
+	require.Same(t, provider.gatewayHostCA(), provider.gatewayUserCA(), "gatewayHostCA and gatewayUserCA should be the same instance")
 
 	expectedPubKey, err := parsePublicKey(data.SSHCAPublicKey)
 	require.NoError(t, err)
 
-	pubKey, err := caConfig.GatewayHostCA.publicKey(context.Background())
+	pubKey, err := provider.gatewayHostCA().publicKey(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, expectedPubKey.Marshal(), pubKey.Marshal())
 
@@ -119,11 +119,11 @@ func TestNewManualCA_ReloadsPrivateKey(t *testing.T) {
 	keyPEM, publicKey := generateCAKey(t)
 	keyFile := createCAKeyFile(t, keyPEM)
 
-	caConfig, err := newManualCA(keyFile, zap.NewNop())
+	provider, err := newManualCA(keyFile, zap.NewNop())
 	require.NoError(t, err)
-	require.NoError(t, caConfig.Start(t.Context()))
+	require.NoError(t, provider.Start(t.Context()))
 
-	initialPublicKey, err := caConfig.GatewayHostCA.publicKey(t.Context())
+	initialPublicKey, err := provider.gatewayHostCA().publicKey(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, publicKey.Marshal(), initialPublicKey.Marshal())
 
@@ -131,7 +131,7 @@ func TestNewManualCA_ReloadsPrivateKey(t *testing.T) {
 	replaceCAKeyFile(t, keyFile, newKeyPEM)
 
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		reloadedPublicKey, err := caConfig.GatewayHostCA.publicKey(t.Context())
+		reloadedPublicKey, err := provider.gatewayHostCA().publicKey(t.Context())
 		require.NoError(c, err)
 
 		require.Equal(c, newPublicKey.Marshal(), reloadedPublicKey.Marshal())
@@ -141,7 +141,7 @@ func TestNewManualCA_ReloadsPrivateKey(t *testing.T) {
 	_, subjectPublicKey, err := keyConfig{}.Generate(rand.Reader)
 	require.NoError(t, err)
 
-	cert, err := caConfig.GatewayUserCA.sign(t.Context(), &certificateRequest{
+	cert, err := provider.gatewayUserCA().sign(t.Context(), &certificateRequest{
 		certType:  UserCert,
 		publicKey: subjectPublicKey,
 		ttl:       time.Minute,
@@ -168,21 +168,18 @@ func TestNewCAFromConfig_ManualConfig(t *testing.T) {
 		},
 	}
 
-	caConfig, err := newCAFromConfig(config, zap.NewNop())
+	provider, err := newCAFromConfig(config, zap.NewNop())
 	require.NoError(t, err)
 
-	require.IsType(t, &embeddedCA{}, caConfig.GatewayHostCA)
-	require.IsType(t, &embeddedCA{}, caConfig.GatewayUserCA)
-	require.Nil(t, caConfig.UpstreamHostCA)
+	require.IsType(t, &embeddedCA{}, provider.gatewayHostCA())
+	require.IsType(t, &embeddedCA{}, provider.gatewayUserCA())
+	require.Nil(t, provider.upstreamHostCA())
 }
 
 func TestUpstreamHostKeyCallback_NilUpstreamHostCA(t *testing.T) {
 	upstreamAddress := "10.0.0.1:22"
-	caConfig := &caConfig{
-		UpstreamHostCA: nil,
-	}
 
-	callback, err := caConfig.upstreamHostKeyCallback(context.Background(), upstreamAddress)
+	callback, err := upstreamHostKeyCallback(context.Background(), nil, upstreamAddress)
 	require.NoError(t, err)
 	require.NotNil(t, callback)
 
@@ -203,11 +200,7 @@ func TestUpstreamHostKeyCallback_WithUpstreamHostCA(t *testing.T) {
 		getSigner: staticSigner(caSigner),
 	}
 
-	caConfig := &caConfig{
-		UpstreamHostCA: upstreamCA,
-	}
-
-	callback, err := caConfig.upstreamHostKeyCallback(context.Background(), upstreamAddress)
+	callback, err := upstreamHostKeyCallback(context.Background(), upstreamCA, upstreamAddress)
 	require.NoError(t, err)
 	require.NotNil(t, callback)
 
@@ -239,11 +232,7 @@ func TestUpstreamHostKeyCallback_WithUpstreamHostCA_RejectsPublicKey(t *testing.
 		getSigner: staticSigner(caSigner),
 	}
 
-	caConfig := &caConfig{
-		UpstreamHostCA: upstreamCA,
-	}
-
-	callback, err := caConfig.upstreamHostKeyCallback(context.Background(), upstreamAddress)
+	callback, err := upstreamHostKeyCallback(context.Background(), upstreamCA, upstreamAddress)
 	require.NoError(t, err)
 
 	pubKey, err := parsePublicKey(data.SSHHostPublicKey)
@@ -282,6 +271,39 @@ func staticSigner(signer ssh.Signer) func() ssh.Signer {
 	return func() ssh.Signer {
 		return signer
 	}
+}
+
+// fakeCAProvider is a caProvider whose CAs and Start behavior a test sets directly,
+// so failure paths can inject stub CAs without a real backend.
+type fakeCAProvider struct {
+	host, user, upstream ca
+	start                func(ctx context.Context) error
+}
+
+func (p *fakeCAProvider) Start(ctx context.Context) error {
+	if p.start == nil {
+		return nil
+	}
+
+	return p.start(ctx)
+}
+
+func (p *fakeCAProvider) gatewayHostCA() ca  { return p.host }
+func (p *fakeCAProvider) gatewayUserCA() ca  { return p.user }
+func (p *fakeCAProvider) upstreamHostCA() ca { return p.upstream }
+
+// overrideCAProvider swaps the proxy's caProvider for a fake seeded with the current
+// CAs and returns it, so a test can replace a single CA while leaving the rest intact.
+func overrideCAProvider(sshProxy *SSHProxy) *fakeCAProvider {
+	current := sshProxy.config.caProvider
+	fake := &fakeCAProvider{
+		host:     current.gatewayHostCA(),
+		user:     current.gatewayUserCA(),
+		upstream: current.upstreamHostCA(),
+	}
+	sshProxy.config.caProvider = fake
+
+	return fake
 }
 
 // newVaultTestCA returns a vaultCA whose client talks to a test server running handler.

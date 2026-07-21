@@ -43,41 +43,26 @@ type rotatingCA interface {
 	rotated() <-chan struct{}
 }
 
-// caConfig contains the CAs needed for SSH authentication operations.
-type caConfig struct {
-	GatewayHostCA  ca // Signs Gateway's host certificates (presented to clients)
-	GatewayUserCA  ca // Signs Gateway's user certificates (presented to upstreams)
-	UpstreamHostCA ca // Verifies upstream host certificates (only publicKey is used). If nil, defaults to TOFU verification with upstream's public key.
+// caProvider supplies the CAs for SSH authentication and runs any background
+// maintenance a specific CA backend needs. Each backend is its own
+// implementation so backend-specific state stays out of a shared type.
+type caProvider interface {
+	// Start runs background CA maintenance until the context is canceled.
+	Start(ctx context.Context) error
 
-	vault       *Vault       // Vault client for token lifecycle management (nil for Manual CAs)
-	keyReloader *keyReloader // Reloads the CA private key on file change (nil for Vault CA)
+	// gatewayHostCA signs the Gateway's host certificates (presented to clients).
+	gatewayHostCA() ca
+	// gatewayUserCA signs the Gateway's user certificates (presented to upstreams).
+	gatewayUserCA() ca
+	// upstreamHostCA verifies upstream host certificates (only its publicKey is used).
+	// A nil result selects TOFU verification with the upstream's public key.
+	upstreamHostCA() ca
 }
 
-// Start performs initial Vault authentication and starts the token renewal loop.
-// For manual CA, it starts background CA maintenance to reloads the CA private key on file change.
-func (c *caConfig) Start(ctx context.Context) error {
-	if c.keyReloader != nil {
-		c.keyReloader.Run(ctx)
-	}
-
-	if c.vault == nil || c.vault.authMethod == nil {
-		return nil
-	}
-
-	secret, err := c.vault.client.Auth().Login(ctx, c.vault.authMethod)
-	if err != nil {
-		return fmt.Errorf("failed to login to Vault: %w", err)
-	}
-
-	go c.vault.runTokenRenewalLoop(ctx, secret)
-
-	return nil
-}
-
-// newCAFromConfig creates CAs based on the provided configuration.
+// newCAFromConfig creates a caProvider based on the provided configuration.
 // - If config.Manual is set, creates an embedded CA with the provided key files.
 // - If config.Vault is set, creates Vault-backed CAs.
-func newCAFromConfig(config gatewayconfig.SSHCAConfig, logger *zap.Logger) (*caConfig, error) {
+func newCAFromConfig(config gatewayconfig.SSHCAConfig, logger *zap.Logger) (caProvider, error) {
 	switch {
 	case config.Manual != nil:
 		return newManualCA(config.Manual.PrivateKeyFile, logger)
@@ -88,10 +73,15 @@ func newCAFromConfig(config gatewayconfig.SSHCAConfig, logger *zap.Logger) (*caC
 	}
 }
 
-// newManualCA creates an embedded CA with keys loaded from files. The private key is
-// reloaded when the file changes, so it can be rotated without a restart.
-// The CA signs gateway host and user certificates, and upstream host authentication is verified using TOFU.
-func newManualCA(privateKeyFile string, logger *zap.Logger) (*caConfig, error) {
+// manualCAProvider signs with an embedded key reloaded from a file, so the CA key
+// can be rotated without a restart. Upstream host authentication uses TOFU.
+type manualCAProvider struct {
+	ca          *embeddedCA
+	keyReloader *keyReloader
+}
+
+// newManualCA creates an embedded CA with keys loaded from files.
+func newManualCA(privateKeyFile string, logger *zap.Logger) (*manualCAProvider, error) {
 	reloader := newKeyReloader(privateKeyFile, logger)
 	if err := reloader.load(); err != nil {
 		return nil, err
@@ -105,53 +95,89 @@ func newManualCA(privateKeyFile string, logger *zap.Logger) (*caConfig, error) {
 	publicKeyStr := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(reloader.getSigner().PublicKey())))
 	logger.Info("Using manual CA for SSH authentication", zap.String("ca_public_key", publicKeyStr))
 
-	return &caConfig{
-		GatewayHostCA: ca,
-		GatewayUserCA: ca,
-		keyReloader:   reloader,
+	return &manualCAProvider{
+		ca:          ca,
+		keyReloader: reloader,
 	}, nil
 }
 
+func (p *manualCAProvider) Start(ctx context.Context) error {
+	p.keyReloader.Run(ctx)
+
+	return nil
+}
+
+func (p *manualCAProvider) gatewayHostCA() ca  { return p.ca }
+func (p *manualCAProvider) gatewayUserCA() ca  { return p.ca }
+func (p *manualCAProvider) upstreamHostCA() ca { return nil }
+
+// vaultCAProvider is backed by Vault, with independent CAs for Gateway host and
+// user certificates and upstream host verification.
+type vaultCAProvider struct {
+	vault *Vault
+
+	host     *vaultCA
+	user     *vaultCA
+	upstream *vaultCA
+}
+
 // newVaultCA creates Vault-backed CAs.
-// Vault config allows setting different CAs for Gateway host and user certificates, and upstream host authentication.
-func newVaultCA(vaultConfig *gatewayconfig.SSHCAVaultConfig, logger *zap.Logger) (*caConfig, error) {
+func newVaultCA(vaultConfig *gatewayconfig.SSHCAVaultConfig, logger *zap.Logger) (*vaultCAProvider, error) {
 	v, err := newVault(vaultConfig, logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Vault client: %w", err)
 	}
 
-	gatewayHostCA := &vaultCA{
-		client: v.client,
-		mount:  vaultConfig.GetGatewayHostCAMount(),
-		role:   vaultConfig.GetGatewayHostCARole(),
-	}
-	gatewayUserCA := &vaultCA{
-		client: v.client,
-		mount:  vaultConfig.GetGatewayUserCAMount(),
-		role:   vaultConfig.GetGatewayUserCARole(),
-	}
-	upstreamHostCA := &vaultCA{
-		client: v.client,
-		mount:  vaultConfig.GetUpstreamHostCAMount(),
-		role:   "", // No role needed - only used for publicKey retrieval
-	}
-
-	return &caConfig{
-		GatewayHostCA:  gatewayHostCA,
-		GatewayUserCA:  gatewayUserCA,
-		UpstreamHostCA: upstreamHostCA,
-		vault:          v,
+	return &vaultCAProvider{
+		vault: v,
+		host: &vaultCA{
+			client: v.client,
+			mount:  vaultConfig.GetGatewayHostCAMount(),
+			role:   vaultConfig.GetGatewayHostCARole(),
+		},
+		user: &vaultCA{
+			client: v.client,
+			mount:  vaultConfig.GetGatewayUserCAMount(),
+			role:   vaultConfig.GetGatewayUserCARole(),
+		},
+		upstream: &vaultCA{
+			client: v.client,
+			mount:  vaultConfig.GetUpstreamHostCAMount(),
+			role:   "", // No role needed - only used for publicKey retrieval
+		},
 	}, nil
 }
 
-func (c *caConfig) upstreamHostKeyCallback(ctx context.Context, upstreamAddress string) (ssh.HostKeyCallback, error) {
-	if c.UpstreamHostCA == nil {
+// Start performs initial Vault authentication and starts the token renewal loop.
+func (p *vaultCAProvider) Start(ctx context.Context) error {
+	if p.vault == nil || p.vault.authMethod == nil {
+		return nil
+	}
+
+	secret, err := p.vault.client.Auth().Login(ctx, p.vault.authMethod)
+	if err != nil {
+		return fmt.Errorf("failed to login to Vault: %w", err)
+	}
+
+	go p.vault.runTokenRenewalLoop(ctx, secret)
+
+	return nil
+}
+
+func (p *vaultCAProvider) gatewayHostCA() ca  { return p.host }
+func (p *vaultCAProvider) gatewayUserCA() ca  { return p.user }
+func (p *vaultCAProvider) upstreamHostCA() ca { return p.upstream }
+
+// upstreamHostKeyCallback verifies the upstream host key. A nil upstreamCA selects
+// TOFU verification with the upstream's presented public key.
+func upstreamHostKeyCallback(ctx context.Context, upstreamCA ca, upstreamAddress string) (ssh.HostKeyCallback, error) {
+	if upstreamCA == nil {
 		tofuHostKey := newTOFUHostKey(upstreamAddress)
 
 		return tofuHostKey.checkHostKey, nil
 	}
 
-	caPublicKey, err := c.UpstreamHostCA.publicKey(ctx)
+	caPublicKey, err := upstreamCA.publicKey(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get ca public key: %w", err)
 	}

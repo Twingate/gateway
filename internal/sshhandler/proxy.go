@@ -47,7 +47,7 @@ func NewProxy(config Config) *SSHProxy {
 }
 
 func (p *SSHProxy) Start(ctx context.Context, listener net.Listener) error {
-	if err := p.config.caConfig.Start(ctx); err != nil {
+	if err := p.config.caProvider.Start(ctx); err != nil {
 		return err
 	}
 
