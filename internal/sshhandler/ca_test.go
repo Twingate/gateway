@@ -4,7 +4,6 @@
 package sshhandler
 
 import (
-	"context"
 	"crypto/rand"
 	"encoding/json"
 	"net/http"
@@ -34,7 +33,7 @@ func TestEmbeddedCA_PublicKey(t *testing.T) {
 		getSigner: staticSigner(signer),
 	}
 
-	got, err := ca.publicKey(context.Background())
+	got, err := ca.publicKey(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, pubKey.Marshal(), got.Marshal())
 }
@@ -70,7 +69,7 @@ func TestEmbeddedCA_Sign(t *testing.T) {
 				},
 			}
 
-			cert, err := ca.sign(context.Background(), req)
+			cert, err := ca.sign(t.Context(), req)
 			require.NoError(t, err)
 
 			require.Equal(t, uint32(tt.certType), cert.CertType)
@@ -103,7 +102,7 @@ func TestNewManualCA_Success(t *testing.T) {
 	expectedPubKey, err := parsePublicKey(data.SSHCAPublicKey)
 	require.NoError(t, err)
 
-	pubKey, err := provider.gatewayHostCA().publicKey(context.Background())
+	pubKey, err := provider.gatewayHostCA().publicKey(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, expectedPubKey.Marshal(), pubKey.Marshal())
 
@@ -179,7 +178,7 @@ func TestNewCAFromConfig_ManualConfig(t *testing.T) {
 func TestUpstreamHostKeyCallback_NilUpstreamHostCA(t *testing.T) {
 	upstreamAddress := "10.0.0.1:22"
 
-	callback, err := upstreamHostKeyCallback(context.Background(), nil, upstreamAddress)
+	callback, err := upstreamHostKeyCallback(t.Context(), nil, upstreamAddress)
 	require.NoError(t, err)
 	require.NotNil(t, callback)
 
@@ -200,7 +199,7 @@ func TestUpstreamHostKeyCallback_WithUpstreamHostCA(t *testing.T) {
 		getSigner: staticSigner(caSigner),
 	}
 
-	callback, err := upstreamHostKeyCallback(context.Background(), upstreamCA, upstreamAddress)
+	callback, err := upstreamHostKeyCallback(t.Context(), upstreamCA, upstreamAddress)
 	require.NoError(t, err)
 	require.NotNil(t, callback)
 
@@ -213,7 +212,7 @@ func TestUpstreamHostKeyCallback_WithUpstreamHostCA(t *testing.T) {
 		ttl:       1 * time.Hour,
 	}
 
-	cert, err := upstreamCA.sign(context.Background(), req)
+	cert, err := upstreamCA.sign(t.Context(), req)
 	require.NoError(t, err)
 
 	certSigner, err := ssh.NewCertSigner(cert, hostSigner)
@@ -232,7 +231,7 @@ func TestUpstreamHostKeyCallback_WithUpstreamHostCA_RejectsPublicKey(t *testing.
 		getSigner: staticSigner(caSigner),
 	}
 
-	callback, err := upstreamHostKeyCallback(context.Background(), upstreamCA, upstreamAddress)
+	callback, err := upstreamHostKeyCallback(t.Context(), upstreamCA, upstreamAddress)
 	require.NoError(t, err)
 
 	pubKey, err := parsePublicKey(data.SSHHostPublicKey)
@@ -271,39 +270,6 @@ func staticSigner(signer ssh.Signer) func() ssh.Signer {
 	return func() ssh.Signer {
 		return signer
 	}
-}
-
-// fakeCAProvider is a caProvider whose CAs and Start behavior a test sets directly,
-// so failure paths can inject stub CAs without a real backend.
-type fakeCAProvider struct {
-	host, user, upstream ca
-	start                func(ctx context.Context) error
-}
-
-func (p *fakeCAProvider) Start(ctx context.Context) error {
-	if p.start == nil {
-		return nil
-	}
-
-	return p.start(ctx)
-}
-
-func (p *fakeCAProvider) gatewayHostCA() ca  { return p.host }
-func (p *fakeCAProvider) gatewayUserCA() ca  { return p.user }
-func (p *fakeCAProvider) upstreamHostCA() ca { return p.upstream }
-
-// overrideCAProvider swaps the proxy's caProvider for a fake seeded with the current
-// CAs and returns it, so a test can replace a single CA while leaving the rest intact.
-func overrideCAProvider(sshProxy *SSHProxy) *fakeCAProvider {
-	current := sshProxy.config.caProvider
-	fake := &fakeCAProvider{
-		host:     current.gatewayHostCA(),
-		user:     current.gatewayUserCA(),
-		upstream: current.upstreamHostCA(),
-	}
-	sshProxy.config.caProvider = fake
-
-	return fake
 }
 
 // newVaultTestCA returns a vaultCA whose client talks to a test server running handler.

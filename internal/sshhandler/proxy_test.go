@@ -5,6 +5,7 @@ package sshhandler
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"net"
@@ -441,6 +442,39 @@ func TestProxy_Shutdown_ClosesActiveConnection(t *testing.T) {
 
 // testProxyUsername is the username the test proxy presents to upstream servers.
 const testProxyUsername = "proxy-user"
+
+// fakeCAProvider is a caProvider whose CAs and Start behavior a test sets directly,
+// so failure paths can inject stub CAs without a real backend.
+type fakeCAProvider struct {
+	host, user, upstream ca
+	start                func(ctx context.Context) error
+}
+
+func (p *fakeCAProvider) Start(ctx context.Context) error {
+	if p.start == nil {
+		return nil
+	}
+
+	return p.start(ctx)
+}
+
+func (p *fakeCAProvider) gatewayHostCA() ca  { return p.host }
+func (p *fakeCAProvider) gatewayUserCA() ca  { return p.user }
+func (p *fakeCAProvider) upstreamHostCA() ca { return p.upstream }
+
+// overrideCAProvider swaps the proxy's caProvider for a fake seeded with the current
+// CAs and returns it, so a test can replace a single CA while leaving the rest intact.
+func overrideCAProvider(sshProxy *SSHProxy) *fakeCAProvider {
+	current := sshProxy.config.caProvider
+	fake := &fakeCAProvider{
+		host:     current.gatewayHostCA(),
+		user:     current.gatewayUserCA(),
+		upstream: current.upstreamHostCA(),
+	}
+	sshProxy.config.caProvider = fake
+
+	return fake
+}
 
 // newTestProxy builds an SSHProxy in manual CA mode with its downstream config ready, so tests
 // can drive Serve/serveConn directly without going through Start. The proxy logs to a nop
