@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"maps"
 	"strings"
+	"sync"
 	"time"
 
 	"go.uber.org/zap"
@@ -44,7 +45,8 @@ type rotatingCA interface {
 }
 
 // caProvider supplies the CAs for SSH authentication and runs any background
-// maintenance a specific CA backend needs.
+// maintenance a specific CA backend needs. Each backend is its own
+// implementation so backend-specific state stays out of a shared type.
 type caProvider interface {
 	// Start runs background CA maintenance until the context is canceled.
 	Start(ctx context.Context) error
@@ -53,9 +55,9 @@ type caProvider interface {
 	gatewayHostCA() ca
 	// gatewayUserCA signs the Gateway's user certificates (presented to upstreams).
 	gatewayUserCA() ca
-	// upstreamHostCA verifies upstream host certificates (only its publicKey is used).
-	// A nil result selects TOFU verification with the upstream's public key.
-	upstreamHostCA() ca
+	// upstreamHostKeyCallback returns a callback that verifies the host key presented
+	// by the upstream at address.
+	upstreamHostKeyCallback(ctx context.Context, address string) (ssh.HostKeyCallback, error)
 }
 
 // newCAFromConfig creates a caProvider based on the provided configuration.
@@ -77,6 +79,9 @@ func newCAFromConfig(config gatewayconfig.SSHCAConfig, logger *zap.Logger) (caPr
 type manualCAProvider struct {
 	ca          *embeddedCA
 	keyReloader *keyReloader
+
+	mu           sync.Mutex
+	tofuHostKeys map[string]*tofuHostKey
 }
 
 // newManualCA creates an embedded CA with keys loaded from files.
@@ -95,8 +100,9 @@ func newManualCA(privateKeyFile string, logger *zap.Logger) (*manualCAProvider, 
 	logger.Info("Using manual CA for SSH authentication", zap.String("ca_public_key", publicKeyStr))
 
 	return &manualCAProvider{
-		ca:          ca,
-		keyReloader: reloader,
+		ca:           ca,
+		keyReloader:  reloader,
+		tofuHostKeys: make(map[string]*tofuHostKey),
 	}, nil
 }
 
@@ -106,9 +112,23 @@ func (p *manualCAProvider) Start(ctx context.Context) error {
 	return nil
 }
 
-func (p *manualCAProvider) gatewayHostCA() ca  { return p.ca }
-func (p *manualCAProvider) gatewayUserCA() ca  { return p.ca }
-func (p *manualCAProvider) upstreamHostCA() ca { return nil }
+func (p *manualCAProvider) gatewayHostCA() ca { return p.ca }
+func (p *manualCAProvider) gatewayUserCA() ca { return p.ca }
+
+// upstreamHostKeyCallback returns a TOFU callback that pins the upstream's host key on
+// first use per address.
+func (p *manualCAProvider) upstreamHostKeyCallback(_ context.Context, address string) (ssh.HostKeyCallback, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	hostKey, ok := p.tofuHostKeys[address]
+	if !ok {
+		hostKey = newTOFUHostKey(address)
+		p.tofuHostKeys[address] = hostKey
+	}
+
+	return hostKey.checkHostKey, nil
+}
 
 // vaultCAProvider is backed by Vault, with independent CAs for Gateway host and
 // user certificates and upstream host verification.
@@ -163,20 +183,13 @@ func (p *vaultCAProvider) Start(ctx context.Context) error {
 	return nil
 }
 
-func (p *vaultCAProvider) gatewayHostCA() ca  { return p.host }
-func (p *vaultCAProvider) gatewayUserCA() ca  { return p.user }
-func (p *vaultCAProvider) upstreamHostCA() ca { return p.upstream }
+func (p *vaultCAProvider) gatewayHostCA() ca { return p.host }
+func (p *vaultCAProvider) gatewayUserCA() ca { return p.user }
 
-// upstreamHostKeyCallback verifies the upstream host key. A nil upstreamCA selects
-// TOFU verification with the upstream's presented public key.
-func upstreamHostKeyCallback(ctx context.Context, upstreamCA ca, upstreamAddress string) (ssh.HostKeyCallback, error) {
-	if upstreamCA == nil {
-		tofuHostKey := newTOFUHostKey(upstreamAddress)
-
-		return tofuHostKey.checkHostKey, nil
-	}
-
-	caPublicKey, err := upstreamCA.publicKey(ctx)
+// upstreamHostKeyCallback verifies the upstream host certificate against the upstream
+// host CA's public key.
+func (p *vaultCAProvider) upstreamHostKeyCallback(ctx context.Context, _ string) (ssh.HostKeyCallback, error) {
+	caPublicKey, err := p.upstream.publicKey(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get ca public key: %w", err)
 	}
