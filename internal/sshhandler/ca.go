@@ -44,8 +44,7 @@ type rotatingCA interface {
 }
 
 // caProvider supplies the CAs for SSH authentication and runs any background
-// maintenance a specific CA backend needs. Each backend is its own
-// implementation so backend-specific state stays out of a shared type.
+// maintenance a specific CA backend needs.
 type caProvider interface {
 	// Start runs background CA maintenance until the context is canceled.
 	Start(ctx context.Context) error
