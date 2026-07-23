@@ -82,7 +82,7 @@ func TestNewConfig_CAPool(t *testing.T) {
 		errContains string
 	}{
 		{
-			name:    "no CAs yields an empty pool",
+			name:    "no CAs yields the system pool",
 			cas:     nil,
 			wantErr: false,
 		},
@@ -111,7 +111,7 @@ func TestNewConfig_CAPool(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-			assert.NotNil(t, cfg.caPool, "pool must be non-nil even with no CAs so system roots are never used")
+			assert.NotNil(t, cfg.caPool, "pool defaults to the system cert pool when no CAs are configured")
 		})
 	}
 }

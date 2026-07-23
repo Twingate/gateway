@@ -5,6 +5,8 @@ package webapphandler
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"maps"
 	"net/http"
 	"net/http/httptest"
@@ -324,6 +326,15 @@ func TestRewrite_SkipsInvalidGATHeaders(t *testing.T) {
 
 	assert.Empty(t, proxyReq.Out.Header.Values("X-Malformed"), "malformed header should not be set")
 	assert.Empty(t, proxyReq.Out.Header.Values("X-Unknown"), "unknown header should not be set")
+}
+
+func TestCreateTransport(t *testing.T) {
+	caPool := x509.NewCertPool()
+	transport := createTransport(caPool)
+
+	require.NotNil(t, transport.TLSClientConfig)
+	assert.Same(t, caPool, transport.TLSClientConfig.RootCAs)
+	assert.Equal(t, uint16(tls.VersionTLS13), transport.TLSClientConfig.MinVersion)
 }
 
 func TestBuildVariables_CoversAllowedKeys(t *testing.T) {

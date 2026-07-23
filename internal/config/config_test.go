@@ -348,6 +348,19 @@ func TestConfig_Validate(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "invalid cas entry",
+			config: &Config{
+				Twingate:    TwingateConfig{Network: "test", Host: "twingate.com"},
+				Port:        8443,
+				MetricsPort: 9090,
+				TLS:         TLSConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+				CAs:         []CA{{Name: "web-app"}},
+				Kubernetes:  &KubernetesConfig{},
+			},
+			wantErr:     true,
+			errContains: "cas config",
+		},
+		{
 			name: "missing Twingate network",
 			config: &Config{
 				Port:        8443,

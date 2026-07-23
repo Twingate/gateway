@@ -50,10 +50,13 @@ func NewConfig(configRequestHeaders map[string]string, cas []config.CA, roundTri
 	return &Config{requestHeaders: headers, caPool: caPool, roundTripperMetrics: roundTripperMetrics, logger: logger}, nil
 }
 
-// newCAPool merges the configured CAs into the pool used to verify upstream TLS connections.
-// The pool never includes system roots, so an empty list rejects every upstream certificate.
+// newCAPool merges the configured CAs on top of the system cert pool to verify
+// upstream TLS connections, so publicly-signed upstreams work without configuration.
 func newCAPool(cas []config.CA) (*x509.CertPool, error) {
-	pool := x509.NewCertPool()
+	pool, err := x509.SystemCertPool()
+	if err != nil {
+		return nil, fmt.Errorf("load system cert pool: %w", err)
+	}
 
 	for _, ca := range cas {
 		caCert, err := os.ReadFile(ca.CertFile) //nolint:gosec // The CA file is provided by the operator
