@@ -1,4 +1,5 @@
 FROM gcr.io/distroless/static-debian12:nonroot
+ARG TARGETPLATFORM
 ENTRYPOINT ["/gateway", "start"]
-COPY gateway /
+COPY $TARGETPLATFORM/gateway /
 COPY LICENSE /

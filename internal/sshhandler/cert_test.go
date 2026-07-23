@@ -12,6 +12,7 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"golang.org/x/crypto/ssh"
@@ -173,6 +174,51 @@ func TestAutoRenewingCertSigner_RetriesOnRenewError(t *testing.T) {
 
 		<-errCh
 	})
+}
+
+func TestAutoRenewingCertSigner_ResignsOnCAKeyRotation(t *testing.T) {
+	keyPEM, oldPublicKey := generateCAKey(t)
+	keyFile := createCAKeyFile(t, keyPEM)
+
+	keyReloader := newKeyReloader(keyFile, zap.NewNop())
+	require.NoError(t, keyReloader.load())
+
+	keySigner, _, err := keyConfig{}.Generate(rand.Reader)
+	require.NoError(t, err)
+
+	req := &certificateRequest{
+		certType:  ssh.HostCert,
+		publicKey: keySigner.PublicKey(),
+		ttl:       24 * time.Hour,
+	}
+
+	ca := &embeddedCA{
+		getSigner: keyReloader.getSigner,
+		rotateCh:  keyReloader.reloadCh,
+	}
+
+	s, err := newAutoRenewingCertSigner(t.Context(), ca, req, keySigner, zap.NewNop())
+	require.NoError(t, err)
+
+	go func() {
+		_ = s.renewalLoop(t.Context())
+	}()
+
+	keyReloader.Run(t.Context())
+
+	cert, ok := s.PublicKey().(*ssh.Certificate)
+	require.True(t, ok)
+	require.Equal(t, oldPublicKey.Marshal(), cert.SignatureKey.Marshal())
+
+	newKeyPEM, newPublicKey := generateCAKey(t)
+	replaceCAKeyFile(t, keyFile, newKeyPEM)
+
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		cert, ok := s.PublicKey().(*ssh.Certificate)
+		require.True(c, ok)
+
+		require.Equal(c, newPublicKey.Marshal(), cert.SignatureKey.Marshal())
+	}, time.Second, 5*time.Millisecond, "host certificate was not re-signed after CA key rotation")
 }
 
 func TestRenewTime(t *testing.T) {

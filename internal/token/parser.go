@@ -6,7 +6,6 @@ package token
 import (
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/MicahParks/keyfunc/v3"
 	"github.com/golang-jwt/jwt/v5"
@@ -16,32 +15,17 @@ var errInvalidTokenType = errors.New("token type is invalid")
 
 var allowedSigningMethods = []string{jwt.SigningMethodES256.Alg()}
 
-var allowedIssuerByDomain = map[string]string{
-	"test":          "twingate-local",
-	"dev.opstg.com": "twingate-dev",
-	"stg.opstg.com": "twingate-stg",
-	"twingate.com":  "twingate",
-}
-
-func getIssuer(host string) string {
-	for baseDomain, issuer := range allowedIssuerByDomain {
-		if baseDomain == host || strings.HasSuffix(host, "."+baseDomain) {
-			return issuer
-		}
-	}
-
-	return ""
-}
-
 type ClaimsWithHeaderType interface {
 	getHeaderType() string
 }
 
 type ParserConfig struct {
-	// Twingate network ID
-	Network string
-	// Twingate service domain
-	Host string
+	// Issuer is the expected JWT issuer (iss claim).
+	Issuer string
+	// Audience is the expected JWT audience (aud claim).
+	Audience string
+	// JWKSURL is the endpoint to fetch signing keys from when Keyfunc is not provided.
+	JWKSURL string
 	// Keyfunc to verify token. Default to using remote JWKs
 	Keyfunc jwt.Keyfunc
 }
@@ -53,9 +37,7 @@ type Parser struct {
 
 func NewParser(config ParserConfig) (*Parser, error) {
 	if config.Keyfunc == nil {
-		jwkURL := fmt.Sprintf("https://%s.%s/api/v1/jwk/ec", config.Network, config.Host)
-
-		jwks, err := keyfunc.NewDefault([]string{jwkURL})
+		jwks, err := keyfunc.NewDefault([]string{config.JWKSURL})
 		if err != nil {
 			return nil, fmt.Errorf("failed to create JWKS store: %w", err)
 		}
@@ -66,8 +48,8 @@ func NewParser(config ParserConfig) (*Parser, error) {
 	return &Parser{
 		parser: jwt.NewParser(
 			jwt.WithValidMethods(allowedSigningMethods),
-			jwt.WithIssuer(getIssuer(config.Host)),
-			jwt.WithAudience(config.Network),
+			jwt.WithIssuer(config.Issuer),
+			jwt.WithAudience(config.Audience),
 			jwt.WithIssuedAt(),
 			jwt.WithExpirationRequired(),
 		),

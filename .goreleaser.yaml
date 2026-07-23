@@ -10,7 +10,7 @@ before:
     - go mod tidy
 
 snapshot:
-  version_template: '{{ .Version }}-{{envOrDefault "VERSION_PRERELEASE" "local"}}+{{ .ShortCommit }}'
+  version_template: '{{ .Version }}-{{envOrDefault "VERSION_PRERELEASE" "local"}}-{{ .ShortCommit }}'
 
 checksum:
   name_template: 'checksums.txt'
@@ -23,7 +23,7 @@ builds:
       - CGO_ENABLED=0
     targets:
       - linux_amd64
-      - linux_arm_v7
+      - linux_arm_7
       - linux_arm64
       - darwin_amd64
       - darwin_arm64
@@ -39,7 +39,7 @@ builds:
       - CGO_ENABLED=0
     targets:
       - linux_amd64
-      - linux_arm_v7
+      - linux_arm_7
       - linux_arm64
       - darwin_amd64
       - darwin_arm64
@@ -49,172 +49,112 @@ builds:
       - -X gateway/internal/version.Version={{.Version}}
     mod_timestamp: '{{ .CommitTimestamp }}'
 
-dockers:
-  - use: buildx
-    goos: linux
-    goarch: amd64
+dockers_v2:
+  # Snapshot + release: version tag only
+  - id: gateway
     dockerfile: Dockerfile.goreleaser
     ids:
       - gateway
-    image_templates:
-      - "twingate/{{ .ProjectName }}:{{ replace .Version \"+\" \"-\" }}-linux-amd64"
-      - "ghcr.io/twingate/{{ .ProjectName }}:{{ replace .Version \"+\" \"-\" }}-linux-amd64"
-    build_flag_templates:
+    images:
+      - "twingate/{{ .ProjectName }}"
+      - "ghcr.io/twingate/{{ .ProjectName }}"
+    tags:
+      # Example: twingate/gateway:0.2.2
+      - "{{ .Version }}"
+    labels:
+      "org.opencontainers.image.created": "{{.Date}}"
+      "org.opencontainers.image.title": "{{.ProjectName}}"
+      "org.opencontainers.image.revision": "{{.FullCommit}}"
+      "org.opencontainers.image.version": "{{.Tag}}"
+    flags:
       - "--pull"
       - "--builder={{ .Env.DOCKER_BUILDX_BUILDER }}"
-      - "--platform=linux/amd64"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.version={{.Tag}}"
+      - '--cache-from={{ envOrDefault "DOCKER_BUILDX_CACHE_FROM" "" }}'
+      - '--cache-to={{ envOrDefault "DOCKER_BUILDX_CACHE_TO" "" }}'
     extra_files:
       - LICENSE
-  - use: buildx
-    goos: linux
-    goarch: arm64
+  # Release: latest/dev, major, minor tags
+  - id: gateway-release
+    disable: "{{ .IsSnapshot }}"
     dockerfile: Dockerfile.goreleaser
     ids:
       - gateway
-    image_templates:
-      - "twingate/{{ .ProjectName }}:{{ replace .Version \"+\" \"-\" }}-linux-arm64"
-      - "ghcr.io/twingate/{{ .ProjectName }}:{{ replace .Version \"+\" \"-\" }}-linux-arm64"
-    build_flag_templates:
+    images:
+      - "twingate/{{ .ProjectName }}"
+      - "ghcr.io/twingate/{{ .ProjectName }}"
+    tags:
+      # Example: twingate/gateway:latest (or dev)
+      - "{{ if not .Prerelease }}latest{{ else }}dev{{ end }}"
+      # Example: twingate/gateway:0
+      - "{{ if not .Prerelease }}{{.Major}}{{ end }}"
+      # Example: twingate/gateway:0.2
+      - "{{ if not .Prerelease }}{{.Major}}.{{.Minor}}{{ end }}"
+    labels:
+      "org.opencontainers.image.created": "{{.Date}}"
+      "org.opencontainers.image.title": "{{.ProjectName}}"
+      "org.opencontainers.image.revision": "{{.FullCommit}}"
+      "org.opencontainers.image.version": "{{.Tag}}"
+    flags:
       - "--pull"
       - "--builder={{ .Env.DOCKER_BUILDX_BUILDER }}"
-      - "--platform=linux/arm64"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.version={{.Tag}}"
+      - '--cache-from={{ envOrDefault "DOCKER_BUILDX_CACHE_FROM" "" }}'
+      - '--cache-to={{ envOrDefault "DOCKER_BUILDX_CACHE_TO" "" }}'
     extra_files:
       - LICENSE
-  # Debug containers
-  - use: buildx
-    goos: linux
-    goarch: amd64
+  # Debug snapshot + release: version tag only
+  - id: gateway-debug
     dockerfile: Dockerfile.goreleaser-debug
     ids:
       - gateway-debug
-    image_templates:
-      - "twingate/{{ .ProjectName }}:{{ replace .Version \"+\" \"-\" }}-linux-amd64-debug"
-      - "ghcr.io/twingate/{{ .ProjectName }}:{{ replace .Version \"+\" \"-\" }}-linux-amd64-debug"
-    build_flag_templates:
+    images:
+      - "twingate/{{ .ProjectName }}"
+      - "ghcr.io/twingate/{{ .ProjectName }}"
+    tags:
+      - "{{ .Version }}-debug"
+    labels:
+      "org.opencontainers.image.created": "{{.Date}}"
+      "org.opencontainers.image.title": "{{.ProjectName}}"
+      "org.opencontainers.image.revision": "{{.FullCommit}}"
+      "org.opencontainers.image.version": "{{.Tag}}"
+    flags:
       - "--pull"
       - "--builder={{ .Env.DOCKER_BUILDX_BUILDER }}"
-      - "--platform=linux/amd64"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.version={{.Tag}}"
+      - '--cache-from={{ envOrDefault "DOCKER_BUILDX_CACHE_FROM" "" }}'
+      - '--cache-to={{ envOrDefault "DOCKER_BUILDX_CACHE_TO" "" }}'
+    build_args:
+      GOLANG_VERSION: "{{ .Env.GOLANG_VERSION }}"
     extra_files:
       - LICENSE
-  - use: buildx
-    goos: linux
-    goarch: arm64
+  # Debug release: latest/dev, major, minor tags
+  - id: gateway-debug-release
+    disable: "{{ .IsSnapshot }}"
     dockerfile: Dockerfile.goreleaser-debug
     ids:
       - gateway-debug
-    image_templates:
-      - "twingate/{{ .ProjectName }}:{{ replace .Version \"+\" \"-\" }}-linux-arm64-debug"
-      - "ghcr.io/twingate/{{ .ProjectName }}:{{ replace .Version \"+\" \"-\" }}-linux-arm64-debug"
-    build_flag_templates:
+    images:
+      - "twingate/{{ .ProjectName }}"
+      - "ghcr.io/twingate/{{ .ProjectName }}"
+    tags:
+      # Example: twingate/gateway:latest-debug (or dev-debug)
+      - "{{ if not .Prerelease }}latest{{ else }}dev{{ end }}-debug"
+      # Example: twingate/gateway:0-debug
+      - "{{ if not .Prerelease }}{{.Major}}-debug{{ end }}"
+      # Example: twingate/gateway:0.2-debug
+      - "{{ if not .Prerelease }}{{.Major}}.{{.Minor}}-debug{{ end }}"
+    labels:
+      "org.opencontainers.image.created": "{{.Date}}"
+      "org.opencontainers.image.title": "{{.ProjectName}}"
+      "org.opencontainers.image.revision": "{{.FullCommit}}"
+      "org.opencontainers.image.version": "{{.Tag}}"
+    flags:
       - "--pull"
       - "--builder={{ .Env.DOCKER_BUILDX_BUILDER }}"
-      - "--platform=linux/arm64"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.version={{.Tag}}"
+      - '--cache-from={{ envOrDefault "DOCKER_BUILDX_CACHE_FROM" "" }}'
+      - '--cache-to={{ envOrDefault "DOCKER_BUILDX_CACHE_TO" "" }}'
+    build_args:
+      GOLANG_VERSION: "{{ .Env.GOLANG_VERSION }}"
     extra_files:
       - LICENSE
-
-docker_manifests:
-  #******************* Dockerhub *******************#
-  # Example: twingate/gateway:latest (or dev)
-  - name_template: "twingate/{{ .ProjectName }}:{{ if not .Prerelease }}latest{{ else }}dev{{ end }}"
-    image_templates:
-      - "twingate/{{ .ProjectName }}:{{ replace .Version \"+\" \"-\" }}-linux-amd64"
-      - "twingate/{{ .ProjectName }}:{{ replace .Version \"+\" \"-\" }}-linux-arm64"
-  # Example: twingate/gateway:v0.2.2
-  - name_template: "twingate/{{ .ProjectName }}:{{ replace .Version \"+\" \"-\" }}"
-    image_templates:
-      - "twingate/{{ .ProjectName }}:{{ replace .Version \"+\" \"-\" }}-linux-amd64"
-      - "twingate/{{ .ProjectName }}:{{ replace .Version \"+\" \"-\" }}-linux-arm64"
-  # Example: twingate/gateway:v0
-  - name_template: "twingate/{{ .ProjectName }}:{{.Major}}"
-    skip_push: auto
-    image_templates:
-      - "twingate/{{ .ProjectName }}:{{ replace .Version \"+\" \"-\" }}-linux-amd64"
-      - "twingate/{{ .ProjectName }}:{{ replace .Version \"+\" \"-\" }}-linux-arm64"
-  # Example: twingate/gateway:v0.2
-  - name_template: "twingate/{{ .ProjectName }}:{{.Major}}.{{.Minor}}"
-    skip_push: auto
-    image_templates:
-      - "twingate/{{ .ProjectName }}:{{ replace .Version \"+\" \"-\" }}-linux-amd64"
-      - "twingate/{{ .ProjectName }}:{{ replace .Version \"+\" \"-\" }}-linux-arm64"
-  #### Debug manifests
-  - name_template: "twingate/{{ .ProjectName }}:{{ if not .Prerelease }}latest{{ else }}dev{{ end }}-debug"
-    image_templates:
-      - "twingate/{{ .ProjectName }}:{{ replace .Version \"+\" \"-\" }}-linux-amd64-debug"
-      - "twingate/{{ .ProjectName }}:{{ replace .Version \"+\" \"-\" }}-linux-arm64-debug"
-  - name_template: "twingate/{{ .ProjectName }}:{{ replace .Version \"+\" \"-\" }}-debug"
-    image_templates:
-      - "twingate/{{ .ProjectName }}:{{ replace .Version \"+\" \"-\" }}-linux-amd64-debug"
-      - "twingate/{{ .ProjectName }}:{{ replace .Version \"+\" \"-\" }}-linux-arm64-debug"
-  - name_template: "twingate/{{ .ProjectName }}:{{.Major}}-debug"
-    skip_push: auto
-    image_templates:
-      - "twingate/{{ .ProjectName }}:{{ replace .Version \"+\" \"-\" }}-linux-amd64-debug"
-      - "twingate/{{ .ProjectName }}:{{ replace .Version \"+\" \"-\" }}-linux-arm64-debug"
-  - name_template: "twingate/{{ .ProjectName }}:{{.Major}}.{{.Minor}}-debug"
-    skip_push: auto
-    image_templates:
-      - "twingate/{{ .ProjectName }}:{{ replace .Version \"+\" \"-\" }}-linux-amd64-debug"
-      - "twingate/{{ .ProjectName }}:{{ replace .Version \"+\" \"-\" }}-linux-arm64-debug"
-
-  #******************* Github *******************#
-  # Example: twingate/gateway:latest (or dev)
-  - name_template: "ghcr.io/twingate/{{ .ProjectName }}:{{ if not .Prerelease }}latest{{ else }}dev{{ end }}"
-    image_templates:
-      - "ghcr.io/twingate/{{ .ProjectName }}:{{ replace .Version \"+\" \"-\" }}-linux-amd64"
-      - "ghcr.io/twingate/{{ .ProjectName }}:{{ replace .Version \"+\" \"-\" }}-linux-arm64"
-  # Example: twingate/gateway:v0.2.2
-  - name_template: "ghcr.io/twingate/{{ .ProjectName }}:{{ replace .Version \"+\" \"-\" }}"
-    image_templates:
-      - "ghcr.io/twingate/{{ .ProjectName }}:{{ replace .Version \"+\" \"-\" }}-linux-amd64"
-      - "ghcr.io/twingate/{{ .ProjectName }}:{{ replace .Version \"+\" \"-\" }}-linux-arm64"
-  # Example: twingate/gateway:v0
-  - name_template: "ghcr.io/twingate/{{ .ProjectName }}:{{.Major}}"
-    skip_push: auto
-    image_templates:
-      - "ghcr.io/twingate/{{ .ProjectName }}:{{ replace .Version \"+\" \"-\" }}-linux-amd64"
-      - "ghcr.io/twingate/{{ .ProjectName }}:{{ replace .Version \"+\" \"-\" }}-linux-arm64"
-  # Example: twingate/gateway:v0.2
-  - name_template: "ghcr.io/twingate/{{ .ProjectName }}:{{.Major}}.{{.Minor}}"
-    skip_push: auto
-    image_templates:
-      - "ghcr.io/twingate/{{ .ProjectName }}:{{ replace .Version \"+\" \"-\" }}-linux-amd64"
-      - "ghcr.io/twingate/{{ .ProjectName }}:{{ replace .Version \"+\" \"-\" }}-linux-arm64"
-  #### Debug manifests
-  - name_template: "ghcr.io/twingate/{{ .ProjectName }}:{{ if not .Prerelease }}latest{{ else }}dev{{ end }}-debug"
-    image_templates:
-      - "ghcr.io/twingate/{{ .ProjectName }}:{{ replace .Version \"+\" \"-\" }}-linux-amd64-debug"
-      - "ghcr.io/twingate/{{ .ProjectName }}:{{ replace .Version \"+\" \"-\" }}-linux-arm64-debug"
-  - name_template: "ghcr.io/twingate/{{ .ProjectName }}:{{ replace .Version \"+\" \"-\" }}-debug"
-    image_templates:
-      - "ghcr.io/twingate/{{ .ProjectName }}:{{ replace .Version \"+\" \"-\" }}-linux-amd64-debug"
-      - "ghcr.io/twingate/{{ .ProjectName }}:{{ replace .Version \"+\" \"-\" }}-linux-arm64-debug"
-  - name_template: "ghcr.io/twingate/{{ .ProjectName }}:{{.Major}}-debug"
-    skip_push: auto
-    image_templates:
-      - "ghcr.io/twingate/{{ .ProjectName }}:{{ replace .Version \"+\" \"-\" }}-linux-amd64-debug"
-      - "ghcr.io/twingate/{{ .ProjectName }}:{{ replace .Version \"+\" \"-\" }}-linux-arm64-debug"
-  - name_template: "ghcr.io/twingate/{{ .ProjectName }}:{{.Major}}.{{.Minor}}-debug"
-    skip_push: auto
-    image_templates:
-      - "ghcr.io/twingate/{{ .ProjectName }}:{{ replace .Version \"+\" \"-\" }}-linux-amd64-debug"
-      - "ghcr.io/twingate/{{ .ProjectName }}:{{ replace .Version \"+\" \"-\" }}-linux-arm64-debug"
-
 
 archives:
   - formats: [tar.gz]

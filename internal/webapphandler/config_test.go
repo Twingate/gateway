@@ -22,20 +22,20 @@ func TestNewConfig(t *testing.T) {
 		{
 			name: "valid header templates",
 			headers: map[string]string{
-				"Authorization": "Bearer {{twingate.jwt}}",
+				"Authorization": "Bearer {{jwt}}",
 			},
 		},
 		{
 			name: "invalid template syntax",
 			headers: map[string]string{
-				"X-Invalid": "{{invalid}}",
+				"X-Invalid": "{{twingate.jwt}}",
 			},
 			wantErr: template.ErrInvalidTemplate,
 		},
 		{
 			name: "unsupported key",
 			headers: map[string]string{
-				"X-Bad": "{{twingate.unknown}}",
+				"X-Bad": "{{unknown}}",
 			},
 			wantErr: template.ErrUnsupportedKey,
 		},

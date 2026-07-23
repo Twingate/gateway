@@ -46,14 +46,13 @@ func TestWebApp(t *testing.T) {
 			PrivateKeyFile:  "../data/proxy/tls.key",
 		},
 		WebApp: &gatewayconfig.WebAppConfig{
-			Headers: map[string]string{
-				"Authorization":                 "Bearer {{twingate.jwt}}",
-				"X-Twingate-Username":           "{{twingate.username}}",
-				"X-Twingate-Groups":             "{{twingate.groups}}",
-				"X-Twingate-Client-Geo-LatLong": "{{twingate.clientGeoLatLong}}",
-				"X-Twingate-Client-Geo-City":    "{{twingate.clientGeoCity}}",
-				"X-Twingate-Client-Geo-Region":  "{{twingate.clientGeoRegion}}",
-				"X-Twingate-Client-Geo-Country": "{{twingate.clientGeoCountry}}",
+			RequestHeaders: map[string]string{
+				"Authorization":                 "Bearer {{jwt}}",
+				"X-Twingate-Groups":             "{{groups}}",
+				"X-Twingate-Client-Geo-LatLong": "{{clientGeoLatLong}}",
+				"X-Twingate-Client-Geo-City":    "{{clientGeoCity}}",
+				"X-Twingate-Client-Geo-Region":  "{{clientGeoRegion}}",
+				"X-Twingate-Client-Geo-Country": "{{clientGeoCountry}}",
 			},
 		},
 	}
@@ -87,6 +86,9 @@ func TestWebApp(t *testing.T) {
 		gatewayPort,
 		upstreamAddress,
 		controller.URL,
+		map[string]string{
+			"X-Twingate-Username": "{{username}}",
+		},
 	)
 	defer user.Close()
 
@@ -108,12 +110,14 @@ func TestWebApp(t *testing.T) {
 	require.NoError(t, err, "failed to parse echo response")
 
 	expectedHeaders := map[string]string{
-		"X-Twingate-Username":           "alex@acme.com",
+		// From Gateway config
 		"X-Twingate-Groups":             "OnCall,Engineering",
 		"X-Twingate-Client-Geo-LatLong": "37.5,-122.4",
 		"X-Twingate-Client-Geo-City":    "San Mateo",
 		"X-Twingate-Client-Geo-Region":  "CA",
 		"X-Twingate-Client-Geo-Country": "US",
+		// From GAT Token
+		"X-Twingate-Username": "alex@acme.com",
 	}
 
 	for header, expected := range expectedHeaders {
