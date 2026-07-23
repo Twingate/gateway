@@ -89,7 +89,7 @@ jobs:
 
       # Integration tests
       - name: Setup Docker
-        uses: docker/setup-docker-action@6d7cfa65f60a9dda7b46e5513fa982536f3c9877 # v5.3.0
+        uses: docker/setup-docker-action@77e84dbf09b47d1e29270283c22f16145aa85ca1 # v5.4.0
       - name: Install Caddy
         run: |
           curl -fsSL https://github.com/caddyserver/caddy/releases/download/v${{ env.CADDY_VERSION }}/caddy_${{ env.CADDY_VERSION }}_linux_amd64.tar.gz | tar -xzv
@@ -214,7 +214,7 @@ jobs:
       run: go install sigs.k8s.io/kind
 
     - name: Setup Docker
-      uses: docker/setup-docker-action@6d7cfa65f60a9dda7b46e5513fa982536f3c9877 # v5.3.0
+      uses: docker/setup-docker-action@77e84dbf09b47d1e29270283c22f16145aa85ca1 # v5.4.0
 
     - name: Download docker images
       uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
