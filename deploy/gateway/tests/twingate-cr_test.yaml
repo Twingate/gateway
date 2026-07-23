@@ -1,0 +1,49 @@
+suite: Twingate Custom Resources
+templates:
+  - twingate-cr.yaml
+tests:
+  - it: renders nothing by default
+    asserts:
+      - hasDocuments:
+          count: 0
+  - it: fails when kubernetesResource is enabled but gateway is not
+    set:
+      twingateOperator:
+        kubernetesResource:
+          enabled: true
+    asserts:
+      - failedTemplate:
+          errorMessage: twingateOperator.kubernetesResource.enabled=true requires twingateOperator.gateway.enabled=true
+  - it: renders the CA and Gateway when gateway is enabled
+    set:
+      twingateOperator:
+        gateway:
+          enabled: true
+    asserts:
+      - matchSnapshot: {}
+  - it: renders the in-cluster Kubernetes resource when enabled
+    set:
+      twingateOperator:
+        gateway:
+          enabled: true
+        kubernetesResource:
+          enabled: true
+          name: "My cluster"
+          alias: cluster.int
+          securityPolicyId: "U2VjdXJpdHlQb2xpY3k6MTIz"
+    asserts:
+      - matchSnapshot: {}
+  - it: defaults the resource name when none is provided
+    set:
+      twingateOperator:
+        gateway:
+          enabled: true
+        kubernetesResource:
+          enabled: true
+    documentSelector:
+      path: kind
+      value: TwingateResource
+    asserts:
+      - equal:
+          path: spec.name
+          value: "RELEASE-NAME-gateway Kubernetes cluster"
