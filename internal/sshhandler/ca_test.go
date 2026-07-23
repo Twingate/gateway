@@ -4,7 +4,6 @@
 package sshhandler
 
 import (
-	"context"
 	"crypto/rand"
 	"encoding/json"
 	"net/http"
@@ -34,7 +33,7 @@ func TestEmbeddedCA_PublicKey(t *testing.T) {
 		getSigner: staticSigner(signer),
 	}
 
-	got, err := ca.publicKey(context.Background())
+	got, err := ca.publicKey(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, pubKey.Marshal(), got.Marshal())
 }
@@ -70,7 +69,7 @@ func TestEmbeddedCA_Sign(t *testing.T) {
 				},
 			}
 
-			cert, err := ca.sign(context.Background(), req)
+			cert, err := ca.sign(t.Context(), req)
 			require.NoError(t, err)
 
 			require.Equal(t, uint32(tt.certType), cert.CertType)
@@ -90,20 +89,20 @@ func TestNewManualCA_Success(t *testing.T) {
 	core, logs := observer.New(zapcore.InfoLevel)
 	logger := zap.New(core)
 
-	caConfig, err := newManualCA("../../test/data/ssh/ca/ca", logger)
+	provider, err := newManualCA("../../test/data/ssh/ca/ca", logger)
 	require.NoError(t, err)
 
-	require.NotNil(t, caConfig.GatewayHostCA)
-	require.NotNil(t, caConfig.GatewayUserCA)
-	require.Nil(t, caConfig.UpstreamHostCA, "UpstreamHostCA should be nil for TOFU mode")
-	require.NotNil(t, caConfig.keyReloader, "keyReloader should watch the manual CA key file")
+	require.NotNil(t, provider.gatewayHostCA())
+	require.NotNil(t, provider.gatewayUserCA())
+	require.NotNil(t, provider.tofuHostKeys, "tofuHostKeys should be initialized for TOFU mode")
+	require.NotNil(t, provider.keyReloader, "keyReloader should watch the manual CA key file")
 
-	require.Same(t, caConfig.GatewayHostCA, caConfig.GatewayUserCA, "GatewayHostCA and GatewayUserCA should be the same instance")
+	require.Same(t, provider.gatewayHostCA(), provider.gatewayUserCA(), "gatewayHostCA and gatewayUserCA should be the same instance")
 
 	expectedPubKey, err := parsePublicKey(data.SSHCAPublicKey)
 	require.NoError(t, err)
 
-	pubKey, err := caConfig.GatewayHostCA.publicKey(context.Background())
+	pubKey, err := provider.gatewayHostCA().publicKey(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, expectedPubKey.Marshal(), pubKey.Marshal())
 
@@ -121,11 +120,11 @@ func TestNewManualCA_ReloadsPrivateKey(t *testing.T) {
 
 	core, logs := observer.New(zapcore.InfoLevel)
 
-	caConfig, err := newManualCA(keyFile, zap.New(core))
+	provider, err := newManualCA(keyFile, zap.New(core))
 	require.NoError(t, err)
-	require.NoError(t, caConfig.Start(t.Context()))
+	require.NoError(t, provider.Start(t.Context()))
 
-	initialPublicKey, err := caConfig.GatewayHostCA.publicKey(t.Context())
+	initialPublicKey, err := provider.gatewayHostCA().publicKey(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, publicKey.Marshal(), initialPublicKey.Marshal())
 
@@ -139,7 +138,7 @@ func TestNewManualCA_ReloadsPrivateKey(t *testing.T) {
 	replaceCAKeyFile(t, keyFile, newKeyPEM)
 
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		reloadedPublicKey, err := caConfig.GatewayHostCA.publicKey(t.Context())
+		reloadedPublicKey, err := provider.gatewayHostCA().publicKey(t.Context())
 		require.NoError(c, err)
 
 		require.Equal(c, newPublicKey.Marshal(), reloadedPublicKey.Marshal())
@@ -149,7 +148,7 @@ func TestNewManualCA_ReloadsPrivateKey(t *testing.T) {
 	_, subjectPublicKey, err := keyConfig{}.Generate(rand.Reader)
 	require.NoError(t, err)
 
-	cert, err := caConfig.GatewayUserCA.sign(t.Context(), &certificateRequest{
+	cert, err := provider.gatewayUserCA().sign(t.Context(), &certificateRequest{
 		certType:  UserCert,
 		publicKey: subjectPublicKey,
 		ttl:       time.Minute,
@@ -176,60 +175,71 @@ func TestNewCAFromConfig_ManualConfig(t *testing.T) {
 		},
 	}
 
-	caConfig, err := newCAFromConfig(config, zap.NewNop())
+	provider, err := newCAFromConfig(config, zap.NewNop())
 	require.NoError(t, err)
 
-	require.IsType(t, &embeddedCA{}, caConfig.GatewayHostCA)
-	require.IsType(t, &embeddedCA{}, caConfig.GatewayUserCA)
-	require.Nil(t, caConfig.UpstreamHostCA)
+	require.IsType(t, &embeddedCA{}, provider.gatewayHostCA())
+	require.IsType(t, &embeddedCA{}, provider.gatewayUserCA())
 }
 
-func TestUpstreamHostKeyCallback_NilUpstreamHostCA(t *testing.T) {
-	upstreamAddress := "10.0.0.1:22"
-	caConfig := &caConfig{
-		UpstreamHostCA: nil,
-	}
+// A key pinned by TOFU persists across separate callbacks for the same address, and each
+// address pins independently.
+func TestManualCAProvider_UpstreamHostKeyCallback_PinPersistsAcrossCallbacks(t *testing.T) {
+	provider := &manualCAProvider{tofuHostKeys: make(map[string]*tofuHostKey)}
 
-	callback, err := caConfig.upstreamHostKeyCallback(context.Background(), upstreamAddress)
-	require.NoError(t, err)
-	require.NotNil(t, callback)
-
-	publicKey, err := parsePublicKey(data.SSHHostPublicKey)
+	key1, err := parsePublicKey(data.SSHHostPublicKey)
 	require.NoError(t, err)
 
-	// TOFU verification with public key
-	err = callback(upstreamAddress, nil, publicKey)
+	key2, err := parsePublicKey(data.SSHCAPublicKey)
 	require.NoError(t, err)
+
+	const addrA = "10.0.0.1:22"
+
+	// First connection to addrA pins key1.
+	callback1, err := provider.upstreamHostKeyCallback(t.Context(), addrA)
+	require.NoError(t, err)
+	require.NoError(t, callback1(addrA, nil, key1))
+
+	// A later connection to addrA gets a fresh callback, but the pin persists, so a
+	// different key is rejected.
+	callback2, err := provider.upstreamHostKeyCallback(t.Context(), addrA)
+	require.NoError(t, err)
+	require.ErrorIs(t, callback2(addrA, nil, key2), errTOFUHostKeyMismatch)
+
+	// A different address pins independently.
+	const addrB = "10.0.0.2:22"
+
+	callbackB, err := provider.upstreamHostKeyCallback(t.Context(), addrB)
+	require.NoError(t, err)
+	require.NoError(t, callbackB(addrB, nil, key2))
 }
 
-func TestUpstreamHostKeyCallback_WithUpstreamHostCA(t *testing.T) {
+func TestVaultCAProvider_UpstreamHostKeyCallback(t *testing.T) {
 	upstreamAddress := "10.0.0.1:22"
-	caSigner, _, err := keyConfig{}.Generate(rand.Reader)
+
+	caSigner, caPublicKey, err := keyConfig{}.Generate(rand.Reader)
 	require.NoError(t, err)
 
-	upstreamCA := &embeddedCA{
-		getSigner: staticSigner(caSigner),
-	}
+	upstream := newVaultTestCA(t, func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": map[string]any{"public_key": string(ssh.MarshalAuthorizedKey(caPublicKey))},
+		})
+	})
+	provider := &vaultCAProvider{upstream: upstream}
 
-	caConfig := &caConfig{
-		UpstreamHostCA: upstreamCA,
-	}
-
-	callback, err := caConfig.upstreamHostKeyCallback(context.Background(), upstreamAddress)
+	callback, err := provider.upstreamHostKeyCallback(t.Context(), upstreamAddress)
 	require.NoError(t, err)
 	require.NotNil(t, callback)
 
 	hostSigner, hostPubKey, err := keyConfig{}.Generate(rand.Reader)
 	require.NoError(t, err)
 
-	req := &certificateRequest{
-		certType:  HostCert,
-		publicKey: hostPubKey,
-		ttl:       1 * time.Hour,
+	cert := &ssh.Certificate{
+		Key:         hostPubKey,
+		CertType:    ssh.HostCert,
+		ValidBefore: mustUint64(time.Now().Add(time.Hour)),
 	}
-
-	cert, err := upstreamCA.sign(context.Background(), req)
-	require.NoError(t, err)
+	require.NoError(t, cert.SignCert(rand.Reader, caSigner))
 
 	certSigner, err := ssh.NewCertSigner(cert, hostSigner)
 	require.NoError(t, err)
@@ -238,26 +248,37 @@ func TestUpstreamHostKeyCallback_WithUpstreamHostCA(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestUpstreamHostKeyCallback_WithUpstreamHostCA_RejectsPublicKey(t *testing.T) {
+func TestVaultCAProvider_UpstreamHostKeyCallback_RejectsPublicKey(t *testing.T) {
 	upstreamAddress := "10.0.0.1:22"
-	caSigner, _, err := keyConfig{}.Generate(rand.Reader)
+
+	_, caPublicKey, err := keyConfig{}.Generate(rand.Reader)
 	require.NoError(t, err)
 
-	upstreamCA := &embeddedCA{
-		getSigner: staticSigner(caSigner),
-	}
+	upstream := newVaultTestCA(t, func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": map[string]any{"public_key": string(ssh.MarshalAuthorizedKey(caPublicKey))},
+		})
+	})
+	provider := &vaultCAProvider{upstream: upstream}
 
-	caConfig := &caConfig{
-		UpstreamHostCA: upstreamCA,
-	}
-
-	callback, err := caConfig.upstreamHostKeyCallback(context.Background(), upstreamAddress)
+	callback, err := provider.upstreamHostKeyCallback(t.Context(), upstreamAddress)
 	require.NoError(t, err)
 
 	pubKey, err := parsePublicKey(data.SSHHostPublicKey)
 	require.NoError(t, err)
 
+	// A raw public key is not a certificate signed by the CA, so it is rejected.
 	err = callback(upstreamAddress, nil, pubKey)
+	require.Error(t, err)
+}
+
+func TestVaultCAProvider_UpstreamHostKeyCallback_PublicKeyError(t *testing.T) {
+	upstream := newVaultTestCA(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+	provider := &vaultCAProvider{upstream: upstream}
+
+	_, err := provider.upstreamHostKeyCallback(t.Context(), "10.0.0.1:22")
 	require.Error(t, err)
 }
 

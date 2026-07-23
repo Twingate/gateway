@@ -46,6 +46,8 @@ linters:
         - stdlib
         # custom values
         - Recorder
+        - ca
+        - caProvider
         # golang.org/x/crypto/ssh
         - Signer
         - PublicKey

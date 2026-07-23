@@ -5,6 +5,7 @@ package sshhandler
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"net"
@@ -31,7 +32,7 @@ func TestProxy_ProxiesConnection(t *testing.T) {
 	// The one intentional overlap with the lower layers: a real client handshake through the
 	// accept loop, then a direct-tcpip round-trip to the echo upstream, proving the full wiring.
 	sshProxy := newTestProxy(t)
-	upstream := newEchoServer(t, caPublicKey(t, sshProxy.config.caConfig.GatewayUserCA))
+	upstream := newEchoServer(t, caPublicKey(t, sshProxy.config.caProvider.gatewayUserCA()))
 	listener := newTestListener(t, upstream.addr)
 
 	startDone := make(chan error, 1)
@@ -78,12 +79,12 @@ func TestProxy_StartFailure(t *testing.T) {
 	// before the accept loop, so these cases call it directly and assert the returned error.
 	tests := []struct {
 		name    string
-		setup   func(t *testing.T, caConfig *caConfig)
+		setup   func(t *testing.T, sshProxy *SSHProxy)
 		wantErr string
 	}{
 		{
 			name: "CA start failure",
-			setup: func(t *testing.T, caConfig *caConfig) {
+			setup: func(t *testing.T, sshProxy *SSHProxy) {
 				t.Helper()
 
 				authMethod, err := newAppRoleAuthMethod(&gatewayconfig.SSHCAVaultAppRoleConfig{
@@ -92,23 +93,27 @@ func TestProxy_StartFailure(t *testing.T) {
 				})
 				require.NoError(t, err)
 
-				caConfig.vault = &Vault{
-					client:     newDeadVaultCA(t).client,
-					authMethod: authMethod,
-					logger:     zap.NewNop(),
+				sshProxy.config.caProvider = &vaultCAProvider{
+					vault: &Vault{
+						client:     newDeadVaultCA(t).client,
+						authMethod: authMethod,
+						logger:     zap.NewNop(),
+					},
 				}
 			},
 			wantErr: "failed to login to Vault",
 		},
 		{
 			name: "downstream config failure",
-			setup: func(t *testing.T, caConfig *caConfig) {
+			setup: func(t *testing.T, sshProxy *SSHProxy) {
 				t.Helper()
 
-				caConfig.GatewayHostCA = &stubCA{
+				fake := newFakeCAProvider(sshProxy.config.caProvider)
+				fake.host = &stubCA{
 					signer:     testSigner(t),
 					errOnCalls: map[int]error{1: errors.New("sign failed")},
 				}
+				sshProxy.config.caProvider = fake
 			},
 			wantErr: "host cert signer",
 		},
@@ -117,7 +122,7 @@ func TestProxy_StartFailure(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			sshProxy := newTestProxy(t)
-			tt.setup(t, sshProxy.config.caConfig)
+			tt.setup(t, sshProxy)
 
 			err := sshProxy.Start(t.Context(), newTestListener(t, "unused:22"))
 			require.ErrorContains(t, err, tt.wantErr)
@@ -153,7 +158,7 @@ func TestProxy_ServeConnPanicRecovered(t *testing.T) {
 	// A panic while serving one connection is recovered: the accept loop keeps running and
 	// the next connection is served end to end.
 	sshProxy := newTestProxy(t)
-	upstream := newEchoServer(t, caPublicKey(t, sshProxy.config.caConfig.GatewayUserCA))
+	upstream := newEchoServer(t, caPublicKey(t, sshProxy.config.caProvider.gatewayUserCA()))
 	listener := newTestListener(t, upstream.addr)
 	listener.panicConns = 1
 
@@ -271,10 +276,12 @@ func TestProxy_UpstreamFailures(t *testing.T) {
 
 				// The proxy signs a fresh user certificate per connection; a stub CA that
 				// fails to sign breaks that before anything is dialed.
-				sshProxy.config.caConfig.GatewayUserCA = &stubCA{
+				fake := newFakeCAProvider(sshProxy.config.caProvider)
+				fake.user = &stubCA{
 					signer:     testSigner(t),
 					errOnCalls: map[int]error{1: errors.New("sign failed")},
 				}
+				sshProxy.config.caProvider = fake
 
 				return "unused:22"
 			},
@@ -319,11 +326,12 @@ func TestProxy_UpstreamFailures(t *testing.T) {
 			setup: func(t *testing.T, sshProxy *SSHProxy) string {
 				t.Helper()
 
-				// The proxy requires host certificates from this CA, but the upstream presents
-				// a plain host key, so host verification fails.
-				sshProxy.config.caConfig.UpstreamHostCA = &embeddedCA{getSigner: staticSigner(testSigner(t))}
+				// Upstream host verification rejects the key the upstream presents.
+				fake := newFakeCAProvider(sshProxy.config.caProvider)
+				fake.rejectUpstreamHost = true
+				sshProxy.config.caProvider = fake
 
-				return newEchoServer(t, caPublicKey(t, sshProxy.config.caConfig.GatewayUserCA)).addr
+				return newEchoServer(t, caPublicKey(t, sshProxy.config.caProvider.gatewayUserCA())).addr
 			},
 			wantErr: "ssh: handshake failed",
 		},
@@ -411,7 +419,7 @@ func TestProxy_RejectsWhenShuttingDown(t *testing.T) {
 
 func TestProxy_Shutdown_ClosesActiveConnection(t *testing.T) {
 	sshProxy := newTestProxy(t)
-	upstream := newEchoServer(t, caPublicKey(t, sshProxy.config.caConfig.GatewayUserCA))
+	upstream := newEchoServer(t, caPublicKey(t, sshProxy.config.caProvider.gatewayUserCA()))
 
 	clientConn, serverConn := newDownstreamConn(t, upstream.addr)
 
@@ -439,6 +447,42 @@ func TestProxy_Shutdown_ClosesActiveConnection(t *testing.T) {
 
 // testProxyUsername is the username the test proxy presents to upstream servers.
 const testProxyUsername = "proxy-user"
+
+// fakeCAProvider is a caProvider whose CAs a test sets directly, so failure paths can
+// inject stub CAs without a real backend.
+type fakeCAProvider struct {
+	host, user ca
+
+	// rejectUpstreamHost makes upstreamHostKeyCallback reject the upstream host key, so a
+	// test can exercise the proxy's upstream host-verification failure path.
+	rejectUpstreamHost bool
+}
+
+func (p *fakeCAProvider) Start(_ context.Context) error {
+	return nil
+}
+
+func (p *fakeCAProvider) gatewayHostCA() ca { return p.host }
+func (p *fakeCAProvider) gatewayUserCA() ca { return p.user }
+
+func (p *fakeCAProvider) upstreamHostKeyCallback(_ context.Context, _ string) (ssh.HostKeyCallback, error) {
+	return func(_ string, _ net.Addr, _ ssh.PublicKey) error {
+		if p.rejectUpstreamHost {
+			return errors.New("upstream host key rejected")
+		}
+
+		return nil
+	}, nil
+}
+
+// newFakeCAProvider returns a fake seeded with the given provider's CAs, so a
+// test can replace a single CA while leaving the rest intact.
+func newFakeCAProvider(current caProvider) *fakeCAProvider {
+	return &fakeCAProvider{
+		host: current.gatewayHostCA(),
+		user: current.gatewayUserCA(),
+	}
+}
 
 // newTestProxy builds an SSHProxy in manual CA mode with its downstream config ready, so tests
 // can drive Serve/serveConn directly without going through Start. The proxy logs to a nop
@@ -663,7 +707,7 @@ func (l *testListener) Accept() (net.Conn, error) {
 func dialDownstream(t *testing.T, sshProxy *SSHProxy, clientConn net.Conn) (*ssh.Client, error) {
 	t.Helper()
 
-	hostCAPub := caPublicKey(t, sshProxy.config.caConfig.GatewayHostCA)
+	hostCAPub := caPublicKey(t, sshProxy.config.caProvider.gatewayHostCA())
 	checker := &ssh.CertChecker{
 		IsHostAuthority: func(auth ssh.PublicKey, _ string) bool {
 			return keysEqual(auth, hostCAPub)

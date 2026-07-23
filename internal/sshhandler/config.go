@@ -53,7 +53,7 @@ type upstream struct {
 }
 
 type Config struct {
-	caConfig *caConfig
+	caProvider caProvider
 
 	hostSigner    ssh.Signer
 	hostPublicKey ssh.PublicKey
@@ -71,7 +71,7 @@ type Config struct {
 
 // NewConfig creates an SSH handler config from the config package types.
 func NewConfig(auditLogConfig *config.AuditLogConfig, sshCfg *config.SSHConfig, logger *zap.Logger) (*Config, error) {
-	caConfig, err := newCAFromConfig(sshCfg.CA, logger)
+	caProvider, err := newCAFromConfig(sshCfg.CA, logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create ca: %w", err)
 	}
@@ -103,7 +103,7 @@ func NewConfig(auditLogConfig *config.AuditLogConfig, sshCfg *config.SSHConfig, 
 	}
 
 	return &Config{
-		caConfig:        caConfig,
+		caProvider:      caProvider,
 		hostSigner:      hostSigner,
 		hostPublicKey:   hostPublicKey,
 		hostCertTTL:     hostCertTTL,
@@ -140,7 +140,7 @@ func (c *Config) GetDownstreamConfig(ctx context.Context) (*ssh.ServerConfig, er
 		ttl:       c.hostCertTTL,
 	}
 
-	hostCertSigner, err := newAutoRenewingCertSigner(ctx, c.caConfig.GatewayHostCA, hostCertRequest, c.hostSigner, c.logger)
+	hostCertSigner, err := newAutoRenewingCertSigner(ctx, c.caProvider.gatewayHostCA(), hostCertRequest, c.hostSigner, c.logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Gateway's host cert signer: %w", err)
 	}
@@ -173,7 +173,7 @@ func (c *Config) GetUpstreamConfig(ctx context.Context, upstream upstream) (*ssh
 		},
 	}
 
-	userCert, err := c.caConfig.GatewayUserCA.sign(ctx, userCertRequest)
+	userCert, err := c.caProvider.gatewayUserCA().sign(ctx, userCertRequest)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign user certificate: %w", err)
 	}
@@ -183,7 +183,7 @@ func (c *Config) GetUpstreamConfig(ctx context.Context, upstream upstream) (*ssh
 		return nil, fmt.Errorf("failed to create Gateway's user certificate: %w", err)
 	}
 
-	hostKeyCallback, err := c.caConfig.upstreamHostKeyCallback(ctx, upstream.address)
+	hostKeyCallback, err := c.caProvider.upstreamHostKeyCallback(ctx, upstream.address)
 	if err != nil {
 		return nil, err
 	}
