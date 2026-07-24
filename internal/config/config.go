@@ -90,7 +90,6 @@ type TLSConfig struct {
 	Static *TLSStaticConfig `yaml:"static,omitempty"`
 }
 
-// TLSStaticConfig serves a pre-provisioned certificate loaded from files.
 type TLSStaticConfig struct {
 	CertificateFile string `yaml:"certificateFile"`
 	PrivateKeyFile  string `yaml:"privateKeyFile"`
@@ -353,6 +352,8 @@ func (t *TLSConfig) Validate() error {
 	return nil
 }
 
+var ErrMissingTLSConfig = errors.New("'static' must be specified for TLS config")
+
 func (s *TLSStaticConfig) Validate() error {
 	if s.CertificateFile == "" {
 		return fmt.Errorf("%w: certificateFile", ErrRequired)
@@ -364,8 +365,6 @@ func (s *TLSStaticConfig) Validate() error {
 
 	return nil
 }
-
-var ErrMissingTLSConfig = errors.New("'static' must be specified for TLS config")
 
 func (k *KubernetesConfig) Validate() error {
 	upstreamNames := make(map[string]struct{})
