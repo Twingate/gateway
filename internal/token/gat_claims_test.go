@@ -7,6 +7,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"encoding/json"
 	"fmt"
 	"math/big"
 	"testing"
@@ -19,9 +20,10 @@ import (
 
 func TestGATClaims_ShouldUpgradeTLS(t *testing.T) {
 	tests := []struct {
-		name         string
-		resourceType ResourceType
-		expected     bool
+		name          string
+		resourceType  ResourceType
+		downstreamTLS bool
+		expected      bool
 	}{
 		{
 			name:         "Kubernetes should upgrade TLS",
@@ -29,21 +31,33 @@ func TestGATClaims_ShouldUpgradeTLS(t *testing.T) {
 			expected:     true,
 		},
 		{
-			name:         "SSH should not upgrade TLS",
-			resourceType: ResourceTypeSSH,
+			name:          "SSH should not upgrade TLS",
+			resourceType:  ResourceTypeSSH,
+			downstreamTLS: true,
+			expected:      false,
+		},
+		{
+			name:         "Web app without downstream TLS should not upgrade TLS",
+			resourceType: ResourceTypeWebApp,
 			expected:     false,
 		},
 		{
-			name:         "Web app should not upgrade TLS",
-			resourceType: ResourceTypeWebApp,
-			expected:     false,
+			name:          "Web app with downstream TLS should upgrade TLS",
+			resourceType:  ResourceTypeWebApp,
+			downstreamTLS: true,
+			expected:      true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			claims := &GATClaims{
-				Resource: Resource{Type: tt.resourceType},
+				Resource: Resource{
+					Type: tt.resourceType,
+					GatewayMetadata: GatewayMetadata{
+						Downstream: Downstream{TLS: tt.downstreamTLS},
+					},
+				},
 			}
 			assert.Equal(t, tt.expected, claims.ShouldUpgradeTLS())
 		})
@@ -317,6 +331,34 @@ func TestPublicKey_UnmarshalJSON(t *testing.T) {
 
 			require.ErrorIs(t, err, tt.expectedError)
 			require.ErrorContains(t, err, tt.expectedErrorMessage)
+		})
+	}
+}
+
+func TestGatewayMetadata_UnmarshalDownstreamTLS(t *testing.T) {
+	tests := []struct {
+		name    string
+		json    string
+		wantTLS bool
+	}{
+		{
+			name:    "downstream tls true",
+			json:    `{"downstream": {"port": 443, "tls": true}}`,
+			wantTLS: true,
+		},
+		{
+			name:    "tls absent defaults to false",
+			json:    `{"downstream": {"port": 443}}`,
+			wantTLS: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var metadata GatewayMetadata
+
+			require.NoError(t, json.Unmarshal([]byte(tt.json), &metadata))
+			assert.Equal(t, tt.wantTLS, metadata.Downstream.TLS)
 		})
 	}
 }
