@@ -46,6 +46,7 @@ type Client struct {
 
 	resourceHostname      string
 	downstreamPort        int
+	downstreamTLS         bool
 	upstreamPort          int
 	resourceType          token.ResourceType
 	requestHeaderRewrites map[string]string
@@ -70,6 +71,15 @@ type Option func(*Client)
 func WithRequestHeaderRewrites(rewrites map[string]string) Option {
 	return func(c *Client) {
 		c.requestHeaderRewrites = rewrites
+	}
+}
+
+// WithDownstreamTLS marks the resource as TLS-enforced on downstream in the GAT
+// and switches the client-facing port to the HTTPS port.
+func WithDownstreamTLS() Option {
+	return func(c *Client) {
+		c.downstreamTLS = true
+		c.downstreamPort = 443
 	}
 }
 
@@ -278,7 +288,7 @@ func (c *Client) fetchGAT() (string, error) {
 			Type:    c.resourceType,
 			Address: c.resourceHostname,
 			GatewayMetadata: token.GatewayMetadata{
-				Downstream:            token.Downstream{Port: c.downstreamPort},
+				Downstream:            token.Downstream{Port: c.downstreamPort, TLS: c.downstreamTLS},
 				Upstream:              token.Upstream{Port: c.upstreamPort},
 				RequestHeaderRewrites: c.requestHeaderRewrites,
 			},
