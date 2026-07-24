@@ -77,7 +77,7 @@ func NewProxy(config *gatewayconfig.Config, registry *prometheus.Registry, logge
 	}
 
 	if config.WebApp != nil {
-		webAppCfg, err := webapphandler.NewConfig(config.WebApp.RequestHeaders, roundTripperMetrics, logger)
+		webAppCfg, err := webapphandler.NewConfig(config.WebApp.RequestHeaders, config.CAs, roundTripperMetrics, logger)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create web app config: %w", err)
 		}

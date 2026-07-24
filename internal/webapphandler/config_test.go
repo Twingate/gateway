@@ -4,11 +4,17 @@
 package webapphandler
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
+	"gateway/internal/config"
+	"gateway/internal/metrics"
 	"gateway/internal/webapphandler/template"
 )
 
@@ -51,7 +57,7 @@ func TestNewConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cfg, err := NewConfig(tt.headers, nil, zap.NewNop())
+			cfg, err := NewConfig(tt.headers, nil, nil, zap.NewNop())
 
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
@@ -61,6 +67,51 @@ func TestNewConfig(t *testing.T) {
 
 			require.NoError(t, err)
 			require.NotNil(t, cfg)
+		})
+	}
+}
+
+func TestNewConfig_CAPool(t *testing.T) {
+	invalidPEMFile := filepath.Join(t.TempDir(), "invalid.crt")
+	require.NoError(t, os.WriteFile(invalidPEMFile, []byte("not a pem"), 0o600))
+
+	tests := []struct {
+		name        string
+		cas         []config.CA
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:    "no CAs yields the system pool",
+			cas:     nil,
+			wantErr: false,
+		},
+		{
+			name:        "missing CA file",
+			cas:         []config.CA{{Name: "missing", CertFile: filepath.Join(t.TempDir(), "nope.crt")}},
+			wantErr:     true,
+			errContains: "\"missing\"",
+		},
+		{
+			name:        "invalid PEM",
+			cas:         []config.CA{{Name: "invalid", CertFile: invalidPEMFile}},
+			wantErr:     true,
+			errContains: "\"invalid\"",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, err := NewConfig(nil, tt.cas, metrics.RegisterRoundTripperMetrics(prometheus.NewRegistry()), zap.NewNop())
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errContains)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.NotNil(t, cfg.caPool, "pool defaults to the system cert pool when no CAs are configured")
 		})
 	}
 }

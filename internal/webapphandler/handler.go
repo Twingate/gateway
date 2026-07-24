@@ -4,6 +4,8 @@
 package webapphandler
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"net/http"
 	"net/http/httputil"
@@ -32,10 +34,26 @@ func NewHandler(cfg Config) *Handler {
 				panic(err)
 			}
 		},
-		Transport: metrics.InstrumentRoundTripper(cfg.roundTripperMetrics, metrics.ResourceTypeWebApp, http.DefaultTransport),
+		Transport: metrics.InstrumentRoundTripper(cfg.roundTripperMetrics, metrics.ResourceTypeWebApp, createTransport(cfg.caPool)),
 	}
 
 	return &Handler{proxy: proxy}
+}
+
+// createTransport clones http.DefaultTransport to preserve its proxy, timeout,
+// and HTTP/2 defaults and pins upstream TLS verification to the given CA pool.
+func createTransport(caPool *x509.CertPool) *http.Transport {
+	transport := &http.Transport{}
+	if defaultTransport, ok := http.DefaultTransport.(*http.Transport); ok {
+		transport = defaultTransport.Clone()
+	}
+
+	transport.TLSClientConfig = &tls.Config{
+		MinVersion: tls.VersionTLS13,
+		RootCAs:    caPool,
+	}
+
+	return transport
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -68,8 +86,13 @@ func buildVariables(conn *connect.ProxyConn) map[string]string {
 var clientIdentityHeaders = []string{"X-Real-IP", "X-Forwarded-Port", "X-Forwarded-Server"}
 
 func rewrite(r *httputil.ProxyRequest, conn *connect.ProxyConn, headers map[string]*template.Template) error {
+	scheme := "http"
+	if conn.GATClaims().Resource.GatewayMetadata.Upstream.TLS {
+		scheme = "https"
+	}
+
 	targetURL := &url.URL{
-		Scheme: "http", // plain HTTP — no upstream TLS
+		Scheme: scheme,
 		Host:   conn.GetAddress(),
 	}
 	r.SetURL(targetURL)

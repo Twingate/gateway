@@ -24,6 +24,7 @@ var (
 	ErrInvalidHost       = errors.New("invalid twingate.host")
 	ErrInvalidPort       = errors.New("invalid port number")
 	ErrDuplicateUpstream = errors.New("duplicate upstream name")
+	ErrDuplicateTLSCA    = errors.New("duplicate TLS CA name")
 	ErrInvalidSSHKeyType = errors.New("invalid SSH key type")
 	ErrNegativeTTL       = errors.New("TTL must be non-negative")
 )
@@ -56,6 +57,7 @@ type Config struct {
 	MetricsPort int               `yaml:"metricsPort"`
 	AuditLog    AuditLogConfig    `yaml:"auditLog"`
 	TLS         TLSConfig         `yaml:"tls"`
+	CAs         []CA              `yaml:"cas,omitempty"`
 	Kubernetes  *KubernetesConfig `yaml:"kubernetes,omitempty"`
 	SSH         *SSHConfig        `yaml:"ssh,omitempty"`
 	WebApp      *WebAppConfig     `yaml:"webApp,omitempty"`
@@ -88,6 +90,12 @@ type AuditLogConfig struct {
 type TLSConfig struct {
 	CertificateFile string `yaml:"certificateFile"`
 	PrivateKeyFile  string `yaml:"privateKeyFile"`
+}
+
+// CA is a certificate authority the Gateway trusts when verifying upstream TLS connections.
+type CA struct {
+	Name     string `yaml:"name"`
+	CertFile string `yaml:"certFile"`
 }
 
 type KubernetesConfig struct {
@@ -315,6 +323,10 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("tls config: %w", err)
 	}
 
+	if err := validateCAs(c.CAs); err != nil {
+		return fmt.Errorf("cas config: %w", err)
+	}
+
 	if c.Kubernetes != nil {
 		if err := c.Kubernetes.Validate(); err != nil {
 			return fmt.Errorf("kubernetes config: %w", err)
@@ -372,6 +384,36 @@ func (k *KubernetesUpstream) Validate() error {
 
 	if k.BearerToken == "" && k.BearerTokenFile == "" {
 		return fmt.Errorf("%w: either bearerToken or bearerTokenFile is required", ErrRequired)
+	}
+
+	return nil
+}
+
+func validateCAs(cas []CA) error {
+	caNames := make(map[string]struct{})
+
+	for i, ca := range cas {
+		if err := ca.Validate(); err != nil {
+			return fmt.Errorf("cas[%d] (name: %q): %w", i, ca.Name, err)
+		}
+
+		if _, exists := caNames[ca.Name]; exists {
+			return fmt.Errorf("%w: %q", ErrDuplicateTLSCA, ca.Name)
+		}
+
+		caNames[ca.Name] = struct{}{}
+	}
+
+	return nil
+}
+
+func (c *CA) Validate() error {
+	if c.Name == "" {
+		return fmt.Errorf("%w: name", ErrRequired)
+	}
+
+	if c.CertFile == "" {
+		return fmt.Errorf("%w: certFile", ErrRequired)
 	}
 
 	return nil
