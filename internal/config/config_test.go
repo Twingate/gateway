@@ -149,8 +149,9 @@ auditLog:
   flushInterval: "10m"
   flushSizeThreshold: 1000000
 tls:
-  certificateFile: "tls.crt"
-  privateKeyFile: "tls.key"
+  static:
+    certificateFile: "tls.crt"
+    privateKeyFile: "tls.key"
 kubernetes: {}
 `
 
@@ -182,8 +183,9 @@ auditLog:
   flushInterval: "10m"
   flushSizeThreshold: 1000000
 tls:
-  certificateFile: "tls.crt"
-  privateKeyFile: "tls.key"
+  static:
+    certificateFile: "tls.crt"
+    privateKeyFile: "tls.key"
 ssh:
   gateway:
     username: "gateway"
@@ -221,8 +223,9 @@ func TestLoad_SSH_Vault(t *testing.T) {
 twingate:
   network: "acme"
 tls:
-  certificateFile: "tls.crt"
-  privateKeyFile: "tls.key"
+  static:
+    certificateFile: "tls.crt"
+    privateKeyFile: "tls.key"
 ssh:
   gateway:
     username: "gateway"
@@ -271,8 +274,9 @@ func TestLoad_UseDefaultValues(t *testing.T) {
 twingate:
   network: "acme"
 tls:
-  certificateFile: "tls.crt"
-  privateKeyFile: "tls.key"
+  static:
+    certificateFile: "tls.crt"
+    privateKeyFile: "tls.key"
 kubernetes: {}
 `
 
@@ -337,8 +341,7 @@ func TestConfig_Validate(t *testing.T) {
 				Port:        8443,
 				MetricsPort: 9090,
 				TLS: TLSConfig{
-					CertificateFile: "tls.crt",
-					PrivateKeyFile:  "tls.key",
+					Static: &TLSStaticConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
 				},
 				Kubernetes: &KubernetesConfig{},
 				WebApp: &WebAppConfig{
@@ -353,8 +356,7 @@ func TestConfig_Validate(t *testing.T) {
 				Port:        8443,
 				MetricsPort: 9090,
 				TLS: TLSConfig{
-					CertificateFile: "tls.crt",
-					PrivateKeyFile:  "tls.key",
+					Static: &TLSStaticConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
 				},
 				Kubernetes: &KubernetesConfig{},
 			},
@@ -367,7 +369,7 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: "us1", Host: "twingate.com"},
 				Port:        8443,
 				MetricsPort: 9090,
-				TLS:         TLSConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+				TLS:         TLSConfig{Static: &TLSStaticConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"}},
 				Kubernetes:  &KubernetesConfig{},
 			},
 			wantErr: false,
@@ -378,7 +380,7 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: "evil.com/x", Host: "twingate.com"},
 				Port:        8443,
 				MetricsPort: 9090,
-				TLS:         TLSConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+				TLS:         TLSConfig{Static: &TLSStaticConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"}},
 				Kubernetes:  &KubernetesConfig{},
 			},
 			wantErr:     true,
@@ -390,7 +392,7 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: "ACME", Host: "twingate.com"},
 				Port:        8443,
 				MetricsPort: 9090,
-				TLS:         TLSConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+				TLS:         TLSConfig{Static: &TLSStaticConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"}},
 				Kubernetes:  &KubernetesConfig{},
 			},
 			wantErr:     true,
@@ -402,7 +404,7 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: "us1-acme", Host: "twingate.com"},
 				Port:        8443,
 				MetricsPort: 9090,
-				TLS:         TLSConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+				TLS:         TLSConfig{Static: &TLSStaticConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"}},
 				Kubernetes:  &KubernetesConfig{},
 			},
 			wantErr:     true,
@@ -414,7 +416,7 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: strings.Repeat("a", 63), Host: "twingate.com"},
 				Port:        8443,
 				MetricsPort: 9090,
-				TLS:         TLSConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+				TLS:         TLSConfig{Static: &TLSStaticConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"}},
 				Kubernetes:  &KubernetesConfig{},
 			},
 			wantErr: false,
@@ -425,7 +427,7 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: strings.Repeat("a", 64), Host: "twingate.com"},
 				Port:        8443,
 				MetricsPort: 9090,
-				TLS:         TLSConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+				TLS:         TLSConfig{Static: &TLSStaticConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"}},
 				Kubernetes:  &KubernetesConfig{},
 			},
 			wantErr:     true,
@@ -437,7 +439,7 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: "test", Host: "foo.stg.opstg.com"},
 				Port:        8443,
 				MetricsPort: 9090,
-				TLS:         TLSConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+				TLS:         TLSConfig{Static: &TLSStaticConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"}},
 				Kubernetes:  &KubernetesConfig{},
 			},
 			wantErr: false,
@@ -448,7 +450,7 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: "acme", Host: "test"},
 				Port:        8443,
 				MetricsPort: 9090,
-				TLS:         TLSConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+				TLS:         TLSConfig{Static: &TLSStaticConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"}},
 				Kubernetes:  &KubernetesConfig{},
 			},
 			wantErr: false,
@@ -459,7 +461,7 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: "test", Host: "Foo.Twingate.COM"},
 				Port:        8443,
 				MetricsPort: 9090,
-				TLS:         TLSConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+				TLS:         TLSConfig{Static: &TLSStaticConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"}},
 				Kubernetes:  &KubernetesConfig{},
 			},
 			wantErr: false,
@@ -470,7 +472,7 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: "test", Host: ""},
 				Port:        8443,
 				MetricsPort: 9090,
-				TLS:         TLSConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+				TLS:         TLSConfig{Static: &TLSStaticConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"}},
 				Kubernetes:  &KubernetesConfig{},
 			},
 			wantErr:     true,
@@ -482,7 +484,7 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: "test", Host: "evil.example.com"},
 				Port:        8443,
 				MetricsPort: 9090,
-				TLS:         TLSConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+				TLS:         TLSConfig{Static: &TLSStaticConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"}},
 				Kubernetes:  &KubernetesConfig{},
 			},
 			wantErr:     true,
@@ -494,7 +496,7 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: "test", Host: "https://evil.com/x"},
 				Port:        8443,
 				MetricsPort: 9090,
-				TLS:         TLSConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+				TLS:         TLSConfig{Static: &TLSStaticConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"}},
 				Kubernetes:  &KubernetesConfig{},
 			},
 			wantErr:     true,
@@ -506,7 +508,7 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: "test", Host: "evil.com/x.twingate.com"},
 				Port:        8443,
 				MetricsPort: 9090,
-				TLS:         TLSConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+				TLS:         TLSConfig{Static: &TLSStaticConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"}},
 				Kubernetes:  &KubernetesConfig{},
 			},
 			wantErr:     true,
@@ -518,7 +520,7 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: "test", Host: "10.0.0.5"},
 				Port:        8443,
 				MetricsPort: 9090,
-				TLS:         TLSConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+				TLS:         TLSConfig{Static: &TLSStaticConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"}},
 				Kubernetes:  &KubernetesConfig{},
 			},
 			wantErr:     true,
@@ -531,8 +533,7 @@ func TestConfig_Validate(t *testing.T) {
 				Port:        -1,
 				MetricsPort: 9090,
 				TLS: TLSConfig{
-					CertificateFile: "tls.crt",
-					PrivateKeyFile:  "tls.key",
+					Static: &TLSStaticConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
 				},
 				Kubernetes: &KubernetesConfig{},
 			},
@@ -546,8 +547,7 @@ func TestConfig_Validate(t *testing.T) {
 				Port:        8443,
 				MetricsPort: 70000,
 				TLS: TLSConfig{
-					CertificateFile: "tls.crt",
-					PrivateKeyFile:  "tls.key",
+					Static: &TLSStaticConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
 				},
 				Kubernetes: &KubernetesConfig{},
 			},
@@ -561,8 +561,7 @@ func TestConfig_Validate(t *testing.T) {
 				Port:        8443,
 				MetricsPort: 9090,
 				TLS: TLSConfig{
-					CertificateFile: "tls.crt",
-					PrivateKeyFile:  "tls.key",
+					Static: &TLSStaticConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
 				},
 			},
 			wantErr:     true,
@@ -592,20 +591,26 @@ func TestTLSConfig_Validate(t *testing.T) {
 	}{
 		{
 			name:    "valid",
-			tls:     TLSConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+			tls:     TLSConfig{Static: &TLSStaticConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"}},
 			wantErr: false,
 		},
 		{
-			name:        "missing certificate",
-			tls:         TLSConfig{PrivateKeyFile: "tls.key"},
+			name:        "missing static",
+			tls:         TLSConfig{},
 			wantErr:     true,
-			errContains: "certificateFile",
+			errContains: "'static' must be specified",
 		},
 		{
-			name:        "missing private key",
-			tls:         TLSConfig{CertificateFile: "tls.crt"},
+			name:        "static missing certificate",
+			tls:         TLSConfig{Static: &TLSStaticConfig{PrivateKeyFile: "tls.key"}},
 			wantErr:     true,
-			errContains: "privateKeyFile",
+			errContains: "static: required field is missing: certificateFile",
+		},
+		{
+			name:        "static missing private key",
+			tls:         TLSConfig{Static: &TLSStaticConfig{CertificateFile: "tls.crt"}},
+			wantErr:     true,
+			errContains: "static: required field is missing: privateKeyFile",
 		},
 	}
 
