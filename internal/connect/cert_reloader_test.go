@@ -4,7 +4,6 @@
 package connect
 
 import (
-	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
@@ -13,151 +12,45 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"testing/synctest"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
-	"go.uber.org/zap/zaptest/observer"
 )
 
-func TestReloadWhenFileChanged(t *testing.T) {
-	oldCert := generateCert(t)
-	certFile, keyFile := createCertFiles(t, oldCert)
-	certReloader := NewCertReloader(certFile, keyFile, zap.NewNop())
-	certReloader.Run(t.Context())
+func TestCertReloader_load(t *testing.T) {
+	cert := generateCert(t)
+	certFile, keyFile := createCertFiles(t, cert)
+	_, otherKeyFile := createCertFiles(t, generateCert(t))
 
-	requireCertReloader(t, certReloader, oldCert)
-
-	newCert := generateCert(t)
-	replaceCertFiles(t, certFile, keyFile, newCert)
-
-	hello := &tls.ClientHelloInfo{}
-
-	assert.EventuallyWithT(t, func(c *assert.CollectT) {
-		cert, err := certReloader.GetCertificate(hello)
-		assert.NoError(t, err)
-
-		assert.Equal(c, newCert.Certificate, cert.Certificate)
-	}, time.Second, 5*time.Millisecond)
-}
-
-func TestDontReloadWhenMismatchedKeyAndCertificate(t *testing.T) {
-	expectedCert := generateCert(t)
-	certFile, keyFile := createCertFiles(t, expectedCert)
-	certReloader := NewCertReloader(certFile, keyFile, zap.NewNop())
-	certReloader.Run(t.Context())
-
-	requireCertReloader(t, certReloader, expectedCert)
-
-	// Create mismatched key and certificate
-	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
-	require.NoError(t, err)
-
-	invalidCert := tls.Certificate{
-		Certificate: expectedCert.Certificate,
-		PrivateKey:  privateKey,
-	}
-
-	replaceCertFiles(t, certFile, keyFile, invalidCert)
-	time.Sleep(5 * time.Millisecond)
-
-	hello := &tls.ClientHelloInfo{}
-
-	cert, err := certReloader.GetCertificate(hello)
-	require.NoError(t, err)
-
-	// Ensure certificate is unchanged
-	assert.Equal(t, expectedCert.Certificate, cert.Certificate)
-}
-
-func TestDontReloadWhenContextIsCanceled(t *testing.T) {
-	expectedCert := generateCert(t)
-	certFile, keyFile := createCertFiles(t, expectedCert)
-
-	certReloader := NewCertReloader(certFile, keyFile, zap.NewNop())
-
-	ctx, cancel := context.WithCancel(t.Context())
-	certReloader.Run(ctx)
-
-	requireCertReloader(t, certReloader, expectedCert)
-
-	cancel()
-	// Wait for the context to cancel
-	time.Sleep(100 * time.Millisecond)
-
-	newCert := generateCert(t)
-	replaceCertFiles(t, certFile, keyFile, newCert)
-	time.Sleep(5 * time.Millisecond)
-
-	hello := &tls.ClientHelloInfo{}
-
-	cert, err := certReloader.GetCertificate(hello)
-	require.NoError(t, err)
-
-	assert.Equal(t, expectedCert.Certificate, cert.Certificate)
-}
-
-func TestErrorInitializeCertReloader(t *testing.T) {
 	tests := []struct {
-		name  string
-		setup func(logger *zap.Logger) *CertReloader
+		name     string
+		certFile string
+		keyFile  string
+		wantErr  bool
 	}{
-		{
-			name: "invalid cert file",
-			setup: func(logger *zap.Logger) *CertReloader {
-				return NewCertReloader("foo.crt", "../../test/data/proxy/tls.key", logger)
-			},
-		},
-		{
-			name: "invalid key file",
-			setup: func(logger *zap.Logger) *CertReloader {
-				return NewCertReloader("../../test/data/proxy/tls.crt", "foo.key", logger)
-			},
-		},
-		{
-			name: "mismatched key and certificate",
-			setup: func(logger *zap.Logger) *CertReloader {
-				_, keyFile := createCertFiles(t, generateCert(t))
-
-				return NewCertReloader("../../test/data/proxy/tls.crt", keyFile, logger)
-			},
-		},
+		{name: "valid cert and key", certFile: certFile, keyFile: keyFile},
+		{name: "mismatched cert and key", certFile: certFile, keyFile: otherKeyFile, wantErr: true},
+		{name: "missing files", certFile: "nonexistent.crt", keyFile: "nonexistent.key", wantErr: true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			synctest.Test(t, func(t *testing.T) {
-				core, logs := observer.New(zapcore.DebugLevel)
-				logger := zap.New(core)
+			cr := NewCertReloader(tt.certFile, tt.keyFile, zap.NewNop())
 
-				certReloader := tt.setup(logger)
-				certReloader.Run(t.Context())
+			if tt.wantErr {
+				require.Error(t, cr.load())
 
-				synctest.Wait()
+				return
+			}
 
-				log := logs.All()[0]
-				assert.Equal(t, zapcore.ErrorLevel, log.Level)
-				assert.Equal(t, "failed to watch cert and key file, will retry later", log.Message)
-			})
+			require.NoError(t, cr.load())
+
+			got, err := cr.GetCertificate(&tls.ClientHelloInfo{})
+			require.NoError(t, err)
+			assert.Equal(t, cert.Certificate, got.Certificate)
 		})
 	}
-}
-
-func requireCertReloader(t *testing.T, certReloader *CertReloader, expectedCert tls.Certificate) {
-	t.Helper()
-
-	hello := &tls.ClientHelloInfo{}
-
-	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		existingCert, err := certReloader.GetCertificate(hello)
-		require.NoError(c, err)
-
-		require.NotNil(c, existingCert)
-		require.Equal(c, expectedCert.Certificate, existingCert.Certificate)
-	}, time.Second, 5*time.Millisecond, "failed to get certificate")
 }
 
 func generateCert(t *testing.T) tls.Certificate {
@@ -190,14 +83,4 @@ func createCertFiles(t *testing.T, cert tls.Certificate) (certFile string, keyFi
 	require.NoError(t, os.WriteFile(keyFile, keyPEM, 0600))
 
 	return certFile, keyFile
-}
-
-func replaceCertFiles(t *testing.T, certFile, keyFile string, newCert tls.Certificate) {
-	t.Helper()
-
-	certData := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: newCert.Certificate[0]})
-	keyData := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(newCert.PrivateKey.(*rsa.PrivateKey))})
-
-	require.NoError(t, os.WriteFile(certFile, certData, 0600))
-	require.NoError(t, os.WriteFile(keyFile, keyData, 0600))
 }
