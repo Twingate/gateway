@@ -51,13 +51,17 @@ type ProxyConn struct {
 	net.Conn
 
 	TLSConfig        *tls.Config
+	Cert             *Cert
 	ConnectValidator Validator
 	Logger           *zap.Logger
 
 	ID      string
 	Address string
-	Claims  *token.GATClaims
-	Token   string
+	// DownstreamHost is the validated CONNECT target host as requested by the
+	// downstream client, before any alias-to-address rewrite.
+	DownstreamHost string
+	Claims         *token.GATClaims
+	Token          string
 
 	Timer *time.Timer
 	Mu    sync.Mutex
@@ -225,7 +229,14 @@ func (p *ProxyConn) Authenticate() error {
 }
 
 func (p *ProxyConn) UpgradeToTLS() error {
-	tlsConn := tls.Server(p.Conn, p.TLSConfig)
+	tlsConfig, err := p.upgradeTLSConfig()
+	if err != nil {
+		p.Logger.Error("failed to prepare TLS config for upgrade", zap.Error(err))
+
+		return err
+	}
+
+	tlsConn := tls.Server(p.Conn, tlsConfig)
 	if err := tlsConn.Handshake(); err != nil {
 		p.Logger.Error("failed to upgrade TLS", zap.Error(err))
 
@@ -238,9 +249,30 @@ func (p *ProxyConn) UpgradeToTLS() error {
 	return nil
 }
 
+// upgradeTLSConfig picks the TLS config presented to the downstream client.
+// In dynamic mode the handshake presents a certificate minted for the
+// CONNECT-requested host; in static mode the shared static config is reused.
+func (p *ProxyConn) upgradeTLSConfig() (*tls.Config, error) {
+	if p.Cert == nil {
+		return p.TLSConfig, nil
+	}
+
+	cert, err := p.Cert.GetCertificateForHost(p.DownstreamHost)
+	if err != nil {
+		return nil, fmt.Errorf("failed to mint certificate for %q: %w", p.DownstreamHost, err)
+	}
+
+	tlsConfig := p.TLSConfig.Clone()
+	tlsConfig.GetCertificate = nil
+	tlsConfig.Certificates = []tls.Certificate{*cert}
+
+	return tlsConfig, nil
+}
+
 func (p *ProxyConn) setConnectInfo(connectInfo Info) {
 	p.ID = connectInfo.ConnID
 	p.Address = connectInfo.Address
+	p.DownstreamHost = connectInfo.DownstreamHost
 	p.Claims = connectInfo.Claims
 	p.Token = connectInfo.Token
 	p.Timer = time.AfterFunc(time.Until(connectInfo.Claims.ExpiresAt.Time), func() {

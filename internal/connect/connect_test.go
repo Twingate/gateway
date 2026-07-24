@@ -388,30 +388,34 @@ func TestResolveUpstreamAddress(t *testing.T) {
 	}
 
 	tests := []struct {
-		name        string
-		address     string
-		resource    token.Resource
-		wantAddress string
-		wantCode    int
-		wantMessage string
+		name               string
+		address            string
+		resource           token.Resource
+		wantAddress        string
+		wantDownstreamHost string
+		wantCode           int
+		wantMessage        string
 	}{
 		{
-			name:        "maps downstream port to upstream port",
-			address:     "example.com:443",
-			resource:    token.Resource{Address: "example.com", GatewayMetadata: metadata},
-			wantAddress: "example.com:8443",
+			name:               "maps downstream port to upstream port",
+			address:            "example.com:443",
+			resource:           token.Resource{Address: "example.com", GatewayMetadata: metadata},
+			wantAddress:        "example.com:8443",
+			wantDownstreamHost: "example.com",
 		},
 		{
-			name:        "wildcard address keeps requested host",
-			address:     "api.example.com:443",
-			resource:    token.Resource{Address: "*.example.com", GatewayMetadata: metadata},
-			wantAddress: "api.example.com:8443",
+			name:               "wildcard address keeps requested host",
+			address:            "api.example.com:443",
+			resource:           token.Resource{Address: "*.example.com", GatewayMetadata: metadata},
+			wantAddress:        "api.example.com:8443",
+			wantDownstreamHost: "api.example.com",
 		},
 		{
-			name:        "alias maps to upstream resource address",
-			address:     "second.internal:443",
-			resource:    token.Resource{Address: "10.0.0.5", Aliases: []string{"first.internal", "second.internal"}, GatewayMetadata: metadata},
-			wantAddress: "10.0.0.5:8443",
+			name:               "alias maps to upstream resource address",
+			address:            "second.internal:443",
+			resource:           token.Resource{Address: "10.0.0.5", Aliases: []string{"first.internal", "second.internal"}, GatewayMetadata: metadata},
+			wantAddress:        "10.0.0.5:8443",
+			wantDownstreamHost: "second.internal",
 		},
 		{
 			name:        "host matches neither address nor alias",
@@ -459,19 +463,21 @@ func TestResolveUpstreamAddress(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, httpErr := resolveUpstreamAddress(tt.address, tt.resource)
+			got, gotDownstreamHost, httpErr := resolveUpstreamAddress(tt.address, tt.resource)
 
 			if tt.wantCode != 0 {
 				require.NotNil(t, httpErr)
 				assert.Equal(t, tt.wantCode, httpErr.Code)
 				assert.Contains(t, httpErr.Message, tt.wantMessage)
 				assert.Empty(t, got)
+				assert.Empty(t, gotDownstreamHost)
 
 				return
 			}
 
 			require.Nil(t, httpErr)
 			assert.Equal(t, tt.wantAddress, got)
+			assert.Equal(t, tt.wantDownstreamHost, gotDownstreamHost)
 		})
 	}
 }

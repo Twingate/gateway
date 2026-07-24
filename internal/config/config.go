@@ -48,6 +48,8 @@ const (
 	defaultMetricsPort                = 9090
 	defaultAuditLogFlushInterval      = time.Minute * 10
 	defaultAuditLogFlushSizeThreshold = 1_000_000 // 1MB in bytes
+	defaultTLSCertDuration            = 24 * time.Hour
+	defaultTLSCertRenewBefore         = 8 * time.Hour
 )
 
 type Config struct {
@@ -85,14 +87,41 @@ type AuditLogConfig struct {
 	FlushSizeThreshold int           `yaml:"flushSizeThreshold"` // bytes
 }
 
-// TLSConfig represents the downstream TLS configuration. Static must be set.
+// TLSConfig represents the downstream TLS configuration. Exactly one of
+// Static or Dynamic must be set.
 type TLSConfig struct {
-	Static *TLSStaticConfig `yaml:"static,omitempty"`
+	Static  *TLSStaticConfig  `yaml:"static,omitempty"`
+	Dynamic *TLSDynamicConfig `yaml:"dynamic,omitempty"`
 }
 
 type TLSStaticConfig struct {
 	CertificateFile string `yaml:"certificateFile"`
 	PrivateKeyFile  string `yaml:"privateKeyFile"`
+}
+
+// TLSDynamicConfig configures on-demand minting of downstream leaf certificates.
+type TLSDynamicConfig struct {
+	CA   TLSDynamicCAConfig   `yaml:"ca"`
+	Cert TLSDynamicCertConfig `yaml:"cert"`
+}
+
+// TLSDynamicCAConfig represents the signing CA configuration. SelfSign must be set.
+type TLSDynamicCAConfig struct {
+	SelfSign *TLSSelfSignCAConfig `yaml:"selfSign,omitempty"`
+}
+
+// TLSSelfSignCAConfig configures a signing CA loaded from certificate and key files.
+type TLSSelfSignCAConfig struct {
+	CertificateFile string `yaml:"certificateFile"`
+	PrivateKeyFile  string `yaml:"privateKeyFile"`
+}
+
+// TLSDynamicCertConfig controls the leaf certificates minted by the dynamic CA.
+type TLSDynamicCertConfig struct {
+	Duration    time.Duration `yaml:"duration"`    // Leaf certificate lifetime. Defaults to 24h.
+	RenewBefore time.Duration `yaml:"renewBefore"` // Window before expiry in which a fresh leaf is minted. Defaults to 8h.
+	KeyType     string        `yaml:"keyType"`     // ecdsa or rsa. Defaults to ecdsa.
+	KeyBits     int           `yaml:"keyBits"`     // ECDSA: 256/384/521, RSA: 2048/3072/4096. Defaults to 256 for ECDSA, 2048 for RSA.
 }
 
 type KubernetesConfig struct {
@@ -341,18 +370,28 @@ func (c *Config) Validate() error {
 }
 
 func (t *TLSConfig) Validate() error {
-	if t.Static == nil {
+	if t.Static == nil && t.Dynamic == nil {
 		return ErrMissingTLSConfig
 	}
 
-	if err := t.Static.Validate(); err != nil {
-		return fmt.Errorf("static: %w", err)
+	if t.Static != nil && t.Dynamic != nil {
+		return ErrConflictingTLSConfig
+	}
+
+	if t.Static != nil {
+		if err := t.Static.Validate(); err != nil {
+			return fmt.Errorf("static: %w", err)
+		}
+	}
+
+	if t.Dynamic != nil {
+		if err := t.Dynamic.Validate(); err != nil {
+			return fmt.Errorf("dynamic: %w", err)
+		}
 	}
 
 	return nil
 }
-
-var ErrMissingTLSConfig = errors.New("'static' must be specified for TLS config")
 
 func (s *TLSStaticConfig) Validate() error {
 	if s.CertificateFile == "" {
@@ -364,6 +403,125 @@ func (s *TLSStaticConfig) Validate() error {
 	}
 
 	return nil
+}
+
+var (
+	ErrMissingTLSConfig     = errors.New("either 'static' or 'dynamic' must be specified for TLS config")
+	ErrConflictingTLSConfig = errors.New("only one of 'static' or 'dynamic' can be specified for TLS config")
+	ErrMissingTLSCAConfig   = errors.New("'selfSign' must be specified for dynamic CA config")
+	ErrInvalidTLSKeyType    = errors.New("invalid TLS key type")
+	ErrInvalidTLSKeyBits    = errors.New("invalid TLS key bits")
+	ErrNegativeDuration     = errors.New("duration must be non-negative")
+	ErrRenewBeforeTooLong   = errors.New("renewBefore must be shorter than duration")
+)
+
+func (d *TLSDynamicConfig) Validate() error {
+	if err := d.CA.Validate(); err != nil {
+		return fmt.Errorf("ca: %w", err)
+	}
+
+	if err := d.Cert.Validate(); err != nil {
+		return fmt.Errorf("cert: %w", err)
+	}
+
+	return nil
+}
+
+func (c *TLSDynamicCAConfig) Validate() error {
+	if c.SelfSign == nil {
+		return ErrMissingTLSCAConfig
+	}
+
+	if err := c.SelfSign.Validate(); err != nil {
+		return fmt.Errorf("selfSign: %w", err)
+	}
+
+	return nil
+}
+
+func (s *TLSSelfSignCAConfig) Validate() error {
+	if s.CertificateFile == "" {
+		return fmt.Errorf("%w: certificateFile", ErrRequired)
+	}
+
+	if s.PrivateKeyFile == "" {
+		return fmt.Errorf("%w: privateKeyFile", ErrRequired)
+	}
+
+	return nil
+}
+
+func (c *TLSDynamicCertConfig) Validate() error {
+	if c.Duration < 0 {
+		return fmt.Errorf("%w: duration", ErrNegativeDuration)
+	}
+
+	if c.RenewBefore < 0 {
+		return fmt.Errorf("%w: renewBefore", ErrNegativeDuration)
+	}
+
+	if c.GetRenewBefore() >= c.GetDuration() {
+		return ErrRenewBeforeTooLong
+	}
+
+	switch c.GetKeyType() {
+	case "ecdsa":
+		switch c.GetKeyBits() {
+		case 256, 384, 521:
+		default:
+			return fmt.Errorf("%w: ECDSA %d", ErrInvalidTLSKeyBits, c.GetKeyBits())
+		}
+	case "rsa":
+		switch c.GetKeyBits() {
+		case 2048, 3072, 4096:
+		default:
+			return fmt.Errorf("%w: RSA %d", ErrInvalidTLSKeyBits, c.GetKeyBits())
+		}
+	default:
+		return fmt.Errorf("%w: %q", ErrInvalidTLSKeyType, c.KeyType)
+	}
+
+	return nil
+}
+
+// GetDuration returns the leaf certificate lifetime, defaulting to 24h.
+func (c *TLSDynamicCertConfig) GetDuration() time.Duration {
+	if c.Duration == 0 {
+		return defaultTLSCertDuration
+	}
+
+	return c.Duration
+}
+
+// GetRenewBefore returns the re-mint window before expiry, defaulting to 8h.
+func (c *TLSDynamicCertConfig) GetRenewBefore() time.Duration {
+	if c.RenewBefore == 0 {
+		return defaultTLSCertRenewBefore
+	}
+
+	return c.RenewBefore
+}
+
+// GetKeyType returns the leaf key type, defaulting to ecdsa.
+func (c *TLSDynamicCertConfig) GetKeyType() string {
+	if c.KeyType == "" {
+		return "ecdsa"
+	}
+
+	return c.KeyType
+}
+
+// GetKeyBits returns the leaf key size, defaulting to 256 for ECDSA and 2048 for RSA.
+func (c *TLSDynamicCertConfig) GetKeyBits() int {
+	if c.KeyBits == 0 {
+		if c.GetKeyType() == "rsa" {
+			return 2048
+		}
+
+		return 256
+	}
+
+	return c.KeyBits
 }
 
 func (k *KubernetesConfig) Validate() error {

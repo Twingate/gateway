@@ -139,6 +139,45 @@ func TestResolveTwingateHostname(t *testing.T) {
 	})
 }
 
+func TestLoad_TLSDynamic(t *testing.T) {
+	yaml := `
+twingate:
+  network: "acme"
+port: 8443
+metricsPort: 9090
+tls:
+  dynamic:
+    ca:
+      selfSign:
+        certificateFile: "ca.crt"
+        privateKeyFile: "ca.key"
+    cert:
+      duration: "48h"
+      renewBefore: "12h"
+      keyType: "ecdsa"
+      keyBits: 384
+webApp: {}
+`
+
+	tmpFile := filepath.Join(t.TempDir(), "config.yaml")
+	err := os.WriteFile(tmpFile, []byte(yaml), 0600)
+	require.NoError(t, err)
+
+	cfg, err := Load(tmpFile)
+	require.NoError(t, err)
+	require.NotNil(t, cfg.TLS.Dynamic)
+
+	require.NotNil(t, cfg.TLS.Dynamic.CA.SelfSign)
+	assert.Equal(t, "ca.crt", cfg.TLS.Dynamic.CA.SelfSign.CertificateFile)
+	assert.Equal(t, "ca.key", cfg.TLS.Dynamic.CA.SelfSign.PrivateKeyFile)
+	assert.Equal(t, 48*time.Hour, cfg.TLS.Dynamic.Cert.Duration)
+	assert.Equal(t, 12*time.Hour, cfg.TLS.Dynamic.Cert.RenewBefore)
+	assert.Equal(t, "ecdsa", cfg.TLS.Dynamic.Cert.KeyType)
+	assert.Equal(t, 384, cfg.TLS.Dynamic.Cert.KeyBits)
+
+	assert.NoError(t, cfg.Validate())
+}
+
 func TestLoad_Kubernetes(t *testing.T) {
 	yaml := `
 twingate:
@@ -595,10 +634,34 @@ func TestTLSConfig_Validate(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:        "missing static",
+			name: "valid with dynamic",
+			tls: TLSConfig{
+				Dynamic: &TLSDynamicConfig{
+					CA: TLSDynamicCAConfig{
+						SelfSign: &TLSSelfSignCAConfig{CertificateFile: "ca.crt", PrivateKeyFile: "ca.key"},
+					},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name:        "missing static and dynamic",
 			tls:         TLSConfig{},
 			wantErr:     true,
-			errContains: "'static' must be specified",
+			errContains: "either 'static' or 'dynamic' must be specified",
+		},
+		{
+			name: "conflicting static and dynamic",
+			tls: TLSConfig{
+				Static: &TLSStaticConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+				Dynamic: &TLSDynamicConfig{
+					CA: TLSDynamicCAConfig{
+						SelfSign: &TLSSelfSignCAConfig{CertificateFile: "ca.crt", PrivateKeyFile: "ca.key"},
+					},
+				},
+			},
+			wantErr:     true,
+			errContains: "only one of 'static' or 'dynamic' can be specified",
 		},
 		{
 			name:        "static missing certificate",
@@ -611,6 +674,12 @@ func TestTLSConfig_Validate(t *testing.T) {
 			tls:         TLSConfig{Static: &TLSStaticConfig{CertificateFile: "tls.crt"}},
 			wantErr:     true,
 			errContains: "static: required field is missing: privateKeyFile",
+		},
+		{
+			name:        "invalid dynamic",
+			tls:         TLSConfig{Dynamic: &TLSDynamicConfig{}},
+			wantErr:     true,
+			errContains: "dynamic: ca: 'selfSign' must be specified",
 		},
 	}
 
@@ -625,6 +694,158 @@ func TestTLSConfig_Validate(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestTLSDynamicConfig_Validate(t *testing.T) {
+	validCA := TLSDynamicCAConfig{
+		SelfSign: &TLSSelfSignCAConfig{CertificateFile: "ca.crt", PrivateKeyFile: "ca.key"},
+	}
+
+	tests := []struct {
+		name        string
+		dynamic     TLSDynamicConfig
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:    "valid with defaults",
+			dynamic: TLSDynamicConfig{CA: validCA},
+			wantErr: false,
+		},
+		{
+			name: "valid with full cert config",
+			dynamic: TLSDynamicConfig{
+				CA: validCA,
+				Cert: TLSDynamicCertConfig{
+					Duration:    48 * time.Hour,
+					RenewBefore: 12 * time.Hour,
+					KeyType:     "rsa",
+					KeyBits:     4096,
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name:        "missing selfSign",
+			dynamic:     TLSDynamicConfig{},
+			wantErr:     true,
+			errContains: "'selfSign' must be specified",
+		},
+		{
+			name: "selfSign missing certificate",
+			dynamic: TLSDynamicConfig{
+				CA: TLSDynamicCAConfig{SelfSign: &TLSSelfSignCAConfig{PrivateKeyFile: "ca.key"}},
+			},
+			wantErr:     true,
+			errContains: "ca: selfSign: required field is missing: certificateFile",
+		},
+		{
+			name: "selfSign missing private key",
+			dynamic: TLSDynamicConfig{
+				CA: TLSDynamicCAConfig{SelfSign: &TLSSelfSignCAConfig{CertificateFile: "ca.crt"}},
+			},
+			wantErr:     true,
+			errContains: "ca: selfSign: required field is missing: privateKeyFile",
+		},
+		{
+			name: "negative duration",
+			dynamic: TLSDynamicConfig{
+				CA:   validCA,
+				Cert: TLSDynamicCertConfig{Duration: -time.Hour},
+			},
+			wantErr:     true,
+			errContains: "cert: duration must be non-negative: duration",
+		},
+		{
+			name: "negative renewBefore",
+			dynamic: TLSDynamicConfig{
+				CA:   validCA,
+				Cert: TLSDynamicCertConfig{RenewBefore: -time.Hour},
+			},
+			wantErr:     true,
+			errContains: "cert: duration must be non-negative: renewBefore",
+		},
+		{
+			name: "renewBefore not shorter than duration",
+			dynamic: TLSDynamicConfig{
+				CA:   validCA,
+				Cert: TLSDynamicCertConfig{Duration: 8 * time.Hour, RenewBefore: 8 * time.Hour},
+			},
+			wantErr:     true,
+			errContains: "renewBefore must be shorter than duration",
+		},
+		{
+			name: "default renewBefore not shorter than short duration",
+			dynamic: TLSDynamicConfig{
+				CA:   validCA,
+				Cert: TLSDynamicCertConfig{Duration: 4 * time.Hour},
+			},
+			wantErr:     true,
+			errContains: "renewBefore must be shorter than duration",
+		},
+		{
+			name: "invalid key type",
+			dynamic: TLSDynamicConfig{
+				CA:   validCA,
+				Cert: TLSDynamicCertConfig{KeyType: "ed25519"},
+			},
+			wantErr:     true,
+			errContains: "invalid TLS key type",
+		},
+		{
+			name: "invalid ecdsa key bits",
+			dynamic: TLSDynamicConfig{
+				CA:   validCA,
+				Cert: TLSDynamicCertConfig{KeyType: "ecdsa", KeyBits: 2048},
+			},
+			wantErr:     true,
+			errContains: "invalid TLS key bits: ECDSA 2048",
+		},
+		{
+			name: "invalid rsa key bits",
+			dynamic: TLSDynamicConfig{
+				CA:   validCA,
+				Cert: TLSDynamicCertConfig{KeyType: "rsa", KeyBits: 256},
+			},
+			wantErr:     true,
+			errContains: "invalid TLS key bits: RSA 256",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.dynamic.Validate()
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errContains)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestTLSDynamicCertConfig_Defaults(t *testing.T) {
+	var cert TLSDynamicCertConfig
+
+	assert.Equal(t, 24*time.Hour, cert.GetDuration())
+	assert.Equal(t, 8*time.Hour, cert.GetRenewBefore())
+	assert.Equal(t, "ecdsa", cert.GetKeyType())
+	assert.Equal(t, 256, cert.GetKeyBits())
+
+	rsaCert := TLSDynamicCertConfig{KeyType: "rsa"}
+	assert.Equal(t, 2048, rsaCert.GetKeyBits())
+
+	full := TLSDynamicCertConfig{
+		Duration:    48 * time.Hour,
+		RenewBefore: 12 * time.Hour,
+		KeyType:     "rsa",
+		KeyBits:     4096,
+	}
+	assert.Equal(t, 48*time.Hour, full.GetDuration())
+	assert.Equal(t, 12*time.Hour, full.GetRenewBefore())
+	assert.Equal(t, "rsa", full.GetKeyType())
+	assert.Equal(t, 4096, full.GetKeyBits())
 }
 
 func TestKubernetesConfig_Validate(t *testing.T) {
