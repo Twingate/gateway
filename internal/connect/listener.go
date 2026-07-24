@@ -101,12 +101,29 @@ func NewListener(
 		return nil, fmt.Errorf("failed to create token parser: %w", err)
 	}
 
-	certReloader := NewCertReloader(tlsCfg.Static.CertificateFile, tlsCfg.Static.PrivateKeyFile, logger)
+	var (
+		certReloader *CertReloader
+		cert         *Cert
+	)
 
 	tlsConfig := &tls.Config{
-		MinVersion:     tls.VersionTLS13,
-		MaxVersion:     tls.VersionTLS13,
-		GetCertificate: certReloader.GetCertificate,
+		MinVersion: tls.VersionTLS13,
+		MaxVersion: tls.VersionTLS13,
+	}
+
+	switch {
+	case tlsCfg.Static != nil:
+		certReloader = NewCertReloader(tlsCfg.Static.CertificateFile, tlsCfg.Static.PrivateKeyFile, logger)
+		tlsConfig.GetCertificate = certReloader.GetCertificate
+	case tlsCfg.Dynamic != nil:
+		cert, err = NewCert(*tlsCfg.Dynamic, logger)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create dynamic cert: %w", err)
+		}
+
+		tlsConfig.GetCertificate = cert.GetCertificate
+	default:
+		return nil, config.ErrMissingTLSConfig
 	}
 
 	connectValidator := &MessageValidator{
@@ -124,7 +141,10 @@ func NewListener(
 		logger:           logger,
 		metrics:          metrics,
 		proxyConnFactory: func(conn net.Conn, tlsConfig *tls.Config, connectValidator Validator, logger *zap.Logger) Conn {
-			return NewProxyConn(conn, tlsConfig, connectValidator, logger, metrics)
+			proxyConn := NewProxyConn(conn, tlsConfig, connectValidator, logger, metrics)
+			proxyConn.Cert = cert
+
+			return proxyConn
 		},
 	}
 
@@ -135,7 +155,9 @@ func NewListener(
 // The caller owns the listener and is responsible for closing it.
 // Serve closes the channels when it returns.
 func (l *Listener) Serve(ctx context.Context, listener net.Listener) error {
-	l.certReloader.Run(ctx)
+	if l.certReloader != nil {
+		l.certReloader.Run(ctx)
+	}
 
 	var wg sync.WaitGroup
 
