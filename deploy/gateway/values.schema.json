@@ -32,6 +32,17 @@
               "type": "boolean",
               "description": "Render the TwingateGateway and its TwingateCertificateAuthority CRs.",
               "default": false
+            },
+            "certificateAuthority": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "Name the CA is registered under in Twingate. Must be unique across the Twingate network and is immutable after install. Defaults to \"<fullname>-ca-<hash of the cluster and namespace>\"; must be set explicitly when rendering without cluster access (helm template, --dry-run=client, Argo CD).",
+                  "default": ""
+                }
+              },
+              "additionalProperties": false
             }
           },
           "additionalProperties": false

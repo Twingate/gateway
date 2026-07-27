@@ -13,7 +13,7 @@ metadata:
   labels:
     {{- include "gateway.labels" . | nindent 4 }}
 spec:
-  name: {{ include "gateway.fullname" . }}-ca
+  name: {{ include "gateway.certificateAuthorityName" . | quote }}
   type: X509
   secretRef:
     name: {{ include "gateway.tlsSecretName" . }}
