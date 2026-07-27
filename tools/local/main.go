@@ -254,13 +254,13 @@ ssh:
       privateKeyFile: ./test/data/ssh/ca/ca
 webApp:
   headers:
-    Authorization: "Bearer {{twingate.jwt}}"
-    X-Twingate-User: "{{twingate.username}}"
-    X-Twingate-Groups: "{{twingate.groups}}"
-    X-Twingate-Client-Geo-LatLong: "{{twingate.clientGeoLatLong}}"
-    X-Twingate-Client-Geo-City: "{{twingate.clientGeoCity}}"
-    X-Twingate-Client-Geo-Region: "{{twingate.clientGeoRegion}}"
-    X-Twingate-Client-Geo-Country: "{{twingate.clientGeoCountry}}"
+    Authorization: "Bearer {{jwt}}"
+    X-Twingate-User: "{{username}}"
+    X-Twingate-Groups: "{{groups}}"
+    X-Twingate-Client-Geo-LatLong: "{{clientGeoLatLong}}"
+    X-Twingate-Client-Geo-City: "{{clientGeoCity}}"
+    X-Twingate-Client-Geo-Region: "{{clientGeoRegion}}"
+    X-Twingate-Client-Geo-Country: "{{clientGeoCountry}}"
 `
 
 	config := fmt.Sprintf(configTemplate, network, gatewayPort, kindBearerToken, sshUsername)

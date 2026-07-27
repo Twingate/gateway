@@ -93,8 +93,9 @@ func NewListener(
 	logger *zap.Logger,
 ) (*Listener, error) {
 	tokenParser, err := token.NewParser(token.ParserConfig{
-		Network: twingateConfig.Network,
-		Host:    twingateConfig.Host,
+		Issuer:   twingateConfig.Issuer(),
+		Audience: twingateConfig.Network,
+		JWKSURL:  twingateConfig.JWKSURL(),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create token parser: %w", err)

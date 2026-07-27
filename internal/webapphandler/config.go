@@ -14,15 +14,15 @@ import (
 )
 
 type Config struct {
-	headers             map[string]*template.Template
+	requestHeaders      map[string]*template.Template
 	roundTripperMetrics *metrics.RoundTripperMetrics
 	logger              *zap.Logger
 }
 
-func NewConfig(configHeaders map[string]string, roundTripperMetrics *metrics.RoundTripperMetrics, logger *zap.Logger) (*Config, error) {
-	headers := make(map[string]*template.Template, len(configHeaders))
+func NewConfig(configRequestHeaders map[string]string, roundTripperMetrics *metrics.RoundTripperMetrics, logger *zap.Logger) (*Config, error) {
+	headers := make(map[string]*template.Template, len(configRequestHeaders))
 
-	for name, value := range configHeaders {
+	for name, value := range configRequestHeaders {
 		tmpl, err := template.New(value)
 		if err != nil {
 			return nil, fmt.Errorf("header %q: %w", name, err)
@@ -35,5 +35,5 @@ func NewConfig(configHeaders map[string]string, roundTripperMetrics *metrics.Rou
 		headers[name] = tmpl
 	}
 
-	return &Config{headers: headers, roundTripperMetrics: roundTripperMetrics, logger: logger}, nil
+	return &Config{requestHeaders: headers, roundTripperMetrics: roundTripperMetrics, logger: logger}, nil
 }

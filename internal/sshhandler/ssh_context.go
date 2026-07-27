@@ -26,13 +26,18 @@ func (s *sshContext) baseFields() map[string]any {
 	}
 }
 
-func (s *sshContext) withGlobalRequest(reqType, source, target string) map[string]any {
+func (s *sshContext) withGlobalRequest(reqType, source, target string, extra map[string]any) map[string]any {
 	m := s.baseFields()
-	m["global_request"] = map[string]any{
+
+	req := map[string]any{
 		"type":   reqType,
 		"source": source,
 		"target": target,
 	}
+
+	maps.Copy(req, extra)
+
+	m["global_request"] = req
 
 	return m
 }
@@ -52,26 +57,36 @@ type sshChannelContext struct {
 	channelType string
 	sourceLabel string
 	targetLabel string
+
+	// extra carries channel-type-specific open details, e.g. the destination and originator of
+	// a TCP/IP forwarding channel.
+	extra map[string]any
 }
 
-func newSSHChannelContext(sshCtx *sshContext, channelType, sourceLabel, targetLabel string) *sshChannelContext {
+func newSSHChannelContext(sshCtx *sshContext, channelType, sourceLabel, targetLabel string, extra map[string]any) *sshChannelContext {
 	return &sshChannelContext{
 		sshContext:  sshCtx,
 		channelID:   uuid.New().String(),
 		channelType: channelType,
 		sourceLabel: sourceLabel,
 		targetLabel: targetLabel,
+		extra:       extra,
 	}
 }
 
 func (c *sshChannelContext) baseFields() map[string]any {
 	m := c.sshContext.baseFields()
-	m["channel"] = map[string]any{
+
+	ch := map[string]any{
 		"id":     c.channelID,
 		"type":   c.channelType,
 		"source": c.sourceLabel,
 		"target": c.targetLabel,
 	}
+
+	maps.Copy(ch, c.extra)
+
+	m["channel"] = ch
 
 	return m
 }
@@ -90,4 +105,13 @@ func (c *sshChannelContext) withRequest(reqType string, reqExtra map[string]any)
 	m["request"] = req
 
 	return m
+}
+
+// reversed returns a copy of the context with the source and target labels swapped, for logging
+// traffic flowing in the opposite direction on the same channel.
+func (c *sshChannelContext) reversed() *sshChannelContext {
+	r := *c
+	r.sourceLabel, r.targetLabel = c.targetLabel, c.sourceLabel
+
+	return &r
 }

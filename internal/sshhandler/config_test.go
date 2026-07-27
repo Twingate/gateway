@@ -15,28 +15,73 @@ import (
 	"gateway/test/data"
 )
 
-func TestNewConfig_Success(t *testing.T) {
+func TestNewConfig(t *testing.T) {
 	auditLog := &gatewayconfig.AuditLogConfig{
 		FlushInterval:      time.Minute * 5,
 		FlushSizeThreshold: 2000,
 	}
 
-	sshConfig := &gatewayconfig.SSHConfig{
-		Gateway: gatewayconfig.SSHGatewayConfig{
-			Username:        "gateway",
-			Key:             gatewayconfig.SSHKeyConfig{Type: "ed25519"},
-			HostCertificate: gatewayconfig.SSHCertificateConfig{TTL: 24 * time.Hour},
-			UserCertificate: gatewayconfig.SSHCertificateConfig{TTL: 5 * time.Minute},
+	tests := []struct {
+		name        string
+		keyType     string
+		wantErr     error
+		wantErrText string
+	}{
+		{
+			name:    "supported key type",
+			keyType: "ed25519",
 		},
-		CA: gatewayconfig.SSHCAConfig{},
+		{
+			name:    "alternate identifier is normalized",
+			keyType: "ssh-ed25519",
+		},
+		{
+			name:        "unsupported type is rejected",
+			keyType:     "invalid-type",
+			wantErr:     errUnsupportedKeyType,
+			wantErrText: "invalid gateway key config",
+		},
 	}
 
-	config, err := NewConfig(auditLog, sshConfig, zap.NewNop())
-	require.NoError(t, err)
-	require.NotNil(t, config)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sshConfig := &gatewayconfig.SSHConfig{
+				Gateway: gatewayconfig.SSHGatewayConfig{
+					Username:        "gateway",
+					Key:             gatewayconfig.SSHKeyConfig{Type: tt.keyType},
+					HostCertificate: gatewayconfig.SSHCertificateConfig{TTL: 24 * time.Hour},
+					UserCertificate: gatewayconfig.SSHCertificateConfig{TTL: 5 * time.Minute},
+				},
+				CA: gatewayconfig.SSHCAConfig{
+					Manual: &gatewayconfig.SSHCAManualConfig{
+						PrivateKeyFile: "../../test/data/ssh/ca/ca",
+					},
+				},
+			}
 
-	assert.Equal(t, auditLog, config.auditLog)
-	assert.Equal(t, "gateway", config.gatewayUsername)
+			config, err := NewConfig(auditLog, sshConfig, zap.NewNop())
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+				require.ErrorContains(t, err, tt.wantErrText)
+				assert.Nil(t, config)
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.NotNil(t, config)
+
+			assert.Equal(t, auditLog, config.auditLog)
+			assert.Equal(t, "gateway", config.gatewayUsername)
+
+			require.NotNil(t, config.hostSigner)
+			require.NotNil(t, config.userSigner)
+			assert.False(t, keysEqual(config.hostPublicKey, config.userPublicKey),
+				"host and user public keys must be distinct")
+			assert.False(t, keysEqual(config.hostSigner.PublicKey(), config.userSigner.PublicKey()),
+				"host and user signers must be distinct")
+		})
+	}
 }
 
 func TestNewConfig_WithManualCA(t *testing.T) {

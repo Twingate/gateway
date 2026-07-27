@@ -89,7 +89,7 @@ type WebAppUser struct {
 	client *fake.Client
 }
 
-func NewWebAppUser(user *token.User, geoIPLocation token.GeoIPLocation, gatewayPort int, upstreamAddress, controllerURL string) *WebAppUser {
+func NewWebAppUser(user *token.User, geoIPLocation token.GeoIPLocation, gatewayPort int, upstreamAddress, controllerURL string, requestHeaderRewrites map[string]string) *WebAppUser {
 	client := fake.NewClient(
 		user,
 		geoIPLocation,
@@ -97,6 +97,7 @@ func NewWebAppUser(user *token.User, geoIPLocation token.GeoIPLocation, gatewayP
 		controllerURL,
 		upstreamAddress,
 		token.ResourceTypeWebApp,
+		fake.WithRequestHeaderRewrites(requestHeaderRewrites),
 	)
 
 	return &WebAppUser{

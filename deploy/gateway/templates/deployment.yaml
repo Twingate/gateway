@@ -1,6 +1,3 @@
-{{- if and .Values.ssh.enabled (gt (int .Values.replicaCount) 1) (not .Values.ssh.ca) -}}
-  {{- fail "ssh.ca must be configured (manual or vault) when replicaCount > 1. Auto-generated CA is only supported for single replica deployments." -}}
-{{- end -}}
 {{- $manualCAEnabled := and .Values.ssh.enabled .Values.ssh.ca .Values.ssh.ca.manual -}}
 {{- $vaultCABundleEnabled := and .Values.ssh.enabled .Values.ssh.ca .Values.ssh.ca.vault (or .Values.ssh.ca.vault.caBundle .Values.ssh.ca.vault.existingCABundleSecret) -}}
 {{- $vaultAppRoleEnabled := and .Values.ssh.enabled .Values.ssh.ca .Values.ssh.ca.vault .Values.ssh.ca.vault.auth .Values.ssh.ca.vault.auth.appRole -}}

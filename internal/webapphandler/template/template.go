@@ -12,10 +12,6 @@ import (
 )
 
 const (
-	allowedNamespace = "twingate"
-)
-
-const (
 	JWT              = "jwt"
 	Username         = "username"
 	Groups           = "groups"
@@ -44,8 +40,6 @@ var (
 var templateRe = regexp.MustCompile(
 	`^([^{}]*)` + // prefix (no braces allowed)
 		`{{\s*` + // opening braces
-		`([a-zA-Z0-9_-]+)` + // namespace
-		`\.` +
 		`([a-zA-Z0-9_-]+)` + // key
 		`\s*}}` + // closing braces
 		`([^{}]*)$`, // suffix (no braces allowed)
@@ -57,24 +51,20 @@ type Template struct {
 	suffix string
 }
 
-// New parses a string like "<prefix> {{<namespace>.<key>}} <suffix>" into a Template.
+// New parses a string like "<prefix> {{<key>}} <suffix>" into a Template.
 // If there is no template variable (just a static string), the key and suffix are empty and the prefix is the static string.
 func New(s string) (*Template, error) {
 	match := templateRe.FindStringSubmatch(s)
 
 	if match == nil {
 		if strings.Contains(s, "{{") || strings.Contains(s, "}}") {
-			return nil, fmt.Errorf("%w: unsupported syntax. Syntax must be <prefix> {{twingate.key}} <suffix>", ErrInvalidTemplate)
+			return nil, fmt.Errorf("%w: unsupported syntax. Syntax must be <prefix> {{key}} <suffix>", ErrInvalidTemplate)
 		}
 
 		return &Template{prefix: strings.TrimSpace(s)}, nil
 	}
 
-	prefix, namespace, key, suffix := match[1], match[2], match[3], match[4]
-
-	if namespace != allowedNamespace {
-		return nil, fmt.Errorf("%w: unsupported namespace %q", ErrInvalidTemplate, namespace)
-	}
+	prefix, key, suffix := match[1], match[2], match[3]
 
 	return &Template{
 		prefix: strings.TrimLeftFunc(prefix, unicode.IsSpace),

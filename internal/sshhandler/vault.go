@@ -5,8 +5,10 @@ package sshhandler
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -27,7 +29,7 @@ const (
 )
 
 //nolint:ireturn
-func newVaultAuthMethod(authConfig *gatewayconfig.SSHCAVaultAuthConfig) (vault.AuthMethod, error) {
+func newVaultAuthMethod(authConfig *gatewayconfig.SSHCAVaultAuthConfig, logger *zap.Logger) (vault.AuthMethod, error) {
 	if authConfig.AppRole != nil {
 		return newAppRoleAuthMethod(authConfig.AppRole)
 	}
@@ -37,7 +39,7 @@ func newVaultAuthMethod(authConfig *gatewayconfig.SSHCAVaultAuthConfig) (vault.A
 	}
 
 	if authConfig.AWS != nil {
-		return newAWSAuthMethod(authConfig.AWS)
+		return newAWSAuthMethod(authConfig.AWS, logger)
 	}
 
 	return nil, errVaultAuthMethodNotConfigured
@@ -69,7 +71,7 @@ func newGCPAuthMethod(gcpConfig *gatewayconfig.SSHCAVaultGCPConfig) (*gcp.GCPAut
 	return gcp.NewGCPAuth(gcpConfig.Role, opts...)
 }
 
-func newAWSAuthMethod(awsConfig *gatewayconfig.SSHCAVaultAWSConfig) (*aws.AWSAuth, error) {
+func newAWSAuthMethod(awsConfig *gatewayconfig.SSHCAVaultAWSConfig, logger *zap.Logger) (*aws.AWSAuth, error) {
 	opts := []aws.LoginOption{
 		aws.WithRole(awsConfig.Role),
 		aws.WithMountPath(awsConfig.GetMount()),
@@ -95,16 +97,15 @@ func newAWSAuthMethod(awsConfig *gatewayconfig.SSHCAVaultAWSConfig) (*aws.AWSAut
 		opts = append(opts, aws.WithNonce(awsConfig.Nonce))
 	}
 
-	// Apply signature type if specified
-	switch strings.ToLower(awsConfig.SignatureType) {
+	switch strings.ToLower(awsConfig.GetSignatureType()) {
 	case "identity":
 		opts = append(opts, aws.WithIdentitySignature())
-	case "rsa2048":
-		opts = append(opts, aws.WithRSA2048Signature())
 	case "pkcs7":
+		logger.Warn("Vault AWS EC2 auth signatureType 'pkcs7' is deprecated as it relies on SHA-1; use 'rsa2048' instead")
+
 		opts = append(opts, aws.WithPKCS7Signature())
 	default:
-		// Use Vault SDK default (pkcs7)
+		opts = append(opts, aws.WithRSA2048Signature())
 	}
 
 	return aws.NewAWSAuth(opts...)
@@ -120,6 +121,12 @@ type Vault struct {
 func newVault(vaultConfig *gatewayconfig.SSHCAVaultConfig, logger *zap.Logger) (*Vault, error) {
 	config := vault.DefaultConfig()
 	config.Address = vaultConfig.Address
+
+	//nolint:revive // unchecked-type-assertion: transport type guaranteed by DefaultConfig
+	transport := config.HttpClient.Transport.(*http.Transport)
+	// Enforce TLS 1.3 for the Vault client, which carries all CA signing requests.
+	// Vault's DefaultConfig sets only a TLS 1.2 minimum.
+	transport.TLSClientConfig.MinVersion = tls.VersionTLS13
 
 	if vaultConfig.CABundleFile != "" {
 		if err := config.ConfigureTLS(&vault.TLSConfig{
@@ -144,7 +151,7 @@ func newVault(vaultConfig *gatewayconfig.SSHCAVaultConfig, logger *zap.Logger) (
 		return v, nil
 	}
 
-	authMethod, err := newVaultAuthMethod(&vaultConfig.Auth)
+	authMethod, err := newVaultAuthMethod(&vaultConfig.Auth, logger)
 	// No auth method configured — Vault SDK falls back to VAULT_TOKEN environment variable
 	if errors.Is(err, errVaultAuthMethodNotConfigured) {
 		return v, nil

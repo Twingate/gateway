@@ -19,5 +19,8 @@ tests:
         enabled: true
         gateway:
           username: "test"
+        ca:
+          manual:
+            privateKey: "my-private-key"
     asserts:
       - matchSnapshot: {}

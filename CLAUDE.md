@@ -6,7 +6,7 @@ Zero-trust access gateway bridging Twingate with L7 resources such as Kubernetes
 
 - **License**: MPL-2.0
 - **Repository**: <https://github.com/Twingate/gateway>
-- **Language**: Go 1.26.4
+- **Language**: Go 1.26.5
 - **Build**: goreleaser, Docker buildx, kind (testing)
 - **Linting**: golangci-lint v2.11.1
 - **Testing**: testify, helm-unittest
@@ -45,7 +45,8 @@ main.go → cmd/start.go → proxy.NewProxy() → proxy.Start()
 
 **`internal/sshhandler/`** - SSH proxy:
 
-- SSH server with CA-signed certificates (auto/manual/Vault)
+- SSH server with CA-signed certificates (manual/Vault)
+- Manual CA private key hot-reloads on file change (`key_reloader.go`)
 - Bidirectional channel forwarding to upstreams
 - Host certs (gateway→client) + User certs (gateway→upstream)
 
@@ -69,7 +70,7 @@ main.go → cmd/start.go → proxy.NewProxy() → proxy.Start()
 
 **K8s Security**: Gateway uses impersonation headers (`Impersonate-User`, `Impersonate-Group`). K8s RBAC enforced at API server level. Gateway service account only needs impersonation permission.
 
-**SSH Security**: Certificate-based auth. CA options: auto-generated (testing), manual (file), Vault (production). Separate CAs supported for gateway-host, gateway-user, and upstream verification.
+**SSH Security**: Certificate-based auth. CA options: manual (file) or Vault (production); one is required. Separate CAs supported for gateway-host, gateway-user, and upstream verification.
 
 ## Directory Structure
 
@@ -104,7 +105,7 @@ main.go → cmd/start.go → proxy.NewProxy() → proxy.Start()
 ### Setup
 
 ```bash
-asdf install golang 1.26.4
+asdf install golang 1.26.5
 ```
 
 Versions tracked in `.tool-versions`.
