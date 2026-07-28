@@ -437,6 +437,19 @@ func TestChannelPair_RejectsDuplicateSessionStart(t *testing.T) {
 	}
 }
 
+func TestChannelPair_SourceClosesBeforeStart(t *testing.T) {
+	// A session channel whose source closes before any session-start request must not hold
+	// serve() open for the full sessionStartTimeout: the closed source ends it promptly, with
+	// nothing recorded.
+	channels := newProxyChannels(t, "session")
+	done := channels.serve(t)
+
+	require.NoError(t, channels.source.ch.Close())
+
+	waitDone(t, done)
+	assert.Equal(t, recorderState{}, channels.recorder.state(), "no session => no recorder")
+}
+
 func TestChannelPair_SessionStartTimeout(t *testing.T) {
 	channels := newProxyChannels(t, "session")
 	channels.sessionStartTimeout = shortTimeout
