@@ -134,7 +134,7 @@ func createTestListenerWithChannels(t *testing.T) *testListenerFixtures {
 		channels:     channels,
 		logger:       logger,
 		metrics:      CreateProxyConnMetrics(registry),
-		certReloader: certReloader,
+		certProvider: certReloader,
 	}
 
 	return &testListenerFixtures{
@@ -342,7 +342,7 @@ func TestListener_UnsupportedResourceType(t *testing.T) {
 		channels:     channels,
 		logger:       logger,
 		metrics:      CreateProxyConnMetrics(registry),
-		certReloader: certReloader,
+		certProvider: certReloader,
 	}
 
 	sshClaims := createClaims(t, token.ResourceTypeSSH)
@@ -399,7 +399,7 @@ func TestListener_Serve_GracefulShutdown(t *testing.T) {
 		channels:     channels,
 		logger:       logger,
 		metrics:      CreateProxyConnMetrics(prometheus.NewRegistry()),
-		certReloader: NewCertReloader("../../test/data/proxy/tls.crt", "../../test/data/proxy/tls.key", logger),
+		certProvider: NewCertReloader("../../test/data/proxy/tls.crt", "../../test/data/proxy/tls.key", logger),
 	}
 
 	listener.proxyConnFactory = func(conn net.Conn, _ *tls.Config, _ Validator, _ *zap.Logger) Conn {

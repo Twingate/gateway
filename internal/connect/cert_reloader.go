@@ -47,6 +47,12 @@ func (cr *CertReloader) GetCertificate(_ *tls.ClientHelloInfo) (*tls.Certificate
 	return cr.cert, nil
 }
 
+// GetCertificateForHost implements CertProvider, the configured certificate is
+// served regardless of the requested host.
+func (cr *CertReloader) GetCertificateForHost(_ string) (*tls.Certificate, error) {
+	return cr.GetCertificate(nil)
+}
+
 func (cr *CertReloader) load() error {
 	cert, err := tls.LoadX509KeyPair(cr.certFile, cr.keyFile)
 	if err != nil {
