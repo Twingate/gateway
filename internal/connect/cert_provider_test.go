@@ -14,9 +14,6 @@ import (
 )
 
 func TestNewCertProviderFromConfig(t *testing.T) {
-	ca := generateCACert(t)
-	caFile, caKeyFile := createCertFiles(t, ca)
-
 	tests := []struct {
 		name        string
 		tlsCfg      config.TLSConfig
@@ -26,14 +23,14 @@ func TestNewCertProviderFromConfig(t *testing.T) {
 	}{
 		{
 			name:     "static",
-			tlsCfg:   config.TLSConfig{Static: &config.TLSStaticConfig{CertificateFile: caFile, PrivateKeyFile: caKeyFile}},
+			tlsCfg:   config.TLSConfig{Static: &config.TLSStaticConfig{CertificateFile: "../../test/data/ca/tls.crt", PrivateKeyFile: "../../test/data/ca/tls.key"}},
 			wantType: &CertReloader{},
 		},
 		{
 			name: "dynamic",
 			tlsCfg: config.TLSConfig{Dynamic: &config.TLSDynamicConfig{
 				CA: config.TLSDynamicCAConfig{
-					SelfSign: &config.TLSSelfSignCAConfig{CertificateFile: caFile, PrivateKeyFile: caKeyFile},
+					SelfSign: &config.TLSSelfSignCAConfig{CertificateFile: "../../test/data/ca/tls.crt", PrivateKeyFile: "../../test/data/ca/tls.key"},
 				},
 			}},
 			wantType: &DynamicCert{},

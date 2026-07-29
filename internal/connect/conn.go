@@ -269,6 +269,8 @@ func (p *ProxyConn) getTLSConfig() (*tls.Config, error) {
 		return nil, fmt.Errorf("failed to get certificate for %q: %w", host, err)
 	}
 
+	// GetCertificate takes precedence when SNI is present and SNI cannot carry an IP address (RFC 6066 § 3)
+	// So we need to pin the TLS cert for IP address.
 	tlsConfig := p.TLSConfig.Clone()
 	tlsConfig.GetCertificate = nil
 	tlsConfig.Certificates = []tls.Certificate{*cert}

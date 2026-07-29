@@ -41,16 +41,16 @@ func (cr *CertReloader) Run(ctx context.Context) {
 }
 
 func (cr *CertReloader) GetCertificate(_ *tls.ClientHelloInfo) (*tls.Certificate, error) {
-	cr.mu.RLock()
-	defer cr.mu.RUnlock()
-
-	return cr.cert, nil
+	return cr.GetCertificateForHost("")
 }
 
 // GetCertificateForHost implements CertProvider, the configured certificate is
 // served regardless of the requested host.
 func (cr *CertReloader) GetCertificateForHost(_ string) (*tls.Certificate, error) {
-	return cr.GetCertificate(nil)
+	cr.mu.RLock()
+	defer cr.mu.RUnlock()
+
+	return cr.cert, nil
 }
 
 func (cr *CertReloader) load() error {

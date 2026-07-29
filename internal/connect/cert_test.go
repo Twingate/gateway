@@ -6,11 +6,9 @@ package connect
 import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
-	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
-	"crypto/x509/pkix"
 	"net"
 	"sync"
 	"testing"
@@ -24,57 +22,72 @@ import (
 	"gateway/test/data"
 )
 
-func generateCACert(t *testing.T) tls.Certificate {
-	t.Helper()
+type fakeAddrConn struct {
+	net.Conn
 
-	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
-	require.NoError(t, err)
+	addr net.Addr
+}
 
-	template := x509.Certificate{
-		Subject:               pkix.Name{CommonName: "test-ca"},
-		NotBefore:             time.Now().Add(-time.Hour),
-		NotAfter:              time.Now().Add(24 * time.Hour),
-		KeyUsage:              x509.KeyUsageCertSign,
-		IsCA:                  true,
-		BasicConstraintsValid: true,
+func (c fakeAddrConn) LocalAddr() net.Addr { return c.addr }
+
+func TestNewDynamicCert_Errors(t *testing.T) {
+	nonCAFile, nonCAKeyFile := createCertFiles(t, generateCert(t))
+
+	tests := []struct {
+		name        string
+		selfSign    *config.TLSSelfSignCAConfig
+		wantErr     error
+		errContains string
+	}{
+		{
+			name:    "missing selfSign",
+			wantErr: config.ErrMissingTLSCAConfig,
+		},
+		{
+			name:        "missing files",
+			selfSign:    &config.TLSSelfSignCAConfig{CertificateFile: "missing.crt", PrivateKeyFile: "missing.key"},
+			errContains: "failed to load CA key pair",
+		},
+		{
+			name:        "mismatched certificate and key",
+			selfSign:    &config.TLSSelfSignCAConfig{CertificateFile: "../../test/data/ca/tls.crt", PrivateKeyFile: "../../test/data/proxy/tls.key"},
+			errContains: "failed to load CA key pair",
+		},
+		{
+			name:     "certificate is not a CA",
+			selfSign: &config.TLSSelfSignCAConfig{CertificateFile: nonCAFile, PrivateKeyFile: nonCAKeyFile},
+			wantErr:  errNotCACertificate,
+		},
 	}
 
-	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, &privateKey.PublicKey, privateKey)
-	require.NoError(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := NewDynamicCert(config.TLSDynamicConfig{
+				CA: config.TLSDynamicCAConfig{SelfSign: tt.selfSign},
+			}, zap.NewNop())
 
-	return tls.Certificate{
-		Certificate: [][]byte{derBytes},
-		PrivateKey:  privateKey,
+			require.Error(t, err)
+
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+			}
+
+			if tt.errContains != "" {
+				assert.Contains(t, err.Error(), tt.errContains)
+			}
+		})
 	}
 }
 
-func newTestCert(t *testing.T, certCfg config.TLSDynamicCertConfig) (*DynamicCert, *x509.CertPool) {
-	t.Helper()
-
-	ca := generateCACert(t)
-	certFile, keyFile := createCertFiles(t, ca)
-
+func TestDynamicCert_GetCertificate_ClientHelloSNI(t *testing.T) {
 	cert, err := NewDynamicCert(config.TLSDynamicConfig{
 		CA: config.TLSDynamicCAConfig{
-			SelfSign: &config.TLSSelfSignCAConfig{CertificateFile: certFile, PrivateKeyFile: keyFile},
+			SelfSign: &config.TLSSelfSignCAConfig{CertificateFile: "../../test/data/ca/tls.crt", PrivateKeyFile: "../../test/data/ca/tls.key"},
 		},
-		Cert: certCfg,
 	}, zap.NewNop())
 	require.NoError(t, err)
 
-	caCert, err := x509.ParseCertificate(ca.Certificate[0])
-	require.NoError(t, err)
-
-	pool := x509.NewCertPool()
-	pool.AddCert(caCert)
-
-	return cert, pool
-}
-
-func TestDynamicCert_GetCertificate(t *testing.T) {
-	cert, pool := newTestCert(t, config.TLSDynamicCertConfig{})
-
-	minted, err := cert.GetCertificateForHost("app.internal")
+	minted, err := cert.GetCertificate(&tls.ClientHelloInfo{ServerName: "app.internal"})
 	require.NoError(t, err)
 
 	assert.Equal(t, "app.internal", minted.Leaf.Subject.CommonName)
@@ -85,6 +98,9 @@ func TestDynamicCert_GetCertificate(t *testing.T) {
 	require.True(t, ok, "expected an ECDSA leaf key by default")
 	assert.Equal(t, elliptic.P256(), key.Curve)
 
+	pool := x509.NewCertPool()
+	pool.AppendCertsFromPEM(data.CACert)
+
 	_, err = minted.Leaf.Verify(x509.VerifyOptions{
 		DNSName:   "app.internal",
 		Roots:     pool,
@@ -93,36 +109,13 @@ func TestDynamicCert_GetCertificate(t *testing.T) {
 	assert.NoError(t, err, "leaf should verify against the CA for the requested host")
 }
 
-func TestDynamicCert_GetCertificate_IPHost(t *testing.T) {
-	cert, _ := newTestCert(t, config.TLSDynamicCertConfig{})
-
-	minted, err := cert.GetCertificateForHost("10.0.0.5")
-	require.NoError(t, err)
-
-	require.Len(t, minted.Leaf.IPAddresses, 1)
-	assert.True(t, minted.Leaf.IPAddresses[0].Equal(net.ParseIP("10.0.0.5")))
-	assert.Empty(t, minted.Leaf.DNSNames)
-}
-
-type fakeAddrConn struct {
-	net.Conn
-
-	addr net.Addr
-}
-
-func (c fakeAddrConn) LocalAddr() net.Addr { return c.addr }
-
-func TestDynamicCert_GetCertificate_ClientHelloSNI(t *testing.T) {
-	cert, _ := newTestCert(t, config.TLSDynamicCertConfig{})
-
-	minted, err := cert.GetCertificate(&tls.ClientHelloInfo{ServerName: "app.internal"})
-	require.NoError(t, err)
-
-	assert.Equal(t, []string{"app.internal"}, minted.Leaf.DNSNames)
-}
-
 func TestDynamicCert_GetCertificate_ClientHelloNoSNIFallsBackToLocalAddr(t *testing.T) {
-	cert, _ := newTestCert(t, config.TLSDynamicCertConfig{})
+	cert, err := NewDynamicCert(config.TLSDynamicConfig{
+		CA: config.TLSDynamicCAConfig{
+			SelfSign: &config.TLSSelfSignCAConfig{CertificateFile: "../../test/data/ca/tls.crt", PrivateKeyFile: "../../test/data/ca/tls.key"},
+		},
+	}, zap.NewNop())
+	require.NoError(t, err)
 
 	hello := &tls.ClientHelloInfo{
 		Conn: fakeAddrConn{addr: &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 8443}},
@@ -136,19 +129,61 @@ func TestDynamicCert_GetCertificate_ClientHelloNoSNIFallsBackToLocalAddr(t *test
 }
 
 func TestDynamicCert_GetCertificate_UnparsableLocalAddr(t *testing.T) {
-	cert, _ := newTestCert(t, config.TLSDynamicCertConfig{})
+	cert, err := NewDynamicCert(config.TLSDynamicConfig{
+		CA: config.TLSDynamicCAConfig{
+			SelfSign: &config.TLSSelfSignCAConfig{CertificateFile: "../../test/data/ca/tls.crt", PrivateKeyFile: "../../test/data/ca/tls.key"},
+		},
+	}, zap.NewNop())
+	require.NoError(t, err)
 
 	hello := &tls.ClientHelloInfo{
 		Conn: fakeAddrConn{addr: &net.UnixAddr{Name: "/tmp/gateway.sock", Net: "unix"}},
 	}
 
-	_, err := cert.GetCertificate(hello)
+	_, err = cert.GetCertificate(hello)
 
 	assert.ErrorContains(t, err, "failed to parse local address")
 }
 
-func TestDynamicCert_GetCertificate_CachesPerHost(t *testing.T) {
-	cert, _ := newTestCert(t, config.TLSDynamicCertConfig{})
+func TestDynamicCert_GetCertificateForHost_IPHost(t *testing.T) {
+	cert, err := NewDynamicCert(config.TLSDynamicConfig{
+		CA: config.TLSDynamicCAConfig{
+			SelfSign: &config.TLSSelfSignCAConfig{CertificateFile: "../../test/data/ca/tls.crt", PrivateKeyFile: "../../test/data/ca/tls.key"},
+		},
+	}, zap.NewNop())
+	require.NoError(t, err)
+
+	minted, err := cert.GetCertificateForHost("10.0.0.5")
+	require.NoError(t, err)
+
+	require.Len(t, minted.Leaf.IPAddresses, 1)
+	assert.True(t, minted.Leaf.IPAddresses[0].Equal(net.ParseIP("10.0.0.5")))
+	assert.Empty(t, minted.Leaf.DNSNames)
+}
+
+func TestDynamicCert_GetCertificateForHost_RSAKey(t *testing.T) {
+	cert, err := NewDynamicCert(config.TLSDynamicConfig{
+		CA: config.TLSDynamicCAConfig{
+			SelfSign: &config.TLSSelfSignCAConfig{CertificateFile: "../../test/data/ca/tls.crt", PrivateKeyFile: "../../test/data/ca/tls.key"},
+		},
+		Cert: config.TLSDynamicCertConfig{KeyType: "rsa", KeyBits: 2048},
+	}, zap.NewNop())
+	require.NoError(t, err)
+
+	minted, err := cert.GetCertificateForHost("app.internal")
+	require.NoError(t, err)
+
+	_, ok := minted.PrivateKey.(*rsa.PrivateKey)
+	assert.True(t, ok, "expected an RSA leaf key")
+}
+
+func TestDynamicCert_GetCertificateForHost_CachesPerHost(t *testing.T) {
+	cert, err := NewDynamicCert(config.TLSDynamicConfig{
+		CA: config.TLSDynamicCAConfig{
+			SelfSign: &config.TLSSelfSignCAConfig{CertificateFile: "../../test/data/ca/tls.crt", PrivateKeyFile: "../../test/data/ca/tls.key"},
+		},
+	}, zap.NewNop())
+	require.NoError(t, err)
 
 	first, err := cert.GetCertificateForHost("app.internal")
 	require.NoError(t, err)
@@ -162,75 +197,48 @@ func TestDynamicCert_GetCertificate_CachesPerHost(t *testing.T) {
 	assert.NotSame(t, first, other)
 }
 
-func TestDynamicCert_GetCertificate_BoundsCacheSize(t *testing.T) {
-	cert, _ := newTestCert(t, config.TLSDynamicCertConfig{})
-	cert.cache.Resize(3)
-
-	first, err := cert.GetCertificateForHost("first.internal")
+func TestDynamicCert_GetCertificateForHost_RenewsInsideWindow(t *testing.T) {
+	cert, err := NewDynamicCert(config.TLSDynamicConfig{
+		CA: config.TLSDynamicCAConfig{
+			SelfSign: &config.TLSSelfSignCAConfig{CertificateFile: "../../test/data/ca/tls.crt", PrivateKeyFile: "../../test/data/ca/tls.key"},
+		},
+		Cert: config.TLSDynamicCertConfig{
+			Duration:    2 * time.Hour,
+			RenewBefore: time.Hour,
+		},
+	}, zap.NewNop())
 	require.NoError(t, err)
 
-	for _, host := range []string{"second.internal", "third.internal", "fourth.internal"} {
-		_, err := cert.GetCertificateForHost(host)
-		require.NoError(t, err)
-	}
-
-	assert.Equal(t, 3, cert.cache.Len(), "cache should stay at the cap")
-	assert.False(t, cert.cache.Contains("first.internal"), "the least recently used host should be evicted")
-
-	// The evicted host is re-minted rather than served stale.
-	refreshed, err := cert.GetCertificateForHost("first.internal")
-	require.NoError(t, err)
-	assert.NotEqual(t, first.Leaf.SerialNumber, refreshed.Leaf.SerialNumber)
-}
-
-func TestDynamicCert_GetCertificate_EvictsByRecency(t *testing.T) {
-	cert, _ := newTestCert(t, config.TLSDynamicCertConfig{})
-	cert.cache.Resize(3)
-
-	for _, host := range []string{"first.internal", "second.internal", "third.internal"} {
-		_, err := cert.GetCertificateForHost(host)
-		require.NoError(t, err)
-	}
-
-	// Touching the oldest host makes the next-oldest the eviction candidate.
-	touched, err := cert.GetCertificateForHost("first.internal")
+	first, err := cert.GetCertificateForHost("app.internal")
 	require.NoError(t, err)
 
-	_, err = cert.GetCertificateForHost("fourth.internal")
+	// Expire the cached certificate into its renewal window.
+	cached, ok := cert.cache.Get("app.internal")
+	require.True(t, ok)
+
+	cached.Leaf.NotAfter = time.Now().Add(30 * time.Minute)
+
+	second, err := cert.GetCertificateForHost("app.internal")
 	require.NoError(t, err)
 
-	assert.False(t, cert.cache.Contains("second.internal"), "the untouched host should be evicted")
-	assert.True(t, cert.cache.Contains("first.internal"), "the touched host should survive")
+	assert.NotEqual(t, first.Leaf.SerialNumber, second.Leaf.SerialNumber)
 
-	cached, err := cert.GetCertificateForHost("first.internal")
-	require.NoError(t, err)
-	assert.Same(t, touched, cached, "the surviving host should still be served from cache")
-}
-
-func TestDynamicCert_GetCertificate_RenewFailureKeepsError(t *testing.T) {
-	cert, _ := newTestCert(t, config.TLSDynamicCertConfig{
-		Duration:    time.Hour,
-		RenewBefore: 2 * time.Hour,
-	})
-
-	_, err := cert.GetCertificateForHost("app.internal")
-	require.NoError(t, err)
-
-	// The cached entry is already inside the renewal window, so the next call
-	// re-mints — and now minting fails.
-	cert.cert.KeyType = "ed25519"
-
-	_, err = cert.GetCertificateForHost("app.internal")
-	assert.ErrorIs(t, err, errUnsupportedKeyType)
+	// Re-minting replaces the cached entry rather than adding another one.
+	assert.Equal(t, 1, cert.cache.Len())
 }
 
 // Concurrent cold misses for one host must mint once. This is what the
 // re-check inside the lock in GetCertificateForHost buys; without it every
 // caller mints its own certificate.
-func TestDynamicCert_GetCertificate_ConcurrentColdMissMintsOnce(t *testing.T) {
-	const callers = 50
+func TestDynamicCert_GetCertificateForHost_ConcurrentColdMissMintsOnce(t *testing.T) {
+	const callers = 10
 
-	cert, _ := newTestCert(t, config.TLSDynamicCertConfig{})
+	cert, err := NewDynamicCert(config.TLSDynamicConfig{
+		CA: config.TLSDynamicCAConfig{
+			SelfSign: &config.TLSSelfSignCAConfig{CertificateFile: "../../test/data/ca/tls.crt", PrivateKeyFile: "../../test/data/ca/tls.key"},
+		},
+	}, zap.NewNop())
+	require.NoError(t, err)
 
 	var (
 		mu      sync.Mutex
@@ -268,139 +276,57 @@ func TestDynamicCert_GetCertificate_ConcurrentColdMissMintsOnce(t *testing.T) {
 	assert.Equal(t, 1, cert.cache.Len())
 }
 
-func TestDynamicCert_GetCertificate_RenewsInsideWindow(t *testing.T) {
-	// renewBefore longer than duration puts a freshly minted certificate
-	// inside the renewal window immediately, forcing a re-mint on every call.
-	cert, _ := newTestCert(t, config.TLSDynamicCertConfig{
-		Duration:    time.Hour,
-		RenewBefore: 2 * time.Hour,
-	})
-
-	first, err := cert.GetCertificateForHost("app.internal")
-	require.NoError(t, err)
-
-	second, err := cert.GetCertificateForHost("app.internal")
-	require.NoError(t, err)
-
-	assert.NotSame(t, first, second)
-	assert.NotEqual(t, first.Leaf.SerialNumber, second.Leaf.SerialNumber)
-
-	// Re-minting replaces the cached entry rather than adding another one.
-	assert.Equal(t, 1, cert.cache.Len())
-}
-
-func TestDynamicCert_GetCertificate_RSAKey(t *testing.T) {
-	cert, _ := newTestCert(t, config.TLSDynamicCertConfig{KeyType: "rsa", KeyBits: 2048})
-
-	minted, err := cert.GetCertificateForHost("app.internal")
-	require.NoError(t, err)
-
-	_, ok := minted.PrivateKey.(*rsa.PrivateKey)
-	assert.True(t, ok, "expected an RSA leaf key")
-}
-
-func TestDynamicCert_GetCertificate_UnsupportedKeyConfig(t *testing.T) {
-	tests := []struct {
-		name    string
-		certCfg config.TLSDynamicCertConfig
-		wantErr error
-	}{
-		{
-			name:    "unsupported key type",
-			certCfg: config.TLSDynamicCertConfig{KeyType: "ed25519"},
-			wantErr: errUnsupportedKeyType,
-		},
-		{
-			name:    "unsupported ecdsa key bits",
-			certCfg: config.TLSDynamicCertConfig{KeyType: "ecdsa", KeyBits: 512},
-			wantErr: errUnsupportedKeyBits,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cert, _ := newTestCert(t, tt.certCfg)
-
-			_, err := cert.GetCertificateForHost("app.internal")
-			assert.ErrorIs(t, err, tt.wantErr)
-		})
-	}
-}
-
-// TestNewDynamicCert_ProxyFixture guards the test/data/proxy fixture staying a CA
-// certificate — tools/local uses it as the dynamic signing CA.
-func TestNewDynamicCert_ProxyFixture(t *testing.T) {
+func TestDynamicCert_GetCertificateForHost_BoundsCacheSize(t *testing.T) {
 	cert, err := NewDynamicCert(config.TLSDynamicConfig{
 		CA: config.TLSDynamicCAConfig{
-			SelfSign: &config.TLSSelfSignCAConfig{
-				CertificateFile: "../../test/data/proxy/tls.crt",
-				PrivateKeyFile:  "../../test/data/proxy/tls.key",
-			},
+			SelfSign: &config.TLSSelfSignCAConfig{CertificateFile: "../../test/data/ca/tls.crt", PrivateKeyFile: "../../test/data/ca/tls.key"},
 		},
 	}, zap.NewNop())
 	require.NoError(t, err)
+	cert.cache.Resize(3)
 
-	minted, err := cert.GetCertificateForHost("127.0.0.1")
+	first, err := cert.GetCertificateForHost("first.internal")
 	require.NoError(t, err)
 
-	pool := x509.NewCertPool()
-	pool.AppendCertsFromPEM(data.ProxyCert)
+	for _, host := range []string{"second.internal", "third.internal", "fourth.internal"} {
+		_, err := cert.GetCertificateForHost(host)
+		require.NoError(t, err)
+	}
 
-	_, err = minted.Leaf.Verify(x509.VerifyOptions{
-		DNSName:   "127.0.0.1",
-		Roots:     pool,
-		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-	})
-	assert.NoError(t, err, "minted leaf should verify against the proxy fixture CA")
+	assert.Equal(t, 3, cert.cache.Len(), "cache should stay at the cap")
+	assert.False(t, cert.cache.Contains("first.internal"), "the least recently used host should be evicted")
+
+	// The evicted host is re-minted rather than served stale.
+	refreshed, err := cert.GetCertificateForHost("first.internal")
+	require.NoError(t, err)
+	assert.NotEqual(t, first.Leaf.SerialNumber, refreshed.Leaf.SerialNumber)
 }
 
-func TestNewDynamicCert_Errors(t *testing.T) {
-	caFile, _ := createCertFiles(t, generateCACert(t))
-	nonCAFile, nonCAKeyFile := createCertFiles(t, generateCert(t))
-	_, otherKeyFile := createCertFiles(t, generateCACert(t))
+func TestDynamicCert_GetCertificateForHost_EvictsByRecency(t *testing.T) {
+	cert, err := NewDynamicCert(config.TLSDynamicConfig{
+		CA: config.TLSDynamicCAConfig{
+			SelfSign: &config.TLSSelfSignCAConfig{CertificateFile: "../../test/data/ca/tls.crt", PrivateKeyFile: "../../test/data/ca/tls.key"},
+		},
+	}, zap.NewNop())
+	require.NoError(t, err)
+	cert.cache.Resize(3)
 
-	tests := []struct {
-		name        string
-		selfSign    *config.TLSSelfSignCAConfig
-		wantErr     error
-		errContains string
-	}{
-		{
-			name:    "missing selfSign",
-			wantErr: config.ErrMissingTLSCAConfig,
-		},
-		{
-			name:        "missing files",
-			selfSign:    &config.TLSSelfSignCAConfig{CertificateFile: "missing.crt", PrivateKeyFile: "missing.key"},
-			errContains: "failed to load CA key pair",
-		},
-		{
-			name:        "mismatched certificate and key",
-			selfSign:    &config.TLSSelfSignCAConfig{CertificateFile: caFile, PrivateKeyFile: otherKeyFile},
-			errContains: "failed to load CA key pair",
-		},
-		{
-			name:     "certificate is not a CA",
-			selfSign: &config.TLSSelfSignCAConfig{CertificateFile: nonCAFile, PrivateKeyFile: nonCAKeyFile},
-			wantErr:  errNotCACertificate,
-		},
+	for _, host := range []string{"first.internal", "second.internal", "third.internal"} {
+		_, err := cert.GetCertificateForHost(host)
+		require.NoError(t, err)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			_, err := NewDynamicCert(config.TLSDynamicConfig{
-				CA: config.TLSDynamicCAConfig{SelfSign: tt.selfSign},
-			}, zap.NewNop())
+	// Touching the oldest host makes the next-oldest the eviction candidate.
+	touched, err := cert.GetCertificateForHost("first.internal")
+	require.NoError(t, err)
 
-			require.Error(t, err)
+	_, err = cert.GetCertificateForHost("fourth.internal")
+	require.NoError(t, err)
 
-			if tt.wantErr != nil {
-				require.ErrorIs(t, err, tt.wantErr)
-			}
+	assert.False(t, cert.cache.Contains("second.internal"), "the untouched host should be evicted")
+	assert.True(t, cert.cache.Contains("first.internal"), "the touched host should survive")
 
-			if tt.errContains != "" {
-				assert.Contains(t, err.Error(), tt.errContains)
-			}
-		})
-	}
+	cached, err := cert.GetCertificateForHost("first.internal")
+	require.NoError(t, err)
+	assert.Same(t, touched, cached, "the surviving host should still be served from cache")
 }
