@@ -5,7 +5,7 @@ CRDs in the cluster, so rendering is gated behind twingateOperator.gateway.enabl
 {{- if and .Values.twingateOperator.kubernetesResource.enabled (not .Values.twingateOperator.gateway.enabled) }}
 {{- fail "twingateOperator.kubernetesResource.enabled=true requires twingateOperator.gateway.enabled=true" }}
 {{- end }}
-{{- if .Values.twingateOperator.kubernetesResource.remoteNetworkId }}
+{{- if hasKey .Values.twingateOperator.kubernetesResource "remoteNetworkId" }}
 {{- fail "twingateOperator.kubernetesResource.remoteNetworkId is not supported, set twingateOperator.remoteNetworkId instead" }}
 {{- end }}
 {{- if .Values.twingateOperator.gateway.enabled }}
@@ -60,7 +60,7 @@ spec:
   gatewayRef:
     name: {{ include "gateway.fullname" . }}
     namespace: {{ .Release.Namespace }}
-  {{- with omit .Values.twingateOperator.kubernetesResource "type" "address" "gatewayRef" "enabled" "name" "remoteNetworkId" }}
+  {{- with omit .Values.twingateOperator.kubernetesResource "type" "address" "gatewayRef" "enabled" "name" }}
   {{- toYaml . | nindent 2 }}
   {{- end }}
 {{- end }}

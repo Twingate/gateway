@@ -14,14 +14,14 @@ tests:
     asserts:
       - failedTemplate:
           errorMessage: twingateOperator.kubernetesResource.enabled=true requires twingateOperator.gateway.enabled=true
-  - it: fails when the in-cluster resource sets its own remote network
+  - it: fails when the in-cluster resource sets its own remote network, even to an empty value
     set:
       twingateOperator:
         gateway:
           enabled: true
         kubernetesResource:
           enabled: true
-          remoteNetworkId: "UmVtb3RlTmV0d29yazo0NTYK"
+          remoteNetworkId: ""
     asserts:
       - failedTemplate:
           errorMessage: twingateOperator.kubernetesResource.remoteNetworkId is not supported, set twingateOperator.remoteNetworkId instead
