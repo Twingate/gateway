@@ -28,10 +28,11 @@ const AuthSignatureHeaderKey string = "X-Token-Signature"
 const ConnIDHeaderKey string = "X-Connection-Id"
 
 type Info struct {
-	Address string
-	Claims  *token.GATClaims
-	ConnID  string
-	Token   string
+	Address           string
+	DownstreamAddress string
+	Claims            *token.GATClaims
+	ConnID            string
+	Token             string
 }
 
 type HTTPError struct {
@@ -140,10 +141,11 @@ func (v *MessageValidator) ParseConnect(req *http.Request, ekm []byte) (connectI
 	}
 
 	return Info{
-		Address: address,
-		Claims:  gatClaims,
-		ConnID:  connID,
-		Token:   bearerToken,
+		Address:           address,
+		DownstreamAddress: req.RequestURI,
+		Claims:            gatClaims,
+		ConnID:            connID,
+		Token:             bearerToken,
 	}, nil
 }
 

@@ -64,6 +64,53 @@ func TestGATClaims_ShouldUpgradeTLS(t *testing.T) {
 	}
 }
 
+func TestGATClaims_EnforcesDownstreamTLS(t *testing.T) {
+	tests := []struct {
+		name          string
+		resourceType  ResourceType
+		downstreamTLS bool
+		expected      bool
+	}{
+		{
+			name:          "Kubernetes does not enforce downstream TLS",
+			resourceType:  ResourceTypeKubernetes,
+			downstreamTLS: true,
+			expected:      false,
+		},
+		{
+			name:          "SSH does not enforce downstream TLS",
+			resourceType:  ResourceTypeSSH,
+			downstreamTLS: true,
+			expected:      false,
+		},
+		{
+			name:         "Web app without downstream TLS does not enforce downstream TLS",
+			resourceType: ResourceTypeWebApp,
+			expected:     false,
+		},
+		{
+			name:          "Web app with downstream TLS enforces downstream TLS",
+			resourceType:  ResourceTypeWebApp,
+			downstreamTLS: true,
+			expected:      true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			claims := &GATClaims{
+				Resource: Resource{
+					Type: tt.resourceType,
+					GatewayMetadata: GatewayMetadata{
+						Downstream: Downstream{TLS: tt.downstreamTLS},
+					},
+				},
+			}
+			assert.Equal(t, tt.expected, claims.EnforcesDownstreamTLS())
+		})
+	}
+}
+
 func TestGATTokenClaims_Validate(t *testing.T) {
 	privateKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 

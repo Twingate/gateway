@@ -29,7 +29,8 @@ type mockProxyConn struct {
 
 	isClosed atomic.Bool
 
-	isHealthz bool
+	isHealthz     bool
+	upgradeTLSErr error
 }
 
 func (m *mockProxyConn) Close() error {
@@ -74,7 +75,7 @@ func (m *mockProxyConn) Authenticate() error {
 }
 
 func (m *mockProxyConn) UpgradeToTLS() error {
-	return nil
+	return m.upgradeTLSErr
 }
 
 func createMockListener(t *testing.T) (net.Listener, string) {
@@ -377,6 +378,62 @@ func TestListener_UnsupportedResourceType(t *testing.T) {
 
 	// Channel should be empty (connection was not routed)
 	require.Empty(t, httpChannel)
+
+	// Close the listener
+	_ = tcpListener.Close()
+}
+
+func TestListener_Serve_RedirectedToHTTPS(t *testing.T) {
+	tcpListener, addr := createMockListener(t)
+
+	webAppChannel := make(chan Conn, 1)
+	channels := map[token.ResourceType]chan<- Conn{
+		token.ResourceTypeWebApp: webAppChannel,
+	}
+
+	registry := prometheus.NewRegistry()
+	logger := zap.NewNop()
+	certReloader := NewCertReloader("../../test/data/proxy/tls.crt", "../../test/data/proxy/tls.key", zap.NewNop())
+
+	listener := &Listener{
+		channels:     channels,
+		logger:       logger,
+		metrics:      CreateProxyConnMetrics(registry),
+		certReloader: certReloader,
+	}
+
+	webAppClaims := createClaims(t, token.ResourceTypeWebApp)
+	webAppClaims.Resource.GatewayMetadata.Downstream.TLS = true
+
+	// Use a channel to safely pass the connection from the factory
+	connCreated := make(chan *mockProxyConn, 1)
+	listener.proxyConnFactory = func(conn net.Conn, _ *tls.Config, _ Validator, _ *zap.Logger) Conn {
+		mockConn := &mockProxyConn{
+			Conn:          conn,
+			Claims:        webAppClaims,
+			upgradeTLSErr: errRedirectedToHTTPS,
+		}
+		connCreated <- mockConn
+
+		return mockConn
+	}
+
+	go func() {
+		_ = listener.Serve(t.Context(), tcpListener)
+	}()
+
+	// Open TCP connection
+	go func() {
+		_, err := net.Dial("tcp", addr)
+		assert.NoError(t, err)
+	}()
+
+	// Wait for connection to be created
+	closedConn := <-connCreated
+
+	// Connection should be closed without being routed to the web app channel
+	require.Eventually(t, closedConn.IsClosed, time.Second, 10*time.Millisecond)
+	require.Empty(t, webAppChannel)
 
 	// Close the listener
 	_ = tcpListener.Close()

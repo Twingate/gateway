@@ -184,14 +184,10 @@ func (l *Listener) Serve(ctx context.Context, listener net.Listener) error {
 				return
 			}
 
-			if proxyConn.GATClaims().ShouldUpgradeTLS() {
-				if err := proxyConn.UpgradeToTLS(); err != nil {
-					l.logger.Error("Failed to upgrade to TLS", zap.Error(err))
+			if err := l.upgradeDownstreamTLS(proxyConn); err != nil {
+				_ = proxyConn.Close()
 
-					_ = proxyConn.Close()
-
-					return
-				}
+				return
 			}
 
 			select {
@@ -204,6 +200,20 @@ func (l *Listener) Serve(ctx context.Context, listener net.Listener) error {
 			}
 		})
 	}
+}
+
+// upgradeDownstreamTLS upgrades the connection when the resource enforces TLS.
+func (l *Listener) upgradeDownstreamTLS(proxyConn Conn) error {
+	if !proxyConn.GATClaims().ShouldUpgradeTLS() {
+		return nil
+	}
+
+	err := proxyConn.UpgradeToTLS()
+	if err != nil && !errors.Is(err, errRedirectedToHTTPS) {
+		l.logger.Error("Failed to upgrade to TLS", zap.Error(err))
+	}
+
+	return err
 }
 
 func (l *Listener) closeChannels() {

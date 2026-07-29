@@ -68,12 +68,14 @@ func TestProxyConn_setConnectInfo(t *testing.T) {
 			defer proxyConn.Mu.Unlock()
 
 			proxyConn.setConnectInfo(Info{
-				Claims: claims,
-				ConnID: connID,
+				DownstreamAddress: "my-app.int:443",
+				Claims:            claims,
+				ConnID:            connID,
 			})
 		}()
 
 		assert.Equal(t, connID, proxyConn.ID)
+		assert.Equal(t, "my-app.int:443", proxyConn.DownstreamAddress)
 		assert.Equal(t, claims, proxyConn.Claims)
 
 		// Wait for expiry timer to happen, the connection should be closed
@@ -161,6 +163,35 @@ func startMockListener(t *testing.T) (net.Listener, string) {
 	return listener, addr
 }
 
+func createProxyConn(t *testing.T, conn net.Conn, resourceType token.ResourceType, connectValidator *mockValidator) *ProxyConn {
+	t.Helper()
+
+	// Server TLS config
+	serverCert, err := tls.X509KeyPair(data.ProxyCert, data.ProxyKey)
+	require.NoError(t, err)
+
+	return &ProxyConn{
+		Conn: conn,
+		TLSConfig: &tls.Config{
+			Certificates: []tls.Certificate{serverCert},
+			MinVersion:   tls.VersionTLS13,
+		},
+		ConnectValidator:  connectValidator,
+		Logger:            zap.NewNop(),
+		DownstreamAddress: "my-app.int:443",
+		Claims: &token.GATClaims{
+			Resource: token.Resource{
+				Type:    resourceType,
+				Address: "10.0.0.1",
+				GatewayMetadata: token.GatewayMetadata{
+					Downstream: token.Downstream{TLS: true},
+				},
+			},
+		},
+		tracker: NewProxyConnMetricsTracker(ConnCategoryUnknown, CreateProxyConnMetrics(prometheus.NewRegistry())),
+	}
+}
+
 func TestProxyConn_Authenticate_BadRequest(t *testing.T) {
 	listener, addr := startMockListener(t)
 
@@ -205,30 +236,9 @@ func TestProxyConn_Authenticate_BadRequest(t *testing.T) {
 	// Accept the incoming connection from the downstream client
 	conn, _ := listener.Accept()
 
-	// Server TLS config
-	serverCert, err := tls.X509KeyPair(data.ProxyCert, data.ProxyKey)
-	require.NoError(t, err)
-
-	serverTLSConfig := &tls.Config{
-		Certificates: []tls.Certificate{serverCert},
-		MinVersion:   tls.VersionTLS13,
-	}
-
-	// Mock CONNECT validator
-	mockValidator := &mockValidator{
-		shouldFail: false,
-	}
-
 	// Create the ProxyConn from the accepted connection
-	metrics := CreateProxyConnMetrics(prometheus.NewRegistry())
+	proxyConn := createProxyConn(t, conn, token.ResourceTypeWebApp, &mockValidator{shouldFail: false})
 
-	proxyConn := &ProxyConn{
-		Conn:             conn,
-		TLSConfig:        serverTLSConfig,
-		ConnectValidator: mockValidator,
-		Logger:           zap.NewNop(),
-		tracker:          NewProxyConnMetricsTracker(ConnCategoryUnknown, metrics),
-	}
 	defer proxyConn.Close()
 
 	// Perform connection auth logic
@@ -290,30 +300,9 @@ func TestProxyConn_Authenticate_HealthCheck(t *testing.T) {
 	// Accept the incoming connection from the downstream client
 	conn, _ := listener.Accept()
 
-	// Server TLS config
-	serverCert, err := tls.X509KeyPair(data.ProxyCert, data.ProxyKey)
-	require.NoError(t, err)
-
-	serverTLSConfig := &tls.Config{
-		Certificates: []tls.Certificate{serverCert},
-		MinVersion:   tls.VersionTLS13,
-	}
-
-	// Mock CONNECT validator
-	mockValidator := &mockValidator{
-		shouldFail: false,
-	}
-
 	// Create the ProxyConn from the accepted connection
-	metrics := CreateProxyConnMetrics(prometheus.NewRegistry())
+	proxyConn := createProxyConn(t, conn, token.ResourceTypeWebApp, &mockValidator{shouldFail: false})
 
-	proxyConn := &ProxyConn{
-		Conn:             conn,
-		TLSConfig:        serverTLSConfig,
-		ConnectValidator: mockValidator,
-		Logger:           zap.NewNop(),
-		tracker:          NewProxyConnMetricsTracker(ConnCategoryUnknown, metrics),
-	}
 	defer proxyConn.Close()
 
 	// Perform connection auth logic
@@ -368,30 +357,9 @@ func TestProxyConn_Authenticate_ValidConnectRequest(t *testing.T) {
 	// Accept the incoming connection from the downstream client
 	conn, _ := listener.Accept()
 
-	// Server TLS config
-	serverCert, err := tls.X509KeyPair(data.ProxyCert, data.ProxyKey)
-	require.NoError(t, err)
-
-	serverTLSConfig := &tls.Config{
-		Certificates: []tls.Certificate{serverCert},
-		MinVersion:   tls.VersionTLS13,
-	}
-
-	// Mock CONNECT validator
-	mockValidator := &mockValidator{
-		shouldFail: false,
-	}
-
 	// Create the ProxyConn from the accepted connection
-	metrics := CreateProxyConnMetrics(prometheus.NewRegistry())
+	proxyConn := createProxyConn(t, conn, token.ResourceTypeWebApp, &mockValidator{shouldFail: false})
 
-	proxyConn := &ProxyConn{
-		Conn:             conn,
-		TLSConfig:        serverTLSConfig,
-		ConnectValidator: mockValidator,
-		Logger:           zap.NewNop(),
-		tracker:          NewProxyConnMetricsTracker(ConnCategoryUnknown, metrics),
-	}
 	defer proxyConn.Close()
 
 	// Perform connection auth logic
@@ -446,30 +414,11 @@ func TestProxyConn_Authenticate_FailedValidation(t *testing.T) {
 	// Accept the incoming connection from the downstream client
 	conn, _ := listener.Accept()
 
-	// Server TLS config
-	serverCert, err := tls.X509KeyPair(data.ProxyCert, data.ProxyKey)
-	require.NoError(t, err)
+	// Create the ProxyConn from the accepted connection, without claims so the
+	// failed validation below must leave them unset
+	proxyConn := createProxyConn(t, conn, token.ResourceTypeWebApp, &mockValidator{shouldFail: true})
+	proxyConn.Claims = nil
 
-	serverTLSConfig := &tls.Config{
-		Certificates: []tls.Certificate{serverCert},
-		MinVersion:   tls.VersionTLS13,
-	}
-
-	// Mock CONNECT validator
-	mockValidator := &mockValidator{
-		shouldFail: true,
-	}
-
-	// Create the ProxyConn from the accepted connection
-	metrics := CreateProxyConnMetrics(prometheus.NewRegistry())
-
-	proxyConn := &ProxyConn{
-		Conn:             conn,
-		TLSConfig:        serverTLSConfig,
-		ConnectValidator: mockValidator,
-		Logger:           zap.NewNop(),
-		tracker:          NewProxyConnMetricsTracker(ConnCategoryUnknown, metrics),
-	}
 	defer proxyConn.Close()
 
 	// Perform connection auth logic
@@ -507,4 +456,205 @@ func TestIsHealthCheckRequest(t *testing.T) {
 			assert.Equal(t, tc.expectedResult, isHealthCheckRequest(tc.request))
 		})
 	}
+}
+
+func TestProxyConn_UpgradeToTLS_PlaintextHTTPRedirect(t *testing.T) {
+	tests := []struct {
+		name         string
+		request      string
+		wantLocation string
+	}{
+		{
+			name:         "redirects to the host header",
+			request:      "GET / HTTP/1.1\r\nHost: my-app.int\r\n\r\n",
+			wantLocation: "https://my-app.int/",
+		},
+		{
+			name:         "preserves the host header port, path and query",
+			request:      "GET /path?q=1 HTTP/1.1\r\nHost: my-app.int:8443\r\n\r\n",
+			wantLocation: "https://my-app.int:8443/path?q=1",
+		},
+		{
+			name:         "falls back to the CONNECT requested host when host header is missing",
+			request:      "GET /login HTTP/1.0\r\n\r\n",
+			wantLocation: "https://my-app.int:443/login",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			listener, addr := startMockListener(t)
+			defer listener.Close()
+
+			done := make(chan struct{})
+
+			// Downstream client logic on separate goroutine
+			go func() {
+				conn, err := net.Dial("tcp", addr)
+				assert.NoError(t, err)
+
+				defer conn.Close()
+
+				_, err = conn.Write([]byte(tt.request))
+				assert.NoError(t, err)
+
+				resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
+				if err != nil {
+					assert.NoError(t, err)
+
+					done <- struct{}{}
+
+					return
+				}
+
+				defer resp.Body.Close()
+
+				assert.Equal(t, http.StatusPermanentRedirect, resp.StatusCode)
+				assert.Equal(t, tt.wantLocation, resp.Header.Get("Location"))
+
+				done <- struct{}{}
+			}()
+
+			conn, err := listener.Accept()
+			require.NoError(t, err)
+
+			proxyConn := createProxyConn(t, conn, token.ResourceTypeWebApp, nil)
+			defer proxyConn.Close()
+
+			assert.ErrorIs(t, proxyConn.UpgradeToTLS(), errRedirectedToHTTPS)
+
+			<-done
+		})
+	}
+}
+
+func TestProxyConn_UpgradeToTLS_TLSHandshake(t *testing.T) {
+	tests := []struct {
+		name         string
+		resourceType token.ResourceType
+	}{
+		{
+			name:         "web app with downstream TLS peeks and handshakes",
+			resourceType: token.ResourceTypeWebApp,
+		},
+		{
+			name:         "kubernetes handshakes without peeking",
+			resourceType: token.ResourceTypeKubernetes,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			listener, addr := startMockListener(t)
+			defer listener.Close()
+
+			// Client TLS config
+			caCertPool := x509.NewCertPool()
+			caCertPool.AppendCertsFromPEM(data.ProxyCert)
+			clientTLSConfig := &tls.Config{
+				ServerName: "127.0.0.1",
+				RootCAs:    caCertPool,
+				MinVersion: tls.VersionTLS13,
+			}
+
+			done := make(chan struct{})
+
+			// Downstream client logic on separate goroutine
+			go func() {
+				conn, err := net.Dial("tcp", addr)
+				assert.NoError(t, err)
+
+				defer conn.Close()
+
+				tlsConn := tls.Client(conn, clientTLSConfig)
+				if err := tlsConn.Handshake(); err != nil {
+					assert.NoError(t, err)
+
+					done <- struct{}{}
+
+					return
+				}
+
+				_, err = tlsConn.Write([]byte("ping"))
+				assert.NoError(t, err)
+
+				done <- struct{}{}
+			}()
+
+			conn, err := listener.Accept()
+			require.NoError(t, err)
+
+			proxyConn := createProxyConn(t, conn, tt.resourceType, nil)
+			defer proxyConn.Close()
+
+			require.NoError(t, proxyConn.UpgradeToTLS())
+
+			buf := make([]byte, 4)
+			_, err = io.ReadFull(proxyConn, buf)
+			require.NoError(t, err)
+			assert.Equal(t, "ping", string(buf))
+
+			<-done
+		})
+	}
+}
+
+func TestProxyConn_UpgradeToTLS_MalformedPlaintextRequest(t *testing.T) {
+	listener, addr := startMockListener(t)
+	defer listener.Close()
+
+	done := make(chan struct{})
+
+	// Downstream client logic on separate goroutine
+	go func() {
+		conn, err := net.Dial("tcp", addr)
+		assert.NoError(t, err)
+
+		defer conn.Close()
+
+		_, err = conn.Write([]byte("\x00garbage\r\n\r\n"))
+		assert.NoError(t, err)
+
+		done <- struct{}{}
+	}()
+
+	conn, err := listener.Accept()
+	require.NoError(t, err)
+
+	proxyConn := createProxyConn(t, conn, token.ResourceTypeWebApp, nil)
+	defer proxyConn.Close()
+
+	err = proxyConn.UpgradeToTLS()
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, errRedirectedToHTTPS)
+
+	<-done
+}
+
+func TestProxyConn_UpgradeToTLS_ClosedBeforeFirstByte(t *testing.T) {
+	listener, addr := startMockListener(t)
+	defer listener.Close()
+
+	done := make(chan struct{})
+
+	// Downstream client logic on separate goroutine
+	go func() {
+		conn, err := net.Dial("tcp", addr)
+		assert.NoError(t, err)
+
+		// Close without sending anything so the peek sees EOF
+		assert.NoError(t, conn.Close())
+
+		done <- struct{}{}
+	}()
+
+	conn, err := listener.Accept()
+	require.NoError(t, err)
+
+	proxyConn := createProxyConn(t, conn, token.ResourceTypeWebApp, nil)
+	defer proxyConn.Close()
+
+	assert.ErrorIs(t, proxyConn.UpgradeToTLS(), io.EOF)
+
+	<-done
 }

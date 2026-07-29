@@ -28,6 +28,12 @@ const (
 
 const defaultTimeout = 10 * time.Second
 
+// tlsRecordTypeHandshake is the TLS record-layer ContentType of a handshake
+// record (RFC 8446 §5.1), which carries the ClientHello.
+const tlsRecordTypeHandshake = 0x16
+
+var errRedirectedToHTTPS = errors.New("http request redirected to https")
+
 func httpResponseString(httpCode int) string {
 	return fmt.Sprintf("HTTP/1.1 %d %s\r\n\r\n", httpCode, http.StatusText(httpCode))
 }
@@ -54,16 +60,33 @@ type ProxyConn struct {
 	ConnectValidator Validator
 	Logger           *zap.Logger
 
-	ID      string
-	Address string
-	Claims  *token.GATClaims
-	Token   string
+	ID                string
+	Address           string
+	DownstreamAddress string
+	Claims            *token.GATClaims
+	Token             string
 
 	Timer *time.Timer
 	Mu    sync.Mutex
 
 	tracker *ProxyConnMetricsTracker
 	once    sync.Once
+}
+
+// bufferedConn reads through a bufio.Reader so bytes peeked from the
+// connection remain available to subsequent reads.
+type bufferedConn struct {
+	net.Conn
+
+	reader *bufio.Reader
+}
+
+func newBufferedConn(conn net.Conn) *bufferedConn {
+	return &bufferedConn{Conn: conn, reader: bufio.NewReader(conn)}
+}
+
+func (c *bufferedConn) Read(b []byte) (int, error) {
+	return c.reader.Read(b)
 }
 
 func NewProxyConn(conn net.Conn, tlsConfig *tls.Config, validator Validator, logger *zap.Logger, metrics *ProxyConnMetrics) *ProxyConn {
@@ -225,7 +248,33 @@ func (p *ProxyConn) Authenticate() error {
 }
 
 func (p *ProxyConn) UpgradeToTLS() error {
-	tlsConn := tls.Server(p.Conn, p.TLSConfig)
+	conn := p.Conn
+
+	if p.Claims.EnforcesDownstreamTLS() {
+		bufConn := newBufferedConn(p.Conn)
+
+		firstByte, err := bufConn.reader.Peek(1)
+		if err != nil {
+			p.Logger.Error("failed to peek first downstream client byte", zap.Error(err))
+
+			return err
+		}
+
+		if firstByte[0] != tlsRecordTypeHandshake {
+			req, err := http.ReadRequest(bufConn.reader)
+			if err != nil {
+				p.Logger.Error("failed to parse plaintext HTTP request", zap.Error(err))
+
+				return err
+			}
+
+			return p.redirectToHTTPS(req)
+		}
+
+		conn = bufConn
+	}
+
+	tlsConn := tls.Server(conn, p.TLSConfig)
 	if err := tlsConn.Handshake(); err != nil {
 		p.Logger.Error("failed to upgrade TLS", zap.Error(err))
 
@@ -238,9 +287,30 @@ func (p *ProxyConn) UpgradeToTLS() error {
 	return nil
 }
 
+// redirectToHTTPS answers the plaintext HTTP request with a permanent redirect
+// to the same authority over https.
+func (p *ProxyConn) redirectToHTTPS(req *http.Request) error {
+	host := req.Host
+	if host == "" {
+		host = p.DownstreamAddress
+	}
+
+	responseStr := fmt.Sprintf("HTTP/1.1 %d %s\r\nLocation: https://%s%s\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+		http.StatusPermanentRedirect, http.StatusText(http.StatusPermanentRedirect), host, req.URL.RequestURI())
+
+	if _, err := p.Write([]byte(responseStr)); err != nil {
+		p.Logger.Error("failed to write redirect response", zap.Error(err))
+
+		return err
+	}
+
+	return errRedirectedToHTTPS
+}
+
 func (p *ProxyConn) setConnectInfo(connectInfo Info) {
 	p.ID = connectInfo.ConnID
 	p.Address = connectInfo.Address
+	p.DownstreamAddress = connectInfo.DownstreamAddress
 	p.Claims = connectInfo.Claims
 	p.Token = connectInfo.Token
 	p.Timer = time.AfterFunc(time.Until(connectInfo.Claims.ExpiresAt.Time), func() {
