@@ -22,7 +22,14 @@ import (
 
 	"go.uber.org/zap"
 
+	lru "github.com/hashicorp/golang-lru/v2"
+
 	"gateway/internal/config"
+)
+
+const (
+	clockSkewBuffer = 30 * time.Second
+	maxCachedCerts  = 1024
 )
 
 var (
@@ -31,10 +38,6 @@ var (
 	errUnsupportedKeyType = errors.New("unsupported key type")
 	errUnsupportedKeyBits = errors.New("unsupported key bits")
 )
-
-// clockSkewBuffer backdates minted certificates to tolerate downstream clients
-// with slightly-behind clocks.
-const clockSkewBuffer = 30 * time.Second
 
 var serialNumberLimit = new(big.Int).Lsh(big.NewInt(1), 128)
 
@@ -48,7 +51,7 @@ type DynamicCert struct {
 	logger *zap.Logger
 
 	mu    sync.Mutex
-	cache map[string]*tls.Certificate
+	cache *lru.Cache[string, *tls.Certificate]
 }
 
 func NewDynamicCert(cfg config.TLSDynamicConfig, logger *zap.Logger) (*DynamicCert, error) {
@@ -75,31 +78,33 @@ func NewDynamicCert(cfg config.TLSDynamicConfig, logger *zap.Logger) (*DynamicCe
 		return nil, errCAKeyNotSigner
 	}
 
+	cache, err := lru.New[string, *tls.Certificate](maxCachedCerts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create certificate cache: %w", err)
+	}
+
 	return &DynamicCert{
 		caCert: caCert,
 		caKey:  caKey,
 		cert:   cfg.Cert,
 		logger: logger,
-		cache:  make(map[string]*tls.Certificate),
+		cache:  cache,
 	}, nil
 }
 
 // Run implements CertProvider; dynamic mode has no background maintenance.
 func (c *DynamicCert) Run(_ context.Context) {}
 
-// GetCertificate implements tls.Config.GetCertificate for handshakes that
-// happen before the CONNECT target is known. It mints for the SNI host when
-// the client sends one, falling back to the connection's local IP for clients
-// that don't (IP-dialed clients and health probes).
+// GetCertificate mints for the SNI host, falling back to the connection's
+// local IP for clients that send none (IP-dialed clients and health probes).
 func (c *DynamicCert) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
-	host := hello.ServerName
-	if host == "" {
-		var err error
+	if hello.ServerName != "" {
+		return c.GetCertificateForHost(hello.ServerName)
+	}
 
-		host, _, err = net.SplitHostPort(hello.Conn.LocalAddr().String())
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse local address: %w", err)
-		}
+	host, _, err := net.SplitHostPort(hello.Conn.LocalAddr().String())
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse local address: %w", err)
 	}
 
 	return c.GetCertificateForHost(host)
@@ -108,10 +113,16 @@ func (c *DynamicCert) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certifica
 // GetCertificateForHost returns a certificate for the requested host, minting
 // a new one when none is cached or the cached one is inside the renewal window.
 func (c *DynamicCert) GetCertificateForHost(host string) (*tls.Certificate, error) {
+	if cert, ok := c.cachedCert(host); ok {
+		return cert, nil
+	}
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if cert, ok := c.cache[host]; ok && time.Now().Before(cert.Leaf.NotAfter.Add(-c.cert.GetRenewBefore())) {
+	// Re-check under the lock: a caller ahead in the queue may have minted
+	// this host already, which keeps concurrent cold misses to one mint.
+	if cert, ok := c.cachedCert(host); ok {
 		return cert, nil
 	}
 
@@ -120,9 +131,20 @@ func (c *DynamicCert) GetCertificateForHost(host string) (*tls.Certificate, erro
 		return nil, err
 	}
 
-	c.cache[host] = cert
+	c.cache.Add(host, cert)
 
 	return cert, nil
+}
+
+// cachedCert returns the cached certificate for the given host
+// while it is outside the renewal window.
+func (c *DynamicCert) cachedCert(host string) (*tls.Certificate, bool) {
+	cert, ok := c.cache.Get(host)
+	if !ok {
+		return nil, false
+	}
+
+	return cert, time.Now().Before(cert.Leaf.NotAfter.Add(-c.cert.GetRenewBefore()))
 }
 
 func (c *DynamicCert) mint(host string) (*tls.Certificate, error) {

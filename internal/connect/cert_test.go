@@ -12,6 +12,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -134,6 +135,18 @@ func TestDynamicCert_GetCertificate_ClientHelloNoSNIFallsBackToLocalAddr(t *test
 	assert.True(t, minted.Leaf.IPAddresses[0].Equal(net.ParseIP("127.0.0.1")))
 }
 
+func TestDynamicCert_GetCertificate_UnparsableLocalAddr(t *testing.T) {
+	cert, _ := newTestCert(t, config.TLSDynamicCertConfig{})
+
+	hello := &tls.ClientHelloInfo{
+		Conn: fakeAddrConn{addr: &net.UnixAddr{Name: "/tmp/gateway.sock", Net: "unix"}},
+	}
+
+	_, err := cert.GetCertificate(hello)
+
+	assert.ErrorContains(t, err, "failed to parse local address")
+}
+
 func TestDynamicCert_GetCertificate_CachesPerHost(t *testing.T) {
 	cert, _ := newTestCert(t, config.TLSDynamicCertConfig{})
 
@@ -147,6 +160,112 @@ func TestDynamicCert_GetCertificate_CachesPerHost(t *testing.T) {
 	other, err := cert.GetCertificateForHost("other.internal")
 	require.NoError(t, err)
 	assert.NotSame(t, first, other)
+}
+
+func TestDynamicCert_GetCertificate_BoundsCacheSize(t *testing.T) {
+	cert, _ := newTestCert(t, config.TLSDynamicCertConfig{})
+	cert.cache.Resize(3)
+
+	first, err := cert.GetCertificateForHost("first.internal")
+	require.NoError(t, err)
+
+	for _, host := range []string{"second.internal", "third.internal", "fourth.internal"} {
+		_, err := cert.GetCertificateForHost(host)
+		require.NoError(t, err)
+	}
+
+	assert.Equal(t, 3, cert.cache.Len(), "cache should stay at the cap")
+	assert.False(t, cert.cache.Contains("first.internal"), "the least recently used host should be evicted")
+
+	// The evicted host is re-minted rather than served stale.
+	refreshed, err := cert.GetCertificateForHost("first.internal")
+	require.NoError(t, err)
+	assert.NotEqual(t, first.Leaf.SerialNumber, refreshed.Leaf.SerialNumber)
+}
+
+func TestDynamicCert_GetCertificate_EvictsByRecency(t *testing.T) {
+	cert, _ := newTestCert(t, config.TLSDynamicCertConfig{})
+	cert.cache.Resize(3)
+
+	for _, host := range []string{"first.internal", "second.internal", "third.internal"} {
+		_, err := cert.GetCertificateForHost(host)
+		require.NoError(t, err)
+	}
+
+	// Touching the oldest host makes the next-oldest the eviction candidate.
+	touched, err := cert.GetCertificateForHost("first.internal")
+	require.NoError(t, err)
+
+	_, err = cert.GetCertificateForHost("fourth.internal")
+	require.NoError(t, err)
+
+	assert.False(t, cert.cache.Contains("second.internal"), "the untouched host should be evicted")
+	assert.True(t, cert.cache.Contains("first.internal"), "the touched host should survive")
+
+	cached, err := cert.GetCertificateForHost("first.internal")
+	require.NoError(t, err)
+	assert.Same(t, touched, cached, "the surviving host should still be served from cache")
+}
+
+func TestDynamicCert_GetCertificate_RenewFailureKeepsError(t *testing.T) {
+	cert, _ := newTestCert(t, config.TLSDynamicCertConfig{
+		Duration:    time.Hour,
+		RenewBefore: 2 * time.Hour,
+	})
+
+	_, err := cert.GetCertificateForHost("app.internal")
+	require.NoError(t, err)
+
+	// The cached entry is already inside the renewal window, so the next call
+	// re-mints — and now minting fails.
+	cert.cert.KeyType = "ed25519"
+
+	_, err = cert.GetCertificateForHost("app.internal")
+	assert.ErrorIs(t, err, errUnsupportedKeyType)
+}
+
+// Concurrent cold misses for one host must mint once. This is what the
+// re-check inside the lock in GetCertificateForHost buys; without it every
+// caller mints its own certificate.
+func TestDynamicCert_GetCertificate_ConcurrentColdMissMintsOnce(t *testing.T) {
+	const callers = 50
+
+	cert, _ := newTestCert(t, config.TLSDynamicCertConfig{})
+
+	var (
+		mu      sync.Mutex
+		wg      sync.WaitGroup
+		mintErr error
+		serials = map[string]struct{}{}
+	)
+
+	start := make(chan struct{})
+
+	for range callers {
+		wg.Go(func() {
+			<-start
+
+			got, err := cert.GetCertificateForHost("cold.internal")
+
+			mu.Lock()
+			defer mu.Unlock()
+
+			if err != nil {
+				mintErr = err
+
+				return
+			}
+
+			serials[got.Leaf.SerialNumber.String()] = struct{}{}
+		})
+	}
+
+	close(start)
+	wg.Wait()
+
+	require.NoError(t, mintErr)
+	assert.Len(t, serials, 1, "concurrent cold misses should mint exactly once")
+	assert.Equal(t, 1, cert.cache.Len())
 }
 
 func TestDynamicCert_GetCertificate_RenewsInsideWindow(t *testing.T) {
@@ -165,6 +284,9 @@ func TestDynamicCert_GetCertificate_RenewsInsideWindow(t *testing.T) {
 
 	assert.NotSame(t, first, second)
 	assert.NotEqual(t, first.Leaf.SerialNumber, second.Leaf.SerialNumber)
+
+	// Re-minting replaces the cached entry rather than adding another one.
+	assert.Equal(t, 1, cert.cache.Len())
 }
 
 func TestDynamicCert_GetCertificate_RSAKey(t *testing.T) {
