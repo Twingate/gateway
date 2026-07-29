@@ -222,12 +222,10 @@ Twingate local dev environment running!
 -----------------------------------------------------
 4. Test Web App header forwarding:
 
+  Over HTTP:
   curl http://%s
 
------------------------------------------------------
-5. Test Web App over HTTPS (TLS terminates at the Gateway
-   using the gateway certificate, which covers 127.0.0.1):
-
+  Over HTTPS:
   curl --cacert ./test/data/proxy/tls.crt https://%s
 
 -----------------------------------------------------
