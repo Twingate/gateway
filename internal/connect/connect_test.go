@@ -116,6 +116,7 @@ func TestConnectValidator_ParseConnect(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Equal(t, "Example.com:443", connectInfo.Address)
+		assert.Equal(t, "Example.com:443", connectInfo.DownstreamAddress)
 		assert.Equal(t, *connectInfo.Claims, gatClaims)
 		assert.Equal(t, "conn-id", connectInfo.ConnID)
 		assert.Equal(t, signedToken, connectInfo.Token)

@@ -228,6 +228,9 @@ Twingate local dev environment running!
   Over HTTPS:
   curl --cacert ./test/data/proxy/tls.crt https://%s
 
+  Or with redirect from HTTP to HTTPS:
+  curl -L --cacert ./test/data/proxy/tls.crt http://%s
+
 -----------------------------------------------------
 Press Ctrl+C to stop
 =====================================================
@@ -237,7 +240,7 @@ Press Ctrl+C to stop
 		kubeConfigFile, kindClusterName,
 		sshClientPort, sshKnownHostFile,
 		webAppClient.Address,
-		webAppTLSClient.Address,
+		webAppTLSClient.Address, webAppTLSClient.Address,
 	)
 
 	//nolint:forbidigo

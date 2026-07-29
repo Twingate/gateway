@@ -82,8 +82,13 @@ func validatePort(port int, fieldName string) error {
 }
 
 func (p GATClaims) ShouldUpgradeTLS() bool {
-	return p.Resource.Type == ResourceTypeKubernetes ||
-		(p.Resource.Type == ResourceTypeWebApp && p.Resource.GatewayMetadata.Downstream.TLS)
+	return p.Resource.Type == ResourceTypeKubernetes || p.EnforcesDownstreamTLS()
+}
+
+// EnforcesDownstreamTLS reports whether the resource is a web app whose GAT
+// requires the downstream client connection to be TLS.
+func (p GATClaims) EnforcesDownstreamTLS() bool {
+	return p.Resource.Type == ResourceTypeWebApp && p.Resource.GatewayMetadata.Downstream.TLS
 }
 
 func (p GATClaims) getHeaderType() string {
