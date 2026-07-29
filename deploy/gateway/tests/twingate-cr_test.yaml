@@ -14,6 +14,17 @@ tests:
     asserts:
       - failedTemplate:
           errorMessage: twingateOperator.kubernetesResource.enabled=true requires twingateOperator.gateway.enabled=true
+  - it: fails when the in-cluster resource sets its own remote network
+    set:
+      twingateOperator:
+        gateway:
+          enabled: true
+        kubernetesResource:
+          enabled: true
+          remoteNetworkId: "UmVtb3RlTmV0d29yazo0NTYK"
+    asserts:
+      - failedTemplate:
+          errorMessage: twingateOperator.kubernetesResource.remoteNetworkId is not supported, set twingateOperator.remoteNetworkId instead
   - it: renders the CA and Gateway when gateway is enabled
     set:
       twingateOperator:
@@ -62,6 +73,47 @@ tests:
       - equal:
           path: spec.name
           value: "RELEASE-NAME-gateway Kubernetes cluster"
+  - it: omits remoteNetworkId when none is set, leaving the operator's default
+    set:
+      twingateOperator:
+        gateway:
+          enabled: true
+        kubernetesResource:
+          enabled: true
+    kubernetesProvider: *clusterNamespace
+    asserts:
+      - notExists:
+          path: spec.remoteNetworkId
+  - it: sets remoteNetworkId on the gateway
+    set:
+      twingateOperator:
+        remoteNetworkId: "UmVtb3RlTmV0d29yazoxMjMK"
+        gateway:
+          enabled: true
+    kubernetesProvider: *clusterNamespace
+    documentSelector:
+      path: kind
+      value: TwingateGateway
+    asserts:
+      - equal:
+          path: spec.remoteNetworkId
+          value: "UmVtb3RlTmV0d29yazoxMjMK"
+  - it: sets the same remoteNetworkId on the in-cluster resource
+    set:
+      twingateOperator:
+        remoteNetworkId: "UmVtb3RlTmV0d29yazoxMjMK"
+        gateway:
+          enabled: true
+        kubernetesResource:
+          enabled: true
+    kubernetesProvider: *clusterNamespace
+    documentSelector:
+      path: kind
+      value: TwingateResource
+    asserts:
+      - equal:
+          path: spec.remoteNetworkId
+          value: "UmVtb3RlTmV0d29yazoxMjMK"
   - it: suffixes the CA name with a hash of the cluster and namespace
     set:
       twingateOperator:
