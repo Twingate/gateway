@@ -261,7 +261,14 @@ func (p *ProxyConn) UpgradeToTLS() error {
 		}
 
 		if firstByte[0] != tlsRecordTypeHandshake {
-			return p.redirectToHTTPS(bufConn.reader)
+			req, err := http.ReadRequest(bufConn.reader)
+			if err != nil {
+				p.Logger.Error("failed to parse plaintext HTTP request", zap.Error(err))
+
+				return err
+			}
+
+			return p.redirectToHTTPS(req)
 		}
 
 		conn = bufConn
@@ -282,14 +289,7 @@ func (p *ProxyConn) UpgradeToTLS() error {
 
 // redirectToHTTPS answers the plaintext HTTP request with a permanent redirect
 // to the same authority over https.
-func (p *ProxyConn) redirectToHTTPS(b *bufio.Reader) error {
-	req, err := http.ReadRequest(b)
-	if err != nil {
-		p.Logger.Error("failed to parse plaintext HTTP request", zap.Error(err))
-
-		return err
-	}
-
+func (p *ProxyConn) redirectToHTTPS(req *http.Request) error {
 	host := req.Host
 	if host == "" {
 		host = p.DownstreamAddress

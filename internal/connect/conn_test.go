@@ -163,9 +163,10 @@ func startMockListener(t *testing.T) (net.Listener, string) {
 	return listener, addr
 }
 
-func createProxyConn(t *testing.T, conn net.Conn, resourceType token.ResourceType) *ProxyConn {
+func createProxyConn(t *testing.T, conn net.Conn, resourceType token.ResourceType, connectValidator *mockValidator) *ProxyConn {
 	t.Helper()
 
+	// Server TLS config
 	serverCert, err := tls.X509KeyPair(data.ProxyCert, data.ProxyKey)
 	require.NoError(t, err)
 
@@ -175,6 +176,7 @@ func createProxyConn(t *testing.T, conn net.Conn, resourceType token.ResourceTyp
 			Certificates: []tls.Certificate{serverCert},
 			MinVersion:   tls.VersionTLS13,
 		},
+		ConnectValidator:  connectValidator,
 		Logger:            zap.NewNop(),
 		DownstreamAddress: "my-app.int:443",
 		Claims: &token.GATClaims{
@@ -235,9 +237,8 @@ func TestProxyConn_Authenticate_BadRequest(t *testing.T) {
 	conn, _ := listener.Accept()
 
 	// Create the ProxyConn from the accepted connection
-	proxyConn := createProxyConn(t, conn, token.ResourceTypeWebApp)
+	proxyConn := createProxyConn(t, conn, token.ResourceTypeWebApp, &mockValidator{shouldFail: false})
 
-	proxyConn.ConnectValidator = &mockValidator{shouldFail: false}
 	defer proxyConn.Close()
 
 	// Perform connection auth logic
@@ -300,9 +301,8 @@ func TestProxyConn_Authenticate_HealthCheck(t *testing.T) {
 	conn, _ := listener.Accept()
 
 	// Create the ProxyConn from the accepted connection
-	proxyConn := createProxyConn(t, conn, token.ResourceTypeWebApp)
+	proxyConn := createProxyConn(t, conn, token.ResourceTypeWebApp, &mockValidator{shouldFail: false})
 
-	proxyConn.ConnectValidator = &mockValidator{shouldFail: false}
 	defer proxyConn.Close()
 
 	// Perform connection auth logic
@@ -358,9 +358,8 @@ func TestProxyConn_Authenticate_ValidConnectRequest(t *testing.T) {
 	conn, _ := listener.Accept()
 
 	// Create the ProxyConn from the accepted connection
-	proxyConn := createProxyConn(t, conn, token.ResourceTypeWebApp)
+	proxyConn := createProxyConn(t, conn, token.ResourceTypeWebApp, &mockValidator{shouldFail: false})
 
-	proxyConn.ConnectValidator = &mockValidator{shouldFail: false}
 	defer proxyConn.Close()
 
 	// Perform connection auth logic
@@ -417,10 +416,9 @@ func TestProxyConn_Authenticate_FailedValidation(t *testing.T) {
 
 	// Create the ProxyConn from the accepted connection, without claims so the
 	// failed validation below must leave them unset
-	proxyConn := createProxyConn(t, conn, token.ResourceTypeWebApp)
-	proxyConn.ConnectValidator = &mockValidator{shouldFail: true}
-
+	proxyConn := createProxyConn(t, conn, token.ResourceTypeWebApp, &mockValidator{shouldFail: true})
 	proxyConn.Claims = nil
+
 	defer proxyConn.Close()
 
 	// Perform connection auth logic
@@ -520,7 +518,7 @@ func TestProxyConn_UpgradeToTLS_PlaintextHTTPRedirect(t *testing.T) {
 			conn, err := listener.Accept()
 			require.NoError(t, err)
 
-			proxyConn := createProxyConn(t, conn, token.ResourceTypeWebApp)
+			proxyConn := createProxyConn(t, conn, token.ResourceTypeWebApp, nil)
 			defer proxyConn.Close()
 
 			assert.ErrorIs(t, proxyConn.UpgradeToTLS(), errRedirectedToHTTPS)
@@ -586,7 +584,7 @@ func TestProxyConn_UpgradeToTLS_TLSHandshake(t *testing.T) {
 			conn, err := listener.Accept()
 			require.NoError(t, err)
 
-			proxyConn := createProxyConn(t, conn, tt.resourceType)
+			proxyConn := createProxyConn(t, conn, tt.resourceType, nil)
 			defer proxyConn.Close()
 
 			require.NoError(t, proxyConn.UpgradeToTLS())
@@ -623,7 +621,7 @@ func TestProxyConn_UpgradeToTLS_MalformedPlaintextRequest(t *testing.T) {
 	conn, err := listener.Accept()
 	require.NoError(t, err)
 
-	proxyConn := createProxyConn(t, conn, token.ResourceTypeWebApp)
+	proxyConn := createProxyConn(t, conn, token.ResourceTypeWebApp, nil)
 	defer proxyConn.Close()
 
 	err = proxyConn.UpgradeToTLS()
@@ -653,7 +651,7 @@ func TestProxyConn_UpgradeToTLS_ClosedBeforeFirstByte(t *testing.T) {
 	conn, err := listener.Accept()
 	require.NoError(t, err)
 
-	proxyConn := createProxyConn(t, conn, token.ResourceTypeWebApp)
+	proxyConn := createProxyConn(t, conn, token.ResourceTypeWebApp, nil)
 	defer proxyConn.Close()
 
 	assert.ErrorIs(t, proxyConn.UpgradeToTLS(), io.EOF)
