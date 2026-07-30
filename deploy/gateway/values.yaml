@@ -10,9 +10,9 @@ twingate:
   network: ""
 
 twingateOperator:
-  # Remote Network the Gateway and the in-cluster Kubernetes resource are created in.
-  # Empty uses the operator's own TWINGATE_REMOTE_NETWORK_ID.
-  remoteNetworkId: ""
+  # The Gateway and the in-cluster Kubernetes resource are created in the operator's own
+  # TWINGATE_REMOTE_NETWORK_ID. Set this only to place them in a different Remote Network.
+  # remoteNetworkId: "<remote network id>"
   gateway:
     # Render the TwingateGateway + its TwingateCertificateAuthority. Off for
     # standalone installs with no operator/CRDs.
