@@ -7,9 +7,6 @@ import (
 	_ "embed"
 )
 
-//go:embed ca/tls.crt
-var CACert []byte
-
 //go:embed client/key.pem
 var ClientKey []byte
 

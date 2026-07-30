@@ -25,13 +25,21 @@ type fakeAddrConn struct {
 func (c fakeAddrConn) LocalAddr() net.Addr { return c.addr }
 
 type recordingCertProvider struct {
-	host string
+	host       string
+	aliases    []string
+	shouldFail bool
+	err        error
 }
 
 func (p *recordingCertProvider) Run(_ context.Context) {}
 
-func (p *recordingCertProvider) GetCertificateForHost(host string) (*tls.Certificate, error) {
+func (p *recordingCertProvider) GetCertificateForHost(host string, aliases ...string) (*tls.Certificate, error) {
 	p.host = host
+	p.aliases = aliases
+
+	if p.shouldFail {
+		return nil, p.err
+	}
 
 	return &tls.Certificate{}, nil
 }
@@ -88,14 +96,14 @@ func TestNewCertProviderFromConfig(t *testing.T) {
 	}{
 		{
 			name:     "static",
-			tlsCfg:   config.TLSConfig{Static: &config.TLSStaticConfig{CertificateFile: "../../test/data/ca/tls.crt", PrivateKeyFile: "../../test/data/ca/tls.key"}},
+			tlsCfg:   config.TLSConfig{Static: &config.TLSStaticConfig{CertificateFile: "../../test/data/proxy/tls.crt", PrivateKeyFile: "../../test/data/proxy/tls.key"}},
 			wantType: &CertReloader{},
 		},
 		{
 			name: "dynamic",
 			tlsCfg: config.TLSConfig{Dynamic: &config.TLSDynamicConfig{
 				CA: config.TLSDynamicCAConfig{
-					SelfSign: &config.TLSSelfSignCAConfig{CertificateFile: "../../test/data/ca/tls.crt", PrivateKeyFile: "../../test/data/ca/tls.key"},
+					SelfSign: &config.TLSSelfSignCAConfig{CertificateFile: "../../test/data/proxy/tls.crt", PrivateKeyFile: "../../test/data/proxy/tls.key"},
 				},
 			}},
 			wantType: &DynamicCert{},

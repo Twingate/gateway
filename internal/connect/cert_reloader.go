@@ -42,7 +42,7 @@ func (cr *CertReloader) Run(ctx context.Context) {
 
 // GetCertificateForHost implements CertProvider, the configured certificate is
 // served regardless of the requested host.
-func (cr *CertReloader) GetCertificateForHost(_ string) (*tls.Certificate, error) {
+func (cr *CertReloader) GetCertificateForHost(_ string, _ ...string) (*tls.Certificate, error) {
 	cr.mu.RLock()
 	defer cr.mu.RUnlock()
 
