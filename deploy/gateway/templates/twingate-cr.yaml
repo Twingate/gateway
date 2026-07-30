@@ -5,6 +5,9 @@ CRDs in the cluster, so rendering is gated behind twingateOperator.gateway.enabl
 {{- if and .Values.twingateOperator.kubernetesResource.enabled (not .Values.twingateOperator.gateway.enabled) }}
 {{- fail "twingateOperator.kubernetesResource.enabled=true requires twingateOperator.gateway.enabled=true" }}
 {{- end }}
+{{- if hasKey .Values.twingateOperator.kubernetesResource "remoteNetworkId" }}
+{{- fail "twingateOperator.kubernetesResource.remoteNetworkId is not supported, set twingateOperator.remoteNetworkId instead" }}
+{{- end }}
 {{- if .Values.twingateOperator.gateway.enabled }}
 apiVersion: twingate.com/v1beta
 kind: TwingateCertificateAuthority
@@ -26,6 +29,9 @@ metadata:
   labels:
     {{- include "gateway.labels" . | nindent 4 }}
 spec:
+  {{- with .Values.twingateOperator.remoteNetworkId }}
+  remoteNetworkId: {{ . | quote }}
+  {{- end }}
   serviceRef:
     name: {{ include "gateway.fullname" . }}
     namespace: {{ .Release.Namespace }}
@@ -45,6 +51,9 @@ metadata:
   labels:
     {{- include "gateway.labels" . | nindent 4 }}
 spec:
+  {{- with .Values.twingateOperator.remoteNetworkId }}
+  remoteNetworkId: {{ . | quote }}
+  {{- end }}
   type: Kubernetes
   address: kubernetes.default.svc.cluster.local
   name: {{ .Values.twingateOperator.kubernetesResource.name | default (printf "%s Kubernetes cluster" (include "gateway.fullname" .)) | quote }}

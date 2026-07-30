@@ -24,6 +24,11 @@
       "type": "object",
       "description": "Twingate Kubernetes Operator integration: render Twingate Custom Resources reconciled by the operator.",
       "properties": {
+        "remoteNetworkId": {
+          "type": "string",
+          "description": "Remote Network the TwingateGateway and the in-cluster Kubernetes TwingateResource are created in. Twingate requires both to be in the same Remote Network. Empty uses the operator's own TWINGATE_REMOTE_NETWORK_ID.",
+          "default": ""
+        },
         "gateway": {
           "type": "object",
           "required": ["enabled"],
