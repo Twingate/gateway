@@ -127,8 +127,9 @@ func (c *DynamicCert) GetCertificateForHost(host string, aliases ...string) (*tl
 	return cert, nil
 }
 
-// certNames is host followed by its aliases, without duplicates. host stays
-// first so it becomes the common name.
+// certNames is host followed by its aliases, sorted and without duplicates,
+// so the same name set always yields the same cache key. host stays first so
+// it becomes the common name.
 func certNames(host string, aliases []string) []string {
 	names := make([]string, 0, len(aliases)+1)
 	names = append(names, host)
@@ -138,6 +139,8 @@ func certNames(host string, aliases []string) []string {
 			names = append(names, alias)
 		}
 	}
+
+	slices.Sort(names[1:])
 
 	return names
 }
@@ -192,7 +195,7 @@ func (c *DynamicCert) mint(names []string) (*tls.Certificate, error) {
 		return nil, fmt.Errorf("failed to parse leaf certificate: %w", err)
 	}
 
-	c.logger.Info("Minted downstream certificate",
+	c.logger.Debug("Minted downstream certificate",
 		zap.Strings("hosts", names),
 		zap.Time("not_after", leaf.NotAfter),
 	)

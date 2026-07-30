@@ -129,7 +129,7 @@ func TestDynamicCert_GetCertificateForHost_CoversAliases(t *testing.T) {
 			host:    "10.0.0.5",
 			aliases: []string{"app.internal", "alt.internal"},
 			wantCN:  "10.0.0.5",
-			wantDNS: []string{"app.internal", "alt.internal"},
+			wantDNS: []string{"alt.internal", "app.internal"},
 			wantIPs: []string{"10.0.0.5"},
 		},
 		{
@@ -198,6 +198,14 @@ func TestDynamicCert_GetCertificateForHost_CachesPerNameSet(t *testing.T) {
 	again, err := cert.GetCertificateForHost("app.internal", "a.internal")
 	require.NoError(t, err)
 	assert.Same(t, first, again)
+
+	// The same aliases in a different order are the same name set.
+	sorted, err := cert.GetCertificateForHost("app.internal", "a.internal", "b.internal")
+	require.NoError(t, err)
+
+	reordered, err := cert.GetCertificateForHost("app.internal", "b.internal", "a.internal")
+	require.NoError(t, err)
+	assert.Same(t, sorted, reordered)
 }
 
 func TestDynamicCert_GetCertificateForHost_RenewsInsideWindow(t *testing.T) {
