@@ -34,10 +34,8 @@ func TestReloadWhenFileChanged(t *testing.T) {
 	newCert := generateCert(t)
 	replaceCertFiles(t, certFile, keyFile, newCert)
 
-	hello := &tls.ClientHelloInfo{}
-
 	assert.EventuallyWithT(t, func(c *assert.CollectT) {
-		cert, err := certReloader.GetCertificate(hello)
+		cert, err := certReloader.GetCertificateForHost("")
 		assert.NoError(t, err)
 
 		assert.Equal(c, newCert.Certificate, cert.Certificate)
@@ -64,9 +62,7 @@ func TestDontReloadWhenMismatchedKeyAndCertificate(t *testing.T) {
 	replaceCertFiles(t, certFile, keyFile, invalidCert)
 	time.Sleep(5 * time.Millisecond)
 
-	hello := &tls.ClientHelloInfo{}
-
-	cert, err := certReloader.GetCertificate(hello)
+	cert, err := certReloader.GetCertificateForHost("")
 	require.NoError(t, err)
 
 	// Ensure certificate is unchanged
@@ -92,9 +88,7 @@ func TestDontReloadWhenContextIsCanceled(t *testing.T) {
 	replaceCertFiles(t, certFile, keyFile, newCert)
 	time.Sleep(5 * time.Millisecond)
 
-	hello := &tls.ClientHelloInfo{}
-
-	cert, err := certReloader.GetCertificate(hello)
+	cert, err := certReloader.GetCertificateForHost("")
 	require.NoError(t, err)
 
 	assert.Equal(t, expectedCert.Certificate, cert.Certificate)
@@ -149,10 +143,8 @@ func TestErrorInitializeCertReloader(t *testing.T) {
 func requireCertReloader(t *testing.T, certReloader *CertReloader, expectedCert tls.Certificate) {
 	t.Helper()
 
-	hello := &tls.ClientHelloInfo{}
-
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		existingCert, err := certReloader.GetCertificate(hello)
+		existingCert, err := certReloader.GetCertificateForHost("")
 		require.NoError(c, err)
 
 		require.NotNil(c, existingCert)

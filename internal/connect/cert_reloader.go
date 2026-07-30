@@ -40,7 +40,9 @@ func (cr *CertReloader) Run(ctx context.Context) {
 	}, time.Minute, ctx.Done())
 }
 
-func (cr *CertReloader) GetCertificate(_ *tls.ClientHelloInfo) (*tls.Certificate, error) {
+// GetCertificateForHost implements CertProvider, the configured certificate is
+// served regardless of the requested host.
+func (cr *CertReloader) GetCertificateForHost(_ string, _ ...string) (*tls.Certificate, error) {
 	cr.mu.RLock()
 	defer cr.mu.RUnlock()
 
