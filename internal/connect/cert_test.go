@@ -7,7 +7,6 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rsa"
-	"crypto/tls"
 	"crypto/x509"
 	"net"
 	"sync"
@@ -21,14 +20,6 @@ import (
 	"gateway/internal/config"
 	"gateway/test/data"
 )
-
-type fakeAddrConn struct {
-	net.Conn
-
-	addr net.Addr
-}
-
-func (c fakeAddrConn) LocalAddr() net.Addr { return c.addr }
 
 func TestNewDynamicCert_Errors(t *testing.T) {
 	nonCAFile, nonCAKeyFile := createCertFiles(t, generateCert(t))
@@ -79,7 +70,7 @@ func TestNewDynamicCert_Errors(t *testing.T) {
 	}
 }
 
-func TestDynamicCert_GetCertificate_ClientHelloSNI(t *testing.T) {
+func TestDynamicCert_GetCertificateForHost_DNSHost(t *testing.T) {
 	cert, err := NewDynamicCert(config.TLSDynamicConfig{
 		CA: config.TLSDynamicCAConfig{
 			SelfSign: &config.TLSSelfSignCAConfig{CertificateFile: "../../test/data/ca/tls.crt", PrivateKeyFile: "../../test/data/ca/tls.key"},
@@ -87,7 +78,7 @@ func TestDynamicCert_GetCertificate_ClientHelloSNI(t *testing.T) {
 	}, zap.NewNop())
 	require.NoError(t, err)
 
-	minted, err := cert.GetCertificate(&tls.ClientHelloInfo{ServerName: "app.internal"})
+	minted, err := cert.GetCertificateForHost("app.internal")
 	require.NoError(t, err)
 
 	assert.Equal(t, "app.internal", minted.Leaf.Subject.CommonName)
@@ -107,42 +98,6 @@ func TestDynamicCert_GetCertificate_ClientHelloSNI(t *testing.T) {
 		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 	})
 	assert.NoError(t, err, "leaf should verify against the CA for the requested host")
-}
-
-func TestDynamicCert_GetCertificate_ClientHelloNoSNIFallsBackToLocalAddr(t *testing.T) {
-	cert, err := NewDynamicCert(config.TLSDynamicConfig{
-		CA: config.TLSDynamicCAConfig{
-			SelfSign: &config.TLSSelfSignCAConfig{CertificateFile: "../../test/data/ca/tls.crt", PrivateKeyFile: "../../test/data/ca/tls.key"},
-		},
-	}, zap.NewNop())
-	require.NoError(t, err)
-
-	hello := &tls.ClientHelloInfo{
-		Conn: fakeAddrConn{addr: &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 8443}},
-	}
-
-	minted, err := cert.GetCertificate(hello)
-	require.NoError(t, err)
-
-	require.Len(t, minted.Leaf.IPAddresses, 1)
-	assert.True(t, minted.Leaf.IPAddresses[0].Equal(net.ParseIP("127.0.0.1")))
-}
-
-func TestDynamicCert_GetCertificate_UnparsableLocalAddr(t *testing.T) {
-	cert, err := NewDynamicCert(config.TLSDynamicConfig{
-		CA: config.TLSDynamicCAConfig{
-			SelfSign: &config.TLSSelfSignCAConfig{CertificateFile: "../../test/data/ca/tls.crt", PrivateKeyFile: "../../test/data/ca/tls.key"},
-		},
-	}, zap.NewNop())
-	require.NoError(t, err)
-
-	hello := &tls.ClientHelloInfo{
-		Conn: fakeAddrConn{addr: &net.UnixAddr{Name: "/tmp/gateway.sock", Net: "unix"}},
-	}
-
-	_, err = cert.GetCertificate(hello)
-
-	assert.ErrorContains(t, err, "failed to parse local address")
 }
 
 func TestDynamicCert_GetCertificateForHost_IPHost(t *testing.T) {

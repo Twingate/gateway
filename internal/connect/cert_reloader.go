@@ -40,10 +40,6 @@ func (cr *CertReloader) Run(ctx context.Context) {
 	}, time.Minute, ctx.Done())
 }
 
-func (cr *CertReloader) GetCertificate(_ *tls.ClientHelloInfo) (*tls.Certificate, error) {
-	return cr.GetCertificateForHost("")
-}
-
 // GetCertificateForHost implements CertProvider, the configured certificate is
 // served regardless of the requested host.
 func (cr *CertReloader) GetCertificateForHost(_ string) (*tls.Certificate, error) {

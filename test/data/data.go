@@ -10,9 +10,6 @@ import (
 //go:embed ca/tls.crt
 var CACert []byte
 
-//go:embed ca/tls.key
-var CAKey []byte
-
 //go:embed client/key.pem
 var ClientKey []byte
 

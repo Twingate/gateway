@@ -107,9 +107,11 @@ func NewListener(
 	}
 
 	tlsConfig := &tls.Config{
-		MinVersion:     tls.VersionTLS13,
-		MaxVersion:     tls.VersionTLS13,
-		GetCertificate: certProvider.GetCertificate,
+		MinVersion: tls.VersionTLS13,
+		MaxVersion: tls.VersionTLS13,
+		GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+			return getCertificateForHello(certProvider, hello)
+		},
 	}
 
 	connectValidator := &MessageValidator{

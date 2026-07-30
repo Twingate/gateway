@@ -95,21 +95,6 @@ func NewDynamicCert(cfg config.TLSDynamicConfig, logger *zap.Logger) (*DynamicCe
 // Run implements CertProvider; dynamic mode has no background maintenance.
 func (c *DynamicCert) Run(_ context.Context) {}
 
-// GetCertificate mints for the SNI host, falling back to the connection's
-// local IP for clients that send none (IP-dialed clients and health probes).
-func (c *DynamicCert) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
-	if hello.ServerName != "" {
-		return c.GetCertificateForHost(hello.ServerName)
-	}
-
-	host, _, err := net.SplitHostPort(hello.Conn.LocalAddr().String())
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse local address: %w", err)
-	}
-
-	return c.GetCertificateForHost(host)
-}
-
 // GetCertificateForHost returns a certificate for the requested host, minting
 // a new one when none is cached or the cached one is inside the renewal window.
 func (c *DynamicCert) GetCertificateForHost(host string) (*tls.Certificate, error) {

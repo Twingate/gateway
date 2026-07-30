@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"net"
 
 	"go.uber.org/zap"
 
@@ -19,12 +20,29 @@ type CertProvider interface {
 	// Run runs background maintenance until the context is canceled.
 	Run(ctx context.Context)
 
-	// GetCertificate serves the outer, pre-CONNECT handshake.
-	GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error)
-
-	// GetCertificateForHost returns the certificate presented for the
-	// validated CONNECT host on the inner handshake.
+	// GetCertificateForHost returns the certificate presented for the given
+	// host: the SNI host on the outer TLS, the validated CONNECT host
+	// on the inner TLS.
+	//
+	// Note: SNI cannot carry an IP address (see RFC 6066 § 3)
 	GetCertificateForHost(host string) (*tls.Certificate, error)
+}
+
+// getCertificateForHello serves the outer TLS handshake when the SNI
+// host is present, falling back to the connection's local IP for clients
+// that send none (e.g. IP-dialed clients and health probes).
+func getCertificateForHello(provider CertProvider, hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+	host := hello.ServerName
+	if host == "" {
+		var err error
+
+		host, _, err = net.SplitHostPort(hello.Conn.LocalAddr().String())
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse local address: %w", err)
+		}
+	}
+
+	return provider.GetCertificateForHost(host)
 }
 
 // newCertProviderFromConfig creates a CertProvider based on the provided

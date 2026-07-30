@@ -235,14 +235,7 @@ func (p *ProxyConn) Authenticate() error {
 }
 
 func (p *ProxyConn) UpgradeToTLS() error {
-	tlsConfig, err := p.getTLSConfig()
-	if err != nil {
-		p.Logger.Error("failed to prepare TLS config for upgrade", zap.Error(err))
-
-		return err
-	}
-
-	tlsConn := tls.Server(p.Conn, tlsConfig)
+	tlsConn := tls.Server(p.Conn, p.getTLSConfig())
 	if err := tlsConn.Handshake(); err != nil {
 		p.Logger.Error("failed to upgrade TLS", zap.Error(err))
 
@@ -255,27 +248,24 @@ func (p *ProxyConn) UpgradeToTLS() error {
 	return nil
 }
 
-// getTLSConfig pins the certificate presented to the downstream client
-// for the CONNECT-requested host: minted in dynamic mode, the configured
-// certificate in static mode.
-func (p *ProxyConn) getTLSConfig() (*tls.Config, error) {
-	host, _, err := net.SplitHostPort(p.DownstreamAddress)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse downstream address %q: %w", p.DownstreamAddress, err)
-	}
-
-	cert, err := p.CertProvider.GetCertificateForHost(host)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get certificate for %q: %w", host, err)
-	}
-
-	// GetCertificate takes precedence when SNI is present and SNI cannot carry an IP address (RFC 6066 § 3)
-	// So we need to pin the TLS cert for IP address.
+// getTLSConfig pins the served certificate to the CONNECT host.
+func (p *ProxyConn) getTLSConfig() *tls.Config {
 	tlsConfig := p.TLSConfig.Clone()
-	tlsConfig.GetCertificate = nil
-	tlsConfig.Certificates = []tls.Certificate{*cert}
+	tlsConfig.GetCertificate = func(_ *tls.ClientHelloInfo) (*tls.Certificate, error) {
+		host, _, err := net.SplitHostPort(p.DownstreamAddress)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse downstream address %q: %w", p.DownstreamAddress, err)
+		}
 
-	return tlsConfig, nil
+		cert, err := p.CertProvider.GetCertificateForHost(host)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get certificate for %q: %w", host, err)
+		}
+
+		return cert, nil
+	}
+
+	return tlsConfig
 }
 
 func (p *ProxyConn) setConnectInfo(connectInfo Info) {

@@ -4,6 +4,9 @@
 package connect
 
 import (
+	"context"
+	"crypto/tls"
+	"net"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -12,6 +15,68 @@ import (
 
 	"gateway/internal/config"
 )
+
+type fakeAddrConn struct {
+	net.Conn
+
+	addr net.Addr
+}
+
+func (c fakeAddrConn) LocalAddr() net.Addr { return c.addr }
+
+type recordingCertProvider struct {
+	host string
+}
+
+func (p *recordingCertProvider) Run(_ context.Context) {}
+
+func (p *recordingCertProvider) GetCertificateForHost(host string) (*tls.Certificate, error) {
+	p.host = host
+
+	return &tls.Certificate{}, nil
+}
+
+func TestGetCertificateForHello(t *testing.T) {
+	tests := []struct {
+		name     string
+		hello    *tls.ClientHelloInfo
+		wantHost string
+		wantErr  string
+	}{
+		{
+			name:     "SNI host",
+			hello:    &tls.ClientHelloInfo{ServerName: "app.internal"},
+			wantHost: "app.internal",
+		},
+		{
+			name:     "no SNI falls back to local IP",
+			hello:    &tls.ClientHelloInfo{Conn: fakeAddrConn{addr: &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 8443}}},
+			wantHost: "127.0.0.1",
+		},
+		{
+			name:    "unparsable local address",
+			hello:   &tls.ClientHelloInfo{Conn: fakeAddrConn{addr: &net.UnixAddr{Name: "/tmp/gateway.sock", Net: "unix"}}},
+			wantErr: "failed to parse local address",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			provider := &recordingCertProvider{}
+
+			_, err := getCertificateForHello(provider, tt.hello)
+
+			if tt.wantErr != "" {
+				assert.ErrorContains(t, err, tt.wantErr)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantHost, provider.host)
+		})
+	}
+}
 
 func TestNewCertProviderFromConfig(t *testing.T) {
 	tests := []struct {
