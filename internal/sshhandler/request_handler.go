@@ -68,15 +68,30 @@ func (h *SSHRequestHandler) parseRequestPayload(req *ssh.Request, target any) {
 
 // handleRequest processes and forwards a single SSH request, returning session info if applicable.
 func (h *SSHRequestHandler) handleRequest(req *ssh.Request, sessionSignals SSHSessionSignals) {
-	h.logger.Debug("Channel request", zap.Any("ssh", h.sshChannelCtx.withRequest(req.Type, nil)))
-
 	// A shell, exec, or subsystem request starts the session
 	// see: https://datatracker.ietf.org/doc/html/rfc4254#section-6.5
 	isSessionStartReq := false
 	command := ""
-
-	shouldLog := false
 	extra := map[string]any{}
+
+	// logger derives the fields on each call so every log line carries the detail accumulated
+	// in extra so far.
+	logger := func() *zap.Logger {
+		return h.logger.With(zap.Any("ssh", h.sshChannelCtx.withRequest(req.Type, extra)))
+	}
+
+	var (
+		accepted bool
+		err      error
+	)
+
+	// Reply exactly once, on every path; early returns leave the default, which rejects the
+	// request.
+	defer func() {
+		if err := req.Reply(accepted, nil); err != nil {
+			logger().Error("Failed to reply to request", zap.Error(err))
+		}
+	}()
 
 	switch req.Type {
 	case requestTypePty:
@@ -86,13 +101,9 @@ func (h *SSHRequestHandler) handleRequest(req *ssh.Request, sessionSignals SSHSe
 		if h.onPtyRequest != nil {
 			h.onPtyRequest(ptyReq)
 		}
-
-		shouldLog = true
 	case requestTypeShell:
 		isSessionStartReq = true
 		command = req.Type
-
-		shouldLog = true
 	case requestTypeExec:
 		isSessionStartReq = true
 
@@ -100,8 +111,6 @@ func (h *SSHRequestHandler) handleRequest(req *ssh.Request, sessionSignals SSHSe
 		h.parseRequestPayload(req, &execReq)
 
 		command = req.Type + " " + execReq.Command
-
-		shouldLog = true
 		extra["command"] = execReq.Command
 	case requestTypeSubsystem:
 		isSessionStartReq = true
@@ -110,8 +119,6 @@ func (h *SSHRequestHandler) handleRequest(req *ssh.Request, sessionSignals SSHSe
 		h.parseRequestPayload(req, &subsystemReq)
 
 		command = req.Type + " " + subsystemReq.Name
-
-		shouldLog = true
 		extra["name"] = subsystemReq.Name
 	case requestTypeWindowChange:
 		var windowChangeReq windowChangeReq
@@ -128,31 +135,24 @@ func (h *SSHRequestHandler) handleRequest(req *ssh.Request, sessionSignals SSHSe
 	// Reject duplicates without forwarding: signaling a second session start would send on
 	// the already-closed started channel.
 	if isSessionStartReq && h.sessionStarted {
-		h.logger.Warn("Rejecting duplicate session start request",
-			zap.Any("ssh", h.sshChannelCtx.withRequest(req.Type, extra)))
-
-		if err := req.Reply(false, nil); err != nil {
-			h.logger.Error("Failed to reply to request",
-				zap.Any("ssh", h.sshChannelCtx.withRequest(req.Type, nil)),
-				zap.Error(err))
-		}
+		logger().Warn("Rejecting duplicate session start request")
 
 		return
 	}
 
-	if shouldLog {
-		h.logger.Info("SSH channel request",
-			zap.Any("ssh", h.sshChannelCtx.withRequest(req.Type, extra)))
-	}
-
-	accepted, err := forwardRequest(h.targetChannel, req)
+	accepted, err = h.targetChannel.SendRequest(req.Type, req.WantReply, req.Payload)
 	if err != nil {
-		h.logger.Error("Failed to forward request",
-			zap.Any("ssh", h.sshChannelCtx.withRequest(req.Type, nil)),
-			zap.Error(err))
+		logger().Error("Failed to forward request", zap.Error(err))
 
 		return
 	}
+
+	// SendRequest's accepted result is meaningless when no reply was asked for.
+	if req.WantReply {
+		extra["accepted"] = accepted
+	}
+
+	logger().Info("SSH channel request")
 
 	// A session starts only when the target accepted the request; without WantReply there is
 	// no confirmation and the session starts unconditionally (RFC 4254, Section 6.5).
@@ -245,17 +245,4 @@ func (h *SSHRequestHandler) handleRequests() SSHSessionSignals {
 	}()
 
 	return sessionSignals
-}
-
-// forwardRequest relays a request to the channel and the reply back; the returned accepted
-// result is meaningless when the request does not want a reply.
-func forwardRequest(channel ssh.Channel, request *ssh.Request) (bool, error) {
-	reply, requestErr := channel.SendRequest(request.Type, request.WantReply, request.Payload)
-	if requestErr != nil {
-		_ = request.Reply(false, nil)
-
-		return false, requestErr
-	}
-
-	return reply, request.Reply(reply, nil)
 }
