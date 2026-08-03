@@ -87,7 +87,7 @@ func TestProxy_StartFailure(t *testing.T) {
 			setup: func(t *testing.T, sshProxy *SSHProxy) {
 				t.Helper()
 
-				authMethod, err := newAppRoleAuthMethod(&gatewayconfig.SSHCAVaultAppRoleConfig{
+				authMethod, err := newAppRoleAuthMethod(&gatewayconfig.VaultAppRoleConfig{
 					RoleID:   "role-id",
 					SecretID: "secret-id",
 				})

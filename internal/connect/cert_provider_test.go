@@ -118,6 +118,24 @@ func TestNewCertProviderFromConfig(t *testing.T) {
 			errContains: "failed to create dynamic cert",
 		},
 		{
+			name: "dynamic with vault CA",
+			tlsCfg: config.TLSConfig{Dynamic: &config.TLSDynamicConfig{
+				CA: config.TLSDynamicCAConfig{
+					Vault: &config.TLSVaultCAConfig{Address: "https://vault.example.com:8200", Role: "gateway"},
+				},
+			}},
+			wantType: &DynamicCert{},
+		},
+		{
+			name: "dynamic with vault CA bundle missing",
+			tlsCfg: config.TLSConfig{Dynamic: &config.TLSDynamicConfig{
+				CA: config.TLSDynamicCAConfig{
+					Vault: &config.TLSVaultCAConfig{Address: "https://vault.example.com:8200", Role: "gateway", CABundleFile: "missing.crt"},
+				},
+			}},
+			errContains: "failed to create Vault client",
+		},
+		{
 			name:    "neither static nor dynamic",
 			wantErr: config.ErrMissingTLSConfig,
 		},

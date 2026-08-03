@@ -49,6 +49,7 @@ linters:
         - ca
         - caProvider
         - CertProvider
+        - certIssuer
         # golang.org/x/crypto/ssh
         - Signer
         - PublicKey

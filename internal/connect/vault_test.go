@@ -1,7 +1,7 @@
 // Copyright (c) Twingate Inc.
 // SPDX-License-Identifier: MPL-2.0
 
-package sshhandler
+package connect
 
 import (
 	"context"
@@ -24,13 +24,13 @@ import (
 
 	vault "github.com/hashicorp/vault/api"
 
-	gatewayconfig "gateway/internal/config"
+	"gateway/internal/config"
 )
 
 func TestNewVault_EnforcesTLS13(t *testing.T) {
-	v, err := newVault(&gatewayconfig.SSHCAVaultConfig{
+	v, err := newVault(&config.TLSVaultCAConfig{
 		Address: "https://vault.example.com",
-		Auth:    gatewayconfig.VaultAuthConfig{Token: "test-token"},
+		Auth:    config.VaultAuthConfig{Token: "test-token"},
 	}, zap.NewNop())
 	require.NoError(t, err)
 
@@ -42,8 +42,8 @@ func TestNewVault_EnforcesTLS13(t *testing.T) {
 
 func TestNewVaultAuthMethod_AppRole(t *testing.T) {
 	t.Run("with secretID", func(t *testing.T) {
-		cfg := &gatewayconfig.VaultAuthConfig{
-			AppRole: &gatewayconfig.VaultAppRoleConfig{
+		cfg := &config.VaultAuthConfig{
+			AppRole: &config.VaultAppRoleConfig{
 				RoleID:   "role-id",
 				SecretID: "my-secret-id",
 				Mount:    "custom-approle",
@@ -56,8 +56,8 @@ func TestNewVaultAuthMethod_AppRole(t *testing.T) {
 	})
 
 	t.Run("with secretIDFile", func(t *testing.T) {
-		cfg := &gatewayconfig.VaultAuthConfig{
-			AppRole: &gatewayconfig.VaultAppRoleConfig{
+		cfg := &config.VaultAuthConfig{
+			AppRole: &config.VaultAppRoleConfig{
 				RoleID:       "role-id",
 				SecretIDFile: "/path/to/secret-id",
 				Mount:        "custom-approle",
@@ -71,8 +71,8 @@ func TestNewVaultAuthMethod_AppRole(t *testing.T) {
 }
 
 func TestNewVaultAuthMethod_GCP(t *testing.T) {
-	cfg := &gatewayconfig.VaultAuthConfig{
-		GCP: &gatewayconfig.VaultGCPConfig{
+	cfg := &config.VaultAuthConfig{
+		GCP: &config.VaultGCPConfig{
 			Mount:               "custom-gcp",
 			Role:                "my-role",
 			Type:                "iam",
@@ -87,8 +87,8 @@ func TestNewVaultAuthMethod_GCP(t *testing.T) {
 
 func TestNewVaultAuthMethod_AWS(t *testing.T) {
 	t.Run("IAM", func(t *testing.T) {
-		cfg := &gatewayconfig.VaultAuthConfig{
-			AWS: &gatewayconfig.VaultAWSConfig{
+		cfg := &config.VaultAuthConfig{
+			AWS: &config.VaultAWSConfig{
 				Mount:             "custom-aws",
 				Role:              "my-role",
 				Type:              "iam",
@@ -103,8 +103,8 @@ func TestNewVaultAuthMethod_AWS(t *testing.T) {
 	})
 
 	t.Run("EC2", func(t *testing.T) {
-		cfg := &gatewayconfig.VaultAuthConfig{
-			AWS: &gatewayconfig.VaultAWSConfig{
+		cfg := &config.VaultAuthConfig{
+			AWS: &config.VaultAWSConfig{
 				Mount:         "custom-aws",
 				Role:          "my-role",
 				Type:          "ec2",
@@ -121,8 +121,8 @@ func TestNewVaultAuthMethod_AWS(t *testing.T) {
 	t.Run("EC2 pkcs7 emits deprecation warning", func(t *testing.T) {
 		core, logs := observer.New(zapcore.WarnLevel)
 
-		cfg := &gatewayconfig.VaultAuthConfig{
-			AWS: &gatewayconfig.VaultAWSConfig{
+		cfg := &config.VaultAuthConfig{
+			AWS: &config.VaultAWSConfig{
 				Role:          "my-role",
 				Type:          "ec2",
 				SignatureType: "pkcs7",
@@ -138,7 +138,7 @@ func TestNewVaultAuthMethod_AWS(t *testing.T) {
 }
 
 func TestNewVaultAuthMethod_NoAuth(t *testing.T) {
-	cfg := &gatewayconfig.VaultAuthConfig{}
+	cfg := &config.VaultAuthConfig{}
 
 	authMethod, err := newVaultAuthMethod(cfg, zap.NewNop())
 	require.ErrorIs(t, err, errVaultAuthMethodNotConfigured)
