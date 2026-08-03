@@ -1,7 +1,7 @@
 // Copyright (c) Twingate Inc.
 // SPDX-License-Identifier: MPL-2.0
 
-package sshhandler
+package connect
 
 import (
 	"context"
@@ -19,7 +19,7 @@ import (
 
 	vault "github.com/hashicorp/vault/api"
 
-	gatewayconfig "gateway/internal/config"
+	"gateway/internal/config"
 )
 
 var errVaultAuthMethodNotConfigured = errors.New("no Vault auth method configured")
@@ -29,7 +29,7 @@ const (
 )
 
 //nolint:ireturn
-func newVaultAuthMethod(authConfig *gatewayconfig.VaultAuthConfig, logger *zap.Logger) (vault.AuthMethod, error) {
+func newVaultAuthMethod(authConfig *config.VaultAuthConfig, logger *zap.Logger) (vault.AuthMethod, error) {
 	if authConfig.AppRole != nil {
 		return newAppRoleAuthMethod(authConfig.AppRole)
 	}
@@ -45,7 +45,7 @@ func newVaultAuthMethod(authConfig *gatewayconfig.VaultAuthConfig, logger *zap.L
 	return nil, errVaultAuthMethodNotConfigured
 }
 
-func newAppRoleAuthMethod(appRoleConfig *gatewayconfig.VaultAppRoleConfig) (*approle.AppRoleAuth, error) {
+func newAppRoleAuthMethod(appRoleConfig *config.VaultAppRoleConfig) (*approle.AppRoleAuth, error) {
 	secretID := &approle.SecretID{
 		FromString: appRoleConfig.SecretID,
 		FromFile:   appRoleConfig.SecretIDFile,
@@ -58,7 +58,7 @@ func newAppRoleAuthMethod(appRoleConfig *gatewayconfig.VaultAppRoleConfig) (*app
 	)
 }
 
-func newGCPAuthMethod(gcpConfig *gatewayconfig.VaultGCPConfig) (*gcp.GCPAuth, error) {
+func newGCPAuthMethod(gcpConfig *config.VaultGCPConfig) (*gcp.GCPAuth, error) {
 	opts := []gcp.LoginOption{
 		gcp.WithMountPath(gcpConfig.GetMount()),
 	}
@@ -71,7 +71,7 @@ func newGCPAuthMethod(gcpConfig *gatewayconfig.VaultGCPConfig) (*gcp.GCPAuth, er
 	return gcp.NewGCPAuth(gcpConfig.Role, opts...)
 }
 
-func newAWSAuthMethod(awsConfig *gatewayconfig.VaultAWSConfig, logger *zap.Logger) (*aws.AWSAuth, error) {
+func newAWSAuthMethod(awsConfig *config.VaultAWSConfig, logger *zap.Logger) (*aws.AWSAuth, error) {
 	opts := []aws.LoginOption{
 		aws.WithRole(awsConfig.Role),
 		aws.WithMountPath(awsConfig.GetMount()),
@@ -118,25 +118,25 @@ type Vault struct {
 	logger     *zap.Logger
 }
 
-func newVault(vaultConfig *gatewayconfig.SSHCAVaultConfig, logger *zap.Logger) (*Vault, error) {
-	config := vault.DefaultConfig()
-	config.Address = vaultConfig.Address
+func newVault(vaultConfig *config.TLSVaultCAConfig, logger *zap.Logger) (*Vault, error) {
+	apiConfig := vault.DefaultConfig()
+	apiConfig.Address = vaultConfig.Address
 
 	//nolint:revive // unchecked-type-assertion: transport type guaranteed by DefaultConfig
-	transport := config.HttpClient.Transport.(*http.Transport)
+	transport := apiConfig.HttpClient.Transport.(*http.Transport)
 	// Enforce TLS 1.3 for the Vault client, which carries all CA signing requests.
 	// Vault's DefaultConfig sets only a TLS 1.2 minimum.
 	transport.TLSClientConfig.MinVersion = tls.VersionTLS13
 
 	if vaultConfig.CABundleFile != "" {
-		if err := config.ConfigureTLS(&vault.TLSConfig{
+		if err := apiConfig.ConfigureTLS(&vault.TLSConfig{
 			CACert: vaultConfig.CABundleFile,
 		}); err != nil {
 			return nil, fmt.Errorf("failed to configure TLS: %w", err)
 		}
 	}
 
-	client, err := vault.NewClient(config)
+	client, err := vault.NewClient(apiConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create vault client: %w", err)
 	}

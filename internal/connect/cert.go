@@ -39,16 +39,16 @@ var (
 	errCAKeyNotSigner     = errors.New("CA private key does not implement crypto.Signer")
 	errUnsupportedKeyType = errors.New("unsupported key type")
 	errUnsupportedKeyBits = errors.New("unsupported key bits")
+	errVaultIssueFailed   = errors.New("failed to issue certificate with Vault")
 )
 
 var serialNumberLimit = new(big.Int).Lsh(big.NewInt(1), 128)
 
-// DynamicCert mints short-lived leaf certificates signed by the configured
-// CA, caching one certificate per requested host and re-minting a fresh one
-// once the cached certificate enters the renewal window.
+// DynamicCert mints short-lived leaf certificates through the configured
+// issuer, caching one certificate per requested name set and re-minting a
+// fresh one once the cached certificate enters the renewal window.
 type DynamicCert struct {
-	caCert *x509.Certificate
-	caKey  crypto.Signer
+	issuer certIssuer
 	cert   config.TLSDynamicCertConfig
 	logger *zap.Logger
 
@@ -57,27 +57,9 @@ type DynamicCert struct {
 }
 
 func NewDynamicCert(cfg config.TLSDynamicConfig, logger *zap.Logger) (*DynamicCert, error) {
-	if cfg.CA.SelfSign == nil {
-		return nil, config.ErrMissingTLSCAConfig
-	}
-
-	pair, err := tls.LoadX509KeyPair(cfg.CA.SelfSign.CertificateFile, cfg.CA.SelfSign.PrivateKeyFile)
+	issuer, err := newCertIssuer(cfg, logger)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load CA key pair: %w", err)
-	}
-
-	caCert, err := x509.ParseCertificate(pair.Certificate[0])
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse CA certificate: %w", err)
-	}
-
-	if !caCert.IsCA {
-		return nil, errNotCACertificate
-	}
-
-	caKey, ok := pair.PrivateKey.(crypto.Signer)
-	if !ok {
-		return nil, errCAKeyNotSigner
+		return nil, err
 	}
 
 	cache, err := lru.New[string, *tls.Certificate](maxCachedCerts)
@@ -86,16 +68,35 @@ func NewDynamicCert(cfg config.TLSDynamicConfig, logger *zap.Logger) (*DynamicCe
 	}
 
 	return &DynamicCert{
-		caCert: caCert,
-		caKey:  caKey,
+		issuer: issuer,
 		cert:   cfg.Cert,
 		logger: logger,
 		cache:  cache,
 	}, nil
 }
 
-// Run implements CertProvider; dynamic mode has no background maintenance.
-func (c *DynamicCert) Run(_ context.Context) {}
+// certIssuer mints a certificate covering a set of names and runs any
+// background maintenance its backend needs.
+type certIssuer interface {
+	run(ctx context.Context)
+	issue(names []string) (*tls.Certificate, error)
+}
+
+func newCertIssuer(cfg config.TLSDynamicConfig, logger *zap.Logger) (certIssuer, error) {
+	switch {
+	case cfg.CA.SelfSign != nil:
+		return newSelfSignIssuer(cfg.CA.SelfSign, cfg.Cert)
+	case cfg.CA.Vault != nil:
+		return newVaultIssuer(cfg.CA.Vault, cfg.Cert, logger)
+	default:
+		return nil, config.ErrMissingTLSCAConfig
+	}
+}
+
+// Run implements CertProvider, delegating background maintenance to the issuer.
+func (c *DynamicCert) Run(ctx context.Context) {
+	c.issuer.run(ctx)
+}
 
 // GetCertificateForHost returns a certificate covering host and aliases,
 // minting a new one when none is cached or the cached one is inside the
@@ -117,10 +118,15 @@ func (c *DynamicCert) GetCertificateForHost(host string, aliases ...string) (*tl
 		return cert, nil
 	}
 
-	cert, err := c.mint(names)
+	cert, err := c.issuer.issue(names)
 	if err != nil {
 		return nil, err
 	}
+
+	c.logger.Debug("Minted downstream certificate",
+		zap.Strings("hosts", names),
+		zap.Time("not_after", cert.Leaf.NotAfter),
+	)
 
 	c.cache.Add(key, cert)
 
@@ -156,8 +162,41 @@ func (c *DynamicCert) cachedCert(key string) (*tls.Certificate, bool) {
 	return cert, time.Now().Before(cert.Leaf.NotAfter.Add(-c.cert.GetRenewBefore()))
 }
 
-func (c *DynamicCert) mint(names []string) (*tls.Certificate, error) {
-	key, err := c.generateKey()
+// selfSignIssuer signs leaf certificates locally with a CA loaded from files.
+type selfSignIssuer struct {
+	caCert *x509.Certificate
+	caKey  crypto.Signer
+	cert   config.TLSDynamicCertConfig
+}
+
+func newSelfSignIssuer(cfg *config.TLSSelfSignCAConfig, certCfg config.TLSDynamicCertConfig) (*selfSignIssuer, error) {
+	pair, err := tls.LoadX509KeyPair(cfg.CertificateFile, cfg.PrivateKeyFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load CA key pair: %w", err)
+	}
+
+	caCert, err := x509.ParseCertificate(pair.Certificate[0])
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse CA certificate: %w", err)
+	}
+
+	if !caCert.IsCA {
+		return nil, errNotCACertificate
+	}
+
+	caKey, ok := pair.PrivateKey.(crypto.Signer)
+	if !ok {
+		return nil, errCAKeyNotSigner
+	}
+
+	return &selfSignIssuer{caCert: caCert, caKey: caKey, cert: certCfg}, nil
+}
+
+// run implements certIssuer; the self-sign backend has no background maintenance.
+func (s *selfSignIssuer) run(_ context.Context) {}
+
+func (s *selfSignIssuer) issue(names []string) (*tls.Certificate, error) {
+	key, err := s.generateKey()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate leaf key: %w", err)
 	}
@@ -172,7 +211,7 @@ func (c *DynamicCert) mint(names []string) (*tls.Certificate, error) {
 		SerialNumber: serial,
 		Subject:      pkix.Name{CommonName: names[0]},
 		NotBefore:    now.Add(-clockSkewBuffer),
-		NotAfter:     now.Add(c.cert.GetDuration()),
+		NotAfter:     now.Add(s.cert.GetDuration()),
 		KeyUsage:     x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 	}
@@ -185,7 +224,7 @@ func (c *DynamicCert) mint(names []string) (*tls.Certificate, error) {
 		}
 	}
 
-	leafDER, err := x509.CreateCertificate(rand.Reader, template, c.caCert, key.Public(), c.caKey)
+	leafDER, err := x509.CreateCertificate(rand.Reader, template, s.caCert, key.Public(), s.caKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign leaf certificate: %w", err)
 	}
@@ -195,22 +234,134 @@ func (c *DynamicCert) mint(names []string) (*tls.Certificate, error) {
 		return nil, fmt.Errorf("failed to parse leaf certificate: %w", err)
 	}
 
-	c.logger.Debug("Minted downstream certificate",
-		zap.Strings("hosts", names),
-		zap.Time("not_after", leaf.NotAfter),
-	)
-
 	return &tls.Certificate{
-		Certificate: [][]byte{leafDER, c.caCert.Raw},
+		Certificate: [][]byte{leafDER, s.caCert.Raw},
 		PrivateKey:  key,
 		Leaf:        leaf,
 	}, nil
 }
 
-func (c *DynamicCert) generateKey() (crypto.Signer, error) {
-	switch c.cert.GetKeyType() {
+// vaultIssuer mints leaf certificates through Vault's PKI secrets engine.
+type vaultIssuer struct {
+	vault *Vault
+	mount string
+	role  string
+	cert  config.TLSDynamicCertConfig
+}
+
+func newVaultIssuer(cfg *config.TLSVaultCAConfig, certCfg config.TLSDynamicCertConfig, logger *zap.Logger) (*vaultIssuer, error) {
+	v, err := newVault(cfg, logger)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Vault client: %w", err)
+	}
+
+	return &vaultIssuer{vault: v, mount: cfg.GetMount(), role: cfg.Role, cert: certCfg}, nil
+}
+
+// run logs in to Vault in the background and keeps the token renewed. Unlike
+// the SSH CA, login failures retry instead of failing startup: CertProvider.Run
+// carries no error, so handshakes fail until login succeeds, then self-heal.
+func (v *vaultIssuer) run(ctx context.Context) {
+	if v.vault.authMethod == nil {
+		return
+	}
+
+	go func() {
+		secret := v.vault.loginWithRetry(ctx)
+		if secret == nil {
+			return
+		}
+
+		v.vault.runTokenRenewalLoop(ctx, secret)
+	}()
+}
+
+// issue requests a leaf certificate from <mount>/issue/<role>. Every name is
+// passed explicitly so coverage does not depend on the role's
+// exclude_cn_from_sans setting. GetCertificateForHost carries no context (it
+// serves tls.Config.GetCertificate), so the call is bounded by the Vault
+// client's own timeout.
+func (v *vaultIssuer) issue(names []string) (*tls.Certificate, error) {
+	var dnsNames, ipSANs []string
+
+	for _, name := range names {
+		if net.ParseIP(name) != nil {
+			ipSANs = append(ipSANs, name)
+		} else {
+			dnsNames = append(dnsNames, name)
+		}
+	}
+
+	data := map[string]any{
+		"common_name": names[0],
+		"ttl":         v.cert.GetDuration().String(),
+	}
+
+	if len(dnsNames) > 0 {
+		data["alt_names"] = strings.Join(dnsNames, ",")
+	}
+
+	if len(ipSANs) > 0 {
+		data["ip_sans"] = strings.Join(ipSANs, ",")
+	}
+
+	secret, err := v.vault.client.Logical().WriteWithContext(context.Background(), v.mount+"/issue/"+v.role, data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to issue certificate: %w", err)
+	}
+
+	if secret == nil || secret.Data == nil {
+		return nil, fmt.Errorf("%w: empty response", errVaultIssueFailed)
+	}
+
+	certPEM, ok := secret.Data["certificate"].(string)
+	if !ok || certPEM == "" {
+		return nil, fmt.Errorf("%w: no certificate in response", errVaultIssueFailed)
+	}
+
+	keyPEM, ok := secret.Data["private_key"].(string)
+	if !ok || keyPEM == "" {
+		return nil, fmt.Errorf("%w: no private key in response", errVaultIssueFailed)
+	}
+
+	chain := append([]string{certPEM}, caChain(secret.Data)...)
+
+	pair, err := tls.X509KeyPair([]byte(strings.Join(chain, "\n")), []byte(keyPEM))
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse issued certificate: %w", err)
+	}
+
+	return &pair, nil
+}
+
+// caChain returns the CA chain PEMs from the response, falling back to the
+// issuing CA when the chain is absent.
+func caChain(data map[string]any) []string {
+	if chain, ok := data["ca_chain"].([]any); ok {
+		cas := make([]string, 0, len(chain))
+
+		for _, ca := range chain {
+			if caPEM, ok := ca.(string); ok && caPEM != "" {
+				cas = append(cas, caPEM)
+			}
+		}
+
+		if len(cas) > 0 {
+			return cas
+		}
+	}
+
+	if issuingCA, ok := data["issuing_ca"].(string); ok && issuingCA != "" {
+		return []string{issuingCA}
+	}
+
+	return nil
+}
+
+func (s *selfSignIssuer) generateKey() (crypto.Signer, error) {
+	switch s.cert.GetKeyType() {
 	case "ecdsa":
-		switch c.cert.GetKeyBits() {
+		switch s.cert.GetKeyBits() {
 		case 256:
 			return ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 		case 384:
@@ -218,11 +369,11 @@ func (c *DynamicCert) generateKey() (crypto.Signer, error) {
 		case 521:
 			return ecdsa.GenerateKey(elliptic.P521(), rand.Reader)
 		default:
-			return nil, fmt.Errorf("%w: ECDSA %d", errUnsupportedKeyBits, c.cert.GetKeyBits())
+			return nil, fmt.Errorf("%w: ECDSA %d", errUnsupportedKeyBits, s.cert.GetKeyBits())
 		}
 	case "rsa":
-		return rsa.GenerateKey(rand.Reader, c.cert.GetKeyBits())
+		return rsa.GenerateKey(rand.Reader, s.cert.GetKeyBits())
 	default:
-		return nil, fmt.Errorf("%w: %s", errUnsupportedKeyType, c.cert.GetKeyType())
+		return nil, fmt.Errorf("%w: %s", errUnsupportedKeyType, s.cert.GetKeyType())
 	}
 }
