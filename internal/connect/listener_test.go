@@ -77,6 +77,10 @@ func (m *mockProxyConn) UpgradeToTLS() error {
 	return nil
 }
 
+func (m *mockProxyConn) UpgradeToWebSocket() error {
+	return nil
+}
+
 func createMockListener(t *testing.T) (net.Listener, string) {
 	t.Helper()
 

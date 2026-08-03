@@ -12,14 +12,17 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
+	"golang.org/x/crypto/ssh"
 	"k8s.io/apimachinery/pkg/util/wait"
 
 	gatewayconfig "gateway/internal/config"
@@ -174,6 +177,66 @@ func TestSSH(t *testing.T) {
 	_, err = env.user.SSH.Command("-o", "HostKeyAlgorithms=ssh-ed25519", "whoami")
 	require.Error(t, err, "connection should fail when only the plain host key algorithm is offered")
 	assert.Contains(t, err.Error(), "no matching host key type found. Their offer: ssh-ed25519-cert-v01@openssh.com")
+}
+
+// TestSSHOverWebSocket tests that a browser reaches the same SSH server over a WebSocket. A
+// browser can open neither a raw TCP tunnel nor the CONNECT handshake, so it speaks WebSocket to
+// the Twingate Client and the gateway unwraps the frames back into the SSH byte stream.
+func TestSSHOverWebSocket(t *testing.T) {
+	const gatewayPort = 8449
+
+	env := setupSSHGateway(t, &token.User{
+		ID:       "user-ssh-ws-1",
+		Username: "alex@acme.com",
+		Groups:   []string{"OnCall"},
+	}, gatewayconfig.SSHCAConfig{
+		Manual: &gatewayconfig.SSHCAManualConfig{
+			PrivateKeyFile: "../data/ssh/ca/ca",
+		},
+	}, gatewayPort)
+
+	//nolint:bodyclose // Dial sets resp.Body to nil once the handshake succeeds
+	ws, _, err := websocket.Dial(t.Context(), "ws://"+env.user.Address(), nil)
+	require.NoError(t, err, "failed to open a WebSocket to the Twingate Client")
+
+	defer func() { _ = ws.CloseNow() }()
+
+	var banner strings.Builder
+
+	// The gateway presents a CA-signed host certificate that a browser has no known_hosts to
+	// check, so this mirrors the POC client rather than the hardened one.
+	clientConfig := &ssh.ClientConfig{
+		User:            sshUsername,
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(), //nolint:gosec // see comment above
+		BannerCallback: func(message string) error {
+			banner.WriteString(message)
+
+			return nil
+		},
+	}
+
+	session := websocket.NetConn(t.Context(), ws, websocket.MessageBinary)
+
+	sshConn, channels, requests, err := ssh.NewClientConn(session, env.user.Address(), clientConfig)
+	require.NoError(t, err, "failed to complete the SSH handshake over the WebSocket")
+
+	client := ssh.NewClient(sshConn, channels, requests)
+	defer client.Close()
+
+	sshSession, err := client.NewSession()
+	require.NoError(t, err)
+
+	defer sshSession.Close()
+
+	output, err := sshSession.Output("whoami")
+	require.NoError(t, err, "failed to execute 'whoami' over the WebSocket tunnel")
+
+	assert.Equalf(t, sshUsername+"\n", string(output), "whoami should return '%s'", sshUsername)
+
+	// The banner is dropped unless the client supplies a callback, so a browser client that
+	// omits one silently loses the Twingate welcome message.
+	assert.Contains(t, banner.String(), "You are now securely connected via Twingate",
+		"the gateway banner must reach a client connecting over the WebSocket")
 }
 
 // TestSSHVault tests SSH proxying through the gateway using Vault as the CA backend.

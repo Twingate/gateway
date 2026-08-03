@@ -131,6 +131,12 @@ prepare-buildx: ##@build Prepare buildx
 build: prepare-buildx ##@build Build the Go binaries and container images
 	DOCKER_BUILDX_BUILDER=$(DOCKER_BUILDX_BUILDER) DOCKER_BUILDX_CACHE_FROM=$(DOCKER_BUILDX_CACHE_FROM) DOCKER_BUILDX_CACHE_TO=$(DOCKER_BUILDX_CACHE_TO) GOLANG_VERSION=$(GOLANG_VERSION) goreleaser release --snapshot --clean
 
+.PHONY: webssh
+webssh: ##@build Build the browser SSH client served by the local dev environment
+	@echo "Building Web SSH client..."
+	GOOS=js GOARCH=wasm go build -o tools/webssh/main.wasm ./tools/webssh
+	cp "$$(go env GOROOT)/lib/wasm/wasm_exec.js" tools/webssh/wasm_exec.js
+
 .PHONY: cut-release-prod
 cut-release-prod: ##@release Cut a production release (create a version tag and push it)
 	@if [ "$$(git rev-parse --abbrev-ref HEAD)" != "master" ]; then \

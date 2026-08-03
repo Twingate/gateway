@@ -77,6 +77,11 @@ func NewSSHUser(user *token.User, gatewayPort int, sshServerAddress, controllerU
 	}, nil
 }
 
+// Address is where the fake Client listens, which is what a browser opens a WebSocket to.
+func (u *SSHUser) Address() string {
+	return u.client.Address
+}
+
 func (u *SSHUser) Close() {
 	u.client.Close()
 }

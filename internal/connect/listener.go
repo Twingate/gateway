@@ -161,48 +161,63 @@ func (l *Listener) Serve(ctx context.Context, listener net.Listener) error {
 		l.logger.Debug("Accepted connection", zap.String("remote addr", conn.RemoteAddr().String()))
 
 		wg.Go(func() {
-			proxyConn := l.proxyConnFactory(conn, l.tlsConfig, l.connectValidator, l.logger)
-
-			if err := proxyConn.Authenticate(); err != nil {
-				if !errors.Is(err, io.EOF) {
-					l.logger.Error("Failed to authenticate connection", zap.Error(err))
-				}
-
-				_ = proxyConn.Close()
-
-				return
-			}
-
-			resourceType := proxyConn.GATClaims().Resource.Type
-			channel, exists := l.channels[resourceType]
-
-			if !exists {
-				l.logger.Error("Unsupported resource type", zap.String("resource_type", string(resourceType)))
-
-				_ = proxyConn.Close()
-
-				return
-			}
-
-			if proxyConn.GATClaims().ShouldUpgradeTLS() {
-				if err := proxyConn.UpgradeToTLS(); err != nil {
-					l.logger.Error("Failed to upgrade to TLS", zap.Error(err))
-
-					_ = proxyConn.Close()
-
-					return
-				}
-			}
-
-			select {
-			case channel <- proxyConn:
-				// delivered successfully
-			case <-ctx.Done():
-				l.logger.Debug("Context canceled before routing connection to backend")
-
-				_ = proxyConn.Close()
-			}
+			l.handleConn(ctx, conn)
 		})
+	}
+}
+
+// handleConn authenticates a connection and routes it to the backend for its resource type.
+func (l *Listener) handleConn(ctx context.Context, conn net.Conn) {
+	proxyConn := l.proxyConnFactory(conn, l.tlsConfig, l.connectValidator, l.logger)
+
+	if err := proxyConn.Authenticate(); err != nil {
+		if !errors.Is(err, io.EOF) {
+			l.logger.Error("Failed to authenticate connection", zap.Error(err))
+		}
+
+		_ = proxyConn.Close()
+
+		return
+	}
+
+	resourceType := proxyConn.GATClaims().Resource.Type
+	channel, exists := l.channels[resourceType]
+
+	if !exists {
+		l.logger.Error("Unsupported resource type", zap.String("resource_type", string(resourceType)))
+
+		_ = proxyConn.Close()
+
+		return
+	}
+
+	if proxyConn.GATClaims().ShouldUpgradeTLS() {
+		if err := proxyConn.UpgradeToTLS(); err != nil {
+			l.logger.Error("Failed to upgrade to TLS", zap.Error(err))
+
+			_ = proxyConn.Close()
+
+			return
+		}
+	}
+
+	if proxyConn.GATClaims().MayUseWebSocket() {
+		if err := proxyConn.UpgradeToWebSocket(); err != nil {
+			l.logger.Error("Failed to upgrade to WebSocket", zap.Error(err))
+
+			_ = proxyConn.Close()
+
+			return
+		}
+	}
+
+	select {
+	case channel <- proxyConn:
+		// delivered successfully
+	case <-ctx.Done():
+		l.logger.Debug("Context canceled before routing connection to backend")
+
+		_ = proxyConn.Close()
 	}
 }
 

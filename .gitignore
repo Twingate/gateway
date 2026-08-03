@@ -3,6 +3,10 @@ kubeconfig-local
 gateway-config.local.yaml
 known_hosts_local
 
+# Built by `make webssh`
+/tools/webssh/main.wasm
+/tools/webssh/wasm_exec.js
+
 # macOS filesystem metadata
 *.DS_Store
 

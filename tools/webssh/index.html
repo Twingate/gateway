@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Twingate Web SSH</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css">
+  <style>
+    html, body { margin: 0; height: 100%; background: #1e1e1e; }
+    #terminal { height: 100%; }
+  </style>
+</head>
+<body>
+  <div id="terminal"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.js"></script>
+  <script src="wasm_exec.js"></script>
+  <script>
+    const term = new Terminal({ fontSize: 13 });
+    const fitAddon = new FitAddon.FitAddon();
+    term.loadAddon(fitAddon);
+    term.open(document.getElementById('terminal'));
+    fitAddon.fit();
+
+    const encoder = new TextEncoder();
+
+    // Bytes arrive as a Uint8Array so xterm.js does the UTF-8 decoding; decoding in Go would
+    // corrupt runes split across reads.
+    window.twingateOnData = (chunk) => term.write(chunk);
+    window.twingateOnClose = (reason) => term.write(`\r\n\x1b[31m[${reason}]\x1b[0m\r\n`);
+
+    term.onData((data) => window.twingateSend && window.twingateSend(encoder.encode(data)));
+    term.onResize(({ cols, rows }) => window.twingateResize && window.twingateResize(cols, rows));
+    window.addEventListener('resize', () => fitAddon.fit());
+
+    const go = new Go();
+    WebAssembly.instantiateStreaming(fetch('main.wasm'), go.importObject).then((result) => {
+      // go.run blocks the Go program on an empty select, but returns here once it has exported
+      // twingateOpen onto window.
+      go.run(result.instance);
+      term.writeln('Connecting to {{.WebSocketURL}} as {{.Username}} ...');
+      window.twingateOpen('{{.WebSocketURL}}', '{{.Username}}', term.cols, term.rows);
+    });
+  </script>
+</body>
+</html>

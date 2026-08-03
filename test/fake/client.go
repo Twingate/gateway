@@ -196,6 +196,8 @@ func (c *Client) handleConnection(ctx context.Context, clientConn net.Conn, gat 
 	conn, err := net.Dial("tcp", c.proxyAddress)
 	if err != nil {
 		c.logger.Error("Failed to connect to proxy", zap.Error(err))
+
+		return
 	}
 	defer conn.Close()
 

@@ -85,6 +85,14 @@ func (p GATClaims) ShouldUpgradeTLS() bool {
 	return p.Resource.Type == ResourceTypeKubernetes
 }
 
+// MayUseWebSocket reports whether the tunnel may carry a WebSocket handshake instead of the
+// resource's native protocol, which lets a browser reach the resource. Resource types whose
+// tunnel already carries HTTP are excluded: their first bytes are indistinguishable from a
+// WebSocket upgrade.
+func (p GATClaims) MayUseWebSocket() bool {
+	return p.Resource.Type == ResourceTypeSSH
+}
+
 func (p GATClaims) getHeaderType() string {
 	return "GAT"
 }

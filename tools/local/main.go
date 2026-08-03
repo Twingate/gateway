@@ -134,6 +134,16 @@ func main() {
 		logger.Info("Created SSH known_hosts file", zap.String("path", sshKnownHostFile))
 	}
 
+	webSSH := startWebSSHServer(logger, sshClient.Address)
+
+	defer func() {
+		if err := webSSH.server.Shutdown(context.Background()); err != nil {
+			logger.Error("Failed to shutdown Web SSH server", zap.Error(err))
+		}
+	}()
+
+	logger.Info("Web SSH is serving at", zap.String("address", webSSH.address))
+
 	echoServer := startEchoWebAppServer(logger)
 
 	defer func() {
@@ -181,6 +191,7 @@ Twingate local dev environment running!
   Client (Kubernetes):  %s
   Client (SSH):         %s
   Client (Web App):      %s
+  Web SSH:              http://%s
 
 -----------------------------------------------------
 1. Start the Gateway (in a separate terminal):
@@ -209,14 +220,20 @@ Twingate local dev environment running!
   curl http://%s
 
 -----------------------------------------------------
+5. SSH from the browser (run "make webssh" first):
+
+  open http://%s
+
+-----------------------------------------------------
 Press Ctrl+C to stop
 =====================================================
-`, controller.URL, user.Username, kubernetesClient.Address, sshClient.Address, webAppClient.Address,
+`, controller.URL, user.Username, kubernetesClient.Address, sshClient.Address, webAppClient.Address, webSSH.address,
 		gatewayRunCmd,
 		kubeConfigFile,
 		kubeConfigFile, kindClusterName,
 		sshClientPort, sshKnownHostFile,
 		webAppClient.Address,
+		webSSH.address,
 	)
 
 	//nolint:forbidigo

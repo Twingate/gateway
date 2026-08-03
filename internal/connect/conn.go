@@ -43,6 +43,7 @@ type Conn interface {
 	GetToken() string
 	Authenticate() error
 	UpgradeToTLS() error
+	UpgradeToWebSocket() error
 
 	Close() error
 }
@@ -234,6 +235,20 @@ func (p *ProxyConn) UpgradeToTLS() error {
 
 	// Replace the underlying connection with the downstream client TLS connection
 	p.Conn = tlsConn
+
+	return nil
+}
+
+func (p *ProxyConn) UpgradeToWebSocket() error {
+	conn, err := upgradeToWebSocket(p.Conn, p.Logger)
+	if err != nil {
+		p.Logger.Error("failed to upgrade to WebSocket", zap.Error(err))
+
+		return err
+	}
+
+	// Replace the underlying connection with the unwrapped tunnel payload
+	p.Conn = conn
 
 	return nil
 }
