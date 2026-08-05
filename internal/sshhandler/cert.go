@@ -110,7 +110,7 @@ func (s *autoRenewingCertSigner) renewalLoop(ctx context.Context) error {
 		return nil
 	}
 
-	timer := time.NewTimer(time.Until(nextRenewal))
+	timer := time.NewTimer(s.renewalDelay(nextRenewal))
 	defer timer.Stop()
 
 	for {
@@ -133,8 +133,26 @@ func (s *autoRenewingCertSigner) renewalLoop(ctx context.Context) error {
 			return nil
 		}
 
-		timer.Reset(time.Until(nextRenewal))
+		timer.Reset(s.renewalDelay(nextRenewal))
 	}
+}
+
+// renewalDelay returns the delay until t, floored at retryInterval so an imminent or past renewal
+// time cannot busy-loop the timer. Hitting the floor means the renewal point falls within
+// retryInterval, i.e. the CA issued a very short-lived or backdated cert, so it warns to surface it.
+func (s *autoRenewingCertSigner) renewalDelay(t time.Time) time.Duration {
+	if d := time.Until(t); d >= retryInterval {
+		return d
+	}
+
+	s.logger.Warn(
+		"certificate renewal due within the retry interval; the CA may be issuing short-lived or backdated certificates",
+		zap.String("cert_type", s.certReq.certType.String()),
+		zap.Duration("requested_ttl", s.certReq.ttl),
+		zap.Time("renew_at", t),
+	)
+
+	return retryInterval
 }
 
 func (s *autoRenewingCertSigner) updateCertSigner(ctx context.Context) (time.Time, error) {
@@ -156,17 +174,14 @@ func (s *autoRenewingCertSigner) updateCertSigner(ctx context.Context) (time.Tim
 }
 
 func renewTime(cert *ssh.Certificate) time.Time {
-	if cert.ValidAfter > uint64(math.MaxInt64) {
-		return time.Time{} // timestamp too far in future, don't renew
-	}
-
 	if cert.ValidBefore > uint64(math.MaxInt64) {
-		return time.Time{} // expiry too far in future, don't renew
+		return time.Time{} // never expires, don't renew
 	}
 
-	issuedAt := time.Unix(int64(cert.ValidAfter), 0)
+	now := time.Now()
 	expiresAt := time.Unix(int64(cert.ValidBefore), 0)
-	lifetime := expiresAt.Sub(issuedAt)
+	lifetime := expiresAt.Sub(now)
+	renewAfter := time.Duration(float64(lifetime) * renewFraction)
 
-	return issuedAt.Add(time.Duration(float64(lifetime) * renewFraction))
+	return now.Add(renewAfter)
 }
