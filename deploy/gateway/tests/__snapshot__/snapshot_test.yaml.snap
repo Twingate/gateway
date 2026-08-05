@@ -123,8 +123,9 @@ should render with Kubernetes enabled:
           flushSizeThreshold: 1e+06
 
         tls:
-          certificateFile: "/etc/gateway/tls/tls.crt"
-          privateKeyFile: "/etc/gateway/tls/tls.key"
+          static:
+            certificateFile: "/etc/gateway/tls/tls.crt"
+            privateKeyFile: "/etc/gateway/tls/tls.key"
 
         kubernetes: {}
     kind: ConfigMap
@@ -300,8 +301,9 @@ should render with SSH enabled:
           flushSizeThreshold: 1e+06
 
         tls:
-          certificateFile: "/etc/gateway/tls/tls.crt"
-          privateKeyFile: "/etc/gateway/tls/tls.key"
+          static:
+            certificateFile: "/etc/gateway/tls/tls.crt"
+            privateKeyFile: "/etc/gateway/tls/tls.key"
 
         ssh:
           gateway:

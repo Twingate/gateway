@@ -55,8 +55,10 @@ func TestConcurrentUsers(t *testing.T) {
 		Port:        gatewayPort,
 		MetricsPort: 0,
 		TLS: gatewayconfig.TLSConfig{
-			CertificateFile: "../data/proxy/tls.crt",
-			PrivateKeyFile:  "../data/proxy/tls.key",
+			Static: &gatewayconfig.TLSStaticConfig{
+				CertificateFile: "../data/proxy/tls.crt",
+				PrivateKeyFile:  "../data/proxy/tls.key",
+			},
 		},
 		Kubernetes: &gatewayconfig.KubernetesConfig{
 			Upstreams: []gatewayconfig.KubernetesUpstream{
