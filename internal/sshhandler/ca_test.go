@@ -118,13 +118,21 @@ func TestNewManualCA_ReloadsPrivateKey(t *testing.T) {
 	keyPEM, publicKey := generateCAKey(t)
 	keyFile := createCAKeyFile(t, keyPEM)
 
-	provider, err := newManualCA(keyFile, zap.NewNop())
+	core, logs := observer.New(zapcore.InfoLevel)
+
+	provider, err := newManualCA(keyFile, zap.New(core))
 	require.NoError(t, err)
 	require.NoError(t, provider.Start(t.Context()))
 
 	initialPublicKey, err := provider.gatewayHostCA().publicKey(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, publicKey.Marshal(), initialPublicKey.Marshal())
+
+	// Wait until the watcher is registered and its initial load is done, so the replacement
+	// below is observed as a change instead of racing watcher setup.
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		require.NotEmpty(c, logs.FilterMessage("Start watching CA private key file changes").All())
+	}, time.Second, 5*time.Millisecond)
 
 	newKeyPEM, newPublicKey := generateCAKey(t)
 	replaceCAKeyFile(t, keyFile, newKeyPEM)
