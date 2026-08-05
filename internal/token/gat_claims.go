@@ -154,6 +154,8 @@ type Downstream struct {
 type Upstream struct {
 	// Port is the port on the upstream resource that the Gateway forwards the connection to.
 	Port int `json:"port"`
+	// TLS indicates the Gateway must connect to the upstream resource over TLS.
+	TLS bool `json:"tls"`
 }
 
 // PublicKey is a wrapper for ecdsa.PublicKey that adds support for JSON
