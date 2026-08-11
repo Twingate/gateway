@@ -305,3 +305,275 @@ func TestDynamicCert_GetCertificateForHost_ConcurrentColdMissIssuesOnce(t *testi
 	assert.Len(t, serials, 1, "concurrent cold misses should issue exactly once")
 	assert.Equal(t, 1, cert.cache.Len())
 }
+
+// issueTestCertificate returns leaf, key, and CA PEMs shaped like a Vault PKI
+// issue response covering names.
+func issueTestCertificate(t *testing.T, names []string) (certPEM, keyPEM, caPEM string) {
+	t.Helper()
+
+	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+
+	caTemplate := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "test CA"},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(time.Hour),
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+		KeyUsage:              x509.KeyUsageCertSign,
+	}
+
+	caDER, err := x509.CreateCertificate(rand.Reader, caTemplate, caTemplate, &caKey.PublicKey, caKey)
+	require.NoError(t, err)
+
+	caCert, err := x509.ParseCertificate(caDER)
+	require.NoError(t, err)
+
+	leafKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+
+	leafTemplate := &x509.Certificate{
+		SerialNumber: big.NewInt(2),
+		Subject:      pkix.Name{CommonName: names[0]},
+		DNSNames:     names,
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+
+	leafDER, err := x509.CreateCertificate(rand.Reader, leafTemplate, caCert, &leafKey.PublicKey, caKey)
+	require.NoError(t, err)
+
+	keyDER, err := x509.MarshalECPrivateKey(leafKey)
+	require.NoError(t, err)
+
+	certPEM = string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leafDER}))
+	keyPEM = string(pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER}))
+	caPEM = string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER}))
+
+	return certPEM, keyPEM, caPEM
+}
+
+// newTestVaultIssuer returns a vaultIssuer whose client talks to a test server
+// running handler.
+func newTestVaultIssuer(t *testing.T, handler http.HandlerFunc) *vaultIssuer {
+	t.Helper()
+
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+
+	apiConfig := vaultapi.DefaultConfig()
+	apiConfig.Address = server.URL
+	apiConfig.MaxRetries = 0 // Fail fast on error responses instead of retrying with backoff.
+
+	client, err := vaultapi.NewClient(apiConfig)
+	require.NoError(t, err)
+	client.SetToken("test-token")
+
+	return &vaultIssuer{
+		vault: &vault.Vault{Client: client, Logger: zap.NewNop()},
+		mount: "pki",
+		role:  "test-role",
+	}
+}
+
+type mockAuthMethod struct {
+	secret *vaultapi.Secret
+}
+
+// Login fails once the context is canceled so RunTokenRenewalLoop can exit
+// through LoginWithRetry's ctx.Done branch.
+func (m *mockAuthMethod) Login(ctx context.Context, _ *vaultapi.Client) (*vaultapi.Secret, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	return m.secret, nil
+}
+
+func newTestVault(t *testing.T, authMethod vaultapi.AuthMethod) *vault.Vault {
+	t.Helper()
+
+	client, err := vaultapi.NewClient(vaultapi.DefaultConfig())
+	require.NoError(t, err)
+
+	client.SetToken("initial-token")
+
+	return &vault.Vault{
+		Client:     client,
+		AuthMethod: authMethod,
+		Logger:     zap.NewNop(),
+	}
+}
+
+func vaultAuthSecret(clientToken string, leaseDuration int) *vaultapi.Secret {
+	return &vaultapi.Secret{
+		Auth: &vaultapi.SecretAuth{
+			ClientToken:   clientToken,
+			LeaseDuration: leaseDuration,
+			Renewable:     false, // To avoid calling the Vault renew API during tests
+		},
+	}
+}
+
+func TestVaultIssuer_Issue(t *testing.T) {
+	names := []string{"app.example.com", "a.example.com", "b.example.com"}
+	certPEM, keyPEM, caPEM := issueTestCertificate(t, names)
+
+	issuer := newTestVaultIssuer(t, func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/v1/pki/issue/test-role", r.URL.Path)
+
+		var payload map[string]any
+		assert.NoError(t, json.NewDecoder(r.Body).Decode(&payload))
+		assert.Equal(t, "app.example.com", payload["common_name"])
+		assert.Equal(t, "a.example.com,b.example.com", payload["alt_names"])
+		assert.Equal(t, "24h0m0s", payload["ttl"])
+
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
+			"certificate": certPEM,
+			"private_key": keyPEM,
+			"ca_chain":    []string{caPEM},
+		}})
+	})
+
+	cert, err := issuer.issue(t.Context(), names)
+	require.NoError(t, err)
+	require.NotNil(t, cert.Leaf)
+	assert.Equal(t, names, cert.Leaf.DNSNames)
+	assert.Len(t, cert.Certificate, 2)
+}
+
+func TestVaultIssuer_Issue_IPSANs(t *testing.T) {
+	tests := []struct {
+		name        string
+		names       []string
+		wantPayload map[string]any
+	}{
+		{
+			// The no-SNI local-address fallback requests the dialed IP alone;
+			// Vault covers an IP common name in the IP SANs itself.
+			name:        "bare ip host",
+			names:       []string{"10.0.0.5"},
+			wantPayload: map[string]any{"common_name": "10.0.0.5", "ttl": "24h0m0s"},
+		},
+		{
+			name:        "dns host with ip alias",
+			names:       []string{"app.example.com", "10.0.0.5", "a.example.com"},
+			wantPayload: map[string]any{"common_name": "app.example.com", "ttl": "24h0m0s", "alt_names": "a.example.com", "ip_sans": "10.0.0.5"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			certPEM, keyPEM, caPEM := issueTestCertificate(t, tt.names)
+
+			issuer := newTestVaultIssuer(t, func(w http.ResponseWriter, r *http.Request) {
+				var payload map[string]any
+				assert.NoError(t, json.NewDecoder(r.Body).Decode(&payload))
+				assert.Equal(t, tt.wantPayload, payload)
+
+				_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
+					"certificate": certPEM,
+					"private_key": keyPEM,
+					"ca_chain":    []string{caPEM},
+				}})
+			})
+
+			_, err := issuer.issue(t.Context(), tt.names)
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestVaultIssuer_Issue_IssuingCAFallback(t *testing.T) {
+	certPEM, keyPEM, caPEM := issueTestCertificate(t, []string{"app.example.com"})
+
+	issuer := newTestVaultIssuer(t, func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
+			"certificate": certPEM,
+			"private_key": keyPEM,
+			"issuing_ca":  caPEM,
+		}})
+	})
+
+	cert, err := issuer.issue(t.Context(), []string{"app.example.com"})
+	require.NoError(t, err)
+	assert.Len(t, cert.Certificate, 2)
+}
+
+func TestVaultIssuer_Issue_Error(t *testing.T) {
+	certPEM, keyPEM, _ := issueTestCertificate(t, []string{"app.example.com"})
+
+	tests := []struct {
+		name         string
+		responseData map[string]any // nil sends {"data": null}
+		wantErr      error
+	}{
+		{name: "null data", responseData: nil, wantErr: errVaultIssueFailed},
+		{name: "missing certificate", responseData: map[string]any{"private_key": keyPEM}, wantErr: errVaultIssueFailed},
+		{name: "empty certificate", responseData: map[string]any{"certificate": "", "private_key": keyPEM}, wantErr: errVaultIssueFailed},
+		{name: "missing private key", responseData: map[string]any{"certificate": certPEM}, wantErr: errVaultIssueFailed},
+		{name: "unparseable certificate", responseData: map[string]any{"certificate": "garbage", "private_key": keyPEM}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			issuer := newTestVaultIssuer(t, func(w http.ResponseWriter, _ *http.Request) {
+				_ = json.NewEncoder(w).Encode(map[string]any{"data": tt.responseData})
+			})
+
+			_, err := issuer.issue(t.Context(), []string{"app.example.com"})
+			require.Error(t, err)
+
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestVaultIssuer_Issue_RequestFails(t *testing.T) {
+	issuer := newTestVaultIssuer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+
+	_, err := issuer.issue(t.Context(), []string{"app.example.com"})
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, errVaultIssueFailed)
+}
+
+func TestVaultIssuer_Run_LoginsInBackground(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		secret := vaultAuthSecret("login-token", 60)
+		issuer := &vaultIssuer{vault: newTestVault(t, &mockAuthMethod{secret: secret})}
+
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+
+		issuer.run(ctx)
+		synctest.Wait()
+
+		assert.Equal(t, "login-token", issuer.vault.Client.Token())
+	})
+}
+
+func TestVaultIssuer_Run_NoAuthMethod(t *testing.T) {
+	issuer := &vaultIssuer{vault: newTestVault(t, nil)}
+
+	issuer.run(t.Context())
+
+	assert.Equal(t, "initial-token", issuer.vault.Client.Token())
+}
+
+func TestNewDynamicCert_Vault(t *testing.T) {
+	cfg := config.TLSDynamicConfig{CA: config.TLSDynamicCAConfig{Vault: &config.TLSVaultCAConfig{
+		VaultConfig: config.VaultConfig{Address: "https://vault.example.com:8200"},
+		Role:        "gateway",
+	}}}
+
+	cert, err := NewDynamicCert(cfg, zap.NewNop())
+	require.NoError(t, err)
+	assert.IsType(t, &vaultIssuer{}, cert.issuer)
+}
