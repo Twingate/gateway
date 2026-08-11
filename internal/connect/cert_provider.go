@@ -24,8 +24,6 @@ type CertProvider interface {
 	// host: the SNI host on the outer TLS, the validated CONNECT host
 	// on the inner TLS. Aliases are covered as additional subject alternative
 	// names, since the downstream client may have dialled any of them.
-	// The context is the TLS handshake's, canceling any in-flight work when
-	// the handshake is abandoned.
 	//
 	// Note: SNI cannot carry an IP address (see RFC 6066 § 3)
 	GetCertificateForHost(ctx context.Context, host string, aliases ...string) (*tls.Certificate, error)
