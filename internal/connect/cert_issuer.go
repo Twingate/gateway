@@ -241,8 +241,24 @@ func (v *vaultIssuer) issue(ctx context.Context, names []string) (*tls.Certifica
 		"ttl":         v.ttl.String(),
 	}
 
-	if len(names) > 1 {
-		data["alt_names"] = strings.Join(names[1:], ",")
+	// Vault covers an IP common name in the IP SANs itself, so only the
+	// aliases need splitting into DNS and IP entries.
+	var altNames, ipSANs []string
+
+	for _, name := range names[1:] {
+		if net.ParseIP(name) != nil {
+			ipSANs = append(ipSANs, name)
+		} else {
+			altNames = append(altNames, name)
+		}
+	}
+
+	if len(altNames) > 0 {
+		data["alt_names"] = strings.Join(altNames, ",")
+	}
+
+	if len(ipSANs) > 0 {
+		data["ip_sans"] = strings.Join(ipSANs, ",")
 	}
 
 	secret, err := v.vault.Client.Logical().WriteWithContext(ctx, v.mount+"/issue/"+v.role, data)
