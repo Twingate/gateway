@@ -99,7 +99,7 @@ type TLSStaticConfig struct {
 	PrivateKeyFile  string `yaml:"privateKeyFile"`
 }
 
-// TLSDynamicConfig configures on-demand minting of downstream leaf certificates.
+// TLSDynamicConfig configures on-demand issuing of downstream leaf certificates.
 type TLSDynamicConfig struct {
 	CA   TLSDynamicCAConfig   `yaml:"ca"`
 	Cert TLSDynamicCertConfig `yaml:"cert"`
@@ -116,10 +116,10 @@ type TLSSelfSignCAConfig struct {
 	PrivateKeyFile  string `yaml:"privateKeyFile"`
 }
 
-// TLSDynamicCertConfig controls the leaf certificates minted by the dynamic CA.
+// TLSDynamicCertConfig controls the leaf certificates issued by the dynamic CA.
 type TLSDynamicCertConfig struct {
 	Duration    time.Duration `yaml:"duration"`    // Leaf certificate lifetime. Defaults to 24h.
-	RenewBefore time.Duration `yaml:"renewBefore"` // Window before expiry in which a fresh leaf is minted. Defaults to 8h.
+	RenewBefore time.Duration `yaml:"renewBefore"` // Window before expiry in which a fresh leaf is issued. Defaults to 8h.
 	KeyType     string        `yaml:"keyType"`     // ecdsa or rsa. Defaults to ecdsa.
 	KeyBits     int           `yaml:"keyBits"`     // ECDSA: 256/384/521, RSA: 2048/3072/4096. Defaults to 256 for ECDSA, 2048 for RSA.
 }
@@ -493,7 +493,7 @@ func (c *TLSDynamicCertConfig) GetDuration() time.Duration {
 	return c.Duration
 }
 
-// GetRenewBefore returns the re-mint window before expiry, defaulting to 8h.
+// GetRenewBefore returns the re-issue window before expiry, defaulting to 8h.
 func (c *TLSDynamicCertConfig) GetRenewBefore() time.Duration {
 	if c.RenewBefore == 0 {
 		return defaultTLSCertRenewBefore

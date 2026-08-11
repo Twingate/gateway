@@ -550,7 +550,7 @@ func TestProxyConn_UpgradeToTLS_HandshakeError(t *testing.T) {
 	}, zap.NewNop())
 	require.NoError(t, err)
 
-	// The client trusts a different CA, so it rejects the minted certificate
+	// The client trusts a different CA, so it rejects the issued certificate
 	// and the server-side handshake fails.
 	wrongPool := x509.NewCertPool()
 	wrongPool.AppendCertsFromPEM(data.ServerCert)

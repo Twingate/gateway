@@ -77,21 +77,21 @@ func TestDynamicCert_GetCertificateForHost_DNSHost(t *testing.T) {
 	}, zap.NewNop())
 	require.NoError(t, err)
 
-	minted, err := cert.GetCertificateForHost("app.internal")
+	issued, err := cert.GetCertificateForHost(t.Context(), "app.internal")
 	require.NoError(t, err)
 
-	assert.Equal(t, "app.internal", minted.Leaf.Subject.CommonName)
-	assert.Equal(t, []string{"app.internal"}, minted.Leaf.DNSNames)
-	assert.WithinDuration(t, time.Now().Add(24*time.Hour), minted.Leaf.NotAfter, time.Minute)
+	assert.Equal(t, "app.internal", issued.Leaf.Subject.CommonName)
+	assert.Equal(t, []string{"app.internal"}, issued.Leaf.DNSNames)
+	assert.WithinDuration(t, time.Now().Add(24*time.Hour), issued.Leaf.NotAfter, time.Minute)
 
-	key, ok := minted.PrivateKey.(*ecdsa.PrivateKey)
+	key, ok := issued.PrivateKey.(*ecdsa.PrivateKey)
 	require.True(t, ok, "expected an ECDSA leaf key by default")
 	assert.Equal(t, elliptic.P256(), key.Curve)
 
 	pool := x509.NewCertPool()
 	pool.AppendCertsFromPEM(data.ProxyCert)
 
-	_, err = minted.Leaf.Verify(x509.VerifyOptions{
+	_, err = issued.Leaf.Verify(x509.VerifyOptions{
 		DNSName:   "app.internal",
 		Roots:     pool,
 		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
@@ -107,12 +107,12 @@ func TestDynamicCert_GetCertificateForHost_IPHost(t *testing.T) {
 	}, zap.NewNop())
 	require.NoError(t, err)
 
-	minted, err := cert.GetCertificateForHost("10.0.0.5")
+	issued, err := cert.GetCertificateForHost(t.Context(), "10.0.0.5")
 	require.NoError(t, err)
 
-	require.Len(t, minted.Leaf.IPAddresses, 1)
-	assert.True(t, minted.Leaf.IPAddresses[0].Equal(net.ParseIP("10.0.0.5")))
-	assert.Empty(t, minted.Leaf.DNSNames)
+	require.Len(t, issued.Leaf.IPAddresses, 1)
+	assert.True(t, issued.Leaf.IPAddresses[0].Equal(net.ParseIP("10.0.0.5")))
+	assert.Empty(t, issued.Leaf.DNSNames)
 }
 
 func TestDynamicCert_GetCertificateForHost_CoversAliases(t *testing.T) {
@@ -124,6 +124,13 @@ func TestDynamicCert_GetCertificateForHost_CoversAliases(t *testing.T) {
 		wantDNS []string
 		wantIPs []string
 	}{
+		{
+			name:    "aliases are sorted after the host",
+			host:    "app.internal",
+			aliases: []string{"b.internal", "a.internal"},
+			wantCN:  "app.internal",
+			wantDNS: []string{"app.internal", "a.internal", "b.internal"},
+		},
 		{
 			name:    "ip host with dns aliases",
 			host:    "10.0.0.5",
@@ -163,14 +170,14 @@ func TestDynamicCert_GetCertificateForHost_CoversAliases(t *testing.T) {
 			}, zap.NewNop())
 			require.NoError(t, err)
 
-			minted, err := cert.GetCertificateForHost(tt.host, tt.aliases...)
+			issued, err := cert.GetCertificateForHost(t.Context(), tt.host, tt.aliases...)
 			require.NoError(t, err)
 
-			assert.Equal(t, tt.wantCN, minted.Leaf.Subject.CommonName)
-			assert.Equal(t, tt.wantDNS, minted.Leaf.DNSNames)
+			assert.Equal(t, tt.wantCN, issued.Leaf.Subject.CommonName)
+			assert.Equal(t, tt.wantDNS, issued.Leaf.DNSNames)
 
 			var gotIPs []string
-			for _, ip := range minted.Leaf.IPAddresses {
+			for _, ip := range issued.Leaf.IPAddresses {
 				gotIPs = append(gotIPs, ip.String())
 			}
 
@@ -187,23 +194,23 @@ func TestDynamicCert_GetCertificateForHost_CachesPerNameSet(t *testing.T) {
 	}, zap.NewNop())
 	require.NoError(t, err)
 
-	first, err := cert.GetCertificateForHost("app.internal", "a.internal")
+	first, err := cert.GetCertificateForHost(t.Context(), "app.internal", "a.internal")
 	require.NoError(t, err)
 
 	// The same host with a different alias set needs its own certificate.
-	other, err := cert.GetCertificateForHost("app.internal", "b.internal")
+	other, err := cert.GetCertificateForHost(t.Context(), "app.internal", "b.internal")
 	require.NoError(t, err)
 	assert.NotEqual(t, first.Leaf.SerialNumber, other.Leaf.SerialNumber)
 
-	again, err := cert.GetCertificateForHost("app.internal", "a.internal")
+	again, err := cert.GetCertificateForHost(t.Context(), "app.internal", "a.internal")
 	require.NoError(t, err)
 	assert.Same(t, first, again)
 
 	// The same aliases in a different order are the same name set.
-	sorted, err := cert.GetCertificateForHost("app.internal", "a.internal", "b.internal")
+	sorted, err := cert.GetCertificateForHost(t.Context(), "app.internal", "a.internal", "b.internal")
 	require.NoError(t, err)
 
-	reordered, err := cert.GetCertificateForHost("app.internal", "b.internal", "a.internal")
+	reordered, err := cert.GetCertificateForHost(t.Context(), "app.internal", "b.internal", "a.internal")
 	require.NoError(t, err)
 	assert.Same(t, sorted, reordered)
 }
@@ -220,7 +227,7 @@ func TestDynamicCert_GetCertificateForHost_RenewsInsideWindow(t *testing.T) {
 	}, zap.NewNop())
 	require.NoError(t, err)
 
-	first, err := cert.GetCertificateForHost("app.internal")
+	first, err := cert.GetCertificateForHost(t.Context(), "app.internal")
 	require.NoError(t, err)
 
 	// Expire the cached certificate into its renewal window.
@@ -229,19 +236,19 @@ func TestDynamicCert_GetCertificateForHost_RenewsInsideWindow(t *testing.T) {
 
 	cached.Leaf.NotAfter = time.Now().Add(30 * time.Minute)
 
-	second, err := cert.GetCertificateForHost("app.internal")
+	second, err := cert.GetCertificateForHost(t.Context(), "app.internal")
 	require.NoError(t, err)
 
 	assert.NotEqual(t, first.Leaf.SerialNumber, second.Leaf.SerialNumber)
 
-	// Re-minting replaces the cached entry rather than adding another one.
+	// Re-issuing replaces the cached entry rather than adding another one.
 	assert.Equal(t, 1, cert.cache.Len())
 }
 
-// Concurrent cold misses for one host must mint once. This is what the
+// Concurrent cold misses for one host must issue once. This is what the
 // re-check inside the lock in GetCertificateForHost buys; without it every
-// caller mints its own certificate.
-func TestDynamicCert_GetCertificateForHost_ConcurrentColdMissMintsOnce(t *testing.T) {
+// caller issues its own certificate.
+func TestDynamicCert_GetCertificateForHost_ConcurrentColdMissIssuesOnce(t *testing.T) {
 	const callers = 10
 
 	cert, err := NewDynamicCert(config.TLSDynamicConfig{
@@ -252,10 +259,10 @@ func TestDynamicCert_GetCertificateForHost_ConcurrentColdMissMintsOnce(t *testin
 	require.NoError(t, err)
 
 	var (
-		mu      sync.Mutex
-		wg      sync.WaitGroup
-		mintErr error
-		serials = map[string]struct{}{}
+		mu       sync.Mutex
+		wg       sync.WaitGroup
+		issueErr error
+		serials  = map[string]struct{}{}
 	)
 
 	start := make(chan struct{})
@@ -264,13 +271,13 @@ func TestDynamicCert_GetCertificateForHost_ConcurrentColdMissMintsOnce(t *testin
 		wg.Go(func() {
 			<-start
 
-			got, err := cert.GetCertificateForHost("cold.internal")
+			got, err := cert.GetCertificateForHost(t.Context(), "cold.internal")
 
 			mu.Lock()
 			defer mu.Unlock()
 
 			if err != nil {
-				mintErr = err
+				issueErr = err
 
 				return
 			}
@@ -282,7 +289,7 @@ func TestDynamicCert_GetCertificateForHost_ConcurrentColdMissMintsOnce(t *testin
 	close(start)
 	wg.Wait()
 
-	require.NoError(t, mintErr)
-	assert.Len(t, serials, 1, "concurrent cold misses should mint exactly once")
+	require.NoError(t, issueErr)
+	assert.Len(t, serials, 1, "concurrent cold misses should issue exactly once")
 	assert.Equal(t, 1, cert.cache.Len())
 }

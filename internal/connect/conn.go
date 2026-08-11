@@ -251,13 +251,13 @@ func (p *ProxyConn) UpgradeToTLS() error {
 // getTLSConfig pins the served certificate to the CONNECT host.
 func (p *ProxyConn) getTLSConfig() *tls.Config {
 	tlsConfig := p.TLSConfig.Clone()
-	tlsConfig.GetCertificate = func(_ *tls.ClientHelloInfo) (*tls.Certificate, error) {
+	tlsConfig.GetCertificate = func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
 		host, _, err := net.SplitHostPort(p.DownstreamAddress)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse downstream address %q: %w", p.DownstreamAddress, err)
 		}
 
-		cert, err := p.CertProvider.GetCertificateForHost(host, p.Claims.Resource.Aliases...)
+		cert, err := p.CertProvider.GetCertificateForHost(hello.Context(), host, p.Claims.Resource.Aliases...)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get certificate for %q: %w", host, err)
 		}

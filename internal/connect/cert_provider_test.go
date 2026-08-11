@@ -33,7 +33,7 @@ type recordingCertProvider struct {
 
 func (p *recordingCertProvider) Run(_ context.Context) {}
 
-func (p *recordingCertProvider) GetCertificateForHost(host string, aliases ...string) (*tls.Certificate, error) {
+func (p *recordingCertProvider) GetCertificateForHost(_ context.Context, host string, aliases ...string) (*tls.Certificate, error) {
 	p.host = host
 	p.aliases = aliases
 

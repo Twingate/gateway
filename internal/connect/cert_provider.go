@@ -24,9 +24,11 @@ type CertProvider interface {
 	// host: the SNI host on the outer TLS, the validated CONNECT host
 	// on the inner TLS. Aliases are covered as additional subject alternative
 	// names, since the downstream client may have dialled any of them.
+	// The context is the TLS handshake's, canceling any in-flight work when
+	// the handshake is abandoned.
 	//
 	// Note: SNI cannot carry an IP address (see RFC 6066 § 3)
-	GetCertificateForHost(host string, aliases ...string) (*tls.Certificate, error)
+	GetCertificateForHost(ctx context.Context, host string, aliases ...string) (*tls.Certificate, error)
 }
 
 // getCertificateForHello serves the outer TLS handshake when the SNI
@@ -43,7 +45,7 @@ func getCertificateForHello(provider CertProvider, hello *tls.ClientHelloInfo) (
 		}
 	}
 
-	return provider.GetCertificateForHost(host)
+	return provider.GetCertificateForHost(hello.Context(), host)
 }
 
 // newCertProviderFromConfig creates a CertProvider based on the provided
