@@ -73,7 +73,7 @@ type Listener struct {
 	channels map[token.ResourceType]chan<- Conn
 
 	tokenParser      *token.Parser
-	certReloader     *CertReloader
+	certProvider     CertProvider
 	tlsConfig        *tls.Config
 	connectValidator Validator
 	logger           *zap.Logger
@@ -101,12 +101,17 @@ func NewListener(
 		return nil, fmt.Errorf("failed to create token parser: %w", err)
 	}
 
-	certReloader := NewCertReloader(tlsCfg.Static.CertificateFile, tlsCfg.Static.PrivateKeyFile, logger)
+	certProvider, err := newCertProviderFromConfig(tlsCfg, logger)
+	if err != nil {
+		return nil, err
+	}
 
 	tlsConfig := &tls.Config{
-		MinVersion:     tls.VersionTLS13,
-		MaxVersion:     tls.VersionTLS13,
-		GetCertificate: certReloader.GetCertificate,
+		MinVersion: tls.VersionTLS13,
+		MaxVersion: tls.VersionTLS13,
+		GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+			return getCertificateForHello(certProvider, hello)
+		},
 	}
 
 	connectValidator := &MessageValidator{
@@ -118,13 +123,13 @@ func NewListener(
 	l := &Listener{
 		channels:         channels,
 		tokenParser:      tokenParser,
-		certReloader:     certReloader,
+		certProvider:     certProvider,
 		tlsConfig:        tlsConfig,
 		connectValidator: connectValidator,
 		logger:           logger,
 		metrics:          metrics,
 		proxyConnFactory: func(conn net.Conn, tlsConfig *tls.Config, connectValidator Validator, logger *zap.Logger) Conn {
-			return NewProxyConn(conn, tlsConfig, connectValidator, logger, metrics)
+			return NewProxyConn(conn, tlsConfig, certProvider, connectValidator, logger, metrics)
 		},
 	}
 
@@ -135,7 +140,7 @@ func NewListener(
 // The caller owns the listener and is responsible for closing it.
 // Serve closes the channels when it returns.
 func (l *Listener) Serve(ctx context.Context, listener net.Listener) error {
-	l.certReloader.Run(ctx)
+	l.certProvider.Run(ctx)
 
 	var wg sync.WaitGroup
 

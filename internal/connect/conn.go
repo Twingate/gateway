@@ -51,13 +51,15 @@ type ProxyConn struct {
 	net.Conn
 
 	TLSConfig        *tls.Config
+	CertProvider     CertProvider
 	ConnectValidator Validator
 	Logger           *zap.Logger
 
-	ID      string
-	Address string
-	Claims  *token.GATClaims
-	Token   string
+	ID                string
+	Address           string
+	DownstreamAddress string
+	Claims            *token.GATClaims
+	Token             string
 
 	Timer *time.Timer
 	Mu    sync.Mutex
@@ -66,10 +68,18 @@ type ProxyConn struct {
 	once    sync.Once
 }
 
-func NewProxyConn(conn net.Conn, tlsConfig *tls.Config, validator Validator, logger *zap.Logger, metrics *ProxyConnMetrics) *ProxyConn {
+func NewProxyConn(
+	conn net.Conn,
+	tlsConfig *tls.Config,
+	certProvider CertProvider,
+	validator Validator,
+	logger *zap.Logger,
+	metrics *ProxyConnMetrics,
+) *ProxyConn {
 	return &ProxyConn{
 		Conn:             conn,
 		TLSConfig:        tlsConfig,
+		CertProvider:     certProvider,
 		ConnectValidator: validator,
 		Logger:           logger,
 		tracker:          NewProxyConnMetricsTracker(ConnCategoryUnknown, metrics),
@@ -225,7 +235,7 @@ func (p *ProxyConn) Authenticate() error {
 }
 
 func (p *ProxyConn) UpgradeToTLS() error {
-	tlsConn := tls.Server(p.Conn, p.TLSConfig)
+	tlsConn := tls.Server(p.Conn, p.getTLSConfig())
 	if err := tlsConn.Handshake(); err != nil {
 		p.Logger.Error("failed to upgrade TLS", zap.Error(err))
 
@@ -238,9 +248,30 @@ func (p *ProxyConn) UpgradeToTLS() error {
 	return nil
 }
 
+// getTLSConfig pins the served certificate to the CONNECT host.
+func (p *ProxyConn) getTLSConfig() *tls.Config {
+	tlsConfig := p.TLSConfig.Clone()
+	tlsConfig.GetCertificate = func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+		host, _, err := net.SplitHostPort(p.DownstreamAddress)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse downstream address %q: %w", p.DownstreamAddress, err)
+		}
+
+		cert, err := p.CertProvider.GetCertificateForHost(hello.Context(), host, p.Claims.Resource.Aliases...)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get certificate for %q: %w", host, err)
+		}
+
+		return cert, nil
+	}
+
+	return tlsConfig
+}
+
 func (p *ProxyConn) setConnectInfo(connectInfo Info) {
 	p.ID = connectInfo.ConnID
 	p.Address = connectInfo.Address
+	p.DownstreamAddress = connectInfo.DownstreamAddress
 	p.Claims = connectInfo.Claims
 	p.Token = connectInfo.Token
 	p.Timer = time.AfterFunc(time.Until(connectInfo.Claims.ExpiresAt.Time), func() {

@@ -636,7 +636,7 @@ func (s *echoServer) identity() (username string, userCert *ssh.Certificate) {
 // newProxyConn wraps conn in the connect.ProxyConn the proxy serves, with test GAT claims and
 // the address of the upstream the proxy dials.
 func newProxyConn(conn net.Conn, upstreamAddr string) *connect.ProxyConn {
-	proxyConn := connect.NewProxyConn(conn, nil, nil, zap.NewNop(),
+	proxyConn := connect.NewProxyConn(conn, nil, nil, nil, zap.NewNop(),
 		connect.CreateProxyConnMetrics(prometheus.NewRegistry()))
 	proxyConn.Claims = &token.GATClaims{}
 	proxyConn.Address = upstreamAddr

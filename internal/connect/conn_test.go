@@ -7,6 +7,7 @@ import (
 	"bufio"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -25,6 +26,7 @@ import (
 
 	promtestutil "github.com/prometheus/client_golang/prometheus/testutil"
 
+	"gateway/internal/config"
 	"gateway/internal/token"
 	"gateway/test/data"
 )
@@ -477,6 +479,143 @@ func TestProxyConn_Authenticate_FailedValidation(t *testing.T) {
 	assert.Nil(t, proxyConn.Claims)
 
 	<-done
+}
+
+// upgradeToTLSHandshake runs proxyConn.UpgradeToTLS against a TLS client
+// connected over TCP.
+func upgradeToTLSHandshake(t *testing.T, proxyConn *ProxyConn, clientTLSConfig *tls.Config) error {
+	t.Helper()
+
+	listener, addr := startMockListener(t)
+	defer listener.Close()
+
+	clientCh := make(chan error, 1)
+
+	go func() {
+		conn, err := net.Dial("tcp", addr)
+		if err != nil {
+			clientCh <- err
+
+			return
+		}
+
+		defer conn.Close()
+
+		clientCh <- tls.Client(conn, clientTLSConfig).Handshake()
+	}()
+
+	conn, err := listener.Accept()
+	require.NoError(t, err)
+
+	proxyConn.Conn = conn
+
+	serverErr := proxyConn.UpgradeToTLS()
+	if serverErr != nil {
+		_ = conn.Close()
+
+		<-clientCh
+
+		return serverErr
+	}
+
+	require.NoError(t, <-clientCh)
+
+	return nil
+}
+
+func TestProxyConn_getTLSConfig(t *testing.T) {
+	provider := &recordingCertProvider{}
+	proxyConn := &ProxyConn{
+		TLSConfig:         &tls.Config{},
+		CertProvider:      provider,
+		DownstreamAddress: "grafana.internal:443",
+		Claims:            &token.GATClaims{Resource: token.Resource{Type: token.ResourceTypeWebApp, Aliases: []string{"echo.internal", "echo-alt.internal"}}},
+		Logger:            zap.NewNop(),
+	}
+
+	cert, err := proxyConn.getTLSConfig().GetCertificate(&tls.ClientHelloInfo{ServerName: "other.internal"})
+	require.NoError(t, err)
+
+	assert.NotNil(t, cert)
+	assert.Equal(t, "grafana.internal", provider.host)
+	assert.Equal(t, []string{"echo.internal", "echo-alt.internal"}, provider.aliases)
+}
+
+func TestProxyConn_UpgradeToTLS_HandshakeError(t *testing.T) {
+	cert, err := NewDynamicCert(config.TLSDynamicConfig{
+		CA: config.TLSDynamicCAConfig{
+			SelfSign: &config.TLSSelfSignCAConfig{CertificateFile: "../../test/data/proxy/tls.crt", PrivateKeyFile: "../../test/data/proxy/tls.key"},
+		},
+		Cert: config.TLSDynamicCertConfig{},
+	}, zap.NewNop())
+	require.NoError(t, err)
+
+	// The client trusts a different CA, so it rejects the issued certificate
+	// and the server-side handshake fails.
+	wrongPool := x509.NewCertPool()
+	wrongPool.AppendCertsFromPEM(data.ServerCert)
+
+	proxyConn := &ProxyConn{
+		TLSConfig:         &tls.Config{},
+		CertProvider:      cert,
+		DownstreamAddress: "app.internal:443",
+		Claims:            &token.GATClaims{Resource: token.Resource{Type: token.ResourceTypeWebApp}},
+		Logger:            zap.NewNop(),
+	}
+
+	err = upgradeToTLSHandshake(t, proxyConn, &tls.Config{
+		ServerName: "app.internal",
+		RootCAs:    wrongPool,
+		MinVersion: tls.VersionTLS13,
+	})
+
+	require.Error(t, err)
+}
+
+func TestProxyConn_UpgradeToTLS_MalformedDownstreamAddress(t *testing.T) {
+	cert, err := NewDynamicCert(config.TLSDynamicConfig{
+		CA: config.TLSDynamicCAConfig{
+			SelfSign: &config.TLSSelfSignCAConfig{CertificateFile: "../../test/data/proxy/tls.crt", PrivateKeyFile: "../../test/data/proxy/tls.key"},
+		},
+		Cert: config.TLSDynamicCertConfig{},
+	}, zap.NewNop())
+	require.NoError(t, err)
+
+	proxyConn := &ProxyConn{
+		TLSConfig:         &tls.Config{},
+		CertProvider:      cert,
+		DownstreamAddress: "garbage",
+		Claims:            &token.GATClaims{Resource: token.Resource{Type: token.ResourceTypeWebApp}},
+		Logger:            zap.NewNop(),
+	}
+
+	err = upgradeToTLSHandshake(t, proxyConn, &tls.Config{
+		ServerName: "garbage",
+		MinVersion: tls.VersionTLS13,
+	})
+
+	require.Error(t, err)
+	assert.ErrorContains(t, err, `failed to parse downstream address "garbage"`)
+}
+
+func TestProxyConn_UpgradeToTLS_CertProviderError(t *testing.T) {
+	var errCertProviderFailed = errors.New("cert provider failed")
+
+	proxyConn := &ProxyConn{
+		TLSConfig:         &tls.Config{},
+		CertProvider:      &recordingCertProvider{shouldFail: true, err: errCertProviderFailed},
+		DownstreamAddress: "app.internal:443",
+		Claims:            &token.GATClaims{Resource: token.Resource{Type: token.ResourceTypeWebApp}},
+		Logger:            zap.NewNop(),
+	}
+
+	err := upgradeToTLSHandshake(t, proxyConn, &tls.Config{
+		ServerName: "app.internal",
+		MinVersion: tls.VersionTLS13,
+	})
+
+	require.ErrorIs(t, err, errCertProviderFailed)
+	assert.ErrorContains(t, err, `failed to get certificate for "app.internal"`)
 }
 
 func TestIsHealthCheckRequest(t *testing.T) {
