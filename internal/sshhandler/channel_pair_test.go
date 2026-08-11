@@ -142,6 +142,83 @@ func TestChannelPair_RequestLogsCarryChannelExtraBothDirections(t *testing.T) {
 	assert.Equal(t, labelUpstream, channelField["source"], "target-side logs swap the direction labels")
 }
 
+func TestChannelPair_SessionRequestLogsAcceptedOnlyWithReply(t *testing.T) {
+	tests := []struct {
+		name      string
+		wantReply bool
+	}{
+		{name: "with reply records outcome", wantReply: true},
+		{name: "without reply omits outcome", wantReply: false},
+	}
+
+	payload := ssh.Marshal(execReq{Command: "whoami"})
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			core, logs := observer.New(zap.DebugLevel)
+			channels := newProxyChannels(t, channelTypeSession)
+			channels.logger = zap.New(core)
+			done := channels.serve(t)
+
+			if tt.wantReply {
+				channels.sendRequestAwaitReply(t, requestTypeExec, payload)
+			} else {
+				_, err := channels.source.ch.SendRequest(requestTypeExec, false, payload)
+				require.NoError(t, err)
+				assertSentRequest(t, channels.target.requests, requestTypeExec)
+			}
+
+			channels.close(t, done)
+
+			requestField, isMap := observedSSHField(t, logs, "SSH channel request")["request"].(map[string]any)
+			require.True(t, isMap)
+
+			if tt.wantReply {
+				assert.Equal(t, true, requestField["accepted"])
+			} else {
+				assert.NotContains(t, requestField, "accepted")
+			}
+		})
+	}
+}
+
+func TestChannelPair_AuditsRequestsExceptKnownMechanics(t *testing.T) {
+	// A forwarding channel keeps this off the session-start gate and shows the audit no longer
+	// depends on channel type.
+	tests := []struct {
+		name    string
+		reqType string
+		payload []byte
+		audited bool
+	}{
+		{name: "unknown custom type", reqType: "probe@example.com", audited: true},
+		{name: "terminal mechanic", reqType: requestTypeWindowChange, payload: ssh.Marshal(windowChangeReq{WidthColumns: 80, HeightRows: 24}), audited: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			core, logs := observer.New(zap.DebugLevel)
+			channels := newProxyChannels(t, channelTypeDirectTCPIP)
+			channels.logger = zap.New(core)
+			done := channels.serve(t)
+
+			channels.sendRequestAwaitReply(t, tt.reqType, tt.payload)
+
+			channels.close(t, done)
+
+			entries := logs.FilterMessage("SSH channel request").All()
+			require.Len(t, entries, 1)
+
+			wantLevel := zap.DebugLevel
+			if tt.audited {
+				wantLevel = zap.InfoLevel
+			}
+
+			assert.Equal(t, wantLevel, entries[0].Level)
+		})
+	}
+}
+
 func TestChannelPair_ForwardsTargetPtyAndWindowChange(t *testing.T) {
 	// The target-side request handler has no pty/window-change callbacks: requests of those
 	// types arriving from the target must hit the nil-callback guards and forward cleanly

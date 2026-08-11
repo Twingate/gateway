@@ -16,6 +16,18 @@ const (
 	requestTypeWindowChange = "window-change"
 )
 
+// auditIgnoredChannelRequests holds the request types with no audit value. Any type not
+// listed, including unrecognized custom ones, is audited, so an unusual request stays visible.
+var auditIgnoredChannelRequests = map[string]bool{
+	requestTypePty:          true,
+	requestTypeWindowChange: true,
+	"signal":                true,
+	"xon-xoff":              true,
+	"break":                 true,
+	"exit-status":           true,
+	"exit-signal":           true,
+}
+
 type SSHSessionSignals struct {
 	started  chan string // The command that started the session
 	finished chan struct{}
@@ -66,12 +78,31 @@ func (h *SSHRequestHandler) parseRequestPayload(req *ssh.Request, target any) {
 	}
 }
 
-// handleRequest processes and forwards a single SSH request, returning session info if applicable.
 func (h *SSHRequestHandler) handleRequest(req *ssh.Request, sessionSignals SSHSessionSignals) {
+	accepted, startSession, command := h.forwardRequest(req)
+
+	// Reply before signaling session start: the signal unblocks serve() and lets upstream
+	// data flow to the client, which must not reach the client before the request reply.
+	if err := req.Reply(accepted, nil); err != nil {
+		h.logger.Error("Failed to reply to request",
+			zap.Any("ssh", h.sshChannelCtx.withRequest(req.Type, nil)), zap.Error(err))
+	}
+
+	if startSession {
+		h.sessionStarted = true
+
+		sessionSignals.started <- command
+
+		close(sessionSignals.started)
+	}
+}
+
+// forwardRequest forwards a channel request to the target. The named returns default to a
+// rejection, so every early return rejects the request without starting a session.
+func (h *SSHRequestHandler) forwardRequest(req *ssh.Request) (accepted, startSession bool, command string) {
 	// A shell, exec, or subsystem request starts the session
 	// see: https://datatracker.ietf.org/doc/html/rfc4254#section-6.5
 	isSessionStartReq := false
-	command := ""
 	extra := map[string]any{}
 
 	// logger derives the fields on each call so every log line carries the detail accumulated
@@ -79,19 +110,6 @@ func (h *SSHRequestHandler) handleRequest(req *ssh.Request, sessionSignals SSHSe
 	logger := func() *zap.Logger {
 		return h.logger.With(zap.Any("ssh", h.sshChannelCtx.withRequest(req.Type, extra)))
 	}
-
-	var (
-		accepted bool
-		err      error
-	)
-
-	// Reply exactly once, on every path; early returns leave the default, which rejects the
-	// request.
-	defer func() {
-		if err := req.Reply(accepted, nil); err != nil {
-			logger().Error("Failed to reply to request", zap.Error(err))
-		}
-	}()
 
 	switch req.Type {
 	case requestTypePty:
@@ -137,14 +155,14 @@ func (h *SSHRequestHandler) handleRequest(req *ssh.Request, sessionSignals SSHSe
 	if isSessionStartReq && h.sessionStarted {
 		logger().Warn("Rejecting duplicate session start request")
 
-		return
+		return false, false, ""
 	}
 
-	accepted, err = h.targetChannel.SendRequest(req.Type, req.WantReply, req.Payload)
+	accepted, err := h.targetChannel.SendRequest(req.Type, req.WantReply, req.Payload)
 	if err != nil {
 		logger().Error("Failed to forward request", zap.Error(err))
 
-		return
+		return false, false, ""
 	}
 
 	// SendRequest's accepted result is meaningless when no reply was asked for.
@@ -152,17 +170,17 @@ func (h *SSHRequestHandler) handleRequest(req *ssh.Request, sessionSignals SSHSe
 		extra["accepted"] = accepted
 	}
 
-	logger().Info("SSH channel request")
+	if auditIgnoredChannelRequests[req.Type] {
+		logger().Debug("SSH channel request")
+	} else {
+		logger().Info("SSH channel request")
+	}
 
 	// A session starts only when the target accepted the request; without WantReply there is
 	// no confirmation and the session starts unconditionally (RFC 4254, Section 6.5).
-	if isSessionStartReq && (accepted || !req.WantReply) {
-		h.sessionStarted = true
+	startSession = isSessionStartReq && (accepted || !req.WantReply)
 
-		sessionSignals.started <- command
-
-		close(sessionSignals.started)
-	}
+	return accepted, startSession, command
 }
 
 type SSHRequestHandler struct {

@@ -156,13 +156,13 @@ func (c *SSHConnPair) serve() {
 	c.wg.Go(func() {
 		defer closeOnPanic(c.logger, c.close)
 
-		c.forwardGlobalRequests(c.downstream.requests, c.upstream.conn, disallowedDownstreamGlobalRequests, labelDownstream, labelUpstream)
+		c.handleGlobalRequests(c.downstream.requests, c.upstream.conn, disallowedDownstreamGlobalRequests, labelDownstream, labelUpstream)
 	})
 
 	c.wg.Go(func() {
 		defer closeOnPanic(c.logger, c.close)
 
-		c.forwardGlobalRequests(c.upstream.requests, c.downstream.conn, disallowedUpstreamGlobalRequests, labelUpstream, labelDownstream)
+		c.handleGlobalRequests(c.upstream.requests, c.downstream.conn, disallowedUpstreamGlobalRequests, labelUpstream, labelDownstream)
 	})
 
 	// Forward channels in both directions
@@ -250,13 +250,24 @@ func (c *SSHConnPair) forwardChannels(channels <-chan ssh.NewChannel, targetConn
 	}
 }
 
-func (c *SSHConnPair) forwardGlobalRequests(requests <-chan *ssh.Request, dst ssh.Conn, disallowedTypes map[string]bool, source, target string) {
+func (c *SSHConnPair) handleGlobalRequests(requests <-chan *ssh.Request, dst ssh.Conn, disallowedTypes map[string]bool, source, target string) {
 	for req := range requests {
-		c.forwardGlobalRequest(req, dst, disallowedTypes, source, target)
+		c.handleGlobalRequest(req, dst, disallowedTypes, source, target)
 	}
 }
 
-func (c *SSHConnPair) forwardGlobalRequest(req *ssh.Request, dst ssh.Conn, disallowedTypes map[string]bool, source, target string) {
+func (c *SSHConnPair) handleGlobalRequest(req *ssh.Request, dst ssh.Conn, disallowedTypes map[string]bool, source, target string) {
+	accepted, replyPayload := c.forwardGlobalRequest(req, dst, disallowedTypes, source, target)
+
+	if err := req.Reply(accepted, replyPayload); err != nil {
+		c.logger.Error("Failed to reply to global request",
+			zap.Any("ssh", c.sshCtx.withGlobalRequest(req.Type, source, target, nil)), zap.Error(err))
+	}
+}
+
+// forwardGlobalRequest forwards a global request to dst and returns the reply to send back. The
+// named returns default to a rejection, so every early return rejects the request.
+func (c *SSHConnPair) forwardGlobalRequest(req *ssh.Request, dst ssh.Conn, disallowedTypes map[string]bool, source, target string) (accepted bool, replyPayload []byte) {
 	extra, parseErr := globalRequestLogFields(req.Type, req.Payload)
 
 	// logger derives the fields on each call so every log line carries the detail accumulated
@@ -265,19 +276,6 @@ func (c *SSHConnPair) forwardGlobalRequest(req *ssh.Request, dst ssh.Conn, disal
 		return c.logger.With(zap.Any("ssh", c.sshCtx.withGlobalRequest(req.Type, source, target, extra)))
 	}
 
-	var (
-		accepted     bool
-		replyPayload []byte
-		err          error
-	)
-
-	// Reply exactly once, on every path; early returns leave the defaults, which reject the request.
-	defer func() {
-		if err := req.Reply(accepted, replyPayload); err != nil {
-			logger().Error("Failed to reply to global request", zap.Error(err))
-		}
-	}()
-
 	if parseErr != nil {
 		logger().Error("Failed to parse global request", zap.Error(parseErr))
 	}
@@ -285,14 +283,14 @@ func (c *SSHConnPair) forwardGlobalRequest(req *ssh.Request, dst ssh.Conn, disal
 	if disallowedTypes[req.Type] {
 		logger().Warn("SSH global request rejected")
 
-		return
+		return false, nil
 	}
 
-	accepted, replyPayload, err = dst.SendRequest(req.Type, req.WantReply, req.Payload)
+	accepted, replyPayload, err := dst.SendRequest(req.Type, req.WantReply, req.Payload)
 	if err != nil {
 		logger().Error("Failed to forward global request", zap.Error(err))
 
-		return
+		return false, nil
 	}
 
 	// SendRequest's accepted result is meaningless when no reply was asked for.
@@ -310,6 +308,8 @@ func (c *SSHConnPair) forwardGlobalRequest(req *ssh.Request, dst ssh.Conn, disal
 	}
 
 	logger().Info("SSH global request")
+
+	return accepted, replyPayload
 }
 
 func (c *SSHConnPair) close() {
