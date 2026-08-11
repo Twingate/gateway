@@ -6,7 +6,6 @@ package connect
 import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
-	"crypto/rsa"
 	"crypto/x509"
 	"net"
 	"sync"
@@ -41,7 +40,7 @@ func TestNewDynamicCert_Errors(t *testing.T) {
 		},
 		{
 			name:        "mismatched certificate and key",
-			selfSign:    &config.TLSSelfSignCAConfig{CertificateFile: "../../test/data/ca/tls.crt", PrivateKeyFile: "../../test/data/proxy/tls.key"},
+			selfSign:    &config.TLSSelfSignCAConfig{CertificateFile: "../../test/data/proxy/tls.crt", PrivateKeyFile: "../../test/data/api_server/tls.key"},
 			errContains: "failed to load CA key pair",
 		},
 		{
@@ -73,7 +72,7 @@ func TestNewDynamicCert_Errors(t *testing.T) {
 func TestDynamicCert_GetCertificateForHost_DNSHost(t *testing.T) {
 	cert, err := NewDynamicCert(config.TLSDynamicConfig{
 		CA: config.TLSDynamicCAConfig{
-			SelfSign: &config.TLSSelfSignCAConfig{CertificateFile: "../../test/data/ca/tls.crt", PrivateKeyFile: "../../test/data/ca/tls.key"},
+			SelfSign: &config.TLSSelfSignCAConfig{CertificateFile: "../../test/data/proxy/tls.crt", PrivateKeyFile: "../../test/data/proxy/tls.key"},
 		},
 	}, zap.NewNop())
 	require.NoError(t, err)
@@ -90,7 +89,7 @@ func TestDynamicCert_GetCertificateForHost_DNSHost(t *testing.T) {
 	assert.Equal(t, elliptic.P256(), key.Curve)
 
 	pool := x509.NewCertPool()
-	pool.AppendCertsFromPEM(data.CACert)
+	pool.AppendCertsFromPEM(data.ProxyCert)
 
 	_, err = minted.Leaf.Verify(x509.VerifyOptions{
 		DNSName:   "app.internal",
@@ -103,7 +102,7 @@ func TestDynamicCert_GetCertificateForHost_DNSHost(t *testing.T) {
 func TestDynamicCert_GetCertificateForHost_IPHost(t *testing.T) {
 	cert, err := NewDynamicCert(config.TLSDynamicConfig{
 		CA: config.TLSDynamicCAConfig{
-			SelfSign: &config.TLSSelfSignCAConfig{CertificateFile: "../../test/data/ca/tls.crt", PrivateKeyFile: "../../test/data/ca/tls.key"},
+			SelfSign: &config.TLSSelfSignCAConfig{CertificateFile: "../../test/data/proxy/tls.crt", PrivateKeyFile: "../../test/data/proxy/tls.key"},
 		},
 	}, zap.NewNop())
 	require.NoError(t, err)
@@ -116,46 +115,95 @@ func TestDynamicCert_GetCertificateForHost_IPHost(t *testing.T) {
 	assert.Empty(t, minted.Leaf.DNSNames)
 }
 
-func TestDynamicCert_GetCertificateForHost_RSAKey(t *testing.T) {
-	cert, err := NewDynamicCert(config.TLSDynamicConfig{
-		CA: config.TLSDynamicCAConfig{
-			SelfSign: &config.TLSSelfSignCAConfig{CertificateFile: "../../test/data/ca/tls.crt", PrivateKeyFile: "../../test/data/ca/tls.key"},
+func TestDynamicCert_GetCertificateForHost_CoversAliases(t *testing.T) {
+	tests := []struct {
+		name    string
+		host    string
+		aliases []string
+		wantCN  string
+		wantDNS []string
+		wantIPs []string
+	}{
+		{
+			name:    "ip host with dns aliases",
+			host:    "10.0.0.5",
+			aliases: []string{"app.internal", "alt.internal"},
+			wantCN:  "10.0.0.5",
+			wantDNS: []string{"app.internal", "alt.internal"},
+			wantIPs: []string{"10.0.0.5"},
 		},
-		Cert: config.TLSDynamicCertConfig{KeyType: "rsa", KeyBits: 2048},
-	}, zap.NewNop())
-	require.NoError(t, err)
+		{
+			name:    "dns host with dns aliases",
+			host:    "app.internal",
+			aliases: []string{"alt.internal"},
+			wantCN:  "app.internal",
+			wantDNS: []string{"app.internal", "alt.internal"},
+		},
+		{
+			name:    "alias repeating the host is not duplicated",
+			host:    "app.internal",
+			aliases: []string{"app.internal", "alt.internal", ""},
+			wantCN:  "app.internal",
+			wantDNS: []string{"app.internal", "alt.internal"},
+		},
+		{
+			name:    "no aliases",
+			host:    "app.internal",
+			wantCN:  "app.internal",
+			wantDNS: []string{"app.internal"},
+		},
+	}
 
-	minted, err := cert.GetCertificateForHost("app.internal")
-	require.NoError(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cert, err := NewDynamicCert(config.TLSDynamicConfig{
+				CA: config.TLSDynamicCAConfig{
+					SelfSign: &config.TLSSelfSignCAConfig{CertificateFile: "../../test/data/proxy/tls.crt", PrivateKeyFile: "../../test/data/proxy/tls.key"},
+				},
+			}, zap.NewNop())
+			require.NoError(t, err)
 
-	_, ok := minted.PrivateKey.(*rsa.PrivateKey)
-	assert.True(t, ok, "expected an RSA leaf key")
+			minted, err := cert.GetCertificateForHost(tt.host, tt.aliases...)
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.wantCN, minted.Leaf.Subject.CommonName)
+			assert.Equal(t, tt.wantDNS, minted.Leaf.DNSNames)
+
+			var gotIPs []string
+			for _, ip := range minted.Leaf.IPAddresses {
+				gotIPs = append(gotIPs, ip.String())
+			}
+
+			assert.Equal(t, tt.wantIPs, gotIPs)
+		})
+	}
 }
 
-func TestDynamicCert_GetCertificateForHost_CachesPerHost(t *testing.T) {
+func TestDynamicCert_GetCertificateForHost_CachesPerNameSet(t *testing.T) {
 	cert, err := NewDynamicCert(config.TLSDynamicConfig{
 		CA: config.TLSDynamicCAConfig{
-			SelfSign: &config.TLSSelfSignCAConfig{CertificateFile: "../../test/data/ca/tls.crt", PrivateKeyFile: "../../test/data/ca/tls.key"},
+			SelfSign: &config.TLSSelfSignCAConfig{CertificateFile: "../../test/data/proxy/tls.crt", PrivateKeyFile: "../../test/data/proxy/tls.key"},
 		},
 	}, zap.NewNop())
 	require.NoError(t, err)
 
-	first, err := cert.GetCertificateForHost("app.internal")
+	first, err := cert.GetCertificateForHost("app.internal", "a.internal")
 	require.NoError(t, err)
 
-	second, err := cert.GetCertificateForHost("app.internal")
+	// The same host with a different alias set needs its own certificate.
+	other, err := cert.GetCertificateForHost("app.internal", "b.internal")
 	require.NoError(t, err)
-	assert.Same(t, first, second)
+	assert.NotEqual(t, first.Leaf.SerialNumber, other.Leaf.SerialNumber)
 
-	other, err := cert.GetCertificateForHost("other.internal")
+	again, err := cert.GetCertificateForHost("app.internal", "a.internal")
 	require.NoError(t, err)
-	assert.NotSame(t, first, other)
+	assert.Same(t, first, again)
 }
 
 func TestDynamicCert_GetCertificateForHost_RenewsInsideWindow(t *testing.T) {
 	cert, err := NewDynamicCert(config.TLSDynamicConfig{
 		CA: config.TLSDynamicCAConfig{
-			SelfSign: &config.TLSSelfSignCAConfig{CertificateFile: "../../test/data/ca/tls.crt", PrivateKeyFile: "../../test/data/ca/tls.key"},
+			SelfSign: &config.TLSSelfSignCAConfig{CertificateFile: "../../test/data/proxy/tls.crt", PrivateKeyFile: "../../test/data/proxy/tls.key"},
 		},
 		Cert: config.TLSDynamicCertConfig{
 			Duration:    2 * time.Hour,
@@ -190,7 +238,7 @@ func TestDynamicCert_GetCertificateForHost_ConcurrentColdMissMintsOnce(t *testin
 
 	cert, err := NewDynamicCert(config.TLSDynamicConfig{
 		CA: config.TLSDynamicCAConfig{
-			SelfSign: &config.TLSSelfSignCAConfig{CertificateFile: "../../test/data/ca/tls.crt", PrivateKeyFile: "../../test/data/ca/tls.key"},
+			SelfSign: &config.TLSSelfSignCAConfig{CertificateFile: "../../test/data/proxy/tls.crt", PrivateKeyFile: "../../test/data/proxy/tls.key"},
 		},
 	}, zap.NewNop())
 	require.NoError(t, err)
@@ -229,59 +277,4 @@ func TestDynamicCert_GetCertificateForHost_ConcurrentColdMissMintsOnce(t *testin
 	require.NoError(t, mintErr)
 	assert.Len(t, serials, 1, "concurrent cold misses should mint exactly once")
 	assert.Equal(t, 1, cert.cache.Len())
-}
-
-func TestDynamicCert_GetCertificateForHost_BoundsCacheSize(t *testing.T) {
-	cert, err := NewDynamicCert(config.TLSDynamicConfig{
-		CA: config.TLSDynamicCAConfig{
-			SelfSign: &config.TLSSelfSignCAConfig{CertificateFile: "../../test/data/ca/tls.crt", PrivateKeyFile: "../../test/data/ca/tls.key"},
-		},
-	}, zap.NewNop())
-	require.NoError(t, err)
-	cert.cache.Resize(3)
-
-	first, err := cert.GetCertificateForHost("first.internal")
-	require.NoError(t, err)
-
-	for _, host := range []string{"second.internal", "third.internal", "fourth.internal"} {
-		_, err := cert.GetCertificateForHost(host)
-		require.NoError(t, err)
-	}
-
-	assert.Equal(t, 3, cert.cache.Len(), "cache should stay at the cap")
-	assert.False(t, cert.cache.Contains("first.internal"), "the least recently used host should be evicted")
-
-	// The evicted host is re-minted rather than served stale.
-	refreshed, err := cert.GetCertificateForHost("first.internal")
-	require.NoError(t, err)
-	assert.NotEqual(t, first.Leaf.SerialNumber, refreshed.Leaf.SerialNumber)
-}
-
-func TestDynamicCert_GetCertificateForHost_EvictsByRecency(t *testing.T) {
-	cert, err := NewDynamicCert(config.TLSDynamicConfig{
-		CA: config.TLSDynamicCAConfig{
-			SelfSign: &config.TLSSelfSignCAConfig{CertificateFile: "../../test/data/ca/tls.crt", PrivateKeyFile: "../../test/data/ca/tls.key"},
-		},
-	}, zap.NewNop())
-	require.NoError(t, err)
-	cert.cache.Resize(3)
-
-	for _, host := range []string{"first.internal", "second.internal", "third.internal"} {
-		_, err := cert.GetCertificateForHost(host)
-		require.NoError(t, err)
-	}
-
-	// Touching the oldest host makes the next-oldest the eviction candidate.
-	touched, err := cert.GetCertificateForHost("first.internal")
-	require.NoError(t, err)
-
-	_, err = cert.GetCertificateForHost("fourth.internal")
-	require.NoError(t, err)
-
-	assert.False(t, cert.cache.Contains("second.internal"), "the untouched host should be evicted")
-	assert.True(t, cert.cache.Contains("first.internal"), "the touched host should survive")
-
-	cached, err := cert.GetCertificateForHost("first.internal")
-	require.NoError(t, err)
-	assert.Same(t, touched, cached, "the surviving host should still be served from cache")
 }

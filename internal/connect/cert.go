@@ -17,6 +17,8 @@ import (
 	"fmt"
 	"math/big"
 	"net"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -95,10 +97,14 @@ func NewDynamicCert(cfg config.TLSDynamicConfig, logger *zap.Logger) (*DynamicCe
 // Run implements CertProvider; dynamic mode has no background maintenance.
 func (c *DynamicCert) Run(_ context.Context) {}
 
-// GetCertificateForHost returns a certificate for the requested host, minting
-// a new one when none is cached or the cached one is inside the renewal window.
-func (c *DynamicCert) GetCertificateForHost(host string) (*tls.Certificate, error) {
-	if cert, ok := c.cachedCert(host); ok {
+// GetCertificateForHost returns a certificate covering host and aliases,
+// minting a new one when none is cached or the cached one is inside the
+// renewal window.
+func (c *DynamicCert) GetCertificateForHost(host string, aliases ...string) (*tls.Certificate, error) {
+	names := certNames(host, aliases)
+	key := strings.Join(names, ",")
+
+	if cert, ok := c.cachedCert(key); ok {
 		return cert, nil
 	}
 
@@ -107,24 +113,39 @@ func (c *DynamicCert) GetCertificateForHost(host string) (*tls.Certificate, erro
 
 	// Re-check under the lock: a caller ahead in the queue may have minted
 	// this host already, which keeps concurrent cold misses to one mint.
-	if cert, ok := c.cachedCert(host); ok {
+	if cert, ok := c.cachedCert(key); ok {
 		return cert, nil
 	}
 
-	cert, err := c.mint(host)
+	cert, err := c.mint(names)
 	if err != nil {
 		return nil, err
 	}
 
-	c.cache.Add(host, cert)
+	c.cache.Add(key, cert)
 
 	return cert, nil
 }
 
-// cachedCert returns the cached certificate for the given host
+// certNames is host followed by its aliases, without duplicates. host stays
+// first so it becomes the common name.
+func certNames(host string, aliases []string) []string {
+	names := make([]string, 0, len(aliases)+1)
+	names = append(names, host)
+
+	for _, alias := range aliases {
+		if alias != "" && !slices.Contains(names, alias) {
+			names = append(names, alias)
+		}
+	}
+
+	return names
+}
+
+// cachedCert returns the cached certificate for the given name set
 // while it is outside the renewal window.
-func (c *DynamicCert) cachedCert(host string) (*tls.Certificate, bool) {
-	cert, ok := c.cache.Get(host)
+func (c *DynamicCert) cachedCert(key string) (*tls.Certificate, bool) {
+	cert, ok := c.cache.Get(key)
 	if !ok {
 		return nil, false
 	}
@@ -132,7 +153,7 @@ func (c *DynamicCert) cachedCert(host string) (*tls.Certificate, bool) {
 	return cert, time.Now().Before(cert.Leaf.NotAfter.Add(-c.cert.GetRenewBefore()))
 }
 
-func (c *DynamicCert) mint(host string) (*tls.Certificate, error) {
+func (c *DynamicCert) mint(names []string) (*tls.Certificate, error) {
 	key, err := c.generateKey()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate leaf key: %w", err)
@@ -146,17 +167,19 @@ func (c *DynamicCert) mint(host string) (*tls.Certificate, error) {
 	now := time.Now()
 	template := &x509.Certificate{
 		SerialNumber: serial,
-		Subject:      pkix.Name{CommonName: host},
+		Subject:      pkix.Name{CommonName: names[0]},
 		NotBefore:    now.Add(-clockSkewBuffer),
 		NotAfter:     now.Add(c.cert.GetDuration()),
 		KeyUsage:     x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 	}
 
-	if ip := net.ParseIP(host); ip != nil {
-		template.IPAddresses = []net.IP{ip}
-	} else {
-		template.DNSNames = []string{host}
+	for _, name := range names {
+		if ip := net.ParseIP(name); ip != nil {
+			template.IPAddresses = append(template.IPAddresses, ip)
+		} else {
+			template.DNSNames = append(template.DNSNames, name)
+		}
 	}
 
 	leafDER, err := x509.CreateCertificate(rand.Reader, template, c.caCert, key.Public(), c.caKey)
@@ -170,7 +193,7 @@ func (c *DynamicCert) mint(host string) (*tls.Certificate, error) {
 	}
 
 	c.logger.Info("Minted downstream certificate",
-		zap.String("host", host),
+		zap.Strings("hosts", names),
 		zap.Time("not_after", leaf.NotAfter),
 	)
 

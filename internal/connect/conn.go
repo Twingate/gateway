@@ -257,7 +257,7 @@ func (p *ProxyConn) getTLSConfig() *tls.Config {
 			return nil, fmt.Errorf("failed to parse downstream address %q: %w", p.DownstreamAddress, err)
 		}
 
-		cert, err := p.CertProvider.GetCertificateForHost(host)
+		cert, err := p.CertProvider.GetCertificateForHost(host, p.Claims.Resource.Aliases...)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get certificate for %q: %w", host, err)
 		}

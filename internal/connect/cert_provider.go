@@ -22,10 +22,11 @@ type CertProvider interface {
 
 	// GetCertificateForHost returns the certificate presented for the given
 	// host: the SNI host on the outer TLS, the validated CONNECT host
-	// on the inner TLS.
+	// on the inner TLS. Aliases are covered as additional subject alternative
+	// names, since the downstream client may have dialled any of them.
 	//
 	// Note: SNI cannot carry an IP address (see RFC 6066 § 3)
-	GetCertificateForHost(host string) (*tls.Certificate, error)
+	GetCertificateForHost(host string, aliases ...string) (*tls.Certificate, error)
 }
 
 // getCertificateForHello serves the outer TLS handshake when the SNI
