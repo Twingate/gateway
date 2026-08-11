@@ -4,19 +4,31 @@
 package connect
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/json"
+	"encoding/pem"
+	"math/big"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
+	vaultapi "github.com/hashicorp/vault/api"
+
 	"gateway/internal/config"
+	"gateway/internal/vault"
 	"gateway/test/data"
 )
 

@@ -27,6 +27,7 @@ import (
 	lru "github.com/hashicorp/golang-lru/v2"
 
 	"gateway/internal/config"
+	"gateway/internal/vault"
 )
 
 const (
@@ -39,6 +40,7 @@ var (
 	errCAKeyNotSigner     = errors.New("CA private key does not implement crypto.Signer")
 	errUnsupportedKeyType = errors.New("unsupported key type")
 	errUnsupportedKeyBits = errors.New("unsupported key bits")
+	errVaultIssueFailed   = errors.New("failed to issue certificate with Vault")
 )
 
 var serialNumberLimit = new(big.Int).Lsh(big.NewInt(1), 128)
@@ -56,7 +58,7 @@ type DynamicCert struct {
 }
 
 func NewDynamicCert(cfg config.TLSDynamicConfig, logger *zap.Logger) (*DynamicCert, error) {
-	issuer, err := newCertIssuer(cfg)
+	issuer, err := newCertIssuer(cfg, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -81,10 +83,12 @@ type certIssuer interface {
 	issue(ctx context.Context, names []string) (*tls.Certificate, error)
 }
 
-func newCertIssuer(cfg config.TLSDynamicConfig) (certIssuer, error) {
+func newCertIssuer(cfg config.TLSDynamicConfig, logger *zap.Logger) (certIssuer, error) {
 	switch {
 	case cfg.CA.SelfSign != nil:
 		return newSelfSignIssuer(cfg.CA.SelfSign, cfg.Cert)
+	case cfg.CA.Vault != nil:
+		return newVaultIssuer(cfg.CA.Vault, cfg.Cert, logger)
 	default:
 		return nil, config.ErrMissingTLSCAConfig
 	}
@@ -236,6 +240,106 @@ func (s *selfSignIssuer) issue(_ context.Context, names []string) (*tls.Certific
 		PrivateKey:  key,
 		Leaf:        leaf,
 	}, nil
+}
+
+// vaultIssuer issues leaf certificates through Vault's PKI secrets engine.
+type vaultIssuer struct {
+	vault *vault.Vault
+	mount string
+	role  string
+	cert  config.TLSDynamicCertConfig
+}
+
+func newVaultIssuer(cfg *config.TLSVaultCAConfig, certCfg config.TLSDynamicCertConfig, logger *zap.Logger) (*vaultIssuer, error) {
+	v, err := vault.New(cfg.VaultConfig, logger)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Vault client: %w", err)
+	}
+
+	return &vaultIssuer{vault: v, mount: cfg.GetMount(), role: cfg.Role, cert: certCfg}, nil
+}
+
+// run logs in to Vault in the background and keeps the token renewed. Unlike
+// the SSH CA, login failures retry instead of failing startup: CertProvider.Run
+// carries no error, so handshakes fail until login succeeds, then self-heal.
+func (v *vaultIssuer) run(ctx context.Context) {
+	if v.vault.AuthMethod == nil {
+		return
+	}
+
+	go func() {
+		secret := v.vault.LoginWithRetry(ctx)
+		if secret == nil {
+			return
+		}
+
+		v.vault.RunTokenRenewalLoop(ctx, secret)
+	}()
+}
+
+// issue requests a leaf certificate from <mount>/issue/<role>. The context is
+// the TLS handshake's, so an abandoned handshake cancels the in-flight request.
+func (v *vaultIssuer) issue(ctx context.Context, names []string) (*tls.Certificate, error) {
+	data := map[string]any{
+		"common_name": names[0],
+		"ttl":         v.cert.GetDuration().String(),
+	}
+
+	if len(names) > 1 {
+		data["alt_names"] = strings.Join(names[1:], ",")
+	}
+
+	secret, err := v.vault.Client.Logical().WriteWithContext(ctx, v.mount+"/issue/"+v.role, data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to issue certificate: %w", err)
+	}
+
+	if secret == nil || secret.Data == nil {
+		return nil, fmt.Errorf("%w: empty response", errVaultIssueFailed)
+	}
+
+	certPEM, ok := secret.Data["certificate"].(string)
+	if !ok || certPEM == "" {
+		return nil, fmt.Errorf("%w: no certificate in response", errVaultIssueFailed)
+	}
+
+	keyPEM, ok := secret.Data["private_key"].(string)
+	if !ok || keyPEM == "" {
+		return nil, fmt.Errorf("%w: no private key in response", errVaultIssueFailed)
+	}
+
+	chain := append([]string{certPEM}, caChain(secret.Data)...)
+
+	pair, err := tls.X509KeyPair([]byte(strings.Join(chain, "\n")), []byte(keyPEM))
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse issued certificate: %w", err)
+	}
+
+	return &pair, nil
+}
+
+// caChain returns the CA chain PEMs from the response, falling back to the
+// issuing CA when the chain is absent.
+func caChain(data map[string]any) []string {
+	if chain, ok := data["ca_chain"].([]any); ok {
+		cas := make([]string, 0, len(chain))
+
+		for _, ca := range chain {
+			if caPEM, ok := ca.(string); ok && caPEM != "" {
+				cas = append(cas, caPEM)
+			}
+		}
+
+		if len(cas) > 0 {
+			return cas
+		}
+	}
+
+	if issuingCA, ok := data["issuing_ca"].(string); ok && issuingCA != "" {
+		return []string{issuingCA}
+	}
+
+	return nil
 }
 
 func (s *selfSignIssuer) generateKey() (crypto.Signer, error) {

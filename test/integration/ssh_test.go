@@ -187,27 +187,27 @@ func TestSSHVault(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		authSetup func(t *testing.T) gatewayconfig.SSHCAVaultAuthConfig
+		authSetup func(t *testing.T) gatewayconfig.VaultAuthConfig
 	}{
 		{
 			name: "token",
-			authSetup: func(t *testing.T) gatewayconfig.SSHCAVaultAuthConfig {
+			authSetup: func(t *testing.T) gatewayconfig.VaultAuthConfig {
 				t.Helper()
 
-				return gatewayconfig.SSHCAVaultAuthConfig{
+				return gatewayconfig.VaultAuthConfig{
 					Token: testutil.SetupVaultToken(t, vaultContainerID),
 				}
 			},
 		},
 		{
 			name: "approle",
-			authSetup: func(t *testing.T) gatewayconfig.SSHCAVaultAuthConfig {
+			authSetup: func(t *testing.T) gatewayconfig.VaultAuthConfig {
 				t.Helper()
 
 				roleID, secretID := testutil.SetupVaultAppRole(t, vaultContainerID)
 
-				return gatewayconfig.SSHCAVaultAuthConfig{
-					AppRole: &gatewayconfig.SSHCAVaultAppRoleConfig{
+				return gatewayconfig.VaultAuthConfig{
+					AppRole: &gatewayconfig.VaultAppRoleConfig{
 						RoleID:   roleID,
 						SecretID: secretID,
 					},
@@ -225,10 +225,12 @@ func TestSSHVault(t *testing.T) {
 				Groups:   []string{"OnCall", "Engineering"},
 			}, gatewayconfig.SSHCAConfig{
 				Vault: &gatewayconfig.SSHCAVaultConfig{
-					Address: vaultAddress,
-					Mount:   "ssh",
-					Role:    "gateway-signer",
-					Auth:    auth,
+					VaultConfig: gatewayconfig.VaultConfig{
+						Address: vaultAddress,
+						Auth:    auth,
+					},
+					Mount: "ssh",
+					Role:  "gateway-signer",
 				},
 			}, gatewayPort+i)
 
