@@ -128,13 +128,24 @@ type TLSCertificateKeyConfig struct {
 	Bits int    `yaml:"bits"` // ECDSA: 256/384/521, RSA: 2048/3072/4096. Defaults to 256 for ECDSA, 2048 for RSA.
 }
 
+// TLSIssuerConfig selects the backend that signs automated downstream
+// certificates. Exactly one of Local or Vault must be set.
 type TLSIssuerConfig struct {
 	Local *TLSLocalIssuerConfig `yaml:"local,omitempty"`
+	Vault *TLSVaultIssuerConfig `yaml:"vault,omitempty"`
 }
 
 type TLSLocalIssuerConfig struct {
 	CertificateFile string `yaml:"certificateFile"`
 	PrivateKeyFile  string `yaml:"privateKeyFile"`
+}
+
+// TLSVaultIssuerConfig configures an issuer backed by Vault's PKI secrets engine.
+type TLSVaultIssuerConfig struct {
+	VaultConfig `yaml:",inline"`
+
+	Mount string `yaml:"mount,omitempty"` // PKI secrets engine mount point. Defaults to "pki"
+	Role  string `yaml:"role"`            // PKI role used to issue leaf certificates
 }
 
 type KubernetesConfig struct {
@@ -182,11 +193,7 @@ type SSHCAManualConfig struct {
 
 // SSHCAVaultConfig configures CAs backed by Vault's SSH secrets engine.
 type SSHCAVaultConfig struct {
-	Address      string               `yaml:"address"`                // Vault server address, e.g. https://vault.example.com:8200
-	CABundleFile string               `yaml:"caBundleFile,omitempty"` // Path to a PEM CA bundle for verifying Vault's TLS certificate; omit to use the system trust store
-	Auth         SSHCAVaultAuthConfig `yaml:"auth"`
-
-	Namespace string `yaml:"namespace,omitempty"` // Optional Vault namespace
+	VaultConfig `yaml:",inline"`
 
 	// Default SSH secrets engine mount point and role (used for all CAs unless
 	// overridden below).
@@ -210,27 +217,36 @@ type SSHCAVaultMountConfig struct {
 	Mount string `yaml:"mount,omitempty"`
 }
 
-// SSHCAVaultAuthConfig configures how the Gateway authenticates to Vault.
-// At most one method may be set. If none is set, the token is read from the
-// VAULT_TOKEN environment variable.
-type SSHCAVaultAuthConfig struct {
-	Token   string                   `yaml:"token,omitempty"` // Static Vault token. Inline tokens are for dev/testing only; in production deliver the token via the VAULT_TOKEN environment variable sourced from a secret store
-	AppRole *SSHCAVaultAppRoleConfig `yaml:"appRole,omitempty"`
-	GCP     *SSHCAVaultGCPConfig     `yaml:"gcp,omitempty"`
-	AWS     *SSHCAVaultAWSConfig     `yaml:"aws,omitempty"`
+// VaultConfig holds the connection settings shared by every Vault-backed CA.
+type VaultConfig struct {
+	Address      string          `yaml:"address"`                // Vault server address, e.g. https://vault.example.com:8200
+	CABundleFile string          `yaml:"caBundleFile,omitempty"` // Path to a PEM CA bundle for verifying Vault's TLS certificate; omit to use the system trust store
+	Auth         VaultAuthConfig `yaml:"auth"`
+
+	Namespace string `yaml:"namespace,omitempty"` // Optional Vault namespace
 }
 
-// SSHCAVaultAppRoleConfig configures Vault AppRole authentication.
+// VaultAuthConfig configures how the Gateway authenticates to Vault.
+// At most one method may be set. If none is set, the token is read from the
+// VAULT_TOKEN environment variable.
+type VaultAuthConfig struct {
+	Token   string              `yaml:"token,omitempty"` // Static Vault token. Inline tokens are for dev/testing only; in production deliver the token via the VAULT_TOKEN environment variable sourced from a secret store
+	AppRole *VaultAppRoleConfig `yaml:"appRole,omitempty"`
+	GCP     *VaultGCPConfig     `yaml:"gcp,omitempty"`
+	AWS     *VaultAWSConfig     `yaml:"aws,omitempty"`
+}
+
+// VaultAppRoleConfig configures Vault AppRole authentication.
 // Exactly one of SecretID or SecretIDFile must be set.
-type SSHCAVaultAppRoleConfig struct {
+type VaultAppRoleConfig struct {
 	Mount        string `yaml:"mount,omitempty"` // AppRole auth mount path. Defaults to "approle"
 	RoleID       string `yaml:"roleID"`
 	SecretID     string `yaml:"secretID"`     // Inline SecretID, for dev/testing only
 	SecretIDFile string `yaml:"secretIDFile"` // Path to a file containing the SecretID; preferred in production
 }
 
-// SSHCAVaultGCPConfig configures Vault GCP authentication.
-type SSHCAVaultGCPConfig struct {
+// VaultGCPConfig configures Vault GCP authentication.
+type VaultGCPConfig struct {
 	Mount string `yaml:"mount,omitempty"` // GCP auth mount path. Defaults to "gcp"
 	Role  string `yaml:"role"`            // Vault GCP auth role to login as
 	Type  string `yaml:"type"`            // "gce" or "iam"
@@ -239,8 +255,8 @@ type SSHCAVaultGCPConfig struct {
 	ServiceAccountEmail string `yaml:"serviceAccountEmail,omitempty"` // Required
 }
 
-// SSHCAVaultAWSConfig configures Vault AWS authentication.
-type SSHCAVaultAWSConfig struct {
+// VaultAWSConfig configures Vault AWS authentication.
+type VaultAWSConfig struct {
 	Mount             string `yaml:"mount,omitempty"` // AWS auth mount path. Defaults to "aws"
 	Role              string `yaml:"role"`            // Vault AWS auth role to login as
 	Type              string `yaml:"type"`            // "iam" or "ec2"
@@ -428,8 +444,9 @@ func (t *TLSCertificateFileKeyPair) Validate() error {
 }
 
 var (
-	ErrMissingTLSIssuerConfig = errors.New("at least one TLS issuer must be configured")
-	ErrInvalidTLSKeyType      = errors.New("invalid TLS key type")
+	ErrMissingTLSIssuerConfig     = errors.New("at least one TLS issuer must be configured")
+	ErrConflictingTLSIssuerConfig = errors.New("only one of 'local' or 'vault' can be specified for TLS issuer config")
+	ErrInvalidTLSKeyType          = errors.New("invalid TLS key type")
 )
 
 func (a *TLSAutomationConfig) Validate() error {
@@ -470,12 +487,24 @@ func (k *TLSCertificateKeyConfig) Validate() error {
 }
 
 func (i *TLSIssuerConfig) Validate() error {
-	if i.Local == nil {
+	if i.Local == nil && i.Vault == nil {
 		return ErrMissingTLSIssuerConfig
 	}
 
-	if err := i.Local.Validate(); err != nil {
-		return fmt.Errorf("local: %w", err)
+	if i.Local != nil && i.Vault != nil {
+		return ErrConflictingTLSIssuerConfig
+	}
+
+	if i.Local != nil {
+		if err := i.Local.Validate(); err != nil {
+			return fmt.Errorf("local: %w", err)
+		}
+	}
+
+	if i.Vault != nil {
+		if err := i.Vault.Validate(); err != nil {
+			return fmt.Errorf("vault: %w", err)
+		}
 	}
 
 	return nil
@@ -491,6 +520,41 @@ func (l *TLSLocalIssuerConfig) Validate() error {
 	}
 
 	return nil
+}
+
+func (v *VaultConfig) Validate() error {
+	if v.Address == "" {
+		return fmt.Errorf("%w: address", ErrRequired)
+	}
+
+	if err := v.Auth.Validate(); err != nil {
+		return fmt.Errorf("auth: %w", err)
+	}
+
+	return nil
+}
+
+func (v *TLSVaultIssuerConfig) Validate() error {
+	if err := v.VaultConfig.Validate(); err != nil {
+		return err
+	}
+
+	if v.Role == "" {
+		return fmt.Errorf("%w: role", ErrRequired)
+	}
+
+	return nil
+}
+
+const defaultVaultPKIMount = "pki"
+
+// GetMount returns the PKI secrets engine mount point, defaulting to "pki".
+func (v *TLSVaultIssuerConfig) GetMount() string {
+	if v.Mount != "" {
+		return v.Mount
+	}
+
+	return defaultVaultPKIMount
 }
 
 func (k *KubernetesConfig) Validate() error {
@@ -650,12 +714,8 @@ func (m *SSHCAManualConfig) Validate() error {
 }
 
 func (v *SSHCAVaultConfig) Validate() error {
-	if v.Address == "" {
-		return fmt.Errorf("%w: server", ErrRequired)
-	}
-
-	if err := v.Auth.Validate(); err != nil {
-		return fmt.Errorf("auth: %w", err)
+	if err := v.VaultConfig.Validate(); err != nil {
+		return err
 	}
 
 	// Validate that we can resolve Gateway host and user cert mounts/roles
@@ -686,7 +746,7 @@ var (
 	ErrInvalidAWSSignatureType   = errors.New("aws signatureType must be 'identity', 'pkcs7', or 'rsa2048'")
 )
 
-func (a *SSHCAVaultAuthConfig) Validate() error {
+func (a *VaultAuthConfig) Validate() error {
 	configuredMethods := a.countConfiguredMethods()
 	if configuredMethods > 1 {
 		return ErrConflictingAuthConfig
@@ -713,7 +773,7 @@ func (a *SSHCAVaultAuthConfig) Validate() error {
 	return nil
 }
 
-func (a *SSHCAVaultAuthConfig) countConfiguredMethods() int {
+func (a *VaultAuthConfig) countConfiguredMethods() int {
 	count := 0
 
 	if a.Token != "" {
@@ -738,7 +798,7 @@ func (a *SSHCAVaultAuthConfig) countConfiguredMethods() int {
 const defaultAppRoleMount = "approle"
 
 // GetMount returns the appRole mount path, defaulting to "approle" if not specified.
-func (a *SSHCAVaultAppRoleConfig) GetMount() string {
+func (a *VaultAppRoleConfig) GetMount() string {
 	if a.Mount != "" {
 		return a.Mount
 	}
@@ -746,7 +806,7 @@ func (a *SSHCAVaultAppRoleConfig) GetMount() string {
 	return defaultAppRoleMount
 }
 
-func (a *SSHCAVaultAppRoleConfig) Validate() error {
+func (a *VaultAppRoleConfig) Validate() error {
 	if a.RoleID == "" {
 		return fmt.Errorf("%w: roleID", ErrRequired)
 	}
@@ -765,7 +825,7 @@ func (a *SSHCAVaultAppRoleConfig) Validate() error {
 const defaultGCPMount = "gcp"
 
 // GetMount returns the GCP auth mount path, defaulting to "gcp" if not specified.
-func (g *SSHCAVaultGCPConfig) GetMount() string {
+func (g *VaultGCPConfig) GetMount() string {
 	if g.Mount != "" {
 		return g.Mount
 	}
@@ -773,7 +833,7 @@ func (g *SSHCAVaultGCPConfig) GetMount() string {
 	return defaultGCPMount
 }
 
-func (g *SSHCAVaultGCPConfig) Validate() error {
+func (g *VaultGCPConfig) Validate() error {
 	if g.Role == "" {
 		return fmt.Errorf("%w: role", ErrRequired)
 	}
@@ -804,7 +864,7 @@ const (
 )
 
 // GetMount returns the AWS auth mount path, defaulting to "aws" if not specified.
-func (a *SSHCAVaultAWSConfig) GetMount() string {
+func (a *VaultAWSConfig) GetMount() string {
 	if a.Mount != "" {
 		return a.Mount
 	}
@@ -814,7 +874,7 @@ func (a *SSHCAVaultAWSConfig) GetMount() string {
 
 // GetSignatureType returns the EC2 auth signature type, defaulting to "rsa2048"
 // (SHA-256) when unset rather than the Vault SDK's pkcs7 (SHA-1) default.
-func (a *SSHCAVaultAWSConfig) GetSignatureType() string {
+func (a *VaultAWSConfig) GetSignatureType() string {
 	if a.SignatureType != "" {
 		return a.SignatureType
 	}
@@ -822,7 +882,7 @@ func (a *SSHCAVaultAWSConfig) GetSignatureType() string {
 	return defaultAWSSignatureType
 }
 
-func (a *SSHCAVaultAWSConfig) Validate() error {
+func (a *VaultAWSConfig) Validate() error {
 	if a.Role == "" {
 		return fmt.Errorf("%w: role", ErrRequired)
 	}
@@ -842,7 +902,7 @@ func (a *SSHCAVaultAWSConfig) Validate() error {
 	}
 }
 
-func (a *SSHCAVaultAWSConfig) validateEC2Type() error {
+func (a *VaultAWSConfig) validateEC2Type() error {
 	if a.SignatureType == "" {
 		return nil
 	}

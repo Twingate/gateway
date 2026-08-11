@@ -82,13 +82,22 @@ func TestNewCertAutomation_Errors(t *testing.T) {
 	tests := []struct {
 		name        string
 		local       *config.TLSLocalIssuerConfig
+		vault       *config.TLSVaultIssuerConfig
 		key         config.TLSCertificateKeyConfig
 		wantErr     error
 		errContains string
 	}{
 		{
-			name:    "missing local issuer",
+			name:    "missing issuer",
 			wantErr: config.ErrMissingTLSIssuerConfig,
+		},
+		{
+			name: "vault CA bundle missing",
+			vault: &config.TLSVaultIssuerConfig{
+				Address: "https://vault.acme.int:8200", CABundleFile: "missing.crt",
+				Role: "gateway",
+			},
+			errContains: "failed to create Vault client",
 		},
 		{
 			name:    "unsupported key type",
@@ -123,7 +132,7 @@ func TestNewCertAutomation_Errors(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := NewCertAutomation(config.TLSAutomationConfig{
 				Certificate: config.TLSAutomationCertificateConfig{Key: tt.key},
-				Issuer:      config.TLSIssuerConfig{Local: tt.local},
+				Issuer:      config.TLSIssuerConfig{Local: tt.local, Vault: tt.vault},
 			}, zap.NewNop())
 
 			require.Error(t, err)
@@ -137,6 +146,19 @@ func TestNewCertAutomation_Errors(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The vault issuer is selected when the issuer config names Vault.
+func TestNewCertAutomation_VaultIssuer(t *testing.T) {
+	automation, err := NewCertAutomation(config.TLSAutomationConfig{
+		Issuer: config.TLSIssuerConfig{Vault: &config.TLSVaultIssuerConfig{
+			Address: "https://vault.acme.int:8200",
+			Role:    "gateway",
+		}},
+	}, zap.NewNop())
+
+	require.NoError(t, err)
+	assert.IsType(t, &vaultIssuer{}, automation.issuer)
 }
 
 func TestCertAutomation_GetCertificateForHost_DNSHost(t *testing.T) {
