@@ -72,7 +72,7 @@ type windowChangeReq struct {
 // parseRequestPayload unmarshals request payload and logs error if parsing fails.
 func (h *SSHRequestHandler) parseRequestPayload(req *ssh.Request, target any) {
 	if err := ssh.Unmarshal(req.Payload, target); err != nil {
-		h.logger.Error("Failed to parse "+req.Type+" request",
+		h.logger.Error("Failed to parse channel request",
 			zap.Any("ssh", h.sshChannelCtx.withRequest(req.Type, nil)),
 			zap.Error(err))
 	}
@@ -84,7 +84,7 @@ func (h *SSHRequestHandler) handleRequest(req *ssh.Request, sessionSignals SSHSe
 	// Reply before signaling session start: the signal unblocks serve() and lets upstream
 	// data flow to the client, which must not reach the client before the request reply.
 	if err := req.Reply(accepted, nil); err != nil {
-		h.logger.Error("Failed to reply to request",
+		h.logger.Error("Failed to reply to channel request",
 			zap.Any("ssh", h.sshChannelCtx.withRequest(req.Type, nil)), zap.Error(err))
 	}
 
@@ -153,14 +153,14 @@ func (h *SSHRequestHandler) forwardRequest(req *ssh.Request) (accepted, startSes
 	// Reject duplicates without forwarding: signaling a second session start would send on
 	// the already-closed started channel.
 	if isSessionStartReq && h.sessionStarted {
-		logger().Warn("Rejecting duplicate session start request")
+		logger().Warn("SSH channel request rejected: duplicate session start")
 
 		return false, false, ""
 	}
 
 	accepted, err := h.targetChannel.SendRequest(req.Type, req.WantReply, req.Payload)
 	if err != nil {
-		logger().Error("Failed to forward request", zap.Error(err))
+		logger().Error("Failed to forward channel request", zap.Error(err))
 
 		return false, false, ""
 	}
