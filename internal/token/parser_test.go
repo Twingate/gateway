@@ -7,7 +7,6 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
-	"maps"
 	"testing"
 	"time"
 
@@ -58,68 +57,6 @@ func newTokenService() *tokenService {
 	return &tokenService{
 		signingKey: privateKey,
 		keyfunc:    func(_token *jwt.Token) (any, error) { return &privateKey.PublicKey, nil },
-	}
-}
-
-type CustomClaims struct {
-	jwt.RegisteredClaims
-}
-
-func (c *CustomClaims) getHeaderType() string {
-	return "custom"
-}
-
-func TestParser_ParseWithClaims(t *testing.T) {
-	tokenService := newTokenService()
-	parser, _ := NewParser(ParserConfig{
-		Issuer:   "twingate",
-		Audience: "acme",
-		Keyfunc:  tokenService.keyfunc,
-	})
-
-	t.Run("Valid token type", func(t *testing.T) {
-		claims := &CustomClaims{}
-		headers := map[string]any{"typ": "custom", "alg": "ES256"}
-		tokenStr, err := tokenService.signToken(jwt.MapClaims{}, headers)
-		require.NoError(t, err)
-
-		token, err := parser.ParseWithClaims(tokenStr, claims)
-
-		require.NoError(t, err)
-		require.NotNil(t, token)
-		require.True(t, token.Valid)
-	})
-
-	tests := []struct {
-		name          string
-		headers       map[string]any
-		expectedError error
-	}{
-		{
-			name:          "Missing token type",
-			headers:       map[string]any{},
-			expectedError: errInvalidTokenType,
-		},
-		{
-			name:          "Invalid token type",
-			headers:       map[string]any{"typ": "invalid"},
-			expectedError: errInvalidTokenType,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			claims := &CustomClaims{}
-			headers := map[string]any{"alg": "ES256"}
-			maps.Copy(headers, tt.headers)
-			tokenStr, err := tokenService.signToken(jwt.MapClaims{}, headers)
-			require.NoError(t, err)
-
-			token, err := parser.ParseWithClaims(tokenStr, claims)
-
-			require.ErrorIs(t, err, tt.expectedError)
-			require.Nil(t, token)
-		})
 	}
 }
 

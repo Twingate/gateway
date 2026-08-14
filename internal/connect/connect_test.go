@@ -50,6 +50,7 @@ func newGATTokenClaims(clientPublicKey token.PublicKey) token.GATClaims {
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
+		Type:            "GAT",
 		Version:         "1",
 		RenewAt:         jwt.NewNumericDate(time.Now().Add(time.Minute)),
 		ClientPublicKey: clientPublicKey,

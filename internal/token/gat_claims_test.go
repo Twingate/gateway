@@ -54,6 +54,7 @@ func TestGATTokenClaims_Validate(t *testing.T) {
 	privateKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 
 	var validClaims = GATClaims{
+		Type:            "GAT",
 		Version:         "1",
 		RenewAt:         jwt.NewNumericDate(time.Now().Add(5 * time.Minute)),
 		ClientPublicKey: PublicKey{privateKey.PublicKey},
@@ -94,6 +95,14 @@ func TestGATTokenClaims_Validate(t *testing.T) {
 		expectedError        error
 		expectedErrorMessage string
 	}{
+		{
+			name: "Missing token type",
+			setupFn: func(claims *GATClaims) {
+				claims.Type = ""
+			},
+			expectedError:        jwt.ErrTokenRequiredClaimMissing,
+			expectedErrorMessage: "\"typ\"",
+		},
 		{
 			name: "Missing version",
 			setupFn: func(claims *GATClaims) {
@@ -149,6 +158,14 @@ func TestGATTokenClaims_Validate(t *testing.T) {
 			},
 			expectedError:        jwt.ErrTokenRequiredClaimMissing,
 			expectedErrorMessage: "\"resource.address\"",
+		},
+		{
+			name: "Invalid token type",
+			setupFn: func(claims *GATClaims) {
+				claims.Type = "JWT"
+			},
+			expectedError:        jwt.ErrTokenInvalidClaims,
+			expectedErrorMessage: "token type is invalid \"JWT\"",
 		},
 		{
 			name: "Unsupported version",
