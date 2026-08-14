@@ -93,7 +93,7 @@ func NewController(network string, port int) *httptest.Server {
 
 		token := &jwt.Token{
 			Header: map[string]any{
-				"typ": "GAT",
+				"typ": "JWT",
 				"alg": jwt.SigningMethodES256.Alg(),
 				"kid": keyID,
 			},

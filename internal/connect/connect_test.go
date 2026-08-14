@@ -89,7 +89,6 @@ func createParserAndGATToken(t *testing.T, claims token.GATClaims) (*token.Parse
 	require.NoError(t, err)
 
 	gatToken := jwt.NewWithClaims(jwt.SigningMethodES256, claims)
-	gatToken.Header["typ"] = "GAT"
 	tokenStr, err := gatToken.SignedString(privateKey)
 	require.NoError(t, err)
 
