@@ -265,8 +265,7 @@ func (c *SSHConnPair) handleGlobalRequest(req *ssh.Request, dst ssh.Conn, disall
 	}
 }
 
-// forwardGlobalRequest forwards a global request to dst and returns the reply to send back. The
-// named returns default to a rejection, so every early return rejects the request.
+// forwardGlobalRequest forwards a global request to dst and returns the reply to send back.
 func (c *SSHConnPair) forwardGlobalRequest(req *ssh.Request, dst ssh.Conn, disallowedTypes map[string]bool, source, target string) (accepted bool, replyPayload []byte) {
 	extra, parseErr := globalRequestLogFields(req.Type, req.Payload)
 

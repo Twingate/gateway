@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
 
 	authv1 "k8s.io/api/authentication/v1"
@@ -83,24 +84,36 @@ func AssertLogsForExecOrAttach(t *testing.T, logs *observer.ObservedLogs, expect
 	assert.Equal(t, firstLog.ContextMap()["request_id"], secondLog.ContextMap()["request_id"])
 }
 
-func AssertLogsForSSH(t *testing.T, logs *observer.ObservedLogs, expectedUser, expectedRequest map[string]any) {
+// SSHChannelRequestLog is an expected "SSH channel request" audit log: the level it is logged at
+// and the whole ssh.request field it carries.
+type SSHChannelRequestLog struct {
+	Level   zapcore.Level
+	Request map[string]any
+}
+
+// AssertLogsForSSHChannelRequests asserts that the observed "SSH channel request" logs are exactly
+// expectedRequests, in the order the gateway logged them. Each direction is logged by its own
+// goroutine, so an order across directions holds only for causally ordered requests, such as an
+// exec request and the exit-status that follows it.
+func AssertLogsForSSHChannelRequests(t *testing.T, logs *observer.ObservedLogs, expectedUser map[string]any, expectedRequests []SSHChannelRequestLog) {
 	t.Helper()
 
-	sessionLogs := logs.FilterMessage("SSH channel request").All()
-	assert.Len(t, sessionLogs, 1, "expected 1 log for SSH session, user %v", expectedUser)
+	requestLogs := logs.FilterMessage("SSH channel request").All()
+	actualRequests := make([]SSHChannelRequestLog, 0, len(requestLogs))
 
-	firstLog := sessionLogs[0]
-	assert.Equal(t, expectedUser, firstLog.ContextMap()["user"])
+	for _, log := range requestLogs {
+		assert.Equal(t, expectedUser, log.ContextMap()["user"])
 
-	sshField, ok := firstLog.ContextMap()["ssh"].(map[string]any)
-	require.True(t, ok, "ssh field should be a map")
+		sshField, ok := log.ContextMap()["ssh"].(map[string]any)
+		require.True(t, ok, "ssh field should be a map")
 
-	requestField, ok := sshField["request"].(map[string]any)
-	require.True(t, ok, "ssh.request field should be a map")
+		requestField, ok := sshField["request"].(map[string]any)
+		require.True(t, ok, "ssh.request field should be a map")
 
-	for k, v := range expectedRequest {
-		assert.Equal(t, v, requestField[k], "ssh.request.%s mismatch", k)
+		actualRequests = append(actualRequests, SSHChannelRequestLog{Level: log.Level, Request: requestField})
 	}
+
+	assert.Equal(t, expectedRequests, actualRequests)
 }
 
 func AssertLogsForSSHChannel(t *testing.T, logs *observer.ObservedLogs, expectedUser, expectedChannel map[string]any) {

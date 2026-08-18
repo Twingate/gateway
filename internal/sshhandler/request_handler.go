@@ -97,8 +97,8 @@ func (h *SSHRequestHandler) handleRequest(req *ssh.Request, sessionSignals SSHSe
 	}
 }
 
-// forwardRequest forwards a channel request to the target. The named returns default to a
-// rejection, so every early return rejects the request without starting a session.
+// forwardRequest forwards a channel request to the target channel and reports whether the target
+// accepted it, along with the command to start a session with when the request starts one.
 func (h *SSHRequestHandler) forwardRequest(req *ssh.Request) (accepted, startSession bool, command string) {
 	// A shell, exec, or subsystem request starts the session
 	// see: https://datatracker.ietf.org/doc/html/rfc4254#section-6.5
