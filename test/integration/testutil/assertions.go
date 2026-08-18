@@ -84,8 +84,6 @@ func AssertLogsForExecOrAttach(t *testing.T, logs *observer.ObservedLogs, expect
 	assert.Equal(t, firstLog.ContextMap()["request_id"], secondLog.ContextMap()["request_id"])
 }
 
-// SSHChannelRequestLog is an expected "SSH channel request" audit log: the level it is logged at
-// and the whole ssh.request field it carries.
 type SSHChannelRequestLog struct {
 	Level   zapcore.Level
 	Request map[string]any

@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest"
 	"go.uber.org/zap/zaptest/observer"
 	"golang.org/x/crypto/ssh"
@@ -182,17 +183,17 @@ func TestChannelPair_SessionRequestLogsAcceptedOnlyWithReply(t *testing.T) {
 	}
 }
 
-func TestChannelPair_AuditsRequestsExceptKnownMechanics(t *testing.T) {
-	// A forwarding channel keeps this off the session-start gate and shows the audit no longer
-	// depends on channel type.
+func TestChannelPair_RequestLogLevelByType(t *testing.T) {
+	// None of these requests starts a session. On a session channel, serve() would then wait on
+	// the session-start gate until sessionStartTimeout, so the test uses a direct-tcpip channel.
 	tests := []struct {
-		name    string
-		reqType string
-		payload []byte
-		audited bool
+		name      string
+		reqType   string
+		payload   []byte
+		wantLevel zapcore.Level
 	}{
-		{name: "unknown custom type", reqType: "probe@example.com", audited: true},
-		{name: "terminal mechanic", reqType: requestTypeWindowChange, payload: ssh.Marshal(windowChangeReq{WidthColumns: 80, HeightRows: 24}), audited: false},
+		{name: "unknown custom type", reqType: "probe@example.com", wantLevel: zap.InfoLevel},
+		{name: "terminal mechanic", reqType: requestTypeWindowChange, payload: ssh.Marshal(windowChangeReq{WidthColumns: 80, HeightRows: 24}), wantLevel: zap.DebugLevel},
 	}
 
 	for _, tt := range tests {
@@ -208,13 +209,7 @@ func TestChannelPair_AuditsRequestsExceptKnownMechanics(t *testing.T) {
 
 			entries := logs.FilterMessage("SSH channel request").All()
 			require.Len(t, entries, 1)
-
-			wantLevel := zap.DebugLevel
-			if tt.audited {
-				wantLevel = zap.InfoLevel
-			}
-
-			assert.Equal(t, wantLevel, entries[0].Level)
+			assert.Equal(t, tt.wantLevel, entries[0].Level)
 		})
 	}
 }
