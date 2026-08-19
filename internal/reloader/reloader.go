@@ -6,6 +6,7 @@ package reloader
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -16,16 +17,14 @@ import (
 // Reloader watches a set of files and invokes load whenever any of them
 // changes, retrying the watch loop after transient failures.
 type Reloader struct {
-	name   string
 	files  []string
 	load   func() error
 	logger *zap.Logger
 }
 
 // New creates a Reloader that watches files and calls load on every change.
-func New(name string, logger *zap.Logger, load func() error, files ...string) *Reloader {
+func New(files []string, load func() error, logger *zap.Logger) *Reloader {
 	return &Reloader{
-		name:   name,
 		files:  files,
 		load:   load,
 		logger: logger,
@@ -37,7 +36,7 @@ func New(name string, logger *zap.Logger, load func() error, files ...string) *R
 func (r *Reloader) Run(ctx context.Context) {
 	go wait.Until(func() {
 		if err := r.watch(ctx); err != nil {
-			r.logger.Error(fmt.Sprintf("Failed to watch %s, will retry later", r.name), zap.Error(err))
+			r.logger.Error(fmt.Sprintf("Failed to watch %s, will retry later", strings.Join(r.files, ", ")), zap.Error(err))
 		}
 	}, time.Minute, ctx.Done())
 }
@@ -56,10 +55,10 @@ func (r *Reloader) watch(ctx context.Context) error {
 	}
 
 	if err := r.load(); err != nil {
-		return fmt.Errorf("error loading %s: %w", r.name, err)
+		return fmt.Errorf("error loading %s: %w", strings.Join(r.files, ", "), err)
 	}
 
-	r.logger.Info(fmt.Sprintf("Start watching %s changes", r.name))
+	r.logger.Info(fmt.Sprintf("Start watching %s changes", strings.Join(r.files, ", ")))
 
 	for {
 		select {
@@ -70,7 +69,7 @@ func (r *Reloader) watch(ctx context.Context) error {
 		case err := <-watcher.Errors:
 			return fmt.Errorf("received error from watcher: %w", err)
 		case <-ctx.Done():
-			r.logger.Info(fmt.Sprintf("Stopped watching %s changes", r.name))
+			r.logger.Info(fmt.Sprintf("Stopped watching %s changes", strings.Join(r.files, ", ")))
 
 			return nil
 		}
@@ -82,7 +81,7 @@ func (r *Reloader) handleWatchEvent(event fsnotify.Event, watcher *fsnotify.Watc
 
 	if !event.Has(fsnotify.Remove) && !event.Has(fsnotify.Rename) {
 		if err := r.load(); err != nil {
-			r.logger.Error("Failed to load "+r.name, zap.Error(err))
+			r.logger.Error("Failed to load "+event.Name, zap.Error(err))
 		}
 
 		return nil

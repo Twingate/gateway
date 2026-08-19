@@ -6,6 +6,7 @@ package sshhandler
 import (
 	"crypto/rand"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -131,7 +132,7 @@ func TestNewManualCA_ReloadsPrivateKey(t *testing.T) {
 	// Wait until the watcher is registered and its initial load is done, so the replacement
 	// below is observed as a change instead of racing watcher setup.
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		require.NotEmpty(c, logs.FilterMessage("Start watching CA private key file changes").All())
+		require.NotEmpty(c, logs.FilterMessage(fmt.Sprintf("Start watching %s changes", keyFile)).All())
 	}, time.Second, 5*time.Millisecond)
 
 	newKeyPEM, newPublicKey := generateCAKey(t)

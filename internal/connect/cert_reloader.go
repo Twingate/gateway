@@ -30,7 +30,7 @@ func NewCertReloader(certFile, keyFile string, logger *zap.Logger) *CertReloader
 		keyFile:  keyFile,
 		logger:   logger,
 	}
-	cr.reloader = reloader.New("cert and key file", logger, cr.load, certFile, keyFile)
+	cr.reloader = reloader.New([]string{certFile, keyFile}, cr.load, logger)
 
 	return cr
 }

@@ -6,6 +6,7 @@ package reloader
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -76,7 +77,7 @@ func TestReloadsWhenFileChanged(t *testing.T) {
 	file := createFile(t, dir, "test_file", "old")
 	rec := &recorder{file: file}
 
-	New("test file", zap.NewNop(), rec.load, file).Run(t.Context())
+	New([]string{file}, rec.load, zap.NewNop()).Run(t.Context())
 
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		assert.Equal(c, "old", rec.get())
@@ -94,7 +95,7 @@ func TestReloadsWhenFileReplacedAtomically(t *testing.T) {
 	file := createFile(t, dir, "test_file", "old")
 	rec := &recorder{file: file}
 
-	New("test file", zap.NewNop(), rec.load, file).Run(t.Context())
+	New([]string{file}, rec.load, zap.NewNop()).Run(t.Context())
 
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		assert.Equal(c, "old", rec.get())
@@ -126,7 +127,7 @@ func TestReloadsAfterKubernetesSecretUpdate(t *testing.T) {
 	watched := filepath.Join(mount, "file")
 	rec := &recorder{file: watched}
 
-	New("test file", zap.NewNop(), rec.load, watched).Run(t.Context())
+	New([]string{watched}, rec.load, zap.NewNop()).Run(t.Context())
 
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		assert.Equal(c, "old", rec.get())
@@ -148,39 +149,36 @@ func TestReloadsAfterKubernetesSecretUpdate(t *testing.T) {
 
 func TestReloadsMultipleFiles(t *testing.T) {
 	dir := t.TempDir()
-	fileA := createFile(t, dir, "a", "a1")
-	fileB := createFile(t, dir, "b", "b1")
+	recA := &recorder{file: createFile(t, dir, "a", "a_old")}
+	recB := &recorder{file: createFile(t, dir, "b", "b_old")}
 
-	var mu sync.Mutex
-
-	loads := 0
 	reload := func() error {
-		mu.Lock()
-		defer mu.Unlock()
+		if err := recA.load(); err != nil {
+			return err
+		}
 
-		loads++
-
-		return nil
+		return recB.load()
 	}
 
-	New("a and b", zap.NewNop(), reload, fileA, fileB).Run(t.Context())
+	New([]string{recA.file, recB.file}, reload, zap.NewNop()).Run(t.Context())
 
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		mu.Lock()
-		defer mu.Unlock()
-
-		assert.GreaterOrEqual(c, loads, 1)
+		assert.Equal(c, "a_old", recA.get())
+		assert.Equal(c, "b_old", recB.get())
 	}, time.Second, 5*time.Millisecond)
 
-	require.NoError(t, os.WriteFile(fileA, []byte("a2"), 0600))
-	require.NoError(t, os.WriteFile(fileB, []byte("b2"), 0600))
+	require.NoError(t, os.WriteFile(recB.file, []byte("b_new"), 0600))
 
-	// Initial load plus one event per changed file.
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		assert.Equal(c, "a_old", recA.get())
+		assert.Equal(c, "b_new", recB.get())
+	}, time.Second, 5*time.Millisecond)
+
+	require.NoError(t, os.WriteFile(recA.file, []byte("a_new"), 0600))
+
 	assert.EventuallyWithT(t, func(c *assert.CollectT) {
-		mu.Lock()
-		defer mu.Unlock()
-
-		assert.GreaterOrEqual(c, loads, 3)
+		assert.Equal(c, "a_new", recA.get())
+		assert.Equal(c, "b_new", recB.get())
 	}, time.Second, 5*time.Millisecond)
 }
 
@@ -191,7 +189,7 @@ func TestKeepsWatchingAfterLoadError(t *testing.T) {
 	file := createFile(t, dir, "test_file", "old")
 	rec := &recorder{file: file}
 
-	New("test file", zap.New(core), rec.load, file).Run(t.Context())
+	New([]string{file}, rec.load, zap.New(core)).Run(t.Context())
 
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		assert.Equal(c, "old", rec.get())
@@ -201,7 +199,7 @@ func TestKeepsWatchingAfterLoadError(t *testing.T) {
 	require.NoError(t, os.WriteFile(file, []byte("bad"), 0600))
 
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		require.NotEmpty(c, logs.FilterMessage("Failed to load test file").All())
+		require.NotEmpty(c, logs.FilterMessage("Failed to load "+file).All())
 	}, time.Second, 5*time.Millisecond)
 
 	assert.Equal(t, "old", rec.get())
@@ -221,7 +219,7 @@ func TestRetriesWatchWhenFileRemoved(t *testing.T) {
 	file := createFile(t, dir, "test_file", "old")
 	rec := &recorder{file: file}
 
-	New("test file", zap.New(core), rec.load, file).Run(t.Context())
+	New([]string{file}, rec.load, zap.New(core)).Run(t.Context())
 
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		assert.Equal(c, "old", rec.get())
@@ -231,7 +229,7 @@ func TestRetriesWatchWhenFileRemoved(t *testing.T) {
 
 	// Re-adding the watch fails because the file is gone: the watch exits and retries later.
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		require.NotEmpty(c, logs.FilterMessage("Failed to watch test file, will retry later").All())
+		require.NotEmpty(c, logs.FilterMessage(fmt.Sprintf("Failed to watch %s, will retry later", file)).All())
 	}, time.Second, 5*time.Millisecond)
 }
 
@@ -243,7 +241,7 @@ func TestDoesNotReloadWhenContextCanceled(t *testing.T) {
 	rec := &recorder{file: file}
 
 	ctx, cancel := context.WithCancel(t.Context())
-	New("test file", zap.New(core), rec.load, file).Run(ctx)
+	New([]string{file}, rec.load, zap.New(core)).Run(ctx)
 
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		assert.Equal(c, "old", rec.get())
@@ -252,7 +250,7 @@ func TestDoesNotReloadWhenContextCanceled(t *testing.T) {
 	// Wait until the watcher confirms it stopped, so the write below cannot race an in-flight watch.
 	cancel()
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		require.NotEmpty(c, logs.FilterMessage("Stopped watching test file changes").All())
+		require.NotEmpty(c, logs.FilterMessage(fmt.Sprintf("Stopped watching %s changes", file)).All())
 	}, time.Second, 5*time.Millisecond)
 
 	require.NoError(t, os.WriteFile(file, []byte("new"), 0600))
@@ -267,29 +265,30 @@ func TestLogsRetryWhenInitialLoadFails(t *testing.T) {
 		file := createFile(t, dir, "test_file", "old")
 		rec := &recorder{file: file, failNow: true}
 
-		New("test file", zap.New(core), rec.load, file).Run(t.Context())
+		New([]string{file}, rec.load, zap.New(core)).Run(t.Context())
 
 		synctest.Wait()
 
 		all := logs.All()
 		require.NotEmpty(t, all)
 		assert.Equal(t, zapcore.ErrorLevel, all[0].Level)
-		assert.Equal(t, "Failed to watch test file, will retry later", all[0].Message)
+		assert.Equal(t, fmt.Sprintf("Failed to watch %s, will retry later", file), all[0].Message)
 	})
 }
 
 func TestLogsRetryWhenFileMissing(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		core, logs := observer.New(zapcore.DebugLevel)
-		rec := &recorder{file: "/nonexistent/resource"}
+		file := "/nonexistent/resource"
+		rec := &recorder{file: file}
 
-		New("test file", zap.New(core), rec.load, "/nonexistent/resource").Run(t.Context())
+		New([]string{file}, rec.load, zap.New(core)).Run(t.Context())
 
 		synctest.Wait()
 
 		all := logs.All()
 		require.NotEmpty(t, all)
 		assert.Equal(t, zapcore.ErrorLevel, all[0].Level)
-		assert.Equal(t, "Failed to watch test file, will retry later", all[0].Message)
+		assert.Equal(t, fmt.Sprintf("Failed to watch %s, will retry later", file), all[0].Message)
 	})
 }

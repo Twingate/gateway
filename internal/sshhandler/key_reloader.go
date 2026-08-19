@@ -34,7 +34,7 @@ func newKeyReloader(keyFile string, logger *zap.Logger) *keyReloader {
 		logger:   logger,
 		reloadCh: make(chan struct{}, 1),
 	}
-	kr.reloader = reloader.New("CA private key file", logger, kr.load, keyFile)
+	kr.reloader = reloader.New([]string{keyFile}, kr.load, logger)
 
 	return kr
 }
