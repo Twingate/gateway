@@ -10,12 +10,28 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"golang.org/x/crypto/ssh"
 )
+
+func TestKeyReloader_Run(t *testing.T) {
+	keyPEM, publicKey := generateCAKey(t)
+	keyFile := createCAKeyFile(t, keyPEM)
+
+	keyReloader := newKeyReloader(keyFile, zap.NewNop())
+	keyReloader.Run(t.Context())
+
+	requireKeyReloader(t, keyReloader, publicKey)
+
+	nextKeyPEM, nextPublicKey := generateCAKey(t)
+	replaceCAKeyFile(t, keyFile, nextKeyPEM)
+
+	requireKeyReloader(t, keyReloader, nextPublicKey)
+}
 
 func TestKeyReloader_load(t *testing.T) {
 	keyPEM, publicKey := generateCAKey(t)
@@ -88,6 +104,16 @@ func TestKeyReloaderSignalsReloadOnKeyChange(t *testing.T) {
 	}
 
 	requireNoReloadSignal()
+}
+
+func requireKeyReloader(t *testing.T, keyReloader *keyReloader, expectedPublicKey ssh.PublicKey) {
+	t.Helper()
+
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		signer := keyReloader.getSigner()
+		require.NotNil(c, signer)
+		require.Equal(c, expectedPublicKey.Marshal(), signer.PublicKey().Marshal())
+	}, time.Second, 5*time.Millisecond, "failed to get signer")
 }
 
 func generateCAKey(t *testing.T) (keyPEM []byte, publicKey ssh.PublicKey) {
