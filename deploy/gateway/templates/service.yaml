@@ -8,19 +8,11 @@ metadata:
     {{- with .Values.service.annotations }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
-    {{- if .Values.twingate.resource.enabled }}
-    resource.twingate.com: "true"
-    resource.twingate.com/type: "Kubernetes"
-    resource.twingate.com/tlsSecret: {{ include "gateway.tlsSecretName" . }}
-    {{- with .Values.twingate.resource.extraAnnotations }}
-    {{- toYaml . | nindent 4 }}
-    {{- end }}
-    {{- end }}
 spec:
   type: {{ .Values.service.type }}
   ports:
     - name: https
-      port: 443
+      port: {{ .Values.service.port }}
       targetPort: https
       protocol: TCP
       {{- if and (or (eq .Values.service.type "NodePort") (eq .Values.service.type "LoadBalancer")) .Values.service.nodePort }}
