@@ -38,10 +38,94 @@ type ca interface {
 	sign(ctx context.Context, req *certificateRequest) (*ssh.Certificate, error)
 }
 
-// rotatingCA is a CA whose signing key can rotate during the process lifetime.
-// The channel returned by rotated receives a value after each rotation.
-type rotatingCA interface {
-	rotated() <-chan struct{}
+// rotatableCA is a CA whose signing key can rotate during the process lifetime.
+type rotatableCA interface {
+	// subscribeRotation returns a channel that receives a value after each key rotation, and a
+	// function that ends the subscription. The channel is closed once the key can no longer rotate.
+	subscribeRotation() (<-chan struct{}, func())
+}
+
+// rotationNotifier implements rotatableCA by fanning each rotation out to everything holding a
+// subscription. Its zero value is ready to use, so a CA embeds it and needs no wiring of its own.
+type rotationNotifier struct {
+	mu          sync.Mutex
+	subscribers map[chan struct{}]struct{}
+	stopped     bool
+}
+
+func (n *rotationNotifier) subscribeRotation() (<-chan struct{}, func()) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	// One slot is enough: the value says the key changed, not which key it changed to, so a
+	// notification already waiting covers the rotations that follow it.
+	subscriber := make(chan struct{}, 1)
+
+	if n.stopped {
+		close(subscriber)
+
+		return subscriber, func() {}
+	}
+
+	if n.subscribers == nil {
+		n.subscribers = map[chan struct{}]struct{}{}
+	}
+
+	n.subscribers[subscriber] = struct{}{}
+
+	return subscriber, func() { n.unsubscribeRotation(subscriber) }
+}
+
+func (n *rotationNotifier) unsubscribeRotation(subscriber chan struct{}) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	delete(n.subscribers, subscriber)
+}
+
+// notifyRotationsFrom announces a rotation for every value received on rotated, until ctx is
+// canceled. Whoever owns the CA's lifetime runs this; the CA itself starts nothing.
+func (n *rotationNotifier) notifyRotationsFrom(ctx context.Context, rotated <-chan struct{}) {
+	defer n.stopRotations()
+
+	for {
+		select {
+		case <-rotated:
+			n.notifyRotation()
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+// notifyRotation tells every subscriber the key changed. Sends do not block: a subscriber that has
+// not read its previous notification yet is already going to re-sign with whatever key it finds.
+func (n *rotationNotifier) notifyRotation() {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	for subscriber := range n.subscribers {
+		select {
+		case subscriber <- struct{}{}:
+		default:
+		}
+	}
+}
+
+// stopRotations closes every subscription, so a subscriber stops waiting for a rotation that can no
+// longer happen. Closing belongs here rather than in the unsubscribe closure, because a send to a
+// closed channel panics and only the goroutine holding mu knows that notifyRotation is not sending.
+func (n *rotationNotifier) stopRotations() {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	n.stopped = true
+
+	for subscriber := range n.subscribers {
+		close(subscriber)
+	}
+
+	clear(n.subscribers)
 }
 
 // caProvider supplies the CAs for SSH authentication and runs any background
@@ -93,7 +177,6 @@ func newManualCA(privateKeyFile string, logger *zap.Logger) (*manualCAProvider, 
 
 	ca := &embeddedCA{
 		getSigner: reloader.getSigner,
-		rotateCh:  reloader.reloadCh,
 	}
 
 	publicKeyStr := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(reloader.getSigner().PublicKey())))
@@ -108,6 +191,8 @@ func newManualCA(privateKeyFile string, logger *zap.Logger) (*manualCAProvider, 
 
 func (p *manualCAProvider) Start(ctx context.Context) error {
 	p.keyReloader.Run(ctx)
+
+	go p.ca.notifyRotationsFrom(ctx, p.keyReloader.reloadCh)
 
 	return nil
 }
@@ -208,12 +293,9 @@ const clockSkewBuffer = 30 * time.Second
 // embeddedCA signs certificates with a signer held in process. The signer is read
 // through a getter on every operation, so it can be swapped by a keyReloader.
 type embeddedCA struct {
-	getSigner func() ssh.Signer
-	rotateCh  <-chan struct{} // Receives a value after each key rotation (implements rotatingCA)
-}
+	rotationNotifier
 
-func (ca *embeddedCA) rotated() <-chan struct{} {
-	return ca.rotateCh
+	getSigner func() ssh.Signer
 }
 
 func (ca *embeddedCA) publicKey(_ context.Context) (ssh.PublicKey, error) {

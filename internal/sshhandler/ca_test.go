@@ -149,6 +149,72 @@ func TestNewManualCA_ReloadsPrivateKey(t *testing.T) {
 	require.Equal(t, newPublicKey.Marshal(), cert.SignatureKey.Marshal())
 }
 
+func TestRotationNotifier(t *testing.T) {
+	// The zero value is what an embedder relies on, and notifyRotation is called directly, so the
+	// checks below need no waiting.
+	var notifier rotationNotifier
+
+	requireRotation := func(subscriber <-chan struct{}) {
+		t.Helper()
+
+		select {
+		case _, open := <-subscriber:
+			require.True(t, open, "the subscription should still be open")
+		default:
+			t.Fatal("expected a rotation")
+		}
+	}
+
+	requireNoRotation := func(subscriber <-chan struct{}) {
+		t.Helper()
+
+		select {
+		case <-subscriber:
+			t.Fatal("unexpected rotation")
+		default:
+		}
+	}
+
+	requireClosed := func(subscriber <-chan struct{}) {
+		t.Helper()
+
+		select {
+		case _, open := <-subscriber:
+			assert.False(t, open, "the subscription should be closed")
+		default:
+			t.Fatal("the subscription should be closed")
+		}
+	}
+
+	first, unsubscribeFirst := notifier.subscribeRotation()
+	second, _ := notifier.subscribeRotation()
+
+	// One rotation reaches every subscriber
+	notifier.notifyRotation()
+	requireRotation(first)
+	requireRotation(second)
+
+	// Rotations a subscriber has not read yet coalesce into the notification already waiting
+	notifier.notifyRotation()
+	notifier.notifyRotation()
+	requireRotation(first)
+	requireNoRotation(first)
+	requireRotation(second)
+
+	// An ended subscription stops receiving, and the remaining one still does
+	unsubscribeFirst()
+	notifier.notifyRotation()
+	requireNoRotation(first)
+	requireRotation(second)
+
+	// Once the key can no longer rotate, subscriptions are closed and new ones start closed
+	notifier.stopRotations()
+	requireClosed(second)
+
+	afterStop, _ := notifier.subscribeRotation()
+	requireClosed(afterStop)
+}
+
 func TestNewManualCA_PrivateKeyFileNotFound(t *testing.T) {
 	_, err := newManualCA("/nonexistent/ca", zap.NewNop())
 	require.Error(t, err)
