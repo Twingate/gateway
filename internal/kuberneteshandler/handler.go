@@ -80,7 +80,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func rewrite(r *httputil.ProxyRequest, conn *connect.ProxyConn) {
 	targetURL := &url.URL{
 		Scheme: "https",
-		Host:   conn.GetAddress(),
+		Host:   conn.GetUpstreamAddress(),
 	}
 	r.SetURL(targetURL)
 
