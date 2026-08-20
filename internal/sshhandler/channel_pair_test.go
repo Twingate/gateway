@@ -184,8 +184,6 @@ func TestChannelPair_SessionRequestLogsAcceptedOnlyWithReply(t *testing.T) {
 }
 
 func TestChannelPair_RequestLogLevelByType(t *testing.T) {
-	// None of these requests starts a session. On a session channel, serve() would then wait on
-	// the session-start gate until sessionStartTimeout, so the test uses a direct-tcpip channel.
 	tests := []struct {
 		name      string
 		reqType   string
@@ -199,17 +197,74 @@ func TestChannelPair_RequestLogLevelByType(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			core, logs := observer.New(zap.DebugLevel)
-			channels := newProxyChannels(t, channelTypeDirectTCPIP)
+			channels := newProxyChannels(t, channelTypeSession)
 			channels.logger = zap.New(core)
 			done := channels.serve(t)
 
 			channels.sendRequestAwaitReply(t, tt.reqType, tt.payload)
 
-			channels.close(t, done)
-
+			// Assert before the shell below adds a log entry of its own.
 			entries := logs.FilterMessage("SSH channel request").All()
 			require.Len(t, entries, 1)
 			assert.Equal(t, tt.wantLevel, entries[0].Level)
+
+			// Neither request starts the session; without the shell, serve() waits out
+			// sessionStartTimeout.
+			channels.sendRequestAwaitReply(t, requestTypeShell, nil)
+
+			channels.close(t, done)
+		})
+	}
+}
+
+func TestChannelPair_RequestLogFieldsByType(t *testing.T) {
+	tests := []struct {
+		name          string
+		reqType       string
+		payload       []byte
+		startsSession bool
+		wantFields    map[string]any
+	}{
+		{
+			name: "environment variable", reqType: requestTypeEnv,
+			payload:    ssh.Marshal(envReq{Name: "LD_PRELOAD", Value: "/tmp/evil.so"}),
+			wantFields: map[string]any{"name": "LD_PRELOAD", "value": "/tmp/evil.so"},
+		},
+		{
+			name: "command", reqType: requestTypeExec,
+			payload:       ssh.Marshal(execReq{Command: "whoami"}),
+			startsSession: true,
+			wantFields:    map[string]any{"command": "whoami"},
+		},
+		{
+			name: "subsystem", reqType: requestTypeSubsystem,
+			payload:       ssh.Marshal(subsystemReq{Name: "sftp"}),
+			startsSession: true,
+			wantFields:    map[string]any{"name": "sftp"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			core, logs := observer.New(zap.DebugLevel)
+			channels := newProxyChannels(t, channelTypeSession)
+			channels.logger = zap.New(core)
+			done := channels.serve(t)
+
+			channels.sendRequestAwaitReply(t, tt.reqType, tt.payload)
+
+			// Assert before the shell below adds a log entry of its own.
+			requestField, isMap := observedSSHField(t, logs, "SSH channel request")["request"].(map[string]any)
+			require.True(t, isMap)
+			assert.Subset(t, requestField, tt.wantFields)
+
+			// A shell starts the session so serve() need not wait out sessionStartTimeout.
+			// exec and subsystem already started one, and a duplicate would be rejected.
+			if !tt.startsSession {
+				channels.sendRequestAwaitReply(t, requestTypeShell, nil)
+			}
+
+			channels.close(t, done)
 		})
 	}
 }

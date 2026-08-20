@@ -10,6 +10,7 @@ import (
 
 const (
 	requestTypePty          = "pty-req"
+	requestTypeEnv          = "env"
 	requestTypeShell        = "shell"
 	requestTypeExec         = "exec"
 	requestTypeSubsystem    = "subsystem"
@@ -46,6 +47,13 @@ type ptyReq struct {
 	WidthPixels  uint32
 	HeightPixels uint32
 	Modelist     string
+}
+
+// SSH env request structure
+// see: https://datatracker.ietf.org/doc/html/rfc4254#section-6.4
+type envReq struct {
+	Name  string
+	Value string
 }
 
 // SSH exec request structure
@@ -119,6 +127,12 @@ func (h *SSHRequestHandler) forwardRequest(req *ssh.Request) (accepted, startSes
 		if h.onPtyRequest != nil {
 			h.onPtyRequest(ptyReq)
 		}
+	case requestTypeEnv:
+		var envReq envReq
+		h.parseRequestPayload(req, &envReq)
+
+		extra["name"] = envReq.Name
+		extra["value"] = envReq.Value
 	case requestTypeShell:
 		isSessionStartReq = true
 		command = req.Type
@@ -170,10 +184,14 @@ func (h *SSHRequestHandler) forwardRequest(req *ssh.Request) (accepted, startSes
 		extra["accepted"] = accepted
 	}
 
+	level := zap.InfoLevel
 	if auditIgnoredChannelRequests[req.Type] {
-		logger().Debug("SSH channel request")
-	} else {
-		logger().Info("SSH channel request")
+		level = zap.DebugLevel
+	}
+
+	// Check first so withRequest only allocates when the entry is actually written.
+	if ce := h.logger.Check(level, "SSH channel request"); ce != nil {
+		ce.Write(zap.Any("ssh", h.sshChannelCtx.withRequest(req.Type, extra)))
 	}
 
 	// A session starts only when the target accepted the request; without WantReply there is
