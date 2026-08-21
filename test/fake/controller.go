@@ -82,6 +82,7 @@ func NewController(network string, port int) *httptest.Server {
 				IssuedAt:  jwt.NewNumericDate(time.Now()),
 				ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
 			},
+			Type:            "GAT",
 			Version:         "1",
 			RenewAt:         jwt.NewNumericDate(time.Now().Add(5 * time.Minute)),
 			ClientPublicKey: *requestBody.ClientPublicKey,
@@ -92,7 +93,7 @@ func NewController(network string, port int) *httptest.Server {
 
 		token := &jwt.Token{
 			Header: map[string]any{
-				"typ": "GAT",
+				"typ": "JWT",
 				"alg": jwt.SigningMethodES256.Alg(),
 				"kid": keyID,
 			},
