@@ -160,7 +160,7 @@ func main() {
 	)
 	defer webAppClient.Close()
 
-	logger.Info("Web app fake Twingate client is serving at", zap.String("address", webAppClient.Address))
+	logger.Info("Web app HTTP fake Twingate client is serving at", zap.String("address", webAppClient.Address))
 
 	webAppTLSClient := fake.NewClient(
 		user,
@@ -173,7 +173,7 @@ func main() {
 	)
 	defer webAppTLSClient.Close()
 
-	logger.Info("Web app (downstream TLS) fake Twingate client is serving at", zap.String("address", webAppTLSClient.Address))
+	logger.Info("Web app HTTPS fake Twingate client is serving at", zap.String("address", webAppTLSClient.Address))
 
 	err = createLocalGatewayConfig(kindBearerToken)
 	if err != nil {
