@@ -32,8 +32,7 @@ type SSHProxy struct {
 	wg sync.WaitGroup
 
 	// Configuration for the proxy
-	config           Config
-	downstreamConfig *ssh.ServerConfig
+	config Config
 
 	// Whether the proxy is shutting down
 	shuttingDown bool
@@ -51,12 +50,7 @@ func (p *SSHProxy) Start(ctx context.Context, listener net.Listener) error {
 		return err
 	}
 
-	downstreamConfig, err := p.config.GetDownstreamConfig(ctx)
-	if err != nil {
-		return err
-	}
-
-	p.downstreamConfig = downstreamConfig
+	p.config.hostCerts.start(ctx)
 
 	// Start handling incoming SSH connections
 	for {
@@ -123,8 +117,17 @@ func (p *SSHProxy) serveConn(ctx context.Context, conn connect.Conn) error {
 		username: p.config.gatewayUsername,
 	}
 
+	downstreamConfig, err := p.config.GetDownstreamConfig(ctx, conn.GetRequestedHost(), conn.GATClaims().Resource)
+	if err != nil {
+		logger.Error("Failed to build the downstream SSH config", zap.Error(err))
+
+		_ = conn.Close()
+
+		return err
+	}
+
 	// Give the proxyconn.ProxyConn TCP connection to the SSH server to start the SSH handshake
-	downstreamSSHConn, downstreamChannels, downstreamRequests, err := ssh.NewServerConn(conn, p.downstreamConfig)
+	downstreamSSHConn, downstreamChannels, downstreamRequests, err := ssh.NewServerConn(conn, downstreamConfig)
 	if err != nil {
 		logger.Error("Handshake failed", zap.Error(err))
 

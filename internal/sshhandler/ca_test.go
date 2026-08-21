@@ -149,6 +149,41 @@ func TestNewManualCA_ReloadsPrivateKey(t *testing.T) {
 	require.Equal(t, newPublicKey.Marshal(), cert.SignatureKey.Marshal())
 }
 
+func TestRotationNotifier(t *testing.T) {
+	// The zero value is what an embedder relies on, and notifyRotation is called directly, so the
+	// checks below need no waiting.
+	var notifier rotationNotifier
+
+	isClosed := func(ch <-chan struct{}) bool {
+		select {
+		case <-ch:
+			return true
+		default:
+			return false
+		}
+	}
+
+	// Rotations with nobody waiting coalesce; a second one must not close the channel twice.
+	notifier.notifyRotation()
+	notifier.notifyRotation()
+
+	before := notifier.rotated()
+	assert.False(t, isClosed(before), "the channel should stay open until the next rotation")
+
+	// Every waiter holds the same channel, so closing it is the broadcast.
+	assert.Equal(t, before, notifier.rotated())
+
+	notifier.notifyRotation()
+	assert.True(t, isClosed(before), "a rotation should close the channel")
+
+	// A rotation retires the channel, so a waiter that fetches again gets the next generation.
+	after := notifier.rotated()
+	assert.False(t, isClosed(after), "a channel fetched after a rotation should be open")
+
+	notifier.notifyRotation()
+	assert.True(t, isClosed(after))
+}
+
 func TestNewManualCA_PrivateKeyFileNotFound(t *testing.T) {
 	_, err := newManualCA("/nonexistent/ca", zap.NewNop())
 	require.Error(t, err)
