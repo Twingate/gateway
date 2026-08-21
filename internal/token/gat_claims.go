@@ -82,7 +82,16 @@ func validatePort(port int, fieldName string) error {
 }
 
 func (p GATClaims) ShouldUpgradeTLS() bool {
-	return p.Resource.Type == ResourceTypeKubernetes
+	switch p.Resource.Type {
+	case ResourceTypeKubernetes:
+		return true
+	case ResourceTypeWebApp:
+		return p.Resource.GatewayMetadata.Downstream.TLS
+	case ResourceTypeSSH:
+		return false
+	}
+
+	return false
 }
 
 func (p GATClaims) getHeaderType() string {
@@ -148,6 +157,8 @@ type GatewayMetadata struct {
 type Downstream struct {
 	// Port is the port that the protocol client connects to.
 	Port int `json:"port"`
+	// TLS indicates whether the Gateway should enforce TLS for the protocol client.
+	TLS bool `json:"tls"`
 }
 
 // Upstream describes the connection between the Gateway and the upstream resource.
