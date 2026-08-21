@@ -52,6 +52,12 @@ func TestProxyConn_setConnectInfo(t *testing.T) {
 			RegisteredClaims: jwt.RegisteredClaims{
 				ExpiresAt: jwt.NewNumericDate(time.Now().Add(1 * time.Hour)),
 			},
+			Resource: token.Resource{
+				GatewayMetadata: token.GatewayMetadata{
+					Downstream: token.Downstream{Port: 443},
+					Upstream:   token.Upstream{Port: 8443},
+				},
+			},
 		}
 		connID := "conn-id-1"
 
@@ -68,13 +74,17 @@ func TestProxyConn_setConnectInfo(t *testing.T) {
 			defer proxyConn.Mu.Unlock()
 
 			proxyConn.setConnectInfo(Info{
-				Claims: claims,
-				ConnID: connID,
+				RequestedHost: "app.internal",
+				UpstreamHost:  "example.com",
+				Claims:        claims,
+				ConnID:        connID,
 			})
 		}()
 
 		assert.Equal(t, connID, proxyConn.ID)
 		assert.Equal(t, claims, proxyConn.Claims)
+		assert.Equal(t, "app.internal", proxyConn.GetRequestedHost())
+		assert.Equal(t, "example.com:8443", proxyConn.GetUpstreamAddress())
 
 		// Wait for expiry timer to happen, the connection should be closed
 		time.Sleep(1 * time.Hour)

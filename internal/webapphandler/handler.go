@@ -70,7 +70,7 @@ var clientIdentityHeaders = []string{"X-Real-IP", "X-Forwarded-Port", "X-Forward
 func rewrite(r *httputil.ProxyRequest, conn *connect.ProxyConn, headers map[string]*template.Template) error {
 	targetURL := &url.URL{
 		Scheme: "http", // plain HTTP — no upstream TLS
-		Host:   conn.GetAddress(),
+		Host:   conn.GetUpstreamAddress(),
 	}
 	r.SetURL(targetURL)
 	r.Out.Host = r.In.Host // preserve the client's Host

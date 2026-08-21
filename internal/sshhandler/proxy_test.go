@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -636,10 +637,17 @@ func (s *echoServer) identity() (username string, userCert *ssh.Certificate) {
 // newProxyConn wraps conn in the connect.ProxyConn the proxy serves, with test GAT claims and
 // the address of the upstream the proxy dials.
 func newProxyConn(conn net.Conn, upstreamAddr string) *connect.ProxyConn {
+	upstreamHost, port, _ := net.SplitHostPort(upstreamAddr)
+	upstreamPort, _ := strconv.Atoi(port)
+
 	proxyConn := connect.NewProxyConn(conn, nil, nil, zap.NewNop(),
 		connect.CreateProxyConnMetrics(prometheus.NewRegistry()))
-	proxyConn.Claims = &token.GATClaims{}
-	proxyConn.Address = upstreamAddr
+	proxyConn.Claims = &token.GATClaims{
+		Resource: token.Resource{
+			GatewayMetadata: token.GatewayMetadata{Upstream: token.Upstream{Port: upstreamPort}},
+		},
+	}
+	proxyConn.UpstreamHost = upstreamHost
 	proxyConn.ID = "test-conn-id"
 
 	return proxyConn
