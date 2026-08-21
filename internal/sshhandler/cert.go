@@ -11,6 +11,7 @@ import (
 	"maps"
 	"math"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -25,10 +26,8 @@ const (
 	retryInterval = 10 * time.Second
 	renewFraction = 0.80 // renew certificate when 80% into lifetime
 
-	// maxCachedHostCerts bounds the certificates a resource with a wildcard address can accumulate:
-	// every hostname under the wildcard is a distinct principal set, and the Gateway signs one
-	// before it has dialed the upstream, so an unbounded cache would let a client mint CA requests
-	// and renewal goroutines for hostnames that resolve to nothing.
+	// Each entry costs a renewal goroutine and a recurring CA request, so a Gateway serving many
+	// resources needs a ceiling on the cache.
 	maxCachedHostCerts = 1024
 )
 
@@ -63,7 +62,7 @@ type certificateRequest struct {
 	permissions ssh.Permissions // For user certs
 }
 
-// hostCertManager holds the host certificates the Gateway presents to protocol clients, each signed
+// hostCertManager holds the host certificates the Gateway presents to SSH clients, each signed
 // for the names a client may have used to reach a resource and keyed by those names. Each cached
 // certificate keeps itself signed by the CA's current key in the background.
 type hostCertManager struct {
@@ -100,7 +99,7 @@ func newHostCertManager(ca ca, publicKey ssh.PublicKey, keySigner ssh.Signer, tt
 // signing a new certificate when the cache holds none for host and aliases together.
 func (c *hostCertManager) signer(ctx context.Context, host string, aliases []string) (ssh.Signer, error) {
 	principals := hostCertPrincipals(host, aliases)
-	key := strings.Join(principals, ",")
+	key := hostCertCacheKey(principals)
 	now := time.Now()
 
 	c.mu.Lock()
@@ -164,9 +163,7 @@ func (c *hostCertManager) start(ctx context.Context) {
 // maintenanceLoop runs until ctx is canceled. Keeping a certificate signed by the CA's current key
 // belongs to each cached certificate, not here.
 func (c *hostCertManager) maintenanceLoop(ctx context.Context) {
-	// Sweeping twice per lifetime keeps a certificate that was last used just after a sweep from
-	// renewing for another full lifetime before the next one sees it.
-	ticker := time.NewTicker(c.ttl / 2)
+	ticker := time.NewTicker(c.ttl)
 	defer ticker.Stop()
 
 	for {
@@ -192,18 +189,18 @@ func (c *hostCertManager) evictAll() {
 	clear(c.certByPrincipals)
 }
 
-// evictUnused drops the certificates not served for a full certificate lifetime, so that names the
-// Gateway no longer sees stop renewing for the lifetime of the process. A certificate lives for
-// between one and one and a half lifetimes after its last use, depending on where that use falls
-// between two sweeps.
+// evictUnused drops the certificates not served for a full certificate lifetime, so a name the
+// Gateway stops seeing does not keep renewing for the rest of the process's life. Sweeping once a
+// lifetime leaves a certificate cached for between one and two after its last use, depending on
+// where that use falls between two sweeps.
 func (c *hostCertManager) evictUnused(now time.Time) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	for principals, cert := range c.certByPrincipals {
+	for key, cert := range c.certByPrincipals {
 		if now.Sub(cert.lastUsed) > c.ttl {
 			cert.cancelRenewal()
-			delete(c.certByPrincipals, principals)
+			delete(c.certByPrincipals, key)
 		}
 	}
 }
@@ -212,46 +209,56 @@ func (c *hostCertManager) evictUnused(now time.Time) {
 // holds c.mu and has checked that the cache is not empty.
 func (c *hostCertManager) evictOldest() {
 	var (
-		oldest         string
+		oldestKey      string
 		oldestLastUsed time.Time
 	)
 
-	for principals, cert := range c.certByPrincipals {
+	for key, cert := range c.certByPrincipals {
 		if oldestLastUsed.IsZero() || cert.lastUsed.Before(oldestLastUsed) {
-			oldest, oldestLastUsed = principals, cert.lastUsed
+			oldestKey, oldestLastUsed = key, cert.lastUsed
 		}
 	}
 
-	c.certByPrincipals[oldest].cancelRenewal()
-	delete(c.certByPrincipals, oldest)
+	c.certByPrincipals[oldestKey].cancelRenewal()
+	delete(c.certByPrincipals, oldestKey)
 }
 
 // hostCertPrincipals returns the names a client may have used to reach the resource it asked for:
-// the host from its CONNECT request, plus the resource's aliases because a client that resolves an
-// alias to the resource address itself still verifies the certificate against the alias. The
-// resource address is deliberately absent, since it may be a pattern such as *.example.com that no
-// client matches consistently. Names are lowercased because OpenSSH matches principals
-// case-insensitively, and sorted so that the same set always yields the same slice.
+// the host from its CONNECT request, plus the resource's aliases. An older client translates an
+// alias to the resource address before connecting, so the host it asks for is the address while the
+// name it verifies the certificate against is still the alias.
+//
+// Principals are lowercased because OpenSSH matches them case-insensitively, and sorted so that the
+// same set always yields the same slice.
 func hostCertPrincipals(host string, aliases []string) []string {
-	unique := map[string]struct{}{}
+	principals := map[string]struct{}{}
 
 	for _, candidate := range slices.Concat([]string{host}, aliases) {
-		unique[strings.ToLower(candidate)] = struct{}{}
+		principals[strings.ToLower(candidate)] = struct{}{}
 	}
 
-	return slices.Sorted(maps.Keys(unique))
+	return slices.Sorted(maps.Keys(principals))
+}
+
+func hostCertCacheKey(principals []string) string {
+	encoded := make([]string, 0, len(principals))
+
+	for _, principal := range principals {
+		encoded = append(encoded, strconv.Itoa(len(principal))+":"+principal)
+	}
+
+	return strings.Join(encoded, ",")
 }
 
 // autoRenewingCertSigner presents a certificate that it re-signs before it expires and after each
-// CA key rotation, so a handshake never waits on the CA and never gets a certificate signed by a
-// key clients have stopped trusting.
+// CA key rotation.
 type autoRenewingCertSigner struct {
-	ca          ca
-	rotated     <-chan struct{} // Nil for a CA whose key cannot rotate during the process lifetime
-	unsubscribe func()
-	certReq     *certificateRequest
-	keySigner   ssh.Signer
-	logger      *zap.Logger
+	ca                    ca
+	rotated               <-chan struct{} // Receives a value after each CA key rotation; nil for a CA that cannot rotate
+	unsubscribeCARotation func()
+	certReq               *certificateRequest
+	keySigner             ssh.Signer
+	logger                *zap.Logger
 
 	mu         sync.RWMutex
 	certSigner ssh.Signer
@@ -261,23 +268,23 @@ type autoRenewingCertSigner struct {
 
 func newAutoRenewingCertSigner(ctx context.Context, ca ca, certReq *certificateRequest, keySigner ssh.Signer, logger *zap.Logger) (*autoRenewingCertSigner, error) {
 	certSigner := &autoRenewingCertSigner{
-		ca:          ca,
-		unsubscribe: func() {},
-		certReq:     certReq,
-		keySigner:   keySigner,
-		logger:      logger,
+		ca:                    ca,
+		unsubscribeCARotation: func() {},
+		certReq:               certReq,
+		keySigner:             keySigner,
+		logger:                logger,
 	}
 
 	// Subscribe before signing, not after: a key that rotates while the CA is signing then leaves a
 	// notification waiting, so the certificate it returns is re-signed as soon as the renewal loop
 	// starts instead of surviving until its renewal time.
 	if rotatable, ok := ca.(rotatableCA); ok {
-		certSigner.rotated, certSigner.unsubscribe = rotatable.subscribeRotation()
+		certSigner.rotated, certSigner.unsubscribeCARotation = rotatable.subscribeRotation()
 	}
 
 	if _, err := certSigner.updateCertSigner(ctx); err != nil {
 		// No renewal loop will run for this signer, so nothing else would end the subscription.
-		certSigner.unsubscribe()
+		certSigner.unsubscribeCARotation()
 
 		return nil, err
 	}
@@ -310,7 +317,7 @@ func (s *autoRenewingCertSigner) validAt(t time.Time) bool {
 // renewalLoop re-signs the certificate once it is renewFraction into its lifetime or as soon as the
 // CA key rotates, retrying every retryInterval while the CA fails.
 func (s *autoRenewingCertSigner) renewalLoop(ctx context.Context) {
-	defer s.unsubscribe()
+	defer s.unsubscribeCARotation()
 
 	s.mu.RLock()
 	nextRenewal := s.renewAt
@@ -344,7 +351,6 @@ func (s *autoRenewingCertSigner) renewalLoop(ctx context.Context) {
 			expiresAt := s.expiresAt
 			s.mu.RUnlock()
 
-			// expires_at is how long the CA has to recover before connections start failing.
 			s.logger.Error("Failed to renew the Gateway's certificate",
 				zap.String("cert_type", s.certReq.certType.String()),
 				zap.Strings("principals", s.certReq.principals),

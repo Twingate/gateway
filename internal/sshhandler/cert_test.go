@@ -206,6 +206,24 @@ func TestHostCertManager_CachesEachRequestedHostSeparately(t *testing.T) {
 	assert.Equal(t, signedCert(t, first).Marshal(), signedCert(t, again).Marshal())
 }
 
+func TestHostCertManager_KeepsPrincipalSetsWithASeparatorApart(t *testing.T) {
+	ca := newStubCA(t, nil)
+	manager := newTestHostCertManager(t, ca)
+
+	// An alias reaches the principals without passing config.HostnameRegexp, so a name holding the
+	// character that delimits a cache key must not merge two principal sets into one entry.
+	separate, err := manager.signer(t.Context(), "one.example.com", []string{"two.example.com"})
+	require.NoError(t, err)
+
+	merged, err := manager.signer(t.Context(), "one.example.com,two.example.com", []string{"one.example.com,two.example.com"})
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"one.example.com", "two.example.com"}, signedCert(t, separate).ValidPrincipals)
+	assert.Equal(t, []string{"one.example.com,two.example.com"}, signedCert(t, merged).ValidPrincipals)
+	assert.Equal(t, 2, ca.calls())
+	assert.Len(t, cachedCerts(manager), 2)
+}
+
 func TestHostCertManager_ResignsWhenAliasesChange(t *testing.T) {
 	ca := newStubCA(t, nil)
 	manager := newTestHostCertManager(t, ca)
@@ -334,14 +352,16 @@ func TestHostCertManager_EvictsUnusedCertificates(t *testing.T) {
 		require.NoError(t, err)
 
 		// The sweep a lifetime after the certificate was last served still finds it used within
-		// one; the sweep half a lifetime later does not.
+		// one; the next sweep does not.
+		cached := hostCertCacheKey([]string{"old.example.com"})
+
 		time.Sleep(testHostCertTTL)
 		synctest.Wait()
-		assert.Contains(t, cachedCerts(manager), "old.example.com")
+		assert.Contains(t, cachedCerts(manager), cached)
 
-		time.Sleep(testHostCertTTL / 2)
+		time.Sleep(testHostCertTTL)
 		synctest.Wait()
-		assert.NotContains(t, cachedCerts(manager), "old.example.com")
+		assert.NotContains(t, cachedCerts(manager), cached)
 
 		renewals := ca.calls()
 
@@ -369,15 +389,18 @@ func TestHostCertManager_EvictsTheOldestCertificateWhenFull(t *testing.T) {
 	_, err = manager.signer(t.Context(), "three.example.com", nil)
 	require.NoError(t, err)
 
-	assert.Equal(t, []string{"one.example.com", "three.example.com"},
-		slices.Sorted(maps.Keys(cachedCerts(manager))))
+	assert.ElementsMatch(t,
+		[]string{hostCertCacheKey([]string{"one.example.com"}), hostCertCacheKey([]string{"three.example.com"})},
+		slices.Collect(maps.Keys(cachedCerts(manager))))
 }
 
 func TestHostCertManager_ResignsOnCAKeyRotation(t *testing.T) {
 	keyPEM, oldPublicKey := generateCAKey(t)
 	keyFile := createCAKeyFile(t, keyPEM)
 
-	provider, err := newManualCA(keyFile, zap.NewNop())
+	core, logs := observer.New(zapcore.InfoLevel)
+
+	provider, err := newManualCA(keyFile, zap.New(core))
 	require.NoError(t, err)
 	require.NoError(t, provider.Start(t.Context()))
 
@@ -387,6 +410,13 @@ func TestHostCertManager_ResignsOnCAKeyRotation(t *testing.T) {
 	signer, err := manager.signer(t.Context(), "vm.example.com", nil)
 	require.NoError(t, err)
 	require.Equal(t, oldPublicKey.Marshal(), signedCert(t, signer).SignatureKey.Marshal())
+
+	// newManualCA loads the key without the file watcher, so signing does not prove the watch is in
+	// place. A replacement written before it is loses its event, and the watch only restarts a
+	// minute later.
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		assert.NotEmpty(c, logs.FilterMessage("Start watching CA private key file changes").All())
+	}, time.Second, 5*time.Millisecond, "the CA key file watcher never started")
 
 	newKeyPEM, newPublicKey := generateCAKey(t)
 	replaceCAKeyFile(t, keyFile, newKeyPEM)
