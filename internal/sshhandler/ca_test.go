@@ -154,65 +154,34 @@ func TestRotationNotifier(t *testing.T) {
 	// checks below need no waiting.
 	var notifier rotationNotifier
 
-	requireRotation := func(subscriber <-chan struct{}) {
-		t.Helper()
-
+	isClosed := func(ch <-chan struct{}) bool {
 		select {
-		case _, open := <-subscriber:
-			require.True(t, open, "the subscription should still be open")
+		case <-ch:
+			return true
 		default:
-			t.Fatal("expected a rotation")
+			return false
 		}
 	}
 
-	requireNoRotation := func(subscriber <-chan struct{}) {
-		t.Helper()
-
-		select {
-		case <-subscriber:
-			t.Fatal("unexpected rotation")
-		default:
-		}
-	}
-
-	requireClosed := func(subscriber <-chan struct{}) {
-		t.Helper()
-
-		select {
-		case _, open := <-subscriber:
-			assert.False(t, open, "the subscription should be closed")
-		default:
-			t.Fatal("the subscription should be closed")
-		}
-	}
-
-	first, unsubscribeFirst := notifier.subscribeRotation()
-	second, _ := notifier.subscribeRotation()
-
-	// One rotation reaches every subscriber
-	notifier.notifyRotation()
-	requireRotation(first)
-	requireRotation(second)
-
-	// Rotations a subscriber has not read yet coalesce into the notification already waiting
+	// Rotations with nobody waiting coalesce; a second one must not close the channel twice.
 	notifier.notifyRotation()
 	notifier.notifyRotation()
-	requireRotation(first)
-	requireNoRotation(first)
-	requireRotation(second)
 
-	// An ended subscription stops receiving, and the remaining one still does
-	unsubscribeFirst()
+	before := notifier.rotated()
+	assert.False(t, isClosed(before), "the channel should stay open until the next rotation")
+
+	// Every waiter holds the same channel, so closing it is the broadcast.
+	assert.Equal(t, before, notifier.rotated())
+
 	notifier.notifyRotation()
-	requireNoRotation(first)
-	requireRotation(second)
+	assert.True(t, isClosed(before), "a rotation should close the channel")
 
-	// Once the key can no longer rotate, subscriptions are closed and new ones start closed
-	notifier.stopRotations()
-	requireClosed(second)
+	// A rotation retires the channel, so a waiter that fetches again gets the next generation.
+	after := notifier.rotated()
+	assert.False(t, isClosed(after), "a channel fetched after a rotation should be open")
 
-	afterStop, _ := notifier.subscribeRotation()
-	requireClosed(afterStop)
+	notifier.notifyRotation()
+	assert.True(t, isClosed(after))
 }
 
 func TestNewManualCA_PrivateKeyFileNotFound(t *testing.T) {

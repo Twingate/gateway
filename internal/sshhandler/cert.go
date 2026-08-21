@@ -191,8 +191,8 @@ func (c *hostCertManager) evictAll() {
 
 // evictUnused drops the certificates not served for a full certificate lifetime, so a name the
 // Gateway stops seeing does not keep renewing for the rest of the process's life. Sweeping once a
-// lifetime leaves a certificate cached for between one and two after its last use, depending on
-// where that use falls between two sweeps.
+// lifetime leaves a certificate cached for between one and two lifetimes after its last use,
+// depending on where that use falls between two sweeps.
 func (c *hostCertManager) evictUnused(now time.Time) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -253,12 +253,11 @@ func hostCertCacheKey(principals []string) string {
 // autoRenewingCertSigner presents a certificate that it re-signs before it expires and after each
 // CA key rotation.
 type autoRenewingCertSigner struct {
-	ca                    ca
-	rotated               <-chan struct{} // Receives a value after each CA key rotation; nil for a CA that cannot rotate
-	unsubscribeCARotation func()
-	certReq               *certificateRequest
-	keySigner             ssh.Signer
-	logger                *zap.Logger
+	ca        ca
+	rotated   <-chan struct{} // Closed at the next CA key rotation; nil for a CA that cannot rotate
+	certReq   *certificateRequest
+	keySigner ssh.Signer
+	logger    *zap.Logger
 
 	mu         sync.RWMutex
 	certSigner ssh.Signer
@@ -268,24 +267,18 @@ type autoRenewingCertSigner struct {
 
 func newAutoRenewingCertSigner(ctx context.Context, ca ca, certReq *certificateRequest, keySigner ssh.Signer, logger *zap.Logger) (*autoRenewingCertSigner, error) {
 	certSigner := &autoRenewingCertSigner{
-		ca:                    ca,
-		unsubscribeCARotation: func() {},
-		certReq:               certReq,
-		keySigner:             keySigner,
-		logger:                logger,
+		ca:        ca,
+		certReq:   certReq,
+		keySigner: keySigner,
+		logger:    logger,
 	}
 
-	// Subscribe before signing, not after: a key that rotates while the CA is signing then leaves a
-	// notification waiting, so the certificate it returns is re-signed as soon as the renewal loop
-	// starts instead of surviving until its renewal time.
-	if rotatable, ok := ca.(rotatableCA); ok {
-		certSigner.rotated, certSigner.unsubscribeCARotation = rotatable.subscribeRotation()
-	}
+	// Fetch the rotation channel before signing, not after: a key that rotates while the CA is
+	// signing then closes this channel, so the certificate it returns is re-signed as soon as the
+	// renewal loop starts instead of surviving until its renewal time.
+	certSigner.fetchRotationChannel()
 
 	if _, err := certSigner.updateCertSigner(ctx); err != nil {
-		// No renewal loop will run for this signer, so nothing else would end the subscription.
-		certSigner.unsubscribeCARotation()
-
 		return nil, err
 	}
 
@@ -314,11 +307,18 @@ func (s *autoRenewingCertSigner) validAt(t time.Time) bool {
 	return s.expiresAt.IsZero() || t.Before(s.expiresAt)
 }
 
+// fetchRotationChannel makes s wait on the CA's current rotation channel. An open channel is
+// always the current one, because a rotation replaces the channel only by closing it; so this
+// runs where a channel goes stale: at construction (none held yet) and after consuming a close.
+func (s *autoRenewingCertSigner) fetchRotationChannel() {
+	if rotatable, ok := s.ca.(rotatableCA); ok {
+		s.rotated = rotatable.rotated()
+	}
+}
+
 // renewalLoop re-signs the certificate once it is renewFraction into its lifetime or as soon as the
 // CA key rotates, retrying every retryInterval while the CA fails.
 func (s *autoRenewingCertSigner) renewalLoop(ctx context.Context) {
-	defer s.unsubscribeCARotation()
-
 	s.mu.RLock()
 	nextRenewal := s.renewAt
 	s.mu.RUnlock()
@@ -327,20 +327,15 @@ func (s *autoRenewingCertSigner) renewalLoop(ctx context.Context) {
 		return
 	}
 
-	rotated := s.rotated
-
 	timer := time.NewTimer(time.Until(nextRenewal))
 	defer timer.Stop()
 
 	for {
 		select {
 		case <-timer.C:
-		case _, rotating := <-rotated:
-			if !rotating {
-				rotated = nil // The CA key can no longer rotate, so stop waiting on it
-
-				continue
-			}
+		case <-s.rotated:
+			// The close consumed here retired the channel, so fetch the one the rotation installed.
+			s.fetchRotationChannel()
 		case <-ctx.Done():
 			return
 		}

@@ -81,13 +81,6 @@ func (c *stubCA) sign(_ context.Context, req *certificateRequest) (*ssh.Certific
 	return cert, nil
 }
 
-func (c *stubCA) subscriberCount() int {
-	c.rotationNotifier.mu.Lock()
-	defer c.rotationNotifier.mu.Unlock()
-
-	return len(c.subscribers)
-}
-
 // rotate swaps the key the stub signs with and announces it.
 func (c *stubCA) rotate(t *testing.T) ssh.PublicKey {
 	t.Helper()
@@ -564,41 +557,6 @@ func TestAutoRenewingCertSigner_ResignsOnCAKeyRotation(t *testing.T) {
 		assert.Equal(t, 3, ca.calls())
 		assert.Equal(t, rotatedAgain.Marshal(), signedCert(t, signer).SignatureKey.Marshal())
 	})
-}
-
-func TestAutoRenewingCertSigner_EndsSubscriptionWhenRenewalStops(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		ctx, cancel := context.WithCancel(t.Context())
-		defer cancel()
-
-		ca := newStubCA(t, nil)
-
-		signer, err := newTestCertSigner(ctx, t, ca, zap.NewNop())
-		require.NoError(t, err)
-
-		go signer.renewalLoop(ctx)
-
-		synctest.Wait()
-		require.Equal(t, 1, ca.subscriberCount())
-
-		// Eviction, replacement and shutdown all cancel the renewal context, and the CA holds a
-		// channel per subscription until the loop it belongs to gives it back.
-		cancel()
-		synctest.Wait()
-
-		assert.Zero(t, ca.subscriberCount())
-	})
-}
-
-func TestAutoRenewingCertSigner_EndsSubscriptionWhenTheFirstSignatureFails(t *testing.T) {
-	ca := newStubCA(t, map[int]error{1: errSignFailed})
-
-	// No renewal loop runs for a signer that never got a certificate, so the constructor is the
-	// only thing that can give the subscription back.
-	_, err := newTestCertSigner(t.Context(), t, ca, zap.NewNop())
-	require.ErrorIs(t, err, errSignFailed)
-
-	assert.Zero(t, ca.subscriberCount())
 }
 
 func TestAutoRenewingCertSigner_LogsRenewalFailure(t *testing.T) {

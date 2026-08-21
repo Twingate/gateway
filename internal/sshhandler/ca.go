@@ -40,54 +40,33 @@ type ca interface {
 
 // rotatableCA is a CA whose signing key can rotate during the process lifetime.
 type rotatableCA interface {
-	// subscribeRotation returns a channel that receives a value after each key rotation, and a
-	// function that ends the subscription. The channel is closed once the key can no longer rotate.
-	subscribeRotation() (<-chan struct{}, func())
+	// rotated returns a channel that is closed at the next key rotation. Each rotation replaces
+	// the channel, so a waiter fetches the current one again after every wake-up.
+	rotated() <-chan struct{}
 }
 
-// rotationNotifier implements rotatableCA by fanning each rotation out to everything holding a
-// subscription. Its zero value is ready to use, so a CA embeds it and needs no wiring of its own.
+// rotationNotifier implements rotatableCA by closing the current channel at each rotation,
+// waking every waiter at once; the next rotated call starts the next generation. Its zero value
+// is ready to use, so a CA embeds it and needs no wiring of its own.
 type rotationNotifier struct {
-	mu          sync.Mutex
-	subscribers map[chan struct{}]struct{}
-	stopped     bool
+	mu sync.Mutex
+	ch chan struct{} // Nil until fetched and after each rotation, so unwaited rotations coalesce
 }
 
-func (n *rotationNotifier) subscribeRotation() (<-chan struct{}, func()) {
+func (n *rotationNotifier) rotated() <-chan struct{} {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
-	// One slot is enough: the value says the key changed, not which key it changed to, so a
-	// notification already waiting covers the rotations that follow it.
-	subscriber := make(chan struct{}, 1)
-
-	if n.stopped {
-		close(subscriber)
-
-		return subscriber, func() {}
+	if n.ch == nil {
+		n.ch = make(chan struct{})
 	}
 
-	if n.subscribers == nil {
-		n.subscribers = map[chan struct{}]struct{}{}
-	}
-
-	n.subscribers[subscriber] = struct{}{}
-
-	return subscriber, func() { n.unsubscribeRotation(subscriber) }
-}
-
-func (n *rotationNotifier) unsubscribeRotation(subscriber chan struct{}) {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-
-	delete(n.subscribers, subscriber)
+	return n.ch
 }
 
 // notifyRotationsFrom announces a rotation for every value received on rotated, until ctx is
 // canceled. Whoever owns the CA's lifetime runs this; the CA itself starts nothing.
 func (n *rotationNotifier) notifyRotationsFrom(ctx context.Context, rotated <-chan struct{}) {
-	defer n.stopRotations()
-
 	for {
 		select {
 		case <-rotated:
@@ -98,34 +77,14 @@ func (n *rotationNotifier) notifyRotationsFrom(ctx context.Context, rotated <-ch
 	}
 }
 
-// notifyRotation tells every subscriber the key changed. Sends do not block: a subscriber that has
-// not read its previous notification yet is already going to re-sign with whatever key it finds.
 func (n *rotationNotifier) notifyRotation() {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
-	for subscriber := range n.subscribers {
-		select {
-		case subscriber <- struct{}{}:
-		default:
-		}
+	if n.ch != nil {
+		close(n.ch)
+		n.ch = nil
 	}
-}
-
-// stopRotations closes every subscription, so a subscriber stops waiting for a rotation that can no
-// longer happen. Closing belongs here rather than in the unsubscribe closure, because a send to a
-// closed channel panics and only the goroutine holding mu knows that notifyRotation is not sending.
-func (n *rotationNotifier) stopRotations() {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-
-	n.stopped = true
-
-	for subscriber := range n.subscribers {
-		close(subscriber)
-	}
-
-	clear(n.subscribers)
 }
 
 // caProvider supplies the CAs for SSH authentication and runs any background
