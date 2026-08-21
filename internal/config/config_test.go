@@ -348,6 +348,19 @@ func TestConfig_Validate(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "invalid cas entry",
+			config: &Config{
+				Twingate:    TwingateConfig{Network: "test", Host: "twingate.com"},
+				Port:        8443,
+				MetricsPort: 9090,
+				TLS:         TLSConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+				CAs:         []CA{{Name: "web-app"}},
+				Kubernetes:  &KubernetesConfig{},
+			},
+			wantErr:     true,
+			errContains: "cas config",
+		},
+		{
 			name: "missing Twingate network",
 			config: &Config{
 				Port:        8443,
@@ -669,6 +682,93 @@ func TestKubernetesConfig_Validate(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestValidateCAs(t *testing.T) {
+	tests := []struct {
+		name        string
+		cas         []CA
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name: "valid list",
+			cas: []CA{
+				{Name: "gcp-database", CertFile: "/etc/gateway/ca1.crt"},
+				{Name: "web-app", CertFile: "/etc/gateway/ca2.crt"},
+			},
+			wantErr: false,
+		},
+		{
+			name:    "empty list is allowed",
+			cas:     []CA{},
+			wantErr: false,
+		},
+		{
+			name:        "missing name",
+			cas:         []CA{{CertFile: "/etc/gateway/ca.crt"}},
+			wantErr:     true,
+			errContains: "name",
+		},
+		{
+			name:        "missing certFile",
+			cas:         []CA{{Name: "web-app"}},
+			wantErr:     true,
+			errContains: "certFile",
+		},
+		{
+			name: "duplicate CA names",
+			cas: []CA{
+				{Name: "web-app", CertFile: "/etc/gateway/ca1.crt"},
+				{Name: "web-app", CertFile: "/etc/gateway/ca2.crt"},
+			},
+			wantErr:     true,
+			errContains: "\"web-app\"",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateCAs(tt.cas)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errContains)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestLoad_CAs(t *testing.T) {
+	yaml := `
+twingate:
+  network: "acme"
+tls:
+  certificateFile: "tls.crt"
+  privateKeyFile: "tls.key"
+cas:
+  - name: "gcp-database"
+    certFile: "/etc/gateway/ca1.crt"
+  - name: "web-app"
+    certFile: "/etc/gateway/ca2.crt"
+webApp: {}
+`
+
+	tmpFile := filepath.Join(t.TempDir(), "config.yaml")
+	err := os.WriteFile(tmpFile, []byte(yaml), 0600)
+	require.NoError(t, err)
+
+	cfg, err := Load(tmpFile)
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+
+	want := []CA{
+		{Name: "gcp-database", CertFile: "/etc/gateway/ca1.crt"},
+		{Name: "web-app", CertFile: "/etc/gateway/ca2.crt"},
+	}
+	assert.Equal(t, want, cfg.CAs)
+	require.NoError(t, cfg.Validate())
 }
 
 func TestKubernetesUpstream_Validate(t *testing.T) {
