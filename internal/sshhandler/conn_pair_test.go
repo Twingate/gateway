@@ -449,7 +449,7 @@ func TestConnPair_GlobalRequestPolicy(t *testing.T) {
 
 func TestConnPair_GlobalRequestSendError(t *testing.T) {
 	// SendRequest fails only on a dead transport, and killing the upstream mid-serve races the
-	// cross-close teardown of the downstream side, so this drives forwardGlobalRequests
+	// cross-close teardown of the downstream side, so this drives handleGlobalRequests
 	// directly: a real pending request from a live source connection, forwarded to a real but
 	// already-closed target connection.
 	downstreamClient, proxyDownstream := sshPipe(t)
@@ -466,7 +466,7 @@ func TestConnPair_GlobalRequestSendError(t *testing.T) {
 
 	core, logs := observer.New(zap.DebugLevel)
 	pair := NewSSHConnPair(zap.New(core), testSSHContext, *proxyDownstream, *proxyUpstream)
-	pair.forwardGlobalRequests(requests, proxyUpstream.conn, nil, labelDownstream, labelUpstream)
+	pair.handleGlobalRequests(requests, proxyUpstream.conn, nil, labelDownstream, labelUpstream)
 
 	// The failed forward is logged and the origin gets a failure reply.
 	ok, _, err := awaitReply(t)
