@@ -22,8 +22,9 @@ data:
     {{- end }}
 
     tls:
-      certificateFile: "/etc/gateway/tls/tls.crt"
-      privateKeyFile: "/etc/gateway/tls/tls.key"
+      static:
+        certificateFile: "/etc/gateway/tls/tls.crt"
+        privateKeyFile: "/etc/gateway/tls/tls.key"
 
     {{- $resourceEnabled := and .Values.twingateOperator.kubernetesResource .Values.twingateOperator.kubernetesResource.enabled -}}
     {{- $k8sEnabled := and .Values.kubernetes .Values.kubernetes.enabled }}

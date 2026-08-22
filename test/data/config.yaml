@@ -5,8 +5,9 @@ twingate:
 metricsPort: 0
 
 tls:
-  certificateFile: "../test/data/proxy/tls.crt"
-  privateKeyFile: "../test/data/proxy/tls.key"
+  static:
+    certificateFile: "../test/data/proxy/tls.crt"
+    privateKeyFile: "../test/data/proxy/tls.key"
 
 kubernetes:
   upstreams:
