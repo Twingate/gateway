@@ -40,17 +40,17 @@ type ca interface {
 
 // rotatableCA is a CA whose signing key can rotate during the process lifetime.
 type rotatableCA interface {
-	// rotated returns a channel that is closed at the next key rotation. Each rotation replaces
-	// the channel, so a waiter fetches the current one again after every wake-up.
+	// rotated returns a channel that is closed at the next key rotation. Once it is closed,
+	// call rotated again for a fresh channel.
 	rotated() <-chan struct{}
 }
 
-// rotationNotifier implements rotatableCA by closing the current channel at each rotation,
-// waking every waiter at once; the next rotated call starts the next generation. Its zero value
-// is ready to use, so a CA embeds it and needs no wiring of its own.
+// rotationNotifier implements rotatableCA by closing the current channel at each rotation. Its
+// zero value is ready to use, so a CA embeds it and needs no wiring of its own.
 type rotationNotifier struct {
 	mu sync.Mutex
-	ch chan struct{} // Nil until fetched and after each rotation, so unwaited rotations coalesce
+	// ch is nil until rotated creates one, and returns to nil when notifyRotation closes it.
+	ch chan struct{}
 }
 
 func (n *rotationNotifier) rotated() <-chan struct{} {

@@ -63,7 +63,7 @@ type certificateRequest struct {
 }
 
 // hostCertManager holds the host certificates the Gateway presents to SSH clients, each signed
-// for the names a client may have used to reach a resource and keyed by those names. Each cached
+// for the hosts a client may have used to reach a resource and keyed by those hosts. Each cached
 // certificate keeps itself signed by the CA's current key in the background.
 type hostCertManager struct {
 	ca        ca
@@ -139,6 +139,8 @@ func (c *hostCertManager) signer(ctx context.Context, host string, aliases []str
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	// A concurrent caller signed for the same principals first. Replace its certificate rather than
+	// serving it, so this method always installs and returns the newest one for these principals.
 	if replaced, ok := c.certByPrincipals[key]; ok {
 		replaced.cancelRenewal()
 	} else if len(c.certByPrincipals) >= c.maxCerts {
@@ -189,7 +191,7 @@ func (c *hostCertManager) evictAll() {
 	clear(c.certByPrincipals)
 }
 
-// evictUnused drops the certificates not served for a full certificate lifetime, so a name the
+// evictUnused drops the certificates not served for a full certificate lifetime, so a host the
 // Gateway stops seeing does not keep renewing for the rest of the process's life. Sweeping once a
 // lifetime leaves a certificate cached for between one and two lifetimes after its last use,
 // depending on where that use falls between two sweeps.
@@ -223,10 +225,10 @@ func (c *hostCertManager) evictOldest() {
 	delete(c.certByPrincipals, oldestKey)
 }
 
-// hostCertPrincipals returns the names a client may have used to reach the resource it asked for:
+// hostCertPrincipals returns the hosts a client may have used to reach the resource it asked for:
 // the host from its CONNECT request, plus the resource's aliases. An older client translates an
 // alias to the resource address before connecting, so the host it asks for is the address while the
-// name it verifies the certificate against is still the alias.
+// host it verifies the certificate against is still the alias.
 //
 // Principals are lowercased because OpenSSH matches them case-insensitively, and sorted so that the
 // same set always yields the same slice.
@@ -273,10 +275,9 @@ func newAutoRenewingCertSigner(ctx context.Context, ca ca, certReq *certificateR
 		logger:    logger,
 	}
 
-	// Fetch the rotation channel before signing, not after: a key that rotates while the CA is
-	// signing then closes this channel, so the certificate it returns is re-signed as soon as the
-	// renewal loop starts instead of surviving until its renewal time.
-	certSigner.fetchRotationChannel()
+	// Take the rotation channel before signing so a rotation while the CA is signing closes it
+	// and the renewal loop re-signs immediately.
+	certSigner.updateRotationChannel()
 
 	if _, err := certSigner.updateCertSigner(ctx); err != nil {
 		return nil, err
@@ -307,10 +308,8 @@ func (s *autoRenewingCertSigner) validAt(t time.Time) bool {
 	return s.expiresAt.IsZero() || t.Before(s.expiresAt)
 }
 
-// fetchRotationChannel makes s wait on the CA's current rotation channel. An open channel is
-// always the current one, because a rotation replaces the channel only by closing it; so this
-// runs where a channel goes stale: at construction (none held yet) and after consuming a close.
-func (s *autoRenewingCertSigner) fetchRotationChannel() {
+// updateRotationChannel points s.rotated at the CA's current rotation channel.
+func (s *autoRenewingCertSigner) updateRotationChannel() {
 	if rotatable, ok := s.ca.(rotatableCA); ok {
 		s.rotated = rotatable.rotated()
 	}
@@ -334,8 +333,7 @@ func (s *autoRenewingCertSigner) renewalLoop(ctx context.Context) {
 		select {
 		case <-timer.C:
 		case <-s.rotated:
-			// The close consumed here retired the channel, so fetch the one the rotation installed.
-			s.fetchRotationChannel()
+			s.updateRotationChannel()
 		case <-ctx.Done():
 			return
 		}

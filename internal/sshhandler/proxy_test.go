@@ -244,8 +244,8 @@ func TestProxy_UpstreamFailures(t *testing.T) {
 				// fails to sign breaks that before anything is dialed.
 				fake := newFakeCAProvider(sshProxy.config.caProvider)
 				fake.user = &stubCA{
-					signer:     testSigner(t),
-					errOnCalls: map[int]error{1: errors.New("sign failed")},
+					signer:  testSigner(t),
+					errFrom: 1,
 				}
 				sshProxy.config.caProvider = fake
 
@@ -593,9 +593,9 @@ func (s *echoServer) identity() (username string, userCert *ssh.Certificate) {
 // The test GAT claims describe a resource whose address is a wildcard, so the host certificate is
 // signed for the host the connection requested plus the resource's aliases, never the address.
 const (
-	testRequestedHost   = "resource.example.com"
-	testResourceAddress = "*.example.com"
-	testResourceAlias   = "resource.int"
+	testRequestedHost   = "resource.corp.internal"
+	testResourceAddress = "*.corp.internal"
+	testResourceAlias   = "resource.internal"
 )
 
 // newProxyConn wraps conn in the connect.ProxyConn the proxy serves, with test GAT claims and
@@ -693,8 +693,7 @@ func dialDownstream(t *testing.T, sshProxy *SSHProxy, clientConn net.Conn) (*ssh
 	clientConfig := &ssh.ClientConfig{
 		User: "downstream-client",
 		HostKeyCallback: func(addr string, remote net.Addr, key ssh.PublicKey) error {
-			// checker.CheckHostKey already matches the host against the principals, but it accepts
-			// a certificate with no principals at all, which is what OpenSSH 10.3 rejects outright.
+			// checker.CheckHostKey skips hostname verification when the principal list is empty.
 			cert, ok := key.(*ssh.Certificate)
 			require.True(t, ok)
 			assert.ElementsMatch(t, []string{testRequestedHost, testResourceAlias}, cert.ValidPrincipals)

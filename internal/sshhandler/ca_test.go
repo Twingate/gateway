@@ -167,21 +167,21 @@ func TestRotationNotifier(t *testing.T) {
 	notifier.notifyRotation()
 	notifier.notifyRotation()
 
-	before := notifier.rotated()
-	assert.False(t, isClosed(before), "the channel should stay open until the next rotation")
+	rotated := notifier.rotated()
+	assert.False(t, isClosed(rotated), "the channel should stay open until the next rotation")
 
 	// Every waiter holds the same channel, so closing it is the broadcast.
-	assert.Equal(t, before, notifier.rotated())
+	assert.Equal(t, rotated, notifier.rotated())
 
 	notifier.notifyRotation()
-	assert.True(t, isClosed(before), "a rotation should close the channel")
+	assert.True(t, isClosed(rotated), "a rotation should close the channel")
 
 	// A rotation retires the channel, so a waiter that fetches again gets the next generation.
-	after := notifier.rotated()
-	assert.False(t, isClosed(after), "a channel fetched after a rotation should be open")
+	rotated = notifier.rotated()
+	assert.False(t, isClosed(rotated), "a channel fetched after a rotation should be open")
 
 	notifier.notifyRotation()
-	assert.True(t, isClosed(after))
+	assert.True(t, isClosed(rotated))
 }
 
 func TestNewManualCA_PrivateKeyFileNotFound(t *testing.T) {
@@ -444,11 +444,11 @@ func TestVaultCA_Sign(t *testing.T) {
 			req: &certificateRequest{
 				certType:   HostCert,
 				publicKey:  publicKey,
-				principals: []string{"gateway.example.com"},
+				principals: []string{"gateway.corp.internal"},
 				ttl:        24 * time.Hour,
 			},
 			wantCertType:   "host",
-			wantPrincipals: "gateway.example.com",
+			wantPrincipals: "gateway.corp.internal",
 		},
 	}
 
