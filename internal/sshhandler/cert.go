@@ -73,7 +73,9 @@ type hostCertManager struct {
 	maxCerts  int
 	logger    *zap.Logger
 
-	mu               sync.Mutex
+	mu sync.Mutex
+	// renewalRoot parents every cached certificate's renewal context, so renewal stops with the Gateway.
+	renewalRoot      context.Context //nolint:containedctx // the manager's own lifetime, not a request's
 	certByPrincipals map[string]cachedHostCert
 }
 
@@ -91,6 +93,7 @@ func newHostCertManager(ca ca, publicKey ssh.PublicKey, keySigner ssh.Signer, tt
 		ttl:              ttl,
 		maxCerts:         maxCachedHostCerts,
 		logger:           logger,
+		renewalRoot:      context.Background(),
 		certByPrincipals: map[string]cachedHostCert{},
 	}
 }
@@ -131,11 +134,6 @@ func (c *hostCertManager) signer(ctx context.Context, host string, aliases []str
 		return nil, err
 	}
 
-	// Renewal outlives the call that signed the certificate, so it runs for as long as the cache
-	// holds the certificate rather than on the caller's context.
-	// #nosec G118 -- the cached certificate owns cancelRenewal and calls it when it is replaced or evicted
-	renewalCtx, cancelRenewal := context.WithCancel(context.WithoutCancel(ctx))
-
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -147,6 +145,10 @@ func (c *hostCertManager) signer(ctx context.Context, host string, aliases []str
 		c.evictOldest()
 	}
 
+	// #nosec G118 -- the cached certificate owns cancelRenewal and calls it when it is replaced or evicted
+	renewalCtx, cancelRenewal := context.WithCancel(c.renewalRoot)
+
+	//nolint:contextcheck // the cache serves this certificate to connections other than the one that signed it
 	go certSigner.renewalLoop(renewalCtx)
 
 	c.certByPrincipals[key] = cachedHostCert{
@@ -159,6 +161,10 @@ func (c *hostCertManager) signer(ctx context.Context, host string, aliases []str
 }
 
 func (c *hostCertManager) start(ctx context.Context) {
+	c.mu.Lock()
+	c.renewalRoot = ctx
+	c.mu.Unlock()
+
 	go c.maintenanceLoop(ctx)
 }
 
@@ -180,13 +186,11 @@ func (c *hostCertManager) maintenanceLoop(ctx context.Context) {
 	}
 }
 
+// evictAll drops every certificate once the manager stops. Renewal ends with the manager's context,
+// even for a certificate cached after this returns, so there is nothing to cancel here.
 func (c *hostCertManager) evictAll() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-
-	for _, cert := range c.certByPrincipals {
-		cert.cancelRenewal()
-	}
 
 	clear(c.certByPrincipals)
 }

@@ -186,6 +186,26 @@ func TestHostCertManager_ResignsAtRenewTime(t *testing.T) {
 	})
 }
 
+func TestHostCertManager_KeepsRenewingAfterTheCallerIsGone(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ca := newStubCA(t)
+		manager := newTestHostCertManager(t, ca)
+		manager.start(t.Context())
+
+		callerCtx, callerGone := context.WithCancel(t.Context())
+
+		_, err := manager.signer(callerCtx, "vm.corp.internal", nil)
+		require.NoError(t, err)
+
+		callerGone()
+
+		time.Sleep(80 * time.Minute)
+		synctest.Wait()
+
+		assert.Equal(t, 2, ca.calls())
+	})
+}
+
 func TestHostCertManager_ServesCurrentCertificateWhenSignFails(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ca := newStubCA(t)
@@ -252,6 +272,27 @@ func TestHostCertManager_ReturnsErrorWhenTheCachedCertificateExpires(t *testing.
 		time.Sleep(retryInterval)
 		synctest.Wait()
 		assert.Equal(t, renewals+1, ca.calls(), "the renewal should keep retrying after the certificate expired")
+	})
+}
+
+func TestHostCertManager_StopsRenewingOnShutdown(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ca := newStubCA(t)
+		manager := newTestHostCertManager(t, ca)
+
+		ctx, shutdown := context.WithCancel(t.Context())
+		manager.start(ctx)
+
+		shutdown()
+		synctest.Wait() // maintenance clears the cache and exits
+
+		_, err := manager.signer(t.Context(), "vm.corp.internal", nil)
+		require.NoError(t, err)
+
+		time.Sleep(80 * time.Minute)
+		synctest.Wait()
+
+		assert.Equal(t, 1, ca.calls(), "a certificate cached after the manager stopped should not renew")
 	})
 }
 
