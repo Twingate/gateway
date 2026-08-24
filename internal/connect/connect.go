@@ -28,10 +28,11 @@ const AuthSignatureHeaderKey string = "X-Token-Signature"
 const ConnIDHeaderKey string = "X-Connection-Id"
 
 type Info struct {
-	Address string
-	Claims  *token.GATClaims
-	ConnID  string
-	Token   string
+	RequestedHost string
+	UpstreamHost  string
+	Claims        *token.GATClaims
+	ConnID        string
+	Token         string
 }
 
 type HTTPError struct {
@@ -130,8 +131,8 @@ func (v *MessageValidator) ParseConnect(req *http.Request, ekm []byte) (connectI
 			}
 	}
 
-	// verify the CONNECT target against the GAT token and map it to the upstream address
-	address, httpErr := resolveUpstreamAddress(req.RequestURI, gatClaims.Resource)
+	// verify the CONNECT target against the GAT token and resolve the upstream host
+	requestedHost, upstreamHost, httpErr := resolveUpstream(req.RequestURI, gatClaims.Resource)
 	if httpErr != nil {
 		return Info{
 			Claims: gatClaims,
@@ -140,66 +141,68 @@ func (v *MessageValidator) ParseConnect(req *http.Request, ekm []byte) (connectI
 	}
 
 	return Info{
-		Address: address,
-		Claims:  gatClaims,
-		ConnID:  connID,
-		Token:   bearerToken,
+		RequestedHost: requestedHost,
+		UpstreamHost:  upstreamHost,
+		Claims:        gatClaims,
+		ConnID:        connID,
+		Token:         bearerToken,
 	}, nil
 }
 
-// resolveUpstreamAddress verifies the CONNECT target against the GAT
-// resource and maps it to the upstream address for backend forwarding.
-func resolveUpstreamAddress(address string, resource token.Resource) (string, *HTTPError) {
-	host, port, err := net.SplitHostPort(address)
+// resolveUpstream verifies the CONNECT target against the GAT resource, returning the host the
+// client asked for and the host the Gateway forwards to.
+func resolveUpstream(target string, resource token.Resource) (requestedHost, upstreamHost string, _ *HTTPError) {
+	host, port, err := net.SplitHostPort(target)
 	if err != nil {
-		return "", &HTTPError{
+		return "", "", &HTTPError{
 			Code:    http.StatusBadRequest,
 			Message: fmt.Sprintf("failed to parse CONNECT target: %v", err),
 			Err:     err,
 		}
 	}
 
+	upstreamHost = host
+
 	switch {
 	case matchResourceAddress(resource.Address, host):
 		// host matches the resource address; forward to the same host
 	case matchResourceAliases(resource.Aliases, host):
 		// host matches an alias; forward to the resource's address
-		host = resource.Address
+		upstreamHost = resource.Address
 	default:
-		return "", &HTTPError{
+		return "", "", &HTTPError{
 			Code:    http.StatusBadRequest,
 			Message: fmt.Sprintf("CONNECT host %s does not match resource address %s or aliases %v", host, resource.Address, resource.Aliases),
 			Err:     nil,
 		}
 	}
 
-	if !config.HostnameRegexp.MatchString(host) {
-		return "", &HTTPError{
+	if !config.HostnameRegexp.MatchString(upstreamHost) {
+		return "", "", &HTTPError{
 			Code:    http.StatusBadRequest,
-			Message: "CONNECT host resolves to an invalid host: " + host,
+			Message: "CONNECT host resolves to an invalid host: " + upstreamHost,
 			Err:     nil,
 		}
 	}
 
 	requestedPort, err := strconv.Atoi(port)
 	if err != nil {
-		return "", &HTTPError{
+		return "", "", &HTTPError{
 			Code:    http.StatusBadRequest,
 			Message: fmt.Sprintf("failed to parse CONNECT target port: %v", err),
 			Err:     err,
 		}
 	}
 
-	metadata := resource.GatewayMetadata
-	if requestedPort != metadata.Downstream.Port {
-		return "", &HTTPError{
+	if downstreamPort := resource.GatewayMetadata.Downstream.Port; requestedPort != downstreamPort {
+		return "", "", &HTTPError{
 			Code:    http.StatusBadRequest,
-			Message: fmt.Sprintf("CONNECT port %d does not match token downstream port %d", requestedPort, metadata.Downstream.Port),
+			Message: fmt.Sprintf("CONNECT port %d does not match token downstream port %d", requestedPort, downstreamPort),
 			Err:     nil,
 		}
 	}
 
-	return net.JoinHostPort(host, strconv.Itoa(metadata.Upstream.Port)), nil
+	return host, upstreamHost, nil
 }
 
 var validDNSLabel = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$`)

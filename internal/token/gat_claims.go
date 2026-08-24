@@ -16,6 +16,8 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+const gatTokenType = "GAT"
+
 const supportedVersion = "1"
 
 const (
@@ -25,6 +27,7 @@ const (
 
 var (
 	errInvalidPublicKey   = errors.New("not a valid public key")
+	errInvalidTokenType   = errors.New("token type is invalid")
 	errUnsupportedVersion = errors.New("unsupported version")
 	errInvalidPort        = errors.New("invalid port")
 )
@@ -32,6 +35,7 @@ var (
 type GATClaims struct {
 	jwt.RegisteredClaims
 
+	Type            string           `json:"typ"`
 	Version         string           `json:"ver"`
 	RenewAt         *jwt.NumericDate `json:"rnw"`
 	ClientPublicKey PublicKey        `json:"cpk"`
@@ -45,6 +49,7 @@ func (p GATClaims) Validate() error {
 		condition bool
 		fieldName string
 	}{
+		{p.Type == "", "typ"},
 		{p.Version == "", "ver"},
 		{p.RenewAt == nil, "rnw"},
 		{p.ClientPublicKey == (PublicKey{}), "cpk"},
@@ -58,6 +63,10 @@ func (p GATClaims) Validate() error {
 		if v.condition {
 			return fmt.Errorf("%w \"%s\"", jwt.ErrTokenRequiredClaimMissing, v.fieldName)
 		}
+	}
+
+	if p.Type != gatTokenType {
+		return fmt.Errorf("%w: %w %q", jwt.ErrTokenInvalidClaims, errInvalidTokenType, p.Type)
 	}
 
 	if p.Version != supportedVersion {
@@ -83,10 +92,6 @@ func validatePort(port int, fieldName string) error {
 
 func (p GATClaims) ShouldUpgradeTLS() bool {
 	return p.Resource.Type == ResourceTypeKubernetes
-}
-
-func (p GATClaims) getHeaderType() string {
-	return "GAT"
 }
 
 type User struct {

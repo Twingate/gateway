@@ -50,6 +50,7 @@ func newGATTokenClaims(clientPublicKey token.PublicKey) token.GATClaims {
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
+		Type:            "GAT",
 		Version:         "1",
 		RenewAt:         jwt.NewNumericDate(time.Now().Add(time.Minute)),
 		ClientPublicKey: clientPublicKey,
@@ -88,7 +89,6 @@ func createParserAndGATToken(t *testing.T, claims token.GATClaims) (*token.Parse
 	require.NoError(t, err)
 
 	gatToken := jwt.NewWithClaims(jwt.SigningMethodES256, claims)
-	gatToken.Header["typ"] = "GAT"
 	tokenStr, err := gatToken.SignedString(privateKey)
 	require.NoError(t, err)
 
@@ -115,21 +115,21 @@ func TestConnectValidator_ParseConnect(t *testing.T) {
 		connectInfo, err := validator.ParseConnect(req, []byte(sigData))
 
 		require.NoError(t, err)
-		assert.Equal(t, "Example.com:443", connectInfo.Address)
+		assert.Equal(t, "Example.com", connectInfo.RequestedHost)
+		assert.Equal(t, "Example.com", connectInfo.UpstreamHost)
 		assert.Equal(t, *connectInfo.Claims, gatClaims)
 		assert.Equal(t, "conn-id", connectInfo.ConnID)
 		assert.Equal(t, signedToken, connectInfo.Token)
 	})
 
-	t.Run("Rewrites target port to upstream port", func(t *testing.T) {
+	t.Run("Alias resolves to the resource address", func(t *testing.T) {
 		claims := newGATTokenClaims(c.getPublicKey())
-		claims.Resource.GatewayMetadata.Upstream = token.Upstream{Port: 8443}
-		parserRewrite, tokenRewrite := createParserAndGATToken(t, claims)
-		validator := &MessageValidator{TokenParser: parserRewrite}
+		claims.Resource.Aliases = []string{"app.internal"}
+		parser, signedToken := createParserAndGATToken(t, claims)
+		validator := &MessageValidator{TokenParser: parser}
 
-		// client targets the downstream port 443; backend must be dialed on upstream 8443
-		req := httptest.NewRequest(http.MethodConnect, "example.com:443", nil)
-		req.Header.Set(AuthHeaderKey, "Bearer "+tokenRewrite)
+		req := httptest.NewRequest(http.MethodConnect, "app.internal:443", nil)
+		req.Header.Set(AuthHeaderKey, "Bearer "+signedToken)
 
 		signature := c.sign(sigData)
 		req.Header.Set(AuthSignatureHeaderKey, signature)
@@ -138,7 +138,8 @@ func TestConnectValidator_ParseConnect(t *testing.T) {
 		connectInfo, err := validator.ParseConnect(req, []byte(sigData))
 
 		require.NoError(t, err)
-		assert.Equal(t, "example.com:8443", connectInfo.Address)
+		assert.Equal(t, "app.internal", connectInfo.RequestedHost)
+		assert.Equal(t, "example.com", connectInfo.UpstreamHost)
 		assert.Equal(t, "conn-id", connectInfo.ConnID)
 	})
 
@@ -381,37 +382,41 @@ func TestHTTPError_Error(t *testing.T) {
 	}
 }
 
-func TestResolveUpstreamAddress(t *testing.T) {
+func TestResolveUpstream(t *testing.T) {
 	metadata := token.GatewayMetadata{
 		Downstream: token.Downstream{Port: 443},
 		Upstream:   token.Upstream{Port: 8443},
 	}
 
 	tests := []struct {
-		name        string
-		address     string
-		resource    token.Resource
-		wantAddress string
-		wantCode    int
-		wantMessage string
+		name              string
+		address           string
+		resource          token.Resource
+		wantRequestedHost string
+		wantUpstreamHost  string
+		wantCode          int
+		wantMessage       string
 	}{
 		{
-			name:        "maps downstream port to upstream port",
-			address:     "example.com:443",
-			resource:    token.Resource{Address: "example.com", GatewayMetadata: metadata},
-			wantAddress: "example.com:8443",
+			name:              "host matches the resource address",
+			address:           "example.com:443",
+			resource:          token.Resource{Address: "example.com", GatewayMetadata: metadata},
+			wantRequestedHost: "example.com",
+			wantUpstreamHost:  "example.com",
 		},
 		{
-			name:        "wildcard address keeps requested host",
-			address:     "api.example.com:443",
-			resource:    token.Resource{Address: "*.example.com", GatewayMetadata: metadata},
-			wantAddress: "api.example.com:8443",
+			name:              "wildcard address keeps requested host",
+			address:           "api.example.com:443",
+			resource:          token.Resource{Address: "*.example.com", GatewayMetadata: metadata},
+			wantRequestedHost: "api.example.com",
+			wantUpstreamHost:  "api.example.com",
 		},
 		{
-			name:        "alias maps to upstream resource address",
-			address:     "second.internal:443",
-			resource:    token.Resource{Address: "10.0.0.5", Aliases: []string{"first.internal", "second.internal"}, GatewayMetadata: metadata},
-			wantAddress: "10.0.0.5:8443",
+			name:              "alias maps to upstream resource address",
+			address:           "second.internal:443",
+			resource:          token.Resource{Address: "10.0.0.5", Aliases: []string{"first.internal", "second.internal"}, GatewayMetadata: metadata},
+			wantRequestedHost: "second.internal",
+			wantUpstreamHost:  "10.0.0.5",
 		},
 		{
 			name:        "host matches neither address nor alias",
@@ -459,19 +464,21 @@ func TestResolveUpstreamAddress(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, httpErr := resolveUpstreamAddress(tt.address, tt.resource)
+			requestedHost, upstreamHost, httpErr := resolveUpstream(tt.address, tt.resource)
 
 			if tt.wantCode != 0 {
 				require.NotNil(t, httpErr)
 				assert.Equal(t, tt.wantCode, httpErr.Code)
 				assert.Contains(t, httpErr.Message, tt.wantMessage)
-				assert.Empty(t, got)
+				assert.Empty(t, requestedHost)
+				assert.Empty(t, upstreamHost)
 
 				return
 			}
 
 			require.Nil(t, httpErr)
-			assert.Equal(t, tt.wantAddress, got)
+			assert.Equal(t, tt.wantRequestedHost, requestedHost)
+			assert.Equal(t, tt.wantUpstreamHost, upstreamHost)
 		})
 	}
 }

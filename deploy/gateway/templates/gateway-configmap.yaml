@@ -25,7 +25,7 @@ data:
       certificateFile: "/etc/gateway/tls/tls.crt"
       privateKeyFile: "/etc/gateway/tls/tls.key"
 
-    {{- $resourceEnabled := and .Values.twingate.resource .Values.twingate.resource.enabled -}}
+    {{- $resourceEnabled := and .Values.twingateOperator.kubernetesResource .Values.twingateOperator.kubernetesResource.enabled -}}
     {{- $k8sEnabled := and .Values.kubernetes .Values.kubernetes.enabled }}
 
     {{ if and $k8sEnabled .Values.kubernetes.upstreams -}}
