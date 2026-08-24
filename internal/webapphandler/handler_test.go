@@ -250,8 +250,8 @@ func TestRewrite_UpstreamScheme(t *testing.T) {
 		upstreamTLS bool
 		wantScheme  string
 	}{
-		{name: "plain HTTP when tls is false", upstreamTLS: false, wantScheme: "http"},
-		{name: "HTTPS when tls is true", upstreamTLS: true, wantScheme: "https"},
+		{name: "plain HTTP when TLS is false", upstreamTLS: false, wantScheme: "http"},
+		{name: "HTTPS when TLS is true", upstreamTLS: true, wantScheme: "https"},
 	}
 
 	for _, tt := range tests {
