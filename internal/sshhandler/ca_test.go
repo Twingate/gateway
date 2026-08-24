@@ -135,6 +135,8 @@ func TestNewManualCA_ReloadsPrivateKey(t *testing.T) {
 		require.NotEmpty(c, logs.FilterMessage(fmt.Sprintf("Start watching %s changes", keyFile)).All())
 	}, time.Second, 5*time.Millisecond)
 
+	rotated := provider.ca.rotated()
+
 	newKeyPEM, newPublicKey := generateCAKey(t)
 	replaceCAKeyFile(t, keyFile, newKeyPEM)
 
@@ -144,6 +146,14 @@ func TestNewManualCA_ReloadsPrivateKey(t *testing.T) {
 
 		require.Equal(c, newPublicKey.Marshal(), reloadedPublicKey.Marshal())
 	}, time.Second, 5*time.Millisecond, "CA public key was not reloaded")
+
+	// Certificates already signed by the old key are only re-signed if the reload is announced
+	// as a rotation.
+	select {
+	case <-rotated:
+	case <-time.After(time.Second):
+		t.Fatal("CA key reload did not announce a rotation")
+	}
 
 	// Certificates signed after the reload are signed by the new CA key
 	_, subjectPublicKey, err := keyConfig{}.Generate(rand.Reader)
