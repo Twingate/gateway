@@ -43,10 +43,7 @@ func NewHandler(cfg Config) *Handler {
 // createTransport clones http.DefaultTransport to preserve its proxy, timeout,
 // and HTTP/2 defaults and pins upstream TLS verification to the given CA pool.
 func createTransport(caPool *x509.CertPool) *http.Transport {
-	transport := &http.Transport{}
-	if defaultTransport, ok := http.DefaultTransport.(*http.Transport); ok {
-		transport = defaultTransport.Clone()
-	}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
 
 	transport.TLSClientConfig = &tls.Config{
 		MinVersion: tls.VersionTLS13,
