@@ -33,7 +33,8 @@ func (l *mockConnListener) Accept() (net.Conn, error) {
 	connMetrics := connect.CreateProxyConnMetrics(prometheus.NewRegistry())
 	proxyConn := connect.NewProxyConn(conn, nil, nil, zap.NewNop(), connMetrics)
 	proxyConn.ID = "test-conn"
-	proxyConn.Address = "localhost"
+	proxyConn.RequestedHost = "localhost"
+	proxyConn.UpstreamHost = "localhost"
 	proxyConn.Claims = &token.GATClaims{
 		User:     token.User{Username: "test@acme.com"},
 		Resource: token.Resource{Type: token.ResourceTypeKubernetes},

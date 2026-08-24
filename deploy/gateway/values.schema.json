@@ -16,23 +16,54 @@
           "type": "string",
           "description": "Twingate host.",
           "default": "twingate.com"
+        }
+      },
+      "additionalProperties": false
+    },
+    "twingateOperator": {
+      "type": "object",
+      "description": "Twingate Kubernetes Operator integration: render Twingate Custom Resources reconciled by the operator.",
+      "properties": {
+        "remoteNetworkId": {
+          "type": "string",
+          "description": "Remote Network the TwingateGateway and the in-cluster Kubernetes TwingateResource are created in. Twingate requires both to be in the same Remote Network. Empty uses the operator's own TWINGATE_REMOTE_NETWORK_ID.",
+          "default": ""
         },
-        "resource": {
+        "gateway": {
           "type": "object",
           "required": ["enabled"],
           "properties": {
             "enabled": {
               "type": "boolean",
-              "description": "Enable TwingateResource CRD integration."
+              "description": "Render the TwingateGateway and its TwingateCertificateAuthority CRs.",
+              "default": false
             },
-            "extraAnnotations": {
+            "certificateAuthority": {
               "type": "object",
-              "additionalProperties": {
-                "type": "string"
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "Name the CA is registered under in Twingate. Must be unique across the Twingate network and is immutable after install. Defaults to \"<fullname>-ca-<hash of the cluster and namespace>\"; must be set explicitly when rendering without cluster access (helm template, --dry-run=client, Argo CD).",
+                  "default": ""
+                }
               },
-              "description": "Extra annotations to add to the ClusterIP service."
+              "additionalProperties": false
             }
-          }
+          },
+          "additionalProperties": false
+        },
+        "kubernetesResource": {
+          "type": "object",
+          "required": ["enabled"],
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Render a Kubernetes TwingateResource for the in-cluster API server, bound to the gateway via gatewayRef. Requires twingateOperator.gateway.enabled=true.",
+              "default": false
+            }
+          },
+          "description": "Any TwingateResource spec field (name, alias, tags, securityPolicyId, ...) passes through; the chart owns type/address/gatewayRef.",
+          "additionalProperties": true
         }
       },
       "additionalProperties": false
@@ -453,6 +484,15 @@
         "type": {
           "enum": ["ClusterIP", "NodePort", "LoadBalancer"],
           "default": "ClusterIP"
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "default": 443
+        },
+        "annotations": {
+          "type": "object"
         }
       }
     },

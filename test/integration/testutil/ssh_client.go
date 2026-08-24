@@ -53,6 +53,10 @@ func (s *SSH) baseOptions() []string {
 		s.hostname,
 		"-l", s.username,
 		"-p", s.port,
+		// Ignore the system and user ssh_config so the requests the client sends, and therefore the
+		// audit logs the gateway emits, do not vary with the machine running the tests. In
+		// particular `SendEnv LANG LC_*` would add an env request whenever LANG is set.
+		"-F", "none",
 		"-o", "StrictHostKeyChecking=yes",
 		"-o", "UserKnownHostsFile=" + s.knownHostsFile,
 	}
@@ -68,6 +72,7 @@ func (s *SSH) executeSSH(ctx context.Context, cmdOptions ...string) ([]byte, err
 func (s *SSH) copy(ctx context.Context, source, target string, cmdOptions ...string) ([]byte, error) {
 	var options = []string{
 		"-P", s.port,
+		"-F", "none",
 		"-o", "StrictHostKeyChecking=yes",
 		"-o", "UserKnownHostsFile=" + s.knownHostsFile,
 	}

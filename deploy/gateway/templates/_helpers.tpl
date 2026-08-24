@@ -161,22 +161,45 @@ Create the name of the SSH Vault AppRole secret ID secret to use
 
 
 {{/*
-Get the name for the auto-created in-cluster Kubernetes upstream
+Return the UID of the kube-system namespace, or "" when it cannot be read
 */}}
-{{- define "gateway.resourceInClusterUpstreamName" -}}
-{{- if and .Values.twingate.resource .Values.twingate.resource.enabled .Values.twingate.resource.extraAnnotations }}
-{{- default "Local Kubernetes Cluster" (get .Values.twingate.resource.extraAnnotations "resource.twingate.com/name") }}
-{{- else }}
-{{- "Local Kubernetes Cluster" }}
+{{- define "gateway.clusterUID" -}}
+{{- $namespace := lookup "v1" "Namespace" "" "kube-system" }}
+{{- if and $namespace $namespace.metadata }}
+{{- $namespace.metadata.uid }}
 {{- end }}
 {{- end }}
 
 {{/*
-Get the alias of the resource
+Create the name the TwingateCertificateAuthority is registered under in Twingate
+
+Twingate rejects duplicate Certificate Authority names and the CR's `spec.name` is
+immutable, so separate installs must not derive the same name. kube-system's UID stands
+in for the cluster because Helm renders before `--create-namespace` creates the release
+namespace, so the release namespace's own UID is not always readable.
+*/}}
+{{- define "gateway.certificateAuthorityName" -}}
+{{- $certificateAuthority := .Values.twingateOperator.gateway.certificateAuthority | default dict }}
+{{- if $certificateAuthority.name }}
+{{- $certificateAuthority.name }}
+{{- else }}
+{{- $clusterUID := include "gateway.clusterUID" . }}
+{{- if not $clusterUID }}
+{{- fail "Set twingateOperator.gateway.certificateAuthority.name to a name unique within your Twingate network. The chart derives one from the kube-system namespace UID, which is unavailable when rendering without cluster access such as helm template, --dry-run=client or Argo CD." }}
+{{- end }}
+{{- printf "%s-ca-%s" (include "gateway.fullname" .) (sha256sum (printf "%s/%s" $clusterUID .Release.Namespace) | trunc 16) }}
+{{- end }}
+{{- end }}
+
+
+{{/*
+Get the alias of the in-cluster Kubernetes resource
 */}}
 {{- define "gateway.resourceAlias" -}}
-{{- if and .Values.twingate.resource .Values.twingate.resource.enabled .Values.twingate.resource.extraAnnotations }}
-{{- get .Values.twingate.resource.extraAnnotations "resource.twingate.com/alias" }}
+{{- with .Values.twingateOperator.kubernetesResource }}
+{{- if .enabled }}
+{{- .alias | default "" }}
+{{- end }}
 {{- end }}
 {{- end }}
 

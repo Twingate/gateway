@@ -119,7 +119,7 @@ func (p *SSHProxy) serveConn(ctx context.Context, conn connect.Conn) error {
 	)
 
 	upstream := upstream{
-		address:  conn.GetAddress(),
+		address:  conn.GetUpstreamAddress(),
 		username: p.config.gatewayUsername,
 	}
 

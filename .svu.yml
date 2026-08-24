@@ -1,3 +1,2 @@
 tag.prefix: "v"
 always: true
-v0: true # prevent major version increments if current version is still v0

@@ -5,9 +5,9 @@
 [![Dockerhub](https://img.shields.io/badge/dockerhub-images-info.svg?logo=Docker)](https://hub.docker.com/r/twingate/gateway)
 
 > [!IMPORTANT]
-> **Available Now.** Twingate Identity Firewall is currently available and free for up to five Kubernetes or SSH resources. For additional pricing information, please contact Twingate.
+> **Available Now.** Twingate Identity Firewall is currently available and free for up to five Kubernetes, SSH or Web App resources. For additional pricing information, please contact Twingate.
 
-The Gateway is part of [Twingate Identity Firewall](https://www.twingate.com/docs/identity-firewall). It is a Layer 7 reverse proxy deployed within your environment that enables identity propagation and comprehensive auditing for upstream services such as Kubernetes API servers and SSH servers.
+The Gateway is part of [Twingate Identity Firewall](https://www.twingate.com/docs/identity-firewall). It is a Layer 7 reverse proxy deployed within your environment that enables identity propagation and comprehensive auditing for upstream services such as Kubernetes API servers, SSH servers and web applications.
 
 [Demo](https://youtu.be/kLE9txLo8Kg?si=iUrjzFuILMwnWCVI&t=1038) | [Wiki](https://github.com/Twingate/gateway/wiki) | [How It Works](https://github.com/Twingate/gateway/wiki/How-It-Works)
 
