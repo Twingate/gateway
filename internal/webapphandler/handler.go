@@ -90,7 +90,7 @@ func rewrite(r *httputil.ProxyRequest, conn *connect.ProxyConn, headers map[stri
 
 	targetURL := &url.URL{
 		Scheme: scheme,
-		Host:   conn.GetAddress(),
+		Host:   conn.GetUpstreamAddress(),
 	}
 	r.SetURL(targetURL)
 	r.Out.Host = r.In.Host // preserve the client's Host

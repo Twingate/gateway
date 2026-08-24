@@ -258,7 +258,7 @@ func TestRewrite_UpstreamScheme(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			connMetrics := connect.CreateProxyConnMetrics(prometheus.NewRegistry())
 			conn := connect.NewProxyConn(nil, nil, nil, zap.NewNop(), connMetrics)
-			conn.Address = "admin.example.int:8443"
+			conn.UpstreamHost = "admin.example.int"
 			conn.Claims = &token.GATClaims{
 				Resource: token.Resource{
 					GatewayMetadata: token.GatewayMetadata{
