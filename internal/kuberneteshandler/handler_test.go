@@ -21,14 +21,16 @@ import (
 func TestRewrite(t *testing.T) {
 	connMetrics := connect.CreateProxyConnMetrics(prometheus.NewRegistry())
 	conn := connect.NewProxyConn(nil, nil, nil, zap.NewNop(), connMetrics)
-	conn.Address = "kubernetes.default.svc"
+	conn.RequestedHost = "kubernetes.default.svc"
+	conn.UpstreamHost = "kubernetes.default.svc"
 	conn.Claims = &token.GATClaims{
 		User: token.User{
 			Username: "user@acme.com",
 			Groups:   []string{"Everyone", "Engineering"},
 		},
 		Resource: token.Resource{
-			Address: "kubernetes.default.svc",
+			Address:         "kubernetes.default.svc",
+			GatewayMetadata: token.GatewayMetadata{Upstream: token.Upstream{Port: 443}},
 		},
 	}
 

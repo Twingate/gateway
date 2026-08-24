@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -33,13 +34,14 @@ func httpResponseString(httpCode int) string {
 }
 
 // Conn is a custom connection that wraps the underlying TCP net.Conn, handling downstream
-// proxy (Twingate Client)'s authentication via the initial CONNECT message. It handles 2 TLS
-// upgrades: with downstream proxy and then optionally with downstream client e.g. `kubectl`.
+// proxy (Twingate Client)'s authentication via the initial CONNECT message.
 type Conn interface {
 	net.Conn
 	GATClaims() *token.GATClaims
 	GetID() string
-	GetAddress() string
+	// GetRequestedHost returns the host from the CONNECT target.
+	GetRequestedHost() string
+	GetUpstreamAddress() string
 	GetToken() string
 	Authenticate() error
 	UpgradeToTLS() error
@@ -54,10 +56,11 @@ type ProxyConn struct {
 	ConnectValidator Validator
 	Logger           *zap.Logger
 
-	ID      string
-	Address string
-	Claims  *token.GATClaims
-	Token   string
+	ID            string
+	RequestedHost string
+	UpstreamHost  string
+	Claims        *token.GATClaims
+	Token         string
 
 	Timer *time.Timer
 	Mu    sync.Mutex
@@ -99,8 +102,14 @@ func (p *ProxyConn) GetID() string {
 	return p.ID
 }
 
-func (p *ProxyConn) GetAddress() string {
-	return p.Address
+func (p *ProxyConn) GetRequestedHost() string {
+	return p.RequestedHost
+}
+
+func (p *ProxyConn) GetUpstreamAddress() string {
+	upstreamPort := p.Claims.Resource.GatewayMetadata.Upstream.Port
+
+	return net.JoinHostPort(p.UpstreamHost, strconv.Itoa(upstreamPort))
 }
 
 func (p *ProxyConn) GetToken() string {
@@ -240,7 +249,8 @@ func (p *ProxyConn) UpgradeToTLS() error {
 
 func (p *ProxyConn) setConnectInfo(connectInfo Info) {
 	p.ID = connectInfo.ConnID
-	p.Address = connectInfo.Address
+	p.RequestedHost = connectInfo.RequestedHost
+	p.UpstreamHost = connectInfo.UpstreamHost
 	p.Claims = connectInfo.Claims
 	p.Token = connectInfo.Token
 	p.Timer = time.AfterFunc(time.Until(connectInfo.Claims.ExpiresAt.Time), func() {
