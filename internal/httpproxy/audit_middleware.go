@@ -19,6 +19,9 @@ var (
 	errFailedToHijack = errors.New("failed to hijack")
 )
 
+// Audit log field names.
+const fieldHeaders = "headers"
+
 type responseWriter struct {
 	http.ResponseWriter
 
@@ -113,22 +116,22 @@ func auditMiddleware(config auditMiddlewareConfig) http.Handler {
 			if recovered != nil && recovered != http.ErrAbortHandler { //nolint:err113,errorlint
 				auditLogger.Error("API request failed",
 					zap.Any("request", map[string]any{
-						"headers": r.Header,
+						fieldHeaders: r.Header,
 					}),
 					zap.Any("response", map[string]any{
 						"status_code": rw.statusCode,
-						"headers":     rw.headers,
+						fieldHeaders:  rw.headers,
 					}),
 					zap.Any("panic", recovered),
 				)
 			} else {
 				auditLogger.Info("API request completed",
 					zap.Any("request", map[string]any{
-						"headers": r.Header,
+						fieldHeaders: r.Header,
 					}),
 					zap.Any("response", map[string]any{
 						"status_code": rw.statusCode,
-						"headers":     rw.headers,
+						fieldHeaders:  rw.headers,
 					}),
 				)
 			}
