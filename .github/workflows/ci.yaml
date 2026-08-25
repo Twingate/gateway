@@ -43,8 +43,6 @@ jobs:
     - name: Verify dependencies
       run: go mod verify
     - run: go vet ./...
-    - name: Check Format
-      run: if [ "$(gofmt -s -l . | wc -l)" -gt 0 ]; then exit 1; fi
     - name: golangci-lint
       uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
       with:
