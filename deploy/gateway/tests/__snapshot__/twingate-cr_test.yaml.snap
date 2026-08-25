@@ -11,7 +11,7 @@ renders the CA and Gateway when gateway is enabled:
         helm.sh/chart: gateway-0.1.0
       name: RELEASE-NAME-gateway-ca
     spec:
-      name: RELEASE-NAME-gateway-ca
+      name: RELEASE-NAME-gateway-ca-ae3f578ff6303ac5
       secretRef:
         name: RELEASE-NAME-gateway-tls
         namespace: NAMESPACE
@@ -48,7 +48,7 @@ renders the in-cluster Kubernetes resource when enabled:
         helm.sh/chart: gateway-0.1.0
       name: RELEASE-NAME-gateway-ca
     spec:
-      name: RELEASE-NAME-gateway-ca
+      name: RELEASE-NAME-gateway-ca-ae3f578ff6303ac5
       secretRef:
         name: RELEASE-NAME-gateway-tls
         namespace: NAMESPACE

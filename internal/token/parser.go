@@ -4,20 +4,13 @@
 package token
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/MicahParks/keyfunc/v3"
 	"github.com/golang-jwt/jwt/v5"
 )
 
-var errInvalidTokenType = errors.New("token type is invalid")
-
 var allowedSigningMethods = []string{jwt.SigningMethodES256.Alg()}
-
-type ClaimsWithHeaderType interface {
-	getHeaderType() string
-}
 
 type ParserConfig struct {
 	// Issuer is the expected JWT issuer (iss claim).
@@ -61,12 +54,6 @@ func (p *Parser) ParseWithClaims(tokenString string, claims jwt.Claims) (*jwt.To
 	token, err := p.parser.ParseWithClaims(tokenString, claims, p.config.Keyfunc)
 	if err != nil {
 		return nil, err
-	}
-
-	if claim, ok := claims.(ClaimsWithHeaderType); ok {
-		if headerTyp, ok := token.Header["typ"].(string); !ok || headerTyp != claim.getHeaderType() {
-			return nil, errInvalidTokenType
-		}
 	}
 
 	return token, nil

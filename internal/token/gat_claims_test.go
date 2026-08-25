@@ -7,6 +7,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"encoding/json"
 	"fmt"
 	"math/big"
 	"testing"
@@ -54,6 +55,7 @@ func TestGATTokenClaims_Validate(t *testing.T) {
 	privateKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 
 	var validClaims = GATClaims{
+		Type:            "GAT",
 		Version:         "1",
 		RenewAt:         jwt.NewNumericDate(time.Now().Add(5 * time.Minute)),
 		ClientPublicKey: PublicKey{privateKey.PublicKey},
@@ -94,6 +96,14 @@ func TestGATTokenClaims_Validate(t *testing.T) {
 		expectedError        error
 		expectedErrorMessage string
 	}{
+		{
+			name: "Missing token type",
+			setupFn: func(claims *GATClaims) {
+				claims.Type = ""
+			},
+			expectedError:        jwt.ErrTokenRequiredClaimMissing,
+			expectedErrorMessage: "\"typ\"",
+		},
 		{
 			name: "Missing version",
 			setupFn: func(claims *GATClaims) {
@@ -149,6 +159,14 @@ func TestGATTokenClaims_Validate(t *testing.T) {
 			},
 			expectedError:        jwt.ErrTokenRequiredClaimMissing,
 			expectedErrorMessage: "\"resource.address\"",
+		},
+		{
+			name: "Invalid token type",
+			setupFn: func(claims *GATClaims) {
+				claims.Type = "JWT"
+			},
+			expectedError:        jwt.ErrTokenInvalidClaims,
+			expectedErrorMessage: "token type is invalid \"JWT\"",
 		},
 		{
 			name: "Unsupported version",
@@ -317,6 +335,34 @@ func TestPublicKey_UnmarshalJSON(t *testing.T) {
 
 			require.ErrorIs(t, err, tt.expectedError)
 			require.ErrorContains(t, err, tt.expectedErrorMessage)
+		})
+	}
+}
+
+func TestGatewayMetadata_UnmarshalUpstreamTLS(t *testing.T) {
+	tests := []struct {
+		name    string
+		json    string
+		wantTLS bool
+	}{
+		{
+			name:    "upstream tls true",
+			json:    `{"upstream": {"port": 5000, "tls": true}}`,
+			wantTLS: true,
+		},
+		{
+			name:    "tls absent defaults to false",
+			json:    `{"upstream": {"port": 5000}}`,
+			wantTLS: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var metadata GatewayMetadata
+
+			require.NoError(t, json.Unmarshal([]byte(tt.json), &metadata))
+			assert.Equal(t, tt.wantTLS, metadata.Upstream.TLS)
 		})
 	}
 }

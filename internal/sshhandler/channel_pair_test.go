@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest"
 	"go.uber.org/zap/zaptest/observer"
 	"golang.org/x/crypto/ssh"
@@ -136,10 +137,136 @@ func TestChannelPair_RequestLogsCarryChannelExtraBothDirections(t *testing.T) {
 
 	channels.close(t, done)
 
-	channelField, isMap := observedSSHField(t, logs, "Channel request")["channel"].(map[string]any)
+	channelField, isMap := observedSSHField(t, logs, "SSH channel request")["channel"].(map[string]any)
 	require.True(t, isMap)
 	assert.Equal(t, "test-value", channelField["test-extra"])
 	assert.Equal(t, labelUpstream, channelField["source"], "target-side logs swap the direction labels")
+}
+
+func TestChannelPair_SessionRequestLogsAcceptedOnlyWithReply(t *testing.T) {
+	tests := []struct {
+		name      string
+		wantReply bool
+	}{
+		{name: "with reply records outcome", wantReply: true},
+		{name: "without reply omits outcome", wantReply: false},
+	}
+
+	payload := ssh.Marshal(execReq{Command: "whoami"})
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			core, logs := observer.New(zap.DebugLevel)
+			channels := newProxyChannels(t, channelTypeSession)
+			channels.logger = zap.New(core)
+			done := channels.serve(t)
+
+			if tt.wantReply {
+				channels.sendRequestAwaitReply(t, requestTypeExec, payload)
+			} else {
+				_, err := channels.source.ch.SendRequest(requestTypeExec, false, payload)
+				require.NoError(t, err)
+				assertSentRequest(t, channels.target.requests, requestTypeExec)
+			}
+
+			channels.close(t, done)
+
+			requestField, isMap := observedSSHField(t, logs, "SSH channel request")["request"].(map[string]any)
+			require.True(t, isMap)
+
+			if tt.wantReply {
+				assert.Equal(t, true, requestField["accepted"])
+			} else {
+				assert.NotContains(t, requestField, "accepted")
+			}
+		})
+	}
+}
+
+func TestChannelPair_RequestLogLevelByType(t *testing.T) {
+	tests := []struct {
+		name      string
+		reqType   string
+		payload   []byte
+		wantLevel zapcore.Level
+	}{
+		{name: "unknown custom type", reqType: "probe@example.com", wantLevel: zap.InfoLevel},
+		{name: "terminal mechanic", reqType: requestTypeWindowChange, payload: ssh.Marshal(windowChangeReq{WidthColumns: 80, HeightRows: 24}), wantLevel: zap.DebugLevel},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			core, logs := observer.New(zap.DebugLevel)
+			channels := newProxyChannels(t, channelTypeSession)
+			channels.logger = zap.New(core)
+			done := channels.serve(t)
+
+			channels.sendRequestAwaitReply(t, tt.reqType, tt.payload)
+
+			// Assert before the shell below adds a log entry of its own.
+			entries := logs.FilterMessage("SSH channel request").All()
+			require.Len(t, entries, 1)
+			assert.Equal(t, tt.wantLevel, entries[0].Level)
+
+			// Neither request starts the session; without the shell, serve() waits out
+			// sessionStartTimeout.
+			channels.sendRequestAwaitReply(t, requestTypeShell, nil)
+
+			channels.close(t, done)
+		})
+	}
+}
+
+func TestChannelPair_RequestLogFieldsByType(t *testing.T) {
+	tests := []struct {
+		name          string
+		reqType       string
+		payload       []byte
+		startsSession bool
+		wantFields    map[string]any
+	}{
+		{
+			name: "environment variable", reqType: requestTypeEnv,
+			payload:    ssh.Marshal(envReq{Name: "LD_PRELOAD", Value: "/tmp/evil.so"}),
+			wantFields: map[string]any{"name": "LD_PRELOAD", "value": "/tmp/evil.so"},
+		},
+		{
+			name: "command", reqType: requestTypeExec,
+			payload:       ssh.Marshal(execReq{Command: "whoami"}),
+			startsSession: true,
+			wantFields:    map[string]any{"command": "whoami"},
+		},
+		{
+			name: "subsystem", reqType: requestTypeSubsystem,
+			payload:       ssh.Marshal(subsystemReq{Name: "sftp"}),
+			startsSession: true,
+			wantFields:    map[string]any{"name": "sftp"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			core, logs := observer.New(zap.DebugLevel)
+			channels := newProxyChannels(t, channelTypeSession)
+			channels.logger = zap.New(core)
+			done := channels.serve(t)
+
+			channels.sendRequestAwaitReply(t, tt.reqType, tt.payload)
+
+			// Assert before the shell below adds a log entry of its own.
+			requestField, isMap := observedSSHField(t, logs, "SSH channel request")["request"].(map[string]any)
+			require.True(t, isMap)
+			assert.Subset(t, requestField, tt.wantFields)
+
+			// A shell starts the session so serve() need not wait out sessionStartTimeout.
+			// exec and subsystem already started one, and a duplicate would be rejected.
+			if !tt.startsSession {
+				channels.sendRequestAwaitReply(t, requestTypeShell, nil)
+			}
+
+			channels.close(t, done)
+		})
+	}
 }
 
 func TestChannelPair_ForwardsTargetPtyAndWindowChange(t *testing.T) {

@@ -51,8 +51,12 @@ func (m *mockProxyConn) GetID() string {
 	return "mock"
 }
 
-func (m *mockProxyConn) GetAddress() string {
+func (m *mockProxyConn) GetRequestedHost() string {
 	return "mock"
+}
+
+func (m *mockProxyConn) GetUpstreamAddress() string {
+	return "mock:22"
 }
 
 func (m *mockProxyConn) GetToken() string {

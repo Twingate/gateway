@@ -161,6 +161,38 @@ Create the name of the SSH Vault AppRole secret ID secret to use
 
 
 {{/*
+Return the UID of the kube-system namespace, or "" when it cannot be read
+*/}}
+{{- define "gateway.clusterUID" -}}
+{{- $namespace := lookup "v1" "Namespace" "" "kube-system" }}
+{{- if and $namespace $namespace.metadata }}
+{{- $namespace.metadata.uid }}
+{{- end }}
+{{- end }}
+
+{{/*
+Create the name the TwingateCertificateAuthority is registered under in Twingate
+
+Twingate rejects duplicate Certificate Authority names and the CR's `spec.name` is
+immutable, so separate installs must not derive the same name. kube-system's UID stands
+in for the cluster because Helm renders before `--create-namespace` creates the release
+namespace, so the release namespace's own UID is not always readable.
+*/}}
+{{- define "gateway.certificateAuthorityName" -}}
+{{- $certificateAuthority := .Values.twingateOperator.gateway.certificateAuthority | default dict }}
+{{- if $certificateAuthority.name }}
+{{- $certificateAuthority.name }}
+{{- else }}
+{{- $clusterUID := include "gateway.clusterUID" . }}
+{{- if not $clusterUID }}
+{{- fail "Set twingateOperator.gateway.certificateAuthority.name to a name unique within your Twingate network. The chart derives one from the kube-system namespace UID, which is unavailable when rendering without cluster access such as helm template, --dry-run=client or Argo CD." }}
+{{- end }}
+{{- printf "%s-ca-%s" (include "gateway.fullname" .) (sha256sum (printf "%s/%s" $clusterUID .Release.Namespace) | trunc 16) }}
+{{- end }}
+{{- end }}
+
+
+{{/*
 Get the alias of the in-cluster Kubernetes resource
 */}}
 {{- define "gateway.resourceAlias" -}}

@@ -10,10 +10,19 @@ twingate:
   network: ""
 
 twingateOperator:
+  # The Gateway and the in-cluster Kubernetes resource are created in the operator's own
+  # TWINGATE_REMOTE_NETWORK_ID. Set this only to place them in a different Remote Network.
+  # remoteNetworkId: "<remote network id>"
   gateway:
     # Render the TwingateGateway + its TwingateCertificateAuthority. Off for
     # standalone installs with no operator/CRDs.
     enabled: false
+    certificateAuthority:
+      # Name the CA is registered under in Twingate, unique across the network and
+      # immutable after install. Defaults to "<fullname>-ca-<hash of the cluster and
+      # namespace>"; set it explicitly when rendering without cluster access (helm
+      # template, --dry-run=client, Argo CD), where the hash cannot be computed.
+      name: ""
   kubernetesResource:
     # Render a Kubernetes TwingateResource for the in-cluster API server,
     # bound to this gateway via gatewayRef. Requires gateway.enabled=true.

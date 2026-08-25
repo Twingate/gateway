@@ -130,18 +130,19 @@ func TestSSH(t *testing.T) {
 	// Wait for logs to be flushed
 	time.Sleep(100 * time.Millisecond)
 
-	expectedRequest := map[string]any{
-		"type":    "exec",
-		"command": "whoami",
-		"source":  "downstream",
-		"target":  "upstream",
-	}
 	expectedUser := map[string]any{
 		"id":       "user-ssh-1",
 		"username": "alex@acme.com",
 		"groups":   []any{"OnCall", "Engineering"},
 	}
-	testutil.AssertLogsForSSH(t, env.logs, expectedUser, expectedRequest)
+	testutil.AssertLogsForSSHChannelRequests(t, env.logs, expectedUser, []testutil.SSHChannelRequestLog{
+		{Level: zap.InfoLevel, Request: map[string]any{
+			"type": "exec", "command": "whoami", "source": "downstream", "target": "upstream", "accepted": true,
+		}},
+		{Level: zap.DebugLevel, Request: map[string]any{
+			"type": "exit-status", "source": "upstream", "target": "downstream",
+		}},
+	})
 
 	// Clear existing logs
 	env.logs.TakeAll()
@@ -164,13 +165,15 @@ func TestSSH(t *testing.T) {
 	// Wait for logs to be flushed
 	time.Sleep(100 * time.Millisecond)
 
-	expectedRequest = map[string]any{
-		"type":   "subsystem",
-		"name":   "sftp",
-		"source": "downstream",
-		"target": "upstream",
-	}
-	testutil.AssertLogsForSSH(t, env.logs, expectedUser, expectedRequest)
+	testutil.AssertLogsForSSHChannelRequests(t, env.logs, expectedUser, []testutil.SSHChannelRequestLog{
+		{Level: zap.InfoLevel, Request: map[string]any{
+			"type": "subsystem", "name": "sftp", "source": "downstream", "target": "upstream", "accepted": true,
+		}},
+		{Level: zap.DebugLevel, Request: map[string]any{
+			"type": "exit-status", "source": "upstream", "target": "downstream",
+		}},
+	})
+
 	// The gateway presents only its CA-signed host certificate, so a client that accepts
 	// only the plain ed25519 host key algorithm cannot negotiate a host key.
 	_, err = env.user.SSH.Command("-o", "HostKeyAlgorithms=ssh-ed25519", "whoami")
