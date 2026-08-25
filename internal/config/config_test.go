@@ -119,7 +119,7 @@ func TestResolveTwingateHostname(t *testing.T) {
 		t.Cleanup(shardServer.Close)
 
 		redirectServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			http.Redirect(w, r, shardServer.URL+r.URL.Path, http.StatusPermanentRedirect)
+			http.Redirect(w, r, shardServer.URL+r.URL.Path, http.StatusPermanentRedirect) //nolint:gosec // G710: redirects to the test server, not a caller-supplied host
 		}))
 		t.Cleanup(redirectServer.Close)
 
