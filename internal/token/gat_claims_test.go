@@ -359,12 +359,12 @@ func TestGatewayMetadata_UnmarshalDownstreamTLS(t *testing.T) {
 		wantTLS bool
 	}{
 		{
-			name:    "downstream tls true",
+			name:    "downstream TLS true",
 			json:    `{"downstream": {"port": 443, "tls": true}}`,
 			wantTLS: true,
 		},
 		{
-			name:    "tls absent defaults to false",
+			name:    "TLS absent defaults to false",
 			json:    `{"downstream": {"port": 443}}`,
 			wantTLS: false,
 		},
@@ -376,6 +376,34 @@ func TestGatewayMetadata_UnmarshalDownstreamTLS(t *testing.T) {
 
 			require.NoError(t, json.Unmarshal([]byte(tt.json), &metadata))
 			assert.Equal(t, tt.wantTLS, metadata.Downstream.TLS)
+		})
+	}
+}
+
+func TestGatewayMetadata_UnmarshalUpstreamTLS(t *testing.T) {
+	tests := []struct {
+		name    string
+		json    string
+		wantTLS bool
+	}{
+		{
+			name:    "upstream TLS true",
+			json:    `{"upstream": {"port": 5000, "tls": true}}`,
+			wantTLS: true,
+		},
+		{
+			name:    "TLS absent defaults to false",
+			json:    `{"upstream": {"port": 5000}}`,
+			wantTLS: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var metadata GatewayMetadata
+
+			require.NoError(t, json.Unmarshal([]byte(tt.json), &metadata))
+			assert.Equal(t, tt.wantTLS, metadata.Upstream.TLS)
 		})
 	}
 }
