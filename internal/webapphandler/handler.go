@@ -67,6 +67,15 @@ func buildVariables(conn *connect.ProxyConn) map[string]string {
 // these are the identity headers it leaves in place.
 var clientIdentityHeaders = []string{"X-Real-IP", "X-Forwarded-Port", "X-Forwarded-Server"}
 
+// downstreamScheme reports the scheme the protocol client used to reach the Gateway.
+func downstreamScheme(conn *connect.ProxyConn) string {
+	if conn.GATClaims().ShouldUpgradeTLS() {
+		return "https"
+	}
+
+	return "http"
+}
+
 func rewrite(r *httputil.ProxyRequest, conn *connect.ProxyConn, headers map[string]*template.Template) error {
 	targetURL := &url.URL{
 		Scheme: "http", // plain HTTP — no upstream TLS
@@ -78,6 +87,8 @@ func rewrite(r *httputil.ProxyRequest, conn *connect.ProxyConn, headers map[stri
 	for _, headerName := range clientIdentityHeaders {
 		r.Out.Header.Del(headerName)
 	}
+
+	r.Out.Header.Set("X-Forwarded-Proto", downstreamScheme(conn))
 
 	variables := buildVariables(conn)
 

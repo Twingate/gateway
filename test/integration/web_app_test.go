@@ -118,6 +118,8 @@ func TestWebApp(t *testing.T) {
 		"X-Twingate-Client-Geo-Country": "US",
 		// From GAT Token
 		"X-Twingate-Username": "alex@acme.com",
+		// Downstream scheme
+		"X-Forwarded-Proto": "http",
 	}
 
 	for header, expected := range expectedHeaders {
