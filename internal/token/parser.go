@@ -4,10 +4,14 @@
 package token
 
 import (
+	"context"
 	"fmt"
+	"net/http"
 
 	"github.com/MicahParks/keyfunc/v3"
 	"github.com/golang-jwt/jwt/v5"
+
+	"gateway/internal/util/useragent"
 )
 
 var allowedSigningMethods = []string{jwt.SigningMethodES256.Alg()}
@@ -30,7 +34,9 @@ type Parser struct {
 
 func NewParser(config ParserConfig) (*Parser, error) {
 	if config.Keyfunc == nil {
-		jwks, err := keyfunc.NewDefault([]string{config.JWKSURL})
+		jwks, err := keyfunc.NewDefaultOverrideCtx(context.Background(), []string{config.JWKSURL}, keyfunc.Override{
+			Client: &http.Client{Transport: useragent.Transport{}},
+		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to create JWKS store: %w", err)
 		}
