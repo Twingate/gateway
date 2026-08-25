@@ -356,9 +356,11 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: "test", Host: "twingate.com"},
 				Port:        8443,
 				MetricsPort: 9090,
-				TLS:         TLSConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
-				CAs:         []CA{{Name: "web-app"}},
-				Kubernetes:  &KubernetesConfig{},
+				TLS: TLSConfig{
+					Static: &TLSStaticConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+				},
+				CAs:        []CA{{Name: "web-app"}},
+				Kubernetes: &KubernetesConfig{},
 			},
 			wantErr:     true,
 			errContains: "cas config",
@@ -750,8 +752,9 @@ func TestLoad_CAs(t *testing.T) {
 twingate:
   network: "acme"
 tls:
-  certificateFile: "tls.crt"
-  privateKeyFile: "tls.key"
+  static:
+    certificateFile: "tls.crt"
+    privateKeyFile: "tls.key"
 cas:
   - name: "gcp-database"
     certFile: "/etc/gateway/ca1.crt"
