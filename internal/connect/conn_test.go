@@ -49,9 +49,7 @@ func TestProxyConn_setConnectInfo(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		conn := &mockConn{}
 		claims := &token.GATClaims{
-			RegisteredClaims: jwt.RegisteredClaims{
-				ExpiresAt: jwt.NewNumericDate(time.Now().Add(1 * time.Hour)),
-			},
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(1 * time.Hour)),
 			Resource: token.Resource{
 				GatewayMetadata: token.GatewayMetadata{
 					Downstream: token.Downstream{Port: 443},
@@ -134,9 +132,7 @@ type mockValidator struct {
 }
 
 var claims = &token.GATClaims{
-	RegisteredClaims: jwt.RegisteredClaims{
-		ExpiresAt: jwt.NewNumericDate(time.Now().Add(1 * time.Hour)),
-	},
+	ExpiresAt: jwt.NewNumericDate(time.Now().Add(1 * time.Hour)),
 	User: token.User{
 		ID:       "user-1",
 		Username: "user@acme.com",

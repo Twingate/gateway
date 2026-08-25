@@ -678,9 +678,7 @@ func TestVerifyCertificate(t *testing.T) {
 				ValidPrincipals: []string{"alice"},
 				ValidAfter:      mustUint64(now.Add(-clockSkewBuffer)),
 				ValidBefore:     mustUint64(now.Add(30 * time.Minute)),
-				Permissions: ssh.Permissions{
-					Extensions: map[string]string{"permit-pty": ""},
-				},
+				Extensions:      map[string]string{"permit-pty": ""},
 			}
 			tt.setupFn(req, cert)
 

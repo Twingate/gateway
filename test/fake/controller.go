@@ -76,12 +76,10 @@ func NewController(network string, port int) *httptest.Server {
 		logger.Info("Received GAT request", zap.Any("user", &requestBody.User), zap.Any("device", &requestBody.Device), zap.Any("resource", &requestBody.Resource))
 
 		claims := token.GATClaims{
-			RegisteredClaims: jwt.RegisteredClaims{
-				Issuer:    issuer,
-				Audience:  jwt.ClaimStrings([]string{network}),
-				IssuedAt:  jwt.NewNumericDate(time.Now()),
-				ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
-			},
+			Issuer:          issuer,
+			Audience:        jwt.ClaimStrings([]string{network}),
+			IssuedAt:        jwt.NewNumericDate(time.Now()),
+			ExpiresAt:       jwt.NewNumericDate(time.Now().Add(time.Hour)),
 			Type:            "GAT",
 			Version:         "1",
 			RenewAt:         jwt.NewNumericDate(time.Now().Add(5 * time.Minute)),
