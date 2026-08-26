@@ -44,12 +44,10 @@ func newClient() client {
 
 func newGATTokenClaims(clientPublicKey token.PublicKey) token.GATClaims {
 	return token.GATClaims{
-		RegisteredClaims: jwt.RegisteredClaims{
-			Issuer:    "twingate",
-			Audience:  jwt.ClaimStrings{"acme"},
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
-		},
+		Issuer:          "twingate",
+		Audience:        jwt.ClaimStrings{"acme"},
+		ExpiresAt:       jwt.NewNumericDate(time.Now().Add(time.Hour)),
+		IssuedAt:        jwt.NewNumericDate(time.Now()),
 		Type:            "GAT",
 		Version:         "1",
 		RenewAt:         jwt.NewNumericDate(time.Now().Add(time.Minute)),
@@ -183,9 +181,7 @@ func TestConnectValidator_ParseConnect(t *testing.T) {
 		parser, invalidToken := createParserAndGATToken(
 			t,
 			token.GATClaims{
-				RegisteredClaims: jwt.RegisteredClaims{
-					ExpiresAt: jwt.NewNumericDate(time.Now().Add(-time.Minute)),
-				},
+				ExpiresAt:       jwt.NewNumericDate(time.Now().Add(-time.Minute)),
 				ClientPublicKey: c.getPublicKey(),
 			},
 		)

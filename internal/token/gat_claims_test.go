@@ -259,11 +259,9 @@ func TestPublicKey_MarshalJSON(t *testing.T) {
 		x, _ := new(big.Int).SetString("ccf05474241308bffdca1392dbb28fd98deeaf8ca15f04b3cf163c6da3b10c94", 16)
 		y, _ := new(big.Int).SetString("764efdffccbf662172d8256b7bf46c4d6bf1efd5a205fd12a162db4eb01a2216", 16)
 		pubKey := &PublicKey{
-			PublicKey: ecdsa.PublicKey{
-				Curve: elliptic.P256(),
-				X:     x,
-				Y:     y,
-			},
+			Curve: elliptic.P256(),
+			X:     x,
+			Y:     y,
 		}
 
 		jsonBytes, err := pubKey.MarshalJSON()
@@ -274,11 +272,9 @@ func TestPublicKey_MarshalJSON(t *testing.T) {
 
 	t.Run("Invalid public key", func(t *testing.T) {
 		pubKey := &PublicKey{
-			PublicKey: ecdsa.PublicKey{
-				Curve: elliptic.P256(),
-				X:     big.NewInt(1),
-				Y:     big.NewInt(1),
-			},
+			Curve: elliptic.P256(),
+			X:     big.NewInt(1),
+			Y:     big.NewInt(1),
 		}
 
 		_, err := pubKey.MarshalJSON()

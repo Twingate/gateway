@@ -9,6 +9,13 @@ import (
 	"github.com/google/uuid"
 )
 
+// Audit log field names.
+const (
+	fieldType   = "type"
+	fieldSource = "source"
+	fieldTarget = "target"
+)
+
 // sshContext carries connection-level SSH metadata for audit logging.
 type sshContext struct {
 	id            string
@@ -30,9 +37,9 @@ func (s *sshContext) withGlobalRequest(reqType, source, target string, extra map
 	m := s.baseFields()
 
 	req := map[string]any{
-		"type":   reqType,
-		"source": source,
-		"target": target,
+		fieldType:   reqType,
+		fieldSource: source,
+		fieldTarget: target,
 	}
 
 	maps.Copy(req, extra)
@@ -78,10 +85,10 @@ func (c *sshChannelContext) baseFields() map[string]any {
 	m := c.sshContext.baseFields()
 
 	ch := map[string]any{
-		"id":     c.channelID,
-		"type":   c.channelType,
-		"source": c.sourceLabel,
-		"target": c.targetLabel,
+		"id":        c.channelID,
+		fieldType:   c.channelType,
+		fieldSource: c.sourceLabel,
+		fieldTarget: c.targetLabel,
 	}
 
 	maps.Copy(ch, c.extra)
@@ -95,9 +102,9 @@ func (c *sshChannelContext) withRequest(reqType string, reqExtra map[string]any)
 	m := c.baseFields()
 
 	req := map[string]any{
-		"type":   reqType,
-		"source": c.sourceLabel,
-		"target": c.targetLabel,
+		fieldType:   reqType,
+		fieldSource: c.sourceLabel,
+		fieldTarget: c.targetLabel,
 	}
 
 	maps.Copy(req, reqExtra)
