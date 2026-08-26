@@ -722,10 +722,7 @@ func TestChannelPair_CopyPanicClosesChannels(t *testing.T) {
 }
 
 func TestChannelPair_RequestPanicClosesChannels(t *testing.T) {
-	//nolint:godox
-	// TODO(#460): flaky, the window-change can be handled before serve() creates the recorder,
-	// so no resize panic fires and the channel stays open.
-	t.Skip()
+	t.Skip("TODO(#460): flaky; the window-change can be handled before serve() creates the recorder, so no resize panic fires and the channel stays open")
 
 	// A panic in a request handler (here from the recorder's resize write) must tear down the
 	// channel instead of leaving it open with nobody consuming its requests.
