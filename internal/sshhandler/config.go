@@ -18,6 +18,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"gateway/internal/config"
+	"gateway/internal/token"
 )
 
 var (
@@ -55,9 +56,7 @@ type upstream struct {
 type Config struct {
 	caProvider caProvider
 
-	hostSigner    ssh.Signer
-	hostPublicKey ssh.PublicKey
-	hostCertTTL   time.Duration
+	hostCerts *hostCertManager
 
 	userSigner    ssh.Signer
 	userPublicKey ssh.PublicKey
@@ -104,9 +103,7 @@ func NewConfig(auditLogConfig *config.AuditLogConfig, sshCfg *config.SSHConfig, 
 
 	return &Config{
 		caProvider:      caProvider,
-		hostSigner:      hostSigner,
-		hostPublicKey:   hostPublicKey,
-		hostCertTTL:     hostCertTTL,
+		hostCerts:       newHostCertManager(caProvider.gatewayHostCA(), hostPublicKey, hostSigner, hostCertTTL, logger),
 		userSigner:      userSigner,
 		userPublicKey:   userPublicKey,
 		userCertTTL:     userCertTTL,
@@ -117,7 +114,12 @@ func NewConfig(auditLogConfig *config.AuditLogConfig, sshCfg *config.SSHConfig, 
 	}, nil
 }
 
-func (c *Config) GetDownstreamConfig(ctx context.Context) (*ssh.ServerConfig, error) {
+func (c *Config) GetDownstreamConfig(ctx context.Context, requestedHost string, resource token.Resource) (*ssh.ServerConfig, error) {
+	hostCertSigner, err := c.hostCerts.signer(ctx, requestedHost, resource.Aliases)
+	if err != nil {
+		return nil, fmt.Errorf("failed to sign the Gateway's host certificate: %w", err)
+	}
+
 	// NoClientAuth accepts the "none" authentication method. PasswordCallback and PublicKeyCallback
 	// handle clients that attempt those methods instead. All authentication attempts succeed because
 	// authentication is enforced upstream by Twingate.
@@ -133,23 +135,6 @@ func (c *Config) GetDownstreamConfig(ctx context.Context) (*ssh.ServerConfig, er
 			return Banner
 		},
 	}
-
-	hostCertRequest := &certificateRequest{
-		certType:  ssh.HostCert,
-		publicKey: c.hostPublicKey,
-		ttl:       c.hostCertTTL,
-	}
-
-	hostCertSigner, err := newAutoRenewingCertSigner(ctx, c.caProvider.gatewayHostCA(), hostCertRequest, c.hostSigner, c.logger)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create Gateway's host cert signer: %w", err)
-	}
-
-	go func() {
-		if err := hostCertSigner.renewalLoop(ctx); err != nil {
-			c.logger.Error("failed to renew Gateway's host certificate", zap.Error(err))
-		}
-	}()
 
 	downstreamSSHConfig.AddHostKey(hostCertSigner)
 
