@@ -86,13 +86,14 @@ type Listener struct {
 }
 
 func NewListener(
+	ctx context.Context,
 	twingateConfig config.TwingateConfig,
 	tlsCfg config.TLSConfig,
 	channels map[token.ResourceType]chan<- Conn,
 	registry *prometheus.Registry,
 	logger *zap.Logger,
 ) (*Listener, error) {
-	tokenParser, err := token.NewParser(token.ParserConfig{
+	tokenParser, err := token.NewParser(ctx, token.ParserConfig{
 		Issuer:   twingateConfig.Issuer(),
 		Audience: twingateConfig.Network,
 		JWKSURL:  twingateConfig.JWKSURL(),

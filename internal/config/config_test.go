@@ -108,6 +108,26 @@ func TestResolveTwingateHostname(t *testing.T) {
 		assert.Equal(t, "twingate.com", result)
 	})
 
+	t.Run("identifies the gateway with a User-Agent header", func(t *testing.T) {
+		userAgents := make(chan string, 1)
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			userAgents <- r.UserAgent()
+
+			w.WriteHeader(http.StatusOK)
+		}))
+		t.Cleanup(server.Close)
+
+		resolveTwingateHostname(server.URL+"/api/v1/jwk/ec", "twingate.com", 0, zap.NewNop())
+
+		select {
+		case userAgent := <-userAgents:
+			assert.Equal(t, "Twingate-Gateway/dev", userAgent)
+		default:
+			t.Fatal("hostname resolution endpoint was not requested")
+		}
+	})
+
 	t.Run("does not follow redirect", func(t *testing.T) {
 		shardServerCalled := make(chan struct{}, 1)
 
