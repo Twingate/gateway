@@ -131,7 +131,7 @@ func (c *hostCertManager) signer(ctx context.Context, host string, aliases []str
 		ttl:        c.ttl,
 	}, c.keySigner, c.logger)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: principals %v", err, principals)
 	}
 
 	c.mu.Lock()
@@ -396,6 +396,12 @@ func (s *autoRenewingCertSigner) updateCertSigner(ctx context.Context) (time.Tim
 	s.renewAt = renewAt
 	s.expiresAt = expiresAt
 	s.mu.Unlock()
+
+	s.logger.Debug("Signed the Gateway's certificate",
+		zap.String("cert_type", s.certReq.certType.String()),
+		zap.Strings("principals", s.certReq.principals),
+		zap.Time("expires_at", expiresAt),
+		zap.Time("renew_at", renewAt))
 
 	return renewAt, nil
 }
