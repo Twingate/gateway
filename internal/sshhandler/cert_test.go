@@ -283,16 +283,21 @@ func TestHostCertManager_StopsRenewingOnShutdown(t *testing.T) {
 		ctx, shutdown := context.WithCancel(t.Context())
 		manager.start(ctx)
 
+		_, err := manager.signer(t.Context(), "vm.corp.internal", nil)
+		require.NoError(t, err)
+
 		shutdown()
 		synctest.Wait() // maintenance clears the cache and exits
 
-		_, err := manager.signer(t.Context(), "vm.corp.internal", nil)
+		assert.Empty(t, cachedCerts(manager), "the manager should drop its certificates when it stops")
+
+		_, err = manager.signer(t.Context(), "other.corp.internal", nil)
 		require.NoError(t, err)
 
 		time.Sleep(80 * time.Minute)
 		synctest.Wait()
 
-		assert.Equal(t, 1, ca.calls(), "a certificate cached after the manager stopped should not renew")
+		assert.Equal(t, 2, ca.calls(), "neither certificate should renew after the manager stopped")
 	})
 }
 
