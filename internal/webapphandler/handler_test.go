@@ -5,6 +5,8 @@ package webapphandler
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"maps"
 	"net/http"
 	"net/http/httptest"
@@ -242,6 +244,43 @@ func TestRewrite_PreservesClientHost(t *testing.T) {
 	assert.Equal(t, "admin.example.int:80", proxyReq.Out.URL.Host, "dial target must keep the port")
 }
 
+func TestRewrite_UpstreamScheme(t *testing.T) {
+	tests := []struct {
+		name        string
+		upstreamTLS bool
+		wantScheme  string
+	}{
+		{name: "plain HTTP when TLS is false", upstreamTLS: false, wantScheme: "http"},
+		{name: "HTTPS when TLS is true", upstreamTLS: true, wantScheme: "https"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			connMetrics := connect.CreateProxyConnMetrics(prometheus.NewRegistry())
+			conn := connect.NewProxyConn(nil, nil, nil, zap.NewNop(), connMetrics)
+			conn.UpstreamHost = "admin.example.int"
+			conn.Claims = &token.GATClaims{
+				Resource: token.Resource{
+					GatewayMetadata: token.GatewayMetadata{
+						Upstream: token.Upstream{Port: 8443, TLS: tt.upstreamTLS},
+					},
+				},
+			}
+
+			proxyReq := &httputil.ProxyRequest{
+				In:  httptest.NewRequest(http.MethodGet, "http://admin.example.int/path", nil),
+				Out: httptest.NewRequest(http.MethodGet, "http://admin.example.int/path", nil),
+			}
+
+			err := rewrite(proxyReq, conn, nil)
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.wantScheme, proxyReq.Out.URL.Scheme)
+			assert.Equal(t, "admin.example.int:8443", proxyReq.Out.URL.Host)
+		})
+	}
+}
+
 func TestRewrite_StripsClientIdentityHeaders(t *testing.T) {
 	connMetrics := connect.CreateProxyConnMetrics(prometheus.NewRegistry())
 	conn := connect.NewProxyConn(nil, nil, nil, zap.NewNop(), connMetrics)
@@ -293,6 +332,15 @@ func TestRewrite_SkipsInvalidGATHeaders(t *testing.T) {
 	assert.Empty(t, proxyReq.Out.Header.Values("X-Unknown"), "unknown header should not be set")
 }
 
+func TestCreateTransport(t *testing.T) {
+	caPool := x509.NewCertPool()
+	transport := createTransport(caPool)
+
+	require.NotNil(t, transport.TLSClientConfig)
+	assert.Same(t, caPool, transport.TLSClientConfig.RootCAs)
+	assert.Equal(t, uint16(tls.VersionTLS13), transport.TLSClientConfig.MinVersion)
+}
+
 func TestBuildVariables_CoversAllowedKeys(t *testing.T) {
 	connMetrics := connect.CreateProxyConnMetrics(prometheus.NewRegistry())
 	conn := connect.NewProxyConn(nil, nil, nil, zap.NewNop(), connMetrics)
@@ -302,4 +350,62 @@ func TestBuildVariables_CoversAllowedKeys(t *testing.T) {
 	want := slices.Sorted(slices.Values(template.AllowedWebAppKeys))
 
 	assert.Equal(t, want, got)
+}
+
+func TestRewrite_SetsXForwardedProto(t *testing.T) {
+	tests := []struct {
+		name              string
+		downstreamTLS     bool
+		clientSuppliedXFP string
+		want              string
+	}{
+		{
+			name:          "HTTPS when the Gateway terminates TLS downstream",
+			downstreamTLS: true,
+			want:          "https",
+		},
+		{
+			name:          "HTTP when the protocol client connects in plaintext",
+			downstreamTLS: false,
+			want:          "http",
+		},
+		{
+			name:              "client-supplied value is overwritten",
+			downstreamTLS:     false,
+			clientSuppliedXFP: "https",
+			want:              "http",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			connMetrics := connect.CreateProxyConnMetrics(prometheus.NewRegistry())
+			conn := connect.NewProxyConn(nil, nil, nil, zap.NewNop(), connMetrics)
+			conn.UpstreamHost = "admin.example.int"
+			conn.Claims = &token.GATClaims{
+				Resource: token.Resource{
+					Type: token.ResourceTypeWebApp,
+					GatewayMetadata: token.GatewayMetadata{
+						Downstream: token.Downstream{Port: 443, TLS: tt.downstreamTLS},
+						Upstream:   token.Upstream{Port: 80},
+					},
+				},
+			}
+
+			outReq := httptest.NewRequest(http.MethodGet, "http://admin.example.int/path", nil)
+			if tt.clientSuppliedXFP != "" {
+				outReq.Header.Set("X-Forwarded-Proto", tt.clientSuppliedXFP)
+			}
+
+			proxyReq := &httputil.ProxyRequest{
+				In:  httptest.NewRequest(http.MethodGet, "http://admin.example.int/path", nil),
+				Out: outReq,
+			}
+
+			err := rewrite(proxyReq, conn, nil)
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.want, proxyReq.Out.Header.Get("X-Forwarded-Proto"))
+		})
+	}
 }
