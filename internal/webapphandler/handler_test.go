@@ -351,3 +351,61 @@ func TestBuildVariables_CoversAllowedKeys(t *testing.T) {
 
 	assert.Equal(t, want, got)
 }
+
+func TestRewrite_SetsXForwardedProto(t *testing.T) {
+	tests := []struct {
+		name              string
+		downstreamTLS     bool
+		clientSuppliedXFP string
+		want              string
+	}{
+		{
+			name:          "HTTPS when the Gateway terminates TLS downstream",
+			downstreamTLS: true,
+			want:          "https",
+		},
+		{
+			name:          "HTTP when the protocol client connects in plaintext",
+			downstreamTLS: false,
+			want:          "http",
+		},
+		{
+			name:              "client-supplied value is overwritten",
+			downstreamTLS:     false,
+			clientSuppliedXFP: "https",
+			want:              "http",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			connMetrics := connect.CreateProxyConnMetrics(prometheus.NewRegistry())
+			conn := connect.NewProxyConn(nil, nil, nil, zap.NewNop(), connMetrics)
+			conn.UpstreamHost = "admin.example.int"
+			conn.Claims = &token.GATClaims{
+				Resource: token.Resource{
+					Type: token.ResourceTypeWebApp,
+					GatewayMetadata: token.GatewayMetadata{
+						Downstream: token.Downstream{Port: 443, TLS: tt.downstreamTLS},
+						Upstream:   token.Upstream{Port: 80},
+					},
+				},
+			}
+
+			outReq := httptest.NewRequest(http.MethodGet, "http://admin.example.int/path", nil)
+			if tt.clientSuppliedXFP != "" {
+				outReq.Header.Set("X-Forwarded-Proto", tt.clientSuppliedXFP)
+			}
+
+			proxyReq := &httputil.ProxyRequest{
+				In:  httptest.NewRequest(http.MethodGet, "http://admin.example.int/path", nil),
+				Out: outReq,
+			}
+
+			err := rewrite(proxyReq, conn, nil)
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.want, proxyReq.Out.Header.Get("X-Forwarded-Proto"))
+		})
+	}
+}
