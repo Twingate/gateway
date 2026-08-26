@@ -32,9 +32,9 @@ type Parser struct {
 	config ParserConfig
 }
 
-func NewParser(config ParserConfig) (*Parser, error) {
+func NewParser(ctx context.Context, config ParserConfig) (*Parser, error) {
 	if config.Keyfunc == nil {
-		jwks, err := keyfunc.NewDefaultOverrideCtx(context.Background(), []string{config.JWKSURL}, keyfunc.Override{
+		jwks, err := keyfunc.NewDefaultOverrideCtx(ctx, []string{config.JWKSURL}, keyfunc.Override{
 			Client: &http.Client{Transport: useragent.Transport{}},
 		})
 		if err != nil {

@@ -79,7 +79,7 @@ func createParserAndGATToken(t *testing.T, claims token.GATClaims) (*token.Parse
 	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(t, err)
 
-	parser, err := token.NewParser(token.ParserConfig{
+	parser, err := token.NewParser(t.Context(), token.ParserConfig{
 		Issuer:   "twingate",
 		Audience: "acme",
 		Keyfunc: func(_token *jwt.Token) (any, error) {

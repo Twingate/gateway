@@ -66,7 +66,7 @@ func newTokenService() *tokenService {
 func TestNewParser(t *testing.T) {
 	tokenService := newTokenService()
 
-	parser, err := NewParser(ParserConfig{
+	parser, err := NewParser(t.Context(), ParserConfig{
 		Issuer:   "twingate",
 		Audience: "acme",
 		Keyfunc:  tokenService.keyfunc,
@@ -159,7 +159,7 @@ func TestNewParser_RemoteJWKS(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	parser, err := NewParser(ParserConfig{
+	parser, err := NewParser(t.Context(), ParserConfig{
 		Issuer:   "twingate",
 		Audience: "acme",
 		JWKSURL:  server.URL + "/api/v1/jwk/ec",
