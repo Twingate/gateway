@@ -137,6 +137,12 @@ func (c *hostCertManager) signer(ctx context.Context, host string, aliases []str
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	// The manager stopped while this certificate was being signed. Nothing will renew or evict it,
+	// so serve it to this connection without caching it.
+	if c.renewalRoot.Err() != nil {
+		return certSigner, nil
+	}
+
 	// A concurrent caller signed for the same principals first. Replace its certificate rather than
 	// serving it, so this method always installs and returns the newest one for these principals.
 	if replaced, ok := c.certByPrincipals[key]; ok {
@@ -187,7 +193,7 @@ func (c *hostCertManager) maintenanceLoop(ctx context.Context) {
 }
 
 // evictAll drops every certificate once the manager stops. Renewal ends with the manager's context,
-// even for a certificate cached after this returns, so there is nothing to cancel here.
+// so there is nothing to cancel here.
 func (c *hostCertManager) evictAll() {
 	c.mu.Lock()
 	defer c.mu.Unlock()

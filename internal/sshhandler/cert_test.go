@@ -294,6 +294,8 @@ func TestHostCertManager_StopsRenewingOnShutdown(t *testing.T) {
 		_, err = manager.signer(t.Context(), "other.corp.internal", nil)
 		require.NoError(t, err)
 
+		assert.Empty(t, cachedCerts(manager), "a certificate signed after the manager stopped should not be cached")
+
 		time.Sleep(80 * time.Minute)
 		synctest.Wait()
 
