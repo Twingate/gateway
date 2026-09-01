@@ -268,7 +268,7 @@ should render with SSH enabled:
                   name: tls-certs
                   readOnly: true
                 - mountPath: /etc/gateway/ssh
-                  name: ssh-manual-ca
+                  name: ssh-local-ca
                   readOnly: true
           securityContext:
             seccompProfile:
@@ -281,9 +281,9 @@ should render with SSH enabled:
             - name: tls-certs
               secret:
                 secretName: RELEASE-NAME-gateway-tls
-            - name: ssh-manual-ca
+            - name: ssh-local-ca
               secret:
-                secretName: RELEASE-NAME-gateway-ssh-manual-ca
+                secretName: RELEASE-NAME-gateway-ssh-local-ca
   4: |
     apiVersion: v1
     data:
@@ -314,7 +314,7 @@ should render with SSH enabled:
               ttl: "5m"
 
           ca:
-            manual:
+            local:
               privateKeyFile: "/etc/gateway/ssh/ca-private-key"
     kind: ConfigMap
     metadata:
@@ -370,5 +370,5 @@ should render with SSH enabled:
         app.kubernetes.io/name: gateway
         app.kubernetes.io/version: 0.1.0
         helm.sh/chart: gateway-0.1.0
-      name: RELEASE-NAME-gateway-ssh-manual-ca
+      name: RELEASE-NAME-gateway-ssh-local-ca
     type: Opaque

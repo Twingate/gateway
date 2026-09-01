@@ -271,7 +271,7 @@ ssh:
     userCertificate:
       ttl: "5m"
   ca:
-    manual:
+    local:
       privateKeyFile: ./test/data/ssh/ca/ca
 webApp:
   requestHeaders:

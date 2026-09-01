@@ -20,7 +20,7 @@ tests:
         gateway:
           username: "test"
         ca:
-          manual:
+          local:
             privateKey: "my-private-key"
     asserts:
       - matchSnapshot: {}

@@ -66,10 +66,10 @@ ssh:
     userCertificate:
       ttl: "5m"
 
-  # CA configuration - exactly one of manual or vault must be specified when SSH is enabled
+  # CA configuration - exactly one of local or vault must be specified when SSH is enabled
   ca: {}
-    # Manual CA configuration
-    # manual:
+    # Local CA configuration
+    # local:
     #   # Name of existing secret containing the CA private key (key name: ca-private-key)
     #   existingSecret: ""
     #   # CA private key content (used if existingSecret is not set)

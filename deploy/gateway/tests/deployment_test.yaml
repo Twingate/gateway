@@ -70,7 +70,7 @@ set:
   ssh:
     enabled: true
 tests:
-  - it: should not add SSH manual CA volume and volume mount when `ssh.enabled` is true but `ssh.ca.manual` is not specified
+  - it: should not add SSH local CA volume and volume mount when `ssh.enabled` is true but `ssh.ca.local` is not specified
     set:
       ssh:
         ca:
@@ -98,25 +98,25 @@ tests:
             - name: tls-certs
               mountPath: /etc/gateway/tls
               readOnly: true
-  - it: should add SSH manual CA volume and volume mount when `ssh.enabled` is true and `ssh.ca.manual` is specified
+  - it: should add SSH local CA volume and volume mount when `ssh.enabled` is true and `ssh.ca.local` is specified
     set:
       ssh:
         ca:
-          manual:
+          local:
             privateKey: "my-private-key"
     asserts:
       - contains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
-            name: ssh-manual-ca
+            name: ssh-local-ca
             mountPath: /etc/gateway/ssh
             readOnly: true
       - contains:
           path: spec.template.spec.volumes
           content:
-            name: ssh-manual-ca
+            name: ssh-local-ca
             secret:
-              secretName: RELEASE-NAME-gateway-ssh-manual-ca
+              secretName: RELEASE-NAME-gateway-ssh-local-ca
 ---
 suite: Deployment with SSH and Vault CA
 templates:
