@@ -18,6 +18,11 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 )
 
+// sshServerImage uses the ghcr.io URL rather than the lscr.io one, a scarf.sh vanity URL that
+// redirects to ghcr.io and can hang, failing the test. See
+// https://docs.linuxserver.io/FAQ/#storage
+const sshServerImage = "ghcr.io/linuxserver/openssh-server:version-10.3_p1-r1"
+
 func SetupSSHServer(t *testing.T, userName string) (string, int) {
 	t.Helper()
 
@@ -31,9 +36,7 @@ func SetupSSHServer(t *testing.T, userName string) (string, int) {
 	gid, err := RunCommand(exec.Command("id", "-g"))
 	require.NoError(t, err, "failed to get group ID")
 
-	// #nosec G204 -- inputs are from trusted operator configuration
-	_, err = RunCommand(exec.Command("docker", "pull", "lscr.io/linuxserver/openssh-server:latest"))
-	require.NoError(t, err, "failed to pull OpenSSH server docker image")
+	ensureDockerImage(t, sshServerImage)
 
 	// #nosec G204 -- inputs are from trusted operator configuration
 	output, err := RunCommand(exec.Command("docker", "run", "-d",
@@ -44,7 +47,7 @@ func SetupSSHServer(t *testing.T, userName string) (string, int) {
 		"--env", "USER_NAME="+userName,
 		"--env", "TZ=UTC",
 		"--volume", "../data/ssh/sshd_test.conf:/config/sshd/sshd_config.d/sshd_test.conf",
-		"lscr.io/linuxserver/openssh-server:latest",
+		sshServerImage,
 	))
 	require.NoError(t, err, "failed to create OpenSSH server docker container")
 
@@ -98,17 +101,13 @@ func SetupSSHServer(t *testing.T, userName string) (string, int) {
 	return containerID, serverPort
 }
 
-// SetupRemoteEchoServer installs socat and starts a TCP echo server inside the Docker container.
+// SetupRemoteEchoServer starts a TCP echo server inside the Docker container.
 func SetupRemoteEchoServer(t *testing.T, containerID string, port int) {
 	t.Helper()
 
 	// #nosec G204 -- inputs are from trusted operator configuration
-	_, err := RunCommand(exec.Command("docker", "exec", containerID, "apk", "add", "--no-cache", "socat"))
-	require.NoError(t, err, "failed to install socat in docker container")
-
-	// #nosec G204 -- inputs are from trusted operator configuration
-	_, err = RunCommand(exec.Command("docker", "exec", "-d", containerID, "socat",
-		fmt.Sprintf("TCP-LISTEN:%d,fork,reuseaddr", port), "EXEC:cat"))
+	_, err := RunCommand(exec.Command("docker", "exec", "-d", containerID,
+		"/bin/busybox", "nc", "-lk", "-p", strconv.Itoa(port), "-e", "/bin/cat"))
 	require.NoError(t, err, "failed to start echo server in docker container")
 }
 
