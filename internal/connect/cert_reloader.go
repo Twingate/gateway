@@ -10,53 +10,74 @@ import (
 
 	"go.uber.org/zap"
 
+	"gateway/internal/config"
 	"gateway/internal/reloader"
 )
 
 type CertReloader struct {
-	certFile string
-	keyFile  string
-	logger   *zap.Logger
+	logger *zap.Logger
+	files  []config.TLSCertificateFile
 
-	mu   sync.RWMutex
-	cert *tls.Certificate
+	mu    sync.RWMutex
+	certs map[string]*tls.Certificate
 
-	reloader *reloader.Reloader
+	reloaders []*reloader.Reloader
 }
 
-func NewCertReloader(certFile, keyFile string, logger *zap.Logger) *CertReloader {
+func NewCertReloader(files []config.TLSCertificateFile, logger *zap.Logger) *CertReloader {
 	cr := &CertReloader{
-		certFile: certFile,
-		keyFile:  keyFile,
-		logger:   logger,
+		logger:    logger,
+		files:     files,
+		certs:     make(map[string]*tls.Certificate, len(files)),
+		reloaders: make([]*reloader.Reloader, 0, len(files)),
 	}
-	cr.reloader = reloader.New([]string{certFile, keyFile}, cr.load, logger)
+
+	for _, file := range files {
+		load := func() error { return cr.load(file) }
+		cr.reloaders = append(cr.reloaders, reloader.New([]string{file.CertificateFile, file.PrivateKeyFile}, load, logger))
+	}
 
 	return cr
 }
 
 func (cr *CertReloader) Run(ctx context.Context) {
-	cr.reloader.Run(ctx)
+	for _, r := range cr.reloaders {
+		r.Run(ctx)
+	}
 }
 
-func (cr *CertReloader) GetCertificate(_ *tls.ClientHelloInfo) (*tls.Certificate, error) {
+// GetCertificate returns the first certificate the client supports, falling back to the
+// first certificate when none of them matches.
+func (cr *CertReloader) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
 	cr.mu.RLock()
 	defer cr.mu.RUnlock()
 
-	return cr.cert, nil
+	for _, file := range cr.files {
+		cert, ok := cr.certs[file.CertificateFile]
+		if !ok {
+			continue
+		}
+
+		if err := hello.SupportsCertificate(cert); err == nil {
+			return cert, nil
+		}
+	}
+
+	// If nothing matches, return the first certificate.
+	return cr.certs[cr.files[0].CertificateFile], nil
 }
 
-func (cr *CertReloader) load() error {
-	cert, err := tls.LoadX509KeyPair(cr.certFile, cr.keyFile)
+func (cr *CertReloader) load(file config.TLSCertificateFile) error {
+	cert, err := tls.LoadX509KeyPair(file.CertificateFile, file.PrivateKeyFile)
 	if err != nil {
 		return err
 	}
 
 	cr.mu.Lock()
-	cr.cert = &cert
+	cr.certs[file.CertificateFile] = &cert
 	cr.mu.Unlock()
 
-	cr.logger.Info("loaded cert and key files")
+	cr.logger.Info("loaded cert and key files", zap.String("certificateFile", file.CertificateFile))
 
 	return nil
 }

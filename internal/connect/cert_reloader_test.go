@@ -17,62 +17,131 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+
+	"gateway/internal/config"
 )
 
 func TestCertReloader_Run(t *testing.T) {
-	cert := generateCert(t)
-	certFile, keyFile := createCertFiles(t, cert)
+	fooCert := generateCert(t, "foo.acme.int")
+	barCert := generateCert(t, "bar.acme.int")
+	fooFile := createCertFiles(t, fooCert)
+	barFile := createCertFiles(t, barCert)
 
-	cr := NewCertReloader(certFile, keyFile, zap.NewNop())
+	cr := NewCertReloader([]config.TLSCertificateFile{fooFile, barFile}, zap.NewNop())
 	cr.Run(t.Context())
 
-	requireCertReloader(t, cr, cert)
+	requireCert(t, cr, "foo.acme.int", fooCert)
+	requireCert(t, cr, "bar.acme.int", barCert)
 
-	newCert := generateCert(t)
-	replaceCertFiles(t, certFile, keyFile, newCert)
+	newBarCert := generateCert(t, "bar.acme.int")
+	replaceCertFiles(t, barFile, newBarCert)
 
-	requireCertReloader(t, cr, newCert)
+	requireCert(t, cr, "bar.acme.int", newBarCert)
+	requireCert(t, cr, "foo.acme.int", fooCert)
 }
 
 func TestCertReloader_load(t *testing.T) {
 	cert := generateCert(t)
-	certFile, keyFile := createCertFiles(t, cert)
-	_, otherKeyFile := createCertFiles(t, generateCert(t))
+	file := createCertFiles(t, cert)
+	otherFile := createCertFiles(t, generateCert(t))
 
 	tests := []struct {
-		name     string
-		certFile string
-		keyFile  string
-		wantErr  bool
+		name    string
+		file    config.TLSCertificateFile
+		wantErr bool
 	}{
-		{name: "valid cert and key", certFile: certFile, keyFile: keyFile},
-		{name: "mismatched cert and key", certFile: certFile, keyFile: otherKeyFile, wantErr: true},
-		{name: "missing files", certFile: "nonexistent.crt", keyFile: "nonexistent.key", wantErr: true},
+		{name: "valid cert and key", file: file},
+		{
+			name:    "mismatched cert and key",
+			file:    config.TLSCertificateFile{CertificateFile: file.CertificateFile, PrivateKeyFile: otherFile.PrivateKeyFile},
+			wantErr: true,
+		},
+		{
+			name:    "missing files",
+			file:    config.TLSCertificateFile{CertificateFile: "nonexistent.crt", PrivateKeyFile: "nonexistent.key"},
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cr := NewCertReloader(tt.certFile, tt.keyFile, zap.NewNop())
+			cr := NewCertReloader([]config.TLSCertificateFile{tt.file}, zap.NewNop())
+
+			err := cr.load(tt.file)
+
+			got, certErr := cr.GetCertificate(clientHello(""))
+
+			require.NoError(t, certErr)
 
 			if tt.wantErr {
-				require.Error(t, cr.load())
+				require.Error(t, err)
+				assert.Nil(t, got)
 
 				return
 			}
 
-			require.NoError(t, cr.load())
-
-			got, err := cr.GetCertificate(&tls.ClientHelloInfo{})
 			require.NoError(t, err)
 			assert.Equal(t, cert.Certificate, got.Certificate)
 		})
 	}
 }
 
-func requireCertReloader(t *testing.T, certReloader *CertReloader, expectedCert tls.Certificate) {
+func TestCertReloader_load_KeepsOtherCertificates(t *testing.T) {
+	cert := generateCert(t, "foo.acme.int")
+	file := createCertFiles(t, cert)
+	missing := config.TLSCertificateFile{CertificateFile: "nonexistent.crt", PrivateKeyFile: "nonexistent.key"}
+
+	cr := NewCertReloader([]config.TLSCertificateFile{file, missing}, zap.NewNop())
+
+	require.NoError(t, cr.load(file))
+	require.Error(t, cr.load(missing))
+
+	got, err := cr.GetCertificate(clientHello("foo.acme.int"))
+	require.NoError(t, err)
+	assert.Equal(t, cert.Certificate, got.Certificate)
+}
+
+func TestCertReloader_GetCertificate(t *testing.T) {
+	fooCert := generateCert(t, "foo.acme.int")
+	barCert := generateCert(t, "bar.acme.int")
+
+	fooFile := createCertFiles(t, fooCert)
+	barFile := createCertFiles(t, barCert)
+
+	cr := NewCertReloader([]config.TLSCertificateFile{fooFile, barFile}, zap.NewNop())
+	require.NoError(t, cr.load(fooFile))
+	require.NoError(t, cr.load(barFile))
+
+	tests := []struct {
+		name       string
+		serverName string
+		want       [][]byte
+	}{
+		{name: "matching SNI", serverName: "bar.acme.int", want: barCert.Certificate},
+		{name: "no SNI serves the first certificate", serverName: "", want: fooCert.Certificate},
+		{name: "unmatched SNI falls back to the first certificate", serverName: "other.acme.int", want: fooCert.Certificate},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := cr.GetCertificate(clientHello(tt.serverName))
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got.Certificate)
+		})
+	}
+}
+
+func clientHello(serverName string) *tls.ClientHelloInfo {
+	return &tls.ClientHelloInfo{
+		ServerName:        serverName,
+		SupportedVersions: []uint16{tls.VersionTLS13},
+	}
+}
+
+func requireCert(t *testing.T, certReloader *CertReloader, serverName string, expectedCert tls.Certificate) {
 	t.Helper()
 
-	hello := &tls.ClientHelloInfo{}
+	hello := clientHello(serverName)
 
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		existingCert, err := certReloader.GetCertificate(hello)
@@ -80,16 +149,16 @@ func requireCertReloader(t *testing.T, certReloader *CertReloader, expectedCert 
 
 		require.NotNil(c, existingCert)
 		require.Equal(c, expectedCert.Certificate, existingCert.Certificate)
-	}, time.Second, 5*time.Millisecond, "failed to get certificate")
+	}, time.Second, 5*time.Millisecond, "failed to get certificate for %q", serverName)
 }
 
-func generateCert(t *testing.T) tls.Certificate {
+func generateCert(t *testing.T, dnsNames ...string) tls.Certificate {
 	t.Helper()
 
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
 
-	template := x509.Certificate{}
+	template := x509.Certificate{DNSNames: dnsNames}
 	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, &privateKey.PublicKey, privateKey)
 	require.NoError(t, err)
 
@@ -99,28 +168,26 @@ func generateCert(t *testing.T) tls.Certificate {
 	}
 }
 
-func createCertFiles(t *testing.T, cert tls.Certificate) (certFile string, keyFile string) {
+func createCertFiles(t *testing.T, cert tls.Certificate) config.TLSCertificateFile {
 	t.Helper()
 
 	tmpDir := t.TempDir()
 
-	certFile = filepath.Join(tmpDir, "tls.crt")
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Certificate[0]})
-	require.NoError(t, os.WriteFile(certFile, certPEM, 0600))
+	file := config.TLSCertificateFile{
+		CertificateFile: filepath.Join(tmpDir, "tls.crt"),
+		PrivateKeyFile:  filepath.Join(tmpDir, "tls.key"),
+	}
+	replaceCertFiles(t, file, cert)
 
-	keyFile = filepath.Join(tmpDir, "tls.key")
-	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(cert.PrivateKey.(*rsa.PrivateKey))})
-	require.NoError(t, os.WriteFile(keyFile, keyPEM, 0600))
-
-	return certFile, keyFile
+	return file
 }
 
-func replaceCertFiles(t *testing.T, certFile, keyFile string, newCert tls.Certificate) {
+func replaceCertFiles(t *testing.T, file config.TLSCertificateFile, newCert tls.Certificate) {
 	t.Helper()
 
 	certData := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: newCert.Certificate[0]})
 	keyData := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(newCert.PrivateKey.(*rsa.PrivateKey))})
 
-	require.NoError(t, os.WriteFile(certFile, certData, 0600))
-	require.NoError(t, os.WriteFile(keyFile, keyData, 0600))
+	require.NoError(t, os.WriteFile(file.CertificateFile, certData, 0600))
+	require.NoError(t, os.WriteFile(file.PrivateKeyFile, keyData, 0600))
 }
