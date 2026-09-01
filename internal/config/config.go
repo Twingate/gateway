@@ -87,12 +87,17 @@ type AuditLogConfig struct {
 	FlushSizeThreshold int           `yaml:"flushSizeThreshold"` // bytes
 }
 
-// TLSConfig represents the downstream TLS configuration. Static must be set.
+// TLSConfig represents the downstream TLS configuration.
 type TLSConfig struct {
-	Static *TLSStaticConfig `yaml:"static,omitempty"`
+	Certificates TLSCertificatesConfig `yaml:"certificates"`
 }
 
-type TLSStaticConfig struct {
+// TLSCertificatesConfig lists the TLS certificates the Gateway can serve.
+type TLSCertificatesConfig struct {
+	Files []TLSCertificateFile `yaml:"files"`
+}
+
+type TLSCertificateFile struct {
 	CertificateFile string `yaml:"certificateFile"`
 	PrivateKeyFile  string `yaml:"privateKeyFile"`
 }
@@ -353,25 +358,25 @@ func (c *Config) Validate() error {
 }
 
 func (t *TLSConfig) Validate() error {
-	if t.Static == nil {
-		return ErrMissingTLSConfig
+	if len(t.Certificates.Files) == 0 {
+		return fmt.Errorf("%w: certificates.files", ErrRequired)
 	}
 
-	if err := t.Static.Validate(); err != nil {
-		return fmt.Errorf("static: %w", err)
+	for i, file := range t.Certificates.Files {
+		if err := file.Validate(); err != nil {
+			return fmt.Errorf("certificates.files[%d]: %w", i, err)
+		}
 	}
 
 	return nil
 }
 
-var ErrMissingTLSConfig = errors.New("'static' must be specified for TLS config")
-
-func (s *TLSStaticConfig) Validate() error {
-	if s.CertificateFile == "" {
+func (t *TLSCertificateFile) Validate() error {
+	if t.CertificateFile == "" {
 		return fmt.Errorf("%w: certificateFile", ErrRequired)
 	}
 
-	if s.PrivateKeyFile == "" {
+	if t.PrivateKeyFile == "" {
 		return fmt.Errorf("%w: privateKeyFile", ErrRequired)
 	}
 
