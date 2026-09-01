@@ -6,6 +6,7 @@ package connect
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"sync"
 
 	"go.uber.org/zap"
@@ -46,11 +47,20 @@ func (cr *CertReloader) Run(ctx context.Context) {
 	}
 }
 
+// errNoCertificates is returned when no certificate has been loaded.
+var errNoCertificates = errors.New("no certificates configured")
+
 // GetCertificate returns the first certificate the client supports, falling back to the
-// first certificate when none of them matches.
+// first loaded certificate when none of them matches.
 func (cr *CertReloader) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
 	cr.mu.RLock()
 	defer cr.mu.RUnlock()
+
+	if len(cr.certs) == 0 {
+		return nil, errNoCertificates
+	}
+
+	var defaultCert *tls.Certificate
 
 	for _, file := range cr.files {
 		cert, ok := cr.certs[file.CertificateFile]
@@ -61,10 +71,14 @@ func (cr *CertReloader) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certifi
 		if err := hello.SupportsCertificate(cert); err == nil {
 			return cert, nil
 		}
+
+		if defaultCert == nil {
+			defaultCert = cert
+		}
 	}
 
-	// If nothing matches, return the first certificate.
-	return cr.certs[cr.files[0].CertificateFile], nil
+	// If nothing matches, return the first loaded certificate.
+	return defaultCert, nil
 }
 
 func (cr *CertReloader) load(file config.TLSCertificateFile) error {

@@ -69,36 +69,15 @@ func TestCertReloader_load(t *testing.T) {
 
 			err := cr.load(tt.file)
 
-			got, certErr := cr.GetCertificate(clientHello(""))
-
-			require.NoError(t, certErr)
-
 			if tt.wantErr {
 				require.Error(t, err)
-				assert.Nil(t, got)
 
 				return
 			}
 
 			require.NoError(t, err)
-			assert.Equal(t, cert.Certificate, got.Certificate)
 		})
 	}
-}
-
-func TestCertReloader_load_KeepsOtherCertificates(t *testing.T) {
-	cert := generateCert(t, "foo.acme.int")
-	file := createCertFiles(t, cert)
-	missing := config.TLSCertificateFile{CertificateFile: "nonexistent.crt", PrivateKeyFile: "nonexistent.key"}
-
-	cr := NewCertReloader([]config.TLSCertificateFile{file, missing}, zap.NewNop())
-
-	require.NoError(t, cr.load(file))
-	require.Error(t, cr.load(missing))
-
-	got, err := cr.GetCertificate(clientHello("foo.acme.int"))
-	require.NoError(t, err)
-	assert.Equal(t, cert.Certificate, got.Certificate)
 }
 
 func TestCertReloader_GetCertificate(t *testing.T) {
@@ -108,9 +87,12 @@ func TestCertReloader_GetCertificate(t *testing.T) {
 	fooFile := createCertFiles(t, fooCert)
 	barFile := createCertFiles(t, barCert)
 
-	cr := NewCertReloader([]config.TLSCertificateFile{fooFile, barFile}, zap.NewNop())
+	missing := config.TLSCertificateFile{CertificateFile: "nonexistent.crt", PrivateKeyFile: "nonexistent.key"}
+
+	cr := NewCertReloader([]config.TLSCertificateFile{missing, fooFile, barFile}, zap.NewNop())
 	require.NoError(t, cr.load(fooFile))
 	require.NoError(t, cr.load(barFile))
+	require.Error(t, cr.load(missing))
 
 	tests := []struct {
 		name       string
@@ -118,8 +100,8 @@ func TestCertReloader_GetCertificate(t *testing.T) {
 		want       [][]byte
 	}{
 		{name: "matching SNI", serverName: "bar.acme.int", want: barCert.Certificate},
-		{name: "no SNI serves the first certificate", serverName: "", want: fooCert.Certificate},
-		{name: "unmatched SNI falls back to the first certificate", serverName: "other.acme.int", want: fooCert.Certificate},
+		{name: "no SNI serves the first loaded certificate", serverName: "", want: fooCert.Certificate},
+		{name: "unmatched SNI falls back to the first loaded certificate", serverName: "other.acme.int", want: fooCert.Certificate},
 	}
 
 	for _, tt := range tests {
@@ -127,6 +109,36 @@ func TestCertReloader_GetCertificate(t *testing.T) {
 			got, err := cr.GetCertificate(clientHello(tt.serverName))
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, got.Certificate)
+		})
+	}
+}
+
+func TestCertReloader_GetCertificate_NoCertificates(t *testing.T) {
+	tests := []struct {
+		name  string
+		files []config.TLSCertificateFile
+	}{
+		{name: "no certificates configured"},
+		{
+			name: "all certificates failed to load",
+			files: []config.TLSCertificateFile{
+				{CertificateFile: "nonexistent.crt", PrivateKeyFile: "nonexistent.key"},
+				{CertificateFile: "another-nonexistent.crt", PrivateKeyFile: "another-nonexistent.key"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cr := NewCertReloader(tt.files, zap.NewNop())
+
+			for _, file := range tt.files {
+				require.Error(t, cr.load(file))
+			}
+
+			got, err := cr.GetCertificate(clientHello("bar.acme.int"))
+			assert.Nil(t, got)
+			require.ErrorIs(t, err, errNoCertificates)
 		})
 	}
 }
