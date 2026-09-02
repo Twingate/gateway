@@ -15,9 +15,12 @@ import (
 	"gateway/internal/reloader"
 )
 
+// errNoCertificates is returned when no certificate has been loaded.
+var errNoCertificates = errors.New("no certificate could be loaded")
+
 type CertReloader struct {
-	logger *zap.Logger
-	files  []config.TLSCertificateFileKeyPair
+	logger   *zap.Logger
+	keyPairs []config.TLSCertificateFileKeyPair
 
 	mu    sync.RWMutex
 	certs map[string]*tls.Certificate
@@ -25,17 +28,17 @@ type CertReloader struct {
 	reloaders []*reloader.Reloader
 }
 
-func NewCertReloader(files []config.TLSCertificateFileKeyPair, logger *zap.Logger) *CertReloader {
+func NewCertReloader(keyPairs []config.TLSCertificateFileKeyPair, logger *zap.Logger) *CertReloader {
 	cr := &CertReloader{
 		logger:    logger,
-		files:     files,
-		certs:     make(map[string]*tls.Certificate, len(files)),
-		reloaders: make([]*reloader.Reloader, 0, len(files)),
+		keyPairs:  keyPairs,
+		certs:     make(map[string]*tls.Certificate, len(keyPairs)),
+		reloaders: make([]*reloader.Reloader, 0, len(keyPairs)),
 	}
 
-	for _, file := range files {
-		load := func() error { return cr.load(file) }
-		cr.reloaders = append(cr.reloaders, reloader.New([]string{file.CertificateFile, file.PrivateKeyFile}, load, logger))
+	for _, keyPair := range keyPairs {
+		load := func() error { return cr.load(keyPair) }
+		cr.reloaders = append(cr.reloaders, reloader.New([]string{keyPair.CertificateFile, keyPair.PrivateKeyFile}, load, logger))
 	}
 
 	return cr
@@ -47,9 +50,6 @@ func (cr *CertReloader) Run(ctx context.Context) {
 	}
 }
 
-// errNoCertificates is returned when no certificate has been loaded.
-var errNoCertificates = errors.New("no certificate could be loaded")
-
 // GetCertificate returns the first certificate the client supports, falling back to the
 // first loaded certificate when none of them matches.
 func (cr *CertReloader) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
@@ -58,8 +58,8 @@ func (cr *CertReloader) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certifi
 
 	var defaultCert *tls.Certificate
 
-	for _, file := range cr.files {
-		cert, ok := cr.certs[file.CertificateFile]
+	for _, keyPair := range cr.keyPairs {
+		cert, ok := cr.certs[keyPair.CertificateFile]
 		if !ok {
 			continue
 		}
@@ -81,17 +81,17 @@ func (cr *CertReloader) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certifi
 	return defaultCert, nil
 }
 
-func (cr *CertReloader) load(file config.TLSCertificateFileKeyPair) error {
-	cert, err := tls.LoadX509KeyPair(file.CertificateFile, file.PrivateKeyFile)
+func (cr *CertReloader) load(keyPair config.TLSCertificateFileKeyPair) error {
+	cert, err := tls.LoadX509KeyPair(keyPair.CertificateFile, keyPair.PrivateKeyFile)
 	if err != nil {
 		return err
 	}
 
 	cr.mu.Lock()
-	cr.certs[file.CertificateFile] = &cert
+	cr.certs[keyPair.CertificateFile] = &cert
 	cr.mu.Unlock()
 
-	cr.logger.Info("loaded cert and key files", zap.String("certificateFile", file.CertificateFile))
+	cr.logger.Info("loaded cert and key files", zap.String("certificateFile", keyPair.CertificateFile))
 
 	return nil
 }

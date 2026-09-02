@@ -368,16 +368,16 @@ func (t *TLSConfig) Validate() error {
 
 	certificateFiles := make(map[string]struct{})
 
-	for i, pair := range t.Certificates.Files {
-		if err := pair.Validate(); err != nil {
+	for i, keyPair := range t.Certificates.Files {
+		if err := keyPair.Validate(); err != nil {
 			return fmt.Errorf("certificates.files[%d]: %w", i, err)
 		}
 
-		if _, exists := certificateFiles[pair.CertificateFile]; exists {
-			return fmt.Errorf("%w: %q", ErrDuplicateTLSCert, pair.CertificateFile)
+		if _, exists := certificateFiles[keyPair.CertificateFile]; exists {
+			return fmt.Errorf("%w: %q", ErrDuplicateTLSCert, keyPair.CertificateFile)
 		}
 
-		certificateFiles[pair.CertificateFile] = struct{}{}
+		certificateFiles[keyPair.CertificateFile] = struct{}{}
 	}
 
 	return nil
