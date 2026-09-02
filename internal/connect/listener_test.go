@@ -23,7 +23,7 @@ import (
 	"gateway/internal/token"
 )
 
-var testCertFiles = []config.TLSCertificateFile{
+var testCertFiles = []config.TLSCertificateFileKeyPair{
 	{
 		CertificateFile: "../../test/data/proxy/tls.crt",
 		PrivateKeyFile:  "../../test/data/proxy/tls.key",

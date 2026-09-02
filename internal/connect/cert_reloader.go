@@ -17,7 +17,7 @@ import (
 
 type CertReloader struct {
 	logger *zap.Logger
-	files  []config.TLSCertificateFile
+	files  []config.TLSCertificateFileKeyPair
 
 	mu    sync.RWMutex
 	certs map[string]*tls.Certificate
@@ -25,7 +25,7 @@ type CertReloader struct {
 	reloaders []*reloader.Reloader
 }
 
-func NewCertReloader(files []config.TLSCertificateFile, logger *zap.Logger) *CertReloader {
+func NewCertReloader(files []config.TLSCertificateFileKeyPair, logger *zap.Logger) *CertReloader {
 	cr := &CertReloader{
 		logger:    logger,
 		files:     files,
@@ -81,7 +81,7 @@ func (cr *CertReloader) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certifi
 	return defaultCert, nil
 }
 
-func (cr *CertReloader) load(file config.TLSCertificateFile) error {
+func (cr *CertReloader) load(file config.TLSCertificateFileKeyPair) error {
 	cert, err := tls.LoadX509KeyPair(file.CertificateFile, file.PrivateKeyFile)
 	if err != nil {
 		return err

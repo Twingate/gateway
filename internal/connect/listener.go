@@ -101,7 +101,7 @@ func NewListener(
 		return nil, fmt.Errorf("failed to create token parser: %w", err)
 	}
 
-	certReloader := NewCertReloader(tlsCfg.Certificates.Files, logger)
+	certReloader := NewCertReloader(tlsCfg.CertificateSources.Files, logger)
 
 	tlsConfig := &tls.Config{
 		MinVersion:     tls.VersionTLS13,

@@ -89,15 +89,15 @@ type AuditLogConfig struct {
 
 // TLSConfig represents the downstream TLS configuration.
 type TLSConfig struct {
-	Certificates TLSCertificatesConfig `yaml:"certificates"`
+	CertificateSources TLSCertificatesConfig `yaml:"certificates"`
 }
 
 // TLSCertificatesConfig lists the TLS certificates the Gateway can serve.
 type TLSCertificatesConfig struct {
-	Files []TLSCertificateFile `yaml:"files"`
+	Files []TLSCertificateFileKeyPair `yaml:"files"`
 }
 
-type TLSCertificateFile struct {
+type TLSCertificateFileKeyPair struct {
 	CertificateFile string `yaml:"certificateFile"`
 	PrivateKeyFile  string `yaml:"privateKeyFile"`
 }
@@ -358,12 +358,12 @@ func (c *Config) Validate() error {
 }
 
 func (t *TLSConfig) Validate() error {
-	if len(t.Certificates.Files) == 0 {
+	if len(t.CertificateSources.Files) == 0 {
 		return fmt.Errorf("%w: certificates.files", ErrRequired)
 	}
 
-	for i, file := range t.Certificates.Files {
-		if err := file.Validate(); err != nil {
+	for i, pair := range t.CertificateSources.Files {
+		if err := pair.Validate(); err != nil {
 			return fmt.Errorf("certificates.files[%d]: %w", i, err)
 		}
 	}
@@ -371,7 +371,7 @@ func (t *TLSConfig) Validate() error {
 	return nil
 }
 
-func (t *TLSCertificateFile) Validate() error {
+func (t *TLSCertificateFileKeyPair) Validate() error {
 	if t.CertificateFile == "" {
 		return fmt.Errorf("%w: certificateFile", ErrRequired)
 	}
