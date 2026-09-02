@@ -48,17 +48,13 @@ func (cr *CertReloader) Run(ctx context.Context) {
 }
 
 // errNoCertificates is returned when no certificate has been loaded.
-var errNoCertificates = errors.New("no certificates configured")
+var errNoCertificates = errors.New("no certificate could be loaded")
 
 // GetCertificate returns the first certificate the client supports, falling back to the
 // first loaded certificate when none of them matches.
 func (cr *CertReloader) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
 	cr.mu.RLock()
 	defer cr.mu.RUnlock()
-
-	if len(cr.certs) == 0 {
-		return nil, errNoCertificates
-	}
 
 	var defaultCert *tls.Certificate
 
@@ -75,6 +71,10 @@ func (cr *CertReloader) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certifi
 		if defaultCert == nil {
 			defaultCert = cert
 		}
+	}
+
+	if defaultCert == nil {
+		return nil, errNoCertificates
 	}
 
 	// If nothing matches, return the first loaded certificate.
