@@ -54,7 +54,7 @@ func TestKubernetes(t *testing.T) {
 		Port:        gatewayPort,
 		MetricsPort: 0,
 		TLS: gatewayconfig.TLSConfig{
-			CertificateSources: gatewayconfig.TLSCertificatesConfig{
+			Certificates: gatewayconfig.TLSCertificateSources{
 				Files: []gatewayconfig.TLSCertificateFileKeyPair{
 					{
 						CertificateFile: "../data/proxy/tls.crt",

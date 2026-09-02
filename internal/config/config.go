@@ -92,11 +92,11 @@ type AuditLogConfig struct {
 
 // TLSConfig represents the downstream TLS configuration.
 type TLSConfig struct {
-	CertificateSources TLSCertificatesConfig `yaml:"certificates"`
+	Certificates TLSCertificateSources `yaml:"certificates"`
 }
 
-// TLSCertificatesConfig lists the TLS certificates the Gateway can serve.
-type TLSCertificatesConfig struct {
+// TLSCertificateSources lists the TLS certificates the Gateway can serve.
+type TLSCertificateSources struct {
 	Files []TLSCertificateFileKeyPair `yaml:"files"`
 }
 
@@ -362,13 +362,13 @@ func (c *Config) Validate() error {
 }
 
 func (t *TLSConfig) Validate() error {
-	if len(t.CertificateSources.Files) == 0 {
+	if len(t.Certificates.Files) == 0 {
 		return fmt.Errorf("%w: certificates.files", ErrRequired)
 	}
 
 	certificateFiles := make(map[string]struct{})
 
-	for i, pair := range t.CertificateSources.Files {
+	for i, pair := range t.Certificates.Files {
 		if err := pair.Validate(); err != nil {
 			return fmt.Errorf("certificates.files[%d]: %w", i, err)
 		}
