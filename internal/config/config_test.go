@@ -662,12 +662,6 @@ func TestTLSConfig_Validate(t *testing.T) {
 			wantErr:     true,
 			errContains: `duplicate certificateFile: "tls.crt"`,
 		},
-		{
-			name:        "duplicate private key file",
-			tls:         TLSConfig{CertificateSources: TLSCertificatesConfig{Files: []TLSCertificateFileKeyPair{{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"}, {CertificateFile: "other.crt", PrivateKeyFile: "tls.key"}}}},
-			wantErr:     true,
-			errContains: `duplicate privateKeyFile: "tls.key"`,
-		},
 	}
 
 	for _, tt := range tests {

@@ -28,7 +28,6 @@ var (
 	ErrDuplicateUpstream = errors.New("duplicate upstream name")
 	ErrDuplicateTLSCA    = errors.New("duplicate TLS CA name")
 	ErrDuplicateTLSCert  = errors.New("duplicate certificateFile")
-	ErrDuplicateTLSKey   = errors.New("duplicate privateKeyFile")
 	ErrInvalidSSHKeyType = errors.New("invalid SSH key type")
 	ErrNegativeTTL       = errors.New("TTL must be non-negative")
 )
@@ -368,7 +367,6 @@ func (t *TLSConfig) Validate() error {
 	}
 
 	certificateFiles := make(map[string]struct{})
-	privateKeyFiles := make(map[string]struct{})
 
 	for i, pair := range t.CertificateSources.Files {
 		if err := pair.Validate(); err != nil {
@@ -379,12 +377,7 @@ func (t *TLSConfig) Validate() error {
 			return fmt.Errorf("%w: %q", ErrDuplicateTLSCert, pair.CertificateFile)
 		}
 
-		if _, exists := privateKeyFiles[pair.PrivateKeyFile]; exists {
-			return fmt.Errorf("%w: %q", ErrDuplicateTLSKey, pair.PrivateKeyFile)
-		}
-
 		certificateFiles[pair.CertificateFile] = struct{}{}
-		privateKeyFiles[pair.PrivateKeyFile] = struct{}{}
 	}
 
 	return nil
