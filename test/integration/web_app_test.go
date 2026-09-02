@@ -42,8 +42,14 @@ func TestWebApp(t *testing.T) {
 		Port:        gatewayPort,
 		MetricsPort: 0,
 		TLS: gatewayconfig.TLSConfig{
-			CertificateFile: "../data/proxy/tls.crt",
-			PrivateKeyFile:  "../data/proxy/tls.key",
+			Certificates: gatewayconfig.TLSCertificateSources{
+				Files: []gatewayconfig.TLSCertificateFileKeyPair{
+					{
+						CertificateFile: "../data/proxy/tls.crt",
+						PrivateKeyFile:  "../data/proxy/tls.key",
+					},
+				},
+			},
 		},
 		WebApp: &gatewayconfig.WebAppConfig{
 			RequestHeaders: map[string]string{

@@ -29,8 +29,10 @@ tests:
               flushSizeThreshold: 200
 
             tls:
-              certificateFile: "/etc/gateway/tls/tls.crt"
-              privateKeyFile: "/etc/gateway/tls/tls.key"
+              certificates:
+                files:
+                  - certificateFile: "/etc/gateway/tls/tls.crt"
+                    privateKeyFile: "/etc/gateway/tls/tls.key"
   - it: should error when network is not provided
     set:
       twingate:
@@ -65,8 +67,10 @@ tests:
               flushSizeThreshold: 1e+06
 
             tls:
-              certificateFile: "/etc/gateway/tls/tls.crt"
-              privateKeyFile: "/etc/gateway/tls/tls.key"
+              certificates:
+                files:
+                  - certificateFile: "/etc/gateway/tls/tls.crt"
+                    privateKeyFile: "/etc/gateway/tls/tls.key"
 
             kubernetes: {}
   - it: should include kubernetes upstream creds when provided (external mode for testing)
@@ -93,8 +97,10 @@ tests:
               flushSizeThreshold: 1e+06
 
             tls:
-              certificateFile: "/etc/gateway/tls/tls.crt"
-              privateKeyFile: "/etc/gateway/tls/tls.key"
+              certificates:
+                files:
+                  - certificateFile: "/etc/gateway/tls/tls.crt"
+                    privateKeyFile: "/etc/gateway/tls/tls.key"
 
             kubernetes:
               upstreams:
@@ -150,8 +156,10 @@ tests:
               flushSizeThreshold: 1e+06
 
             tls:
-              certificateFile: "/etc/gateway/tls/tls.crt"
-              privateKeyFile: "/etc/gateway/tls/tls.key"
+              certificates:
+                files:
+                  - certificateFile: "/etc/gateway/tls/tls.crt"
+                    privateKeyFile: "/etc/gateway/tls/tls.key"
 
             kubernetes: {}
   - it: should still render kubernetes block when kubernetes.enabled is false and resource is enabled
@@ -177,8 +185,10 @@ tests:
               flushSizeThreshold: 1e+06
 
             tls:
-              certificateFile: "/etc/gateway/tls/tls.crt"
-              privateKeyFile: "/etc/gateway/tls/tls.key"
+              certificates:
+                files:
+                  - certificateFile: "/etc/gateway/tls/tls.crt"
+                    privateKeyFile: "/etc/gateway/tls/tls.key"
 
             kubernetes: {}
 ---
@@ -215,8 +225,10 @@ tests:
               flushSizeThreshold: 1e+06
 
             tls:
-              certificateFile: "/etc/gateway/tls/tls.crt"
-              privateKeyFile: "/etc/gateway/tls/tls.key"
+              certificates:
+                files:
+                  - certificateFile: "/etc/gateway/tls/tls.crt"
+                    privateKeyFile: "/etc/gateway/tls/tls.key"
 
             ssh:
               gateway:
@@ -271,8 +283,10 @@ tests:
               flushSizeThreshold: 1e+06
 
             tls:
-              certificateFile: "/etc/gateway/tls/tls.crt"
-              privateKeyFile: "/etc/gateway/tls/tls.key"
+              certificates:
+                files:
+                  - certificateFile: "/etc/gateway/tls/tls.crt"
+                    privateKeyFile: "/etc/gateway/tls/tls.key"
 
             ssh:
               gateway:
@@ -326,8 +340,10 @@ tests:
               flushSizeThreshold: 1e+06
 
             tls:
-              certificateFile: "/etc/gateway/tls/tls.crt"
-              privateKeyFile: "/etc/gateway/tls/tls.key"
+              certificates:
+                files:
+                  - certificateFile: "/etc/gateway/tls/tls.crt"
+                    privateKeyFile: "/etc/gateway/tls/tls.key"
 
             ssh:
               gateway:
@@ -410,8 +426,10 @@ tests:
               flushSizeThreshold: 1e+06
 
             tls:
-              certificateFile: "/etc/gateway/tls/tls.crt"
-              privateKeyFile: "/etc/gateway/tls/tls.key"
+              certificates:
+                files:
+                  - certificateFile: "/etc/gateway/tls/tls.crt"
+                    privateKeyFile: "/etc/gateway/tls/tls.key"
 
             webApp: {}
   - it: should render webApp with custom headers
@@ -436,8 +454,10 @@ tests:
               flushSizeThreshold: 1e+06
 
             tls:
-              certificateFile: "/etc/gateway/tls/tls.crt"
-              privateKeyFile: "/etc/gateway/tls/tls.key"
+              certificates:
+                files:
+                  - certificateFile: "/etc/gateway/tls/tls.crt"
+                    privateKeyFile: "/etc/gateway/tls/tls.key"
 
             webApp:
               requestHeaders:
@@ -463,5 +483,7 @@ tests:
               flushSizeThreshold: 1e+06
 
             tls:
-              certificateFile: "/etc/gateway/tls/tls.crt"
-              privateKeyFile: "/etc/gateway/tls/tls.key"
+              certificates:
+                files:
+                  - certificateFile: "/etc/gateway/tls/tls.crt"
+                    privateKeyFile: "/etc/gateway/tls/tls.key"

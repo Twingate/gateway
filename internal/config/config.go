@@ -27,6 +27,7 @@ var (
 	ErrInvalidPort       = errors.New("invalid port number")
 	ErrDuplicateUpstream = errors.New("duplicate upstream name")
 	ErrDuplicateTLSCA    = errors.New("duplicate TLS CA name")
+	ErrDuplicateTLSCert  = errors.New("duplicate certificateFile")
 	ErrInvalidSSHKeyType = errors.New("invalid SSH key type")
 	ErrNegativeTTL       = errors.New("TTL must be non-negative")
 )
@@ -89,7 +90,17 @@ type AuditLogConfig struct {
 	FlushSizeThreshold int           `yaml:"flushSizeThreshold"` // bytes
 }
 
+// TLSConfig represents the downstream TLS configuration.
 type TLSConfig struct {
+	Certificates TLSCertificateSources `yaml:"certificates"`
+}
+
+// TLSCertificateSources lists the TLS certificates the Gateway can serve.
+type TLSCertificateSources struct {
+	Files []TLSCertificateFileKeyPair `yaml:"files"`
+}
+
+type TLSCertificateFileKeyPair struct {
 	CertificateFile string `yaml:"certificateFile"`
 	PrivateKeyFile  string `yaml:"privateKeyFile"`
 }
@@ -351,6 +362,28 @@ func (c *Config) Validate() error {
 }
 
 func (t *TLSConfig) Validate() error {
+	if len(t.Certificates.Files) == 0 {
+		return fmt.Errorf("%w: certificates.files", ErrRequired)
+	}
+
+	certificateFiles := make(map[string]struct{})
+
+	for i, keyPair := range t.Certificates.Files {
+		if err := keyPair.Validate(); err != nil {
+			return fmt.Errorf("certificates.files[%d]: %w", i, err)
+		}
+
+		if _, exists := certificateFiles[keyPair.CertificateFile]; exists {
+			return fmt.Errorf("%w: %q", ErrDuplicateTLSCert, keyPair.CertificateFile)
+		}
+
+		certificateFiles[keyPair.CertificateFile] = struct{}{}
+	}
+
+	return nil
+}
+
+func (t *TLSCertificateFileKeyPair) Validate() error {
 	if t.CertificateFile == "" {
 		return fmt.Errorf("%w: certificateFile", ErrRequired)
 	}

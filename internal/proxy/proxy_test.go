@@ -32,8 +32,14 @@ var fullConfig = gatewayconfig.Config{
 	Port:        0,
 	MetricsPort: 0,
 	TLS: gatewayconfig.TLSConfig{
-		CertificateFile: "../../test/data/proxy/tls.crt",
-		PrivateKeyFile:  "../../test/data/proxy/tls.key",
+		Certificates: gatewayconfig.TLSCertificateSources{
+			Files: []gatewayconfig.TLSCertificateFileKeyPair{
+				{
+					CertificateFile: "../../test/data/proxy/tls.crt",
+					PrivateKeyFile:  "../../test/data/proxy/tls.key",
+				},
+			},
+		},
 	},
 	Kubernetes: &gatewayconfig.KubernetesConfig{
 		Upstreams: []gatewayconfig.KubernetesUpstream{

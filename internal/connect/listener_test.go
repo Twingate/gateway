@@ -19,8 +19,16 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
+	"gateway/internal/config"
 	"gateway/internal/token"
 )
+
+var testKeyPairs = []config.TLSCertificateFileKeyPair{
+	{
+		CertificateFile: "../../test/data/proxy/tls.crt",
+		PrivateKeyFile:  "../../test/data/proxy/tls.key",
+	},
+}
 
 type mockProxyConn struct {
 	net.Conn
@@ -129,7 +137,7 @@ func createTestListenerWithChannels(t *testing.T) *testListenerFixtures {
 
 	registry := prometheus.NewRegistry()
 	logger := zap.NewNop()
-	certReloader := NewCertReloader("../../test/data/proxy/tls.crt", "../../test/data/proxy/tls.key", logger)
+	certReloader := NewCertReloader(testKeyPairs, logger)
 
 	// Create listener with minimal config (we'll override the factory)
 	listener := &Listener{
@@ -338,7 +346,7 @@ func TestListener_UnsupportedResourceType(t *testing.T) {
 
 	registry := prometheus.NewRegistry()
 	logger := zap.NewNop()
-	certReloader := NewCertReloader("../../test/data/proxy/tls.crt", "../../test/data/proxy/tls.key", logger)
+	certReloader := NewCertReloader(testKeyPairs, logger)
 
 	listener := &Listener{
 		channels:     channels,
@@ -401,7 +409,7 @@ func TestListener_Serve_GracefulShutdown(t *testing.T) {
 		channels:     channels,
 		logger:       logger,
 		metrics:      CreateProxyConnMetrics(prometheus.NewRegistry()),
-		certReloader: NewCertReloader("../../test/data/proxy/tls.crt", "../../test/data/proxy/tls.key", logger),
+		certReloader: NewCertReloader(testKeyPairs, logger),
 	}
 
 	listener.proxyConnFactory = func(conn net.Conn, _ *tls.Config, _ Validator, _ *zap.Logger) Conn {

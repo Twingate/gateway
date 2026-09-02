@@ -254,8 +254,10 @@ twingate:
   host: test
 port: %d
 tls:
-  certificateFile: ./test/data/proxy/tls.crt
-  privateKeyFile: ./test/data/proxy/tls.key
+  certificates:
+    files:
+      - certificateFile: ./test/data/proxy/tls.crt
+        privateKeyFile: ./test/data/proxy/tls.key
 kubernetes:
   upstreams:
     - name: local-kind-cluster
