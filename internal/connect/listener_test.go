@@ -104,9 +104,7 @@ func createClaims(t *testing.T, resourceType token.ResourceType) *token.GATClaim
 	t.Helper()
 
 	return &token.GATClaims{
-		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(1 * time.Hour)),
-		},
+		ExpiresAt: jwt.NewNumericDate(time.Now().Add(1 * time.Hour)),
 		User: token.User{
 			ID:       "user-1",
 			Username: "user@acme.com",

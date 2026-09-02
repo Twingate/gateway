@@ -16,6 +16,8 @@ import (
 	"go.uber.org/zap"
 	"go.yaml.in/yaml/v4"
 	"golang.org/x/crypto/ssh"
+
+	"gateway/internal/util/useragent"
 )
 
 var (
@@ -263,6 +265,7 @@ func resolveTwingateHostname(targetURL, defaultHost string, retryMax int, logger
 	logger = logger.With(zap.String("url", targetURL), zap.String("defaultHost", defaultHost))
 
 	client := retryablehttp.NewClient()
+	client.HTTPClient.Transport = useragent.Transport{Base: client.HTTPClient.Transport}
 	client.HTTPClient.Timeout = 1 * time.Second
 	client.HTTPClient.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
 		return http.ErrUseLastResponse

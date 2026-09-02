@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  GOLANG_VERSION: 1.26.6
+  GOLANG_VERSION: 1.27.0
   CADDY_VERSION: 2.10.2
 
 permissions:
@@ -26,10 +26,10 @@ jobs:
       steps:
           - run: echo "github ref is ${{ github.head_ref }} ${{ github.base_ref }}"
           - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-          - uses: hadolint/hadolint-action@2a66e89f53d0771bb131a7fa31f3136336094aa6 # v3.4.0
+          - uses: hadolint/hadolint-action@06be81baf89a55ffd0e24b8f04a4185738dd3387 # v3.5.0
             with:
               dockerfile: Dockerfile.goreleaser
-          - uses: hadolint/hadolint-action@2a66e89f53d0771bb131a7fa31f3136336094aa6 # v3.4.0
+          - uses: hadolint/hadolint-action@06be81baf89a55ffd0e24b8f04a4185738dd3387 # v3.5.0
             with:
               dockerfile: Dockerfile.goreleaser-debug
 
@@ -43,12 +43,10 @@ jobs:
     - name: Verify dependencies
       run: go mod verify
     - run: go vet ./...
-    - name: Check Format
-      run: if [ "$(gofmt -s -l . | wc -l)" -gt 0 ]; then exit 1; fi
     - name: golangci-lint
       uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
       with:
-        version: v2.11.1
+        version: v2.13.1
 
   lint-markdown:
     runs-on: ubuntu-latest

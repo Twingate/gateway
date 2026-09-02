@@ -135,6 +135,8 @@ func TestNewManualCA_ReloadsPrivateKey(t *testing.T) {
 		require.NotEmpty(c, logs.FilterMessage(fmt.Sprintf("Start watching %s changes", keyFile)).All())
 	}, time.Second, 5*time.Millisecond)
 
+	rotated := provider.ca.rotated()
+
 	newKeyPEM, newPublicKey := generateCAKey(t)
 	replaceCAKeyFile(t, keyFile, newKeyPEM)
 
@@ -144,6 +146,14 @@ func TestNewManualCA_ReloadsPrivateKey(t *testing.T) {
 
 		require.Equal(c, newPublicKey.Marshal(), reloadedPublicKey.Marshal())
 	}, time.Second, 5*time.Millisecond, "CA public key was not reloaded")
+
+	// Certificates already signed by the old key are only re-signed if the reload is announced
+	// as a rotation.
+	select {
+	case <-rotated:
+	case <-time.After(time.Second):
+		t.Fatal("CA key reload did not announce a rotation")
+	}
 
 	// Certificates signed after the reload are signed by the new CA key
 	_, subjectPublicKey, err := keyConfig{}.Generate(rand.Reader)
@@ -156,6 +166,41 @@ func TestNewManualCA_ReloadsPrivateKey(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, newPublicKey.Marshal(), cert.SignatureKey.Marshal())
+}
+
+func TestRotationNotifier(t *testing.T) {
+	// The zero value is what an embedder relies on, and notifyRotation is called directly, so the
+	// checks below need no waiting.
+	var notifier rotationNotifier
+
+	isClosed := func(ch <-chan struct{}) bool {
+		select {
+		case <-ch:
+			return true
+		default:
+			return false
+		}
+	}
+
+	// Rotations with nobody waiting coalesce; a second one must not close the channel twice.
+	notifier.notifyRotation()
+	notifier.notifyRotation()
+
+	rotated := notifier.rotated()
+	assert.False(t, isClosed(rotated), "the channel should stay open until the next rotation")
+
+	// Every waiter holds the same channel, so closing it is the broadcast.
+	assert.Equal(t, rotated, notifier.rotated())
+
+	notifier.notifyRotation()
+	assert.True(t, isClosed(rotated), "a rotation should close the channel")
+
+	// A rotation retires the channel, so a waiter that fetches again gets the next generation.
+	rotated = notifier.rotated()
+	assert.False(t, isClosed(rotated), "a channel fetched after a rotation should be open")
+
+	notifier.notifyRotation()
+	assert.True(t, isClosed(rotated))
 }
 
 func TestNewManualCA_PrivateKeyFileNotFound(t *testing.T) {
@@ -418,11 +463,11 @@ func TestVaultCA_Sign(t *testing.T) {
 			req: &certificateRequest{
 				certType:   HostCert,
 				publicKey:  publicKey,
-				principals: []string{"gateway.example.com"},
+				principals: []string{"gateway.corp.internal"},
 				ttl:        24 * time.Hour,
 			},
 			wantCertType:   "host",
-			wantPrincipals: "gateway.example.com",
+			wantPrincipals: "gateway.corp.internal",
 		},
 	}
 
@@ -678,9 +723,7 @@ func TestVerifyCertificate(t *testing.T) {
 				ValidPrincipals: []string{"alice"},
 				ValidAfter:      mustUint64(now.Add(-clockSkewBuffer)),
 				ValidBefore:     mustUint64(now.Add(30 * time.Minute)),
-				Permissions: ssh.Permissions{
-					Extensions: map[string]string{"permit-pty": ""},
-				},
+				Extensions:      map[string]string{"permit-pty": ""},
 			}
 			tt.setupFn(req, cert)
 

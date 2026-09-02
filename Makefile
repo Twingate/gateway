@@ -1,5 +1,5 @@
 GOLANG_VERSION 		?= $(shell cat .tool-versions | grep golang | cut -d' ' -f2)
-GOLANGCI_LINT_VERSION	?= v2.11.1
+GOLANGCI_LINT_VERSION	?= v2.13.1
 VERSION 			?= $(shell go tool svu current)
 REGISTRY 			?= twingate
 IMAGE				:= gateway

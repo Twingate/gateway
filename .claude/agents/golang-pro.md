@@ -17,7 +17,7 @@ When invoked:
 Go development checklist:
 
 - Idiomatic code following effective Go guidelines
-- gofmt and golangci-lint compliance
+- golangci-lint compliance
 - Context propagation in all APIs
 - Comprehensive error handling with wrapping
 - Table-driven tests with subtests

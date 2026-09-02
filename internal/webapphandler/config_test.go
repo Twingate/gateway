@@ -4,6 +4,8 @@
 package webapphandler
 
 import (
+	"crypto/x509"
+	"encoding/pem"
 	"os"
 	"path/filepath"
 	"testing"
@@ -16,6 +18,7 @@ import (
 	"gateway/internal/config"
 	"gateway/internal/metrics"
 	"gateway/internal/webapphandler/template"
+	"gateway/test/data"
 )
 
 func TestNewConfig(t *testing.T) {
@@ -71,9 +74,23 @@ func TestNewConfig(t *testing.T) {
 	}
 }
 
+func TestNewConfig_CAPoolAddsCustomCA(t *testing.T) {
+	cfg, err := NewConfig(nil, []config.CA{{Name: "custom", CertFile: "../../test/data/proxy/tls.crt"}}, metrics.RegisterRoundTripperMetrics(prometheus.NewRegistry()), zap.NewNop())
+	require.NoError(t, err)
+
+	block, _ := pem.Decode(data.ProxyCert)
+	require.NotNil(t, block)
+
+	caCert, err := x509.ParseCertificate(block.Bytes)
+	require.NoError(t, err)
+
+	_, err = caCert.Verify(x509.VerifyOptions{Roots: cfg.caPool})
+	assert.NoError(t, err, "custom CA must be added to the pool")
+}
+
 func TestNewConfig_CAPool(t *testing.T) {
 	invalidPEMFile := filepath.Join(t.TempDir(), "invalid.crt")
-	require.NoError(t, os.WriteFile(invalidPEMFile, []byte("not a pem"), 0o600))
+	require.NoError(t, os.WriteFile(invalidPEMFile, []byte("not a pem"), 0600))
 
 	tests := []struct {
 		name        string

@@ -187,8 +187,7 @@ func (p *ProxyConn) Authenticate() error {
 
 	connectInfo, err := p.ConnectValidator.ParseConnect(req, ekm)
 	if err != nil {
-		var httpErr *HTTPError
-		if errors.As(err, &httpErr) {
+		if httpErr, ok := errors.AsType[*HTTPError](err); ok {
 			httpCode = httpErr.Code
 		} else {
 			p.Logger.Error("failed to parse CONNECT:", zap.Error(err))

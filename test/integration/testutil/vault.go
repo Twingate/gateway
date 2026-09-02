@@ -87,7 +87,7 @@ func SetupVaultServer(t *testing.T) (string, int) {
 		"allow_user_certificates=true",
 		"allow_host_certificates=true",
 		"allowed_extensions=permit-port-forwarding,permit-pty,permit-user-rc",
-		"allow_empty_principals=true",
+		"allowed_domains=*",
 		"allowed_users=admin",
 	))
 	require.NoError(t, err, "failed to create SSH signing role in Vault")

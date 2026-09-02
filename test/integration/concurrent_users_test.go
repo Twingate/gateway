@@ -215,7 +215,7 @@ func TestConcurrentUsers(t *testing.T) {
 					},
 				},
 			}
-			rand.Shuffle(len(commands), func(i, j int) {
+			rand.Shuffle(len(commands), func(i, j int) { //nolint:gosec // G404: shuffles command order in a test, not security-sensitive
 				commands[i], commands[j] = commands[j], commands[i]
 			})
 

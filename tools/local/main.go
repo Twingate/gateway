@@ -142,15 +142,17 @@ func main() {
 		}
 	}()
 
+	webAppGeo := token.GeoIPLocation{
+		Lat:     37.5,
+		Lon:     -122.4,
+		Country: "US",
+		Region:  "CA",
+		City:    "San Mateo",
+	}
+
 	webAppClient := fake.NewClient(
 		user,
-		token.GeoIPLocation{
-			Lat:     37.5,
-			Lon:     -122.4,
-			Country: "US",
-			Region:  "CA",
-			City:    "San Mateo",
-		},
+		webAppGeo,
 		fmt.Sprintf("%s:%d", gatewayHost, gatewayPort),
 		controller.URL,
 		echoServer.address,
@@ -158,7 +160,20 @@ func main() {
 	)
 	defer webAppClient.Close()
 
-	logger.Info("Web app fake Twingate client is serving at", zap.String("address", webAppClient.Address))
+	logger.Info("Web app HTTP fake Twingate client is serving at", zap.String("address", webAppClient.Address))
+
+	webAppTLSClient := fake.NewClient(
+		user,
+		webAppGeo,
+		fmt.Sprintf("%s:%d", gatewayHost, gatewayPort),
+		controller.URL,
+		echoServer.address,
+		token.ResourceTypeWebApp,
+		fake.WithDownstreamTLS(),
+	)
+	defer webAppTLSClient.Close()
+
+	logger.Info("Web app HTTPS fake Twingate client is serving at", zap.String("address", webAppTLSClient.Address))
 
 	err = createLocalGatewayConfig(kindBearerToken)
 	if err != nil {
@@ -176,11 +191,12 @@ func main() {
 Twingate local dev environment running!
 =====================================================
 
-  Controller:           %s
-  User:                 %s
-  Client (Kubernetes):  %s
-  Client (SSH):         %s
-  Client (Web App):      %s
+  Controller:              %s
+  User:                    %s
+  Client (Kubernetes):     %s
+  Client (SSH):            %s
+  Client (Web App HTTP):   %s
+  Client (Web App HTTPS):  %s
 
 -----------------------------------------------------
 1. Start the Gateway (in a separate terminal):
@@ -206,17 +222,22 @@ Twingate local dev environment running!
 -----------------------------------------------------
 4. Test Web App header forwarding:
 
+  Over HTTP:
   curl http://%s
+
+  Over HTTPS:
+  curl --cacert ./test/data/proxy/tls.crt https://%s
 
 -----------------------------------------------------
 Press Ctrl+C to stop
 =====================================================
-`, controller.URL, user.Username, kubernetesClient.Address, sshClient.Address, webAppClient.Address,
+`, controller.URL, user.Username, kubernetesClient.Address, sshClient.Address, webAppClient.Address, webAppTLSClient.Address,
 		gatewayRunCmd,
 		kubeConfigFile,
 		kubeConfigFile, kindClusterName,
 		sshClientPort, sshKnownHostFile,
 		webAppClient.Address,
+		webAppTLSClient.Address,
 	)
 
 	//nolint:forbidigo
@@ -255,7 +276,7 @@ ssh:
     manual:
       privateKeyFile: ./test/data/ssh/ca/ca
 webApp:
-  headers:
+  requestHeaders:
     Authorization: "Bearer {{jwt}}"
     X-Twingate-User: "{{username}}"
     X-Twingate-Groups: "{{groups}}"

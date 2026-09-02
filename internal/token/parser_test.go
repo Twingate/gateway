@@ -7,10 +7,13 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -63,7 +66,7 @@ func newTokenService() *tokenService {
 func TestNewParser(t *testing.T) {
 	tokenService := newTokenService()
 
-	parser, err := NewParser(ParserConfig{
+	parser, err := NewParser(t.Context(), ParserConfig{
 		Issuer:   "twingate",
 		Audience: "acme",
 		Keyfunc:  tokenService.keyfunc,
@@ -140,5 +143,34 @@ func TestNewParser(t *testing.T) {
 			require.ErrorIs(t, err, tt.expectedError)
 			require.Nil(t, token)
 		})
+	}
+}
+
+func TestNewParser_RemoteJWKS(t *testing.T) {
+	userAgents := make(chan string, 1)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case userAgents <- r.UserAgent():
+		default:
+		}
+
+		_, _ = w.Write([]byte(`{"keys":[]}`))
+	}))
+	t.Cleanup(server.Close)
+
+	parser, err := NewParser(t.Context(), ParserConfig{
+		Issuer:   "twingate",
+		Audience: "acme",
+		JWKSURL:  server.URL + "/api/v1/jwk/ec",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, parser)
+
+	select {
+	case userAgent := <-userAgents:
+		assert.Equal(t, "Twingate-Gateway/dev", userAgent)
+	default:
+		t.Fatal("JWKS endpoint was not requested")
 	}
 }
