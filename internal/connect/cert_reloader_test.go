@@ -24,8 +24,8 @@ import (
 func TestCertReloader_Run(t *testing.T) {
 	fooCert := generateCert(t, "foo.acme.int")
 	barCert := generateCert(t, "bar.acme.int")
-	fooFile := createCertFiles(t, fooCert)
-	barFile := createCertFiles(t, barCert)
+	fooFile := createKeyPair(t, fooCert)
+	barFile := createKeyPair(t, barCert)
 
 	cr := NewCertReloader([]config.TLSCertificateFileKeyPair{fooFile, barFile}, zap.NewNop())
 	cr.Run(t.Context())
@@ -42,8 +42,8 @@ func TestCertReloader_Run(t *testing.T) {
 
 func TestCertReloader_load(t *testing.T) {
 	cert := generateCert(t)
-	file := createCertFiles(t, cert)
-	otherFile := createCertFiles(t, generateCert(t))
+	file := createKeyPair(t, cert)
+	otherFile := createKeyPair(t, generateCert(t))
 
 	tests := []struct {
 		name    string
@@ -84,8 +84,8 @@ func TestCertReloader_GetCertificate(t *testing.T) {
 	fooCert := generateCert(t, "foo.acme.int")
 	barCert := generateCert(t, "bar.acme.int")
 
-	fooFile := createCertFiles(t, fooCert)
-	barFile := createCertFiles(t, barCert)
+	fooFile := createKeyPair(t, fooCert)
+	barFile := createKeyPair(t, barCert)
 
 	missing := config.TLSCertificateFileKeyPair{CertificateFile: "nonexistent.crt", PrivateKeyFile: "nonexistent.key"}
 
@@ -180,7 +180,7 @@ func generateCert(t *testing.T, dnsNames ...string) tls.Certificate {
 	}
 }
 
-func createCertFiles(t *testing.T, cert tls.Certificate) config.TLSCertificateFileKeyPair {
+func createKeyPair(t *testing.T, cert tls.Certificate) config.TLSCertificateFileKeyPair {
 	t.Helper()
 
 	tmpDir := t.TempDir()
