@@ -61,13 +61,13 @@ func (v *MessageValidator) ParseConnect(req *http.Request, ekm []byte) (connectI
 	if req.Method != http.MethodConnect {
 		// did not receive CONNECT, return 405 Method Not Allowed
 		return Info{
-				Claims: nil,
-				ConnID: "",
-			}, &HTTPError{
-				Code:    http.StatusMethodNotAllowed,
-				Message: "expected CONNECT request got " + req.Method,
-				Err:     nil,
-			}
+			Claims: nil,
+			ConnID: "",
+		}, &HTTPError{
+			Code:    http.StatusMethodNotAllowed,
+			Message: "expected CONNECT request got " + req.Method,
+			Err:     nil,
+		}
 	}
 
 	connID := req.Header.Get(ConnIDHeaderKey)
@@ -78,13 +78,13 @@ func (v *MessageValidator) ParseConnect(req *http.Request, ekm []byte) (connectI
 	if tokenErr != nil {
 		// did not receive identity header in CONNECT, return 407 Proxy Authentication Required
 		return Info{
-				Claims: nil,
-				ConnID: connID,
-			}, &HTTPError{
-				Code:    http.StatusProxyAuthRequired,
-				Message: fmt.Sprintf("missing identity header in CONNECT %v", tokenErr),
-				Err:     tokenErr,
-			}
+			Claims: nil,
+			ConnID: connID,
+		}, &HTTPError{
+			Code:    http.StatusProxyAuthRequired,
+			Message: fmt.Sprintf("missing identity header in CONNECT %v", tokenErr),
+			Err:     tokenErr,
+		}
 	}
 
 	gatClaims := &token.GATClaims{}
@@ -92,13 +92,13 @@ func (v *MessageValidator) ParseConnect(req *http.Request, ekm []byte) (connectI
 	_, tokenErr = v.TokenParser.ParseWithClaims(bearerToken, gatClaims)
 	if tokenErr != nil {
 		return Info{
-				Claims: nil,
-				ConnID: connID,
-			}, &HTTPError{
-				Code:    http.StatusUnauthorized,
-				Message: fmt.Sprintf("failed to parse token with error %v", tokenErr),
-				Err:     tokenErr,
-			}
+			Claims: nil,
+			ConnID: connID,
+		}, &HTTPError{
+			Code:    http.StatusUnauthorized,
+			Message: fmt.Sprintf("failed to parse token with error %v", tokenErr),
+			Err:     tokenErr,
+		}
 	}
 
 	// parse signature header for Proof-of-Possession
@@ -107,13 +107,13 @@ func (v *MessageValidator) ParseConnect(req *http.Request, ekm []byte) (connectI
 	clientSig, tokenErr := base64.StdEncoding.DecodeString(signatureB64)
 	if tokenErr != nil {
 		return Info{
-				Claims: gatClaims,
-				ConnID: connID,
-			}, &HTTPError{
-				Code:    http.StatusUnauthorized,
-				Message: fmt.Sprintf("failed to decode client signature with error %v", tokenErr),
-				Err:     tokenErr,
-			}
+			Claims: gatClaims,
+			ConnID: connID,
+		}, &HTTPError{
+			Code:    http.StatusUnauthorized,
+			Message: fmt.Sprintf("failed to decode client signature with error %v", tokenErr),
+			Err:     tokenErr,
+		}
 	}
 
 	// verify signature
@@ -122,13 +122,13 @@ func (v *MessageValidator) ParseConnect(req *http.Request, ekm []byte) (connectI
 	ok := ecdsa.VerifyASN1(&gatClaims.ClientPublicKey.PublicKey, hashed[:], clientSig)
 	if !ok {
 		return Info{
-				Claims: gatClaims,
-				ConnID: connID,
-			}, &HTTPError{
-				Code:    http.StatusUnauthorized,
-				Message: "failed to verify signature",
-				Err:     nil,
-			}
+			Claims: gatClaims,
+			ConnID: connID,
+		}, &HTTPError{
+			Code:    http.StatusUnauthorized,
+			Message: "failed to verify signature",
+			Err:     nil,
+		}
 	}
 
 	// verify the CONNECT target against the GAT token and resolve the upstream host

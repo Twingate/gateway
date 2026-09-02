@@ -108,6 +108,26 @@ func TestResolveTwingateHostname(t *testing.T) {
 		assert.Equal(t, "twingate.com", result)
 	})
 
+	t.Run("identifies the gateway with a User-Agent header", func(t *testing.T) {
+		userAgents := make(chan string, 1)
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			userAgents <- r.UserAgent()
+
+			w.WriteHeader(http.StatusOK)
+		}))
+		t.Cleanup(server.Close)
+
+		resolveTwingateHostname(server.URL+"/api/v1/jwk/ec", "twingate.com", 0, zap.NewNop())
+
+		select {
+		case userAgent := <-userAgents:
+			assert.Equal(t, "Twingate-Gateway/dev", userAgent)
+		default:
+			t.Fatal("hostname resolution endpoint was not requested")
+		}
+	})
+
 	t.Run("does not follow redirect", func(t *testing.T) {
 		shardServerCalled := make(chan struct{}, 1)
 
@@ -119,7 +139,7 @@ func TestResolveTwingateHostname(t *testing.T) {
 		t.Cleanup(shardServer.Close)
 
 		redirectServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			http.Redirect(w, r, shardServer.URL+r.URL.Path, http.StatusPermanentRedirect)
+			http.Redirect(w, r, shardServer.URL+r.URL.Path, http.StatusPermanentRedirect) //nolint:gosec // G710: redirects to the test server, not a caller-supplied host
 		}))
 		t.Cleanup(redirectServer.Close)
 
@@ -345,7 +365,11 @@ func TestConfig_Validate(t *testing.T) {
 				Port:        8443,
 				MetricsPort: 9090,
 				TLS: TLSConfig{
-					Certificates: TLSCertificatesConfig{Files: []TLSCertificateFile{{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"}}},
+					Certificates: TLSCertificateSources{
+						Files: []TLSCertificateFileKeyPair{
+							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+						},
+					},
 				},
 				Kubernetes: &KubernetesConfig{},
 				WebApp: &WebAppConfig{
@@ -361,7 +385,11 @@ func TestConfig_Validate(t *testing.T) {
 				Port:        8443,
 				MetricsPort: 9090,
 				TLS: TLSConfig{
-					Certificates: TLSCertificatesConfig{Files: []TLSCertificateFile{{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"}}},
+					Certificates: TLSCertificateSources{
+						Files: []TLSCertificateFileKeyPair{
+							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+						},
+					},
 				},
 				CAs:        []CA{{Name: "web-app"}},
 				Kubernetes: &KubernetesConfig{},
@@ -375,7 +403,11 @@ func TestConfig_Validate(t *testing.T) {
 				Port:        8443,
 				MetricsPort: 9090,
 				TLS: TLSConfig{
-					Certificates: TLSCertificatesConfig{Files: []TLSCertificateFile{{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"}}},
+					Certificates: TLSCertificateSources{
+						Files: []TLSCertificateFileKeyPair{
+							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+						},
+					},
 				},
 				Kubernetes: &KubernetesConfig{},
 			},
@@ -388,8 +420,14 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: "us1", Host: "twingate.com"},
 				Port:        8443,
 				MetricsPort: 9090,
-				TLS:         TLSConfig{Certificates: TLSCertificatesConfig{Files: []TLSCertificateFile{{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"}}}},
-				Kubernetes:  &KubernetesConfig{},
+				TLS: TLSConfig{
+					Certificates: TLSCertificateSources{
+						Files: []TLSCertificateFileKeyPair{
+							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+						},
+					},
+				},
+				Kubernetes: &KubernetesConfig{},
 			},
 			wantErr: false,
 		},
@@ -399,8 +437,14 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: "evil.com/x", Host: "twingate.com"},
 				Port:        8443,
 				MetricsPort: 9090,
-				TLS:         TLSConfig{Certificates: TLSCertificatesConfig{Files: []TLSCertificateFile{{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"}}}},
-				Kubernetes:  &KubernetesConfig{},
+				TLS: TLSConfig{
+					Certificates: TLSCertificateSources{
+						Files: []TLSCertificateFileKeyPair{
+							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+						},
+					},
+				},
+				Kubernetes: &KubernetesConfig{},
 			},
 			wantErr:     true,
 			errContains: "must be 1-63 lowercase alphanumeric characters",
@@ -411,8 +455,14 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: "ACME", Host: "twingate.com"},
 				Port:        8443,
 				MetricsPort: 9090,
-				TLS:         TLSConfig{Certificates: TLSCertificatesConfig{Files: []TLSCertificateFile{{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"}}}},
-				Kubernetes:  &KubernetesConfig{},
+				TLS: TLSConfig{
+					Certificates: TLSCertificateSources{
+						Files: []TLSCertificateFileKeyPair{
+							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+						},
+					},
+				},
+				Kubernetes: &KubernetesConfig{},
 			},
 			wantErr:     true,
 			errContains: "must be 1-63 lowercase alphanumeric characters",
@@ -423,8 +473,14 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: "us1-acme", Host: "twingate.com"},
 				Port:        8443,
 				MetricsPort: 9090,
-				TLS:         TLSConfig{Certificates: TLSCertificatesConfig{Files: []TLSCertificateFile{{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"}}}},
-				Kubernetes:  &KubernetesConfig{},
+				TLS: TLSConfig{
+					Certificates: TLSCertificateSources{
+						Files: []TLSCertificateFileKeyPair{
+							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+						},
+					},
+				},
+				Kubernetes: &KubernetesConfig{},
 			},
 			wantErr:     true,
 			errContains: "must be 1-63 lowercase alphanumeric characters",
@@ -435,8 +491,14 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: strings.Repeat("a", 63), Host: "twingate.com"},
 				Port:        8443,
 				MetricsPort: 9090,
-				TLS:         TLSConfig{Certificates: TLSCertificatesConfig{Files: []TLSCertificateFile{{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"}}}},
-				Kubernetes:  &KubernetesConfig{},
+				TLS: TLSConfig{
+					Certificates: TLSCertificateSources{
+						Files: []TLSCertificateFileKeyPair{
+							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+						},
+					},
+				},
+				Kubernetes: &KubernetesConfig{},
 			},
 			wantErr: false,
 		},
@@ -446,8 +508,14 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: strings.Repeat("a", 64), Host: "twingate.com"},
 				Port:        8443,
 				MetricsPort: 9090,
-				TLS:         TLSConfig{Certificates: TLSCertificatesConfig{Files: []TLSCertificateFile{{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"}}}},
-				Kubernetes:  &KubernetesConfig{},
+				TLS: TLSConfig{
+					Certificates: TLSCertificateSources{
+						Files: []TLSCertificateFileKeyPair{
+							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+						},
+					},
+				},
+				Kubernetes: &KubernetesConfig{},
 			},
 			wantErr:     true,
 			errContains: "must be 1-63 lowercase alphanumeric characters",
@@ -458,8 +526,14 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: "test", Host: "foo.stg.opstg.com"},
 				Port:        8443,
 				MetricsPort: 9090,
-				TLS:         TLSConfig{Certificates: TLSCertificatesConfig{Files: []TLSCertificateFile{{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"}}}},
-				Kubernetes:  &KubernetesConfig{},
+				TLS: TLSConfig{
+					Certificates: TLSCertificateSources{
+						Files: []TLSCertificateFileKeyPair{
+							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+						},
+					},
+				},
+				Kubernetes: &KubernetesConfig{},
 			},
 			wantErr: false,
 		},
@@ -469,8 +543,14 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: "acme", Host: "test"},
 				Port:        8443,
 				MetricsPort: 9090,
-				TLS:         TLSConfig{Certificates: TLSCertificatesConfig{Files: []TLSCertificateFile{{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"}}}},
-				Kubernetes:  &KubernetesConfig{},
+				TLS: TLSConfig{
+					Certificates: TLSCertificateSources{
+						Files: []TLSCertificateFileKeyPair{
+							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+						},
+					},
+				},
+				Kubernetes: &KubernetesConfig{},
 			},
 			wantErr: false,
 		},
@@ -480,8 +560,14 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: "test", Host: "Foo.Twingate.COM"},
 				Port:        8443,
 				MetricsPort: 9090,
-				TLS:         TLSConfig{Certificates: TLSCertificatesConfig{Files: []TLSCertificateFile{{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"}}}},
-				Kubernetes:  &KubernetesConfig{},
+				TLS: TLSConfig{
+					Certificates: TLSCertificateSources{
+						Files: []TLSCertificateFileKeyPair{
+							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+						},
+					},
+				},
+				Kubernetes: &KubernetesConfig{},
 			},
 			wantErr: false,
 		},
@@ -491,8 +577,14 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: "test", Host: ""},
 				Port:        8443,
 				MetricsPort: 9090,
-				TLS:         TLSConfig{Certificates: TLSCertificatesConfig{Files: []TLSCertificateFile{{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"}}}},
-				Kubernetes:  &KubernetesConfig{},
+				TLS: TLSConfig{
+					Certificates: TLSCertificateSources{
+						Files: []TLSCertificateFileKeyPair{
+							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+						},
+					},
+				},
+				Kubernetes: &KubernetesConfig{},
 			},
 			wantErr:     true,
 			errContains: "invalid twingate.host",
@@ -503,8 +595,14 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: "test", Host: "evil.example.com"},
 				Port:        8443,
 				MetricsPort: 9090,
-				TLS:         TLSConfig{Certificates: TLSCertificatesConfig{Files: []TLSCertificateFile{{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"}}}},
-				Kubernetes:  &KubernetesConfig{},
+				TLS: TLSConfig{
+					Certificates: TLSCertificateSources{
+						Files: []TLSCertificateFileKeyPair{
+							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+						},
+					},
+				},
+				Kubernetes: &KubernetesConfig{},
 			},
 			wantErr:     true,
 			errContains: "not a trusted Twingate domain",
@@ -515,8 +613,14 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: "test", Host: "https://evil.com/x"},
 				Port:        8443,
 				MetricsPort: 9090,
-				TLS:         TLSConfig{Certificates: TLSCertificatesConfig{Files: []TLSCertificateFile{{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"}}}},
-				Kubernetes:  &KubernetesConfig{},
+				TLS: TLSConfig{
+					Certificates: TLSCertificateSources{
+						Files: []TLSCertificateFileKeyPair{
+							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+						},
+					},
+				},
+				Kubernetes: &KubernetesConfig{},
 			},
 			wantErr:     true,
 			errContains: "not a valid hostname",
@@ -527,8 +631,14 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: "test", Host: "evil.com/x.twingate.com"},
 				Port:        8443,
 				MetricsPort: 9090,
-				TLS:         TLSConfig{Certificates: TLSCertificatesConfig{Files: []TLSCertificateFile{{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"}}}},
-				Kubernetes:  &KubernetesConfig{},
+				TLS: TLSConfig{
+					Certificates: TLSCertificateSources{
+						Files: []TLSCertificateFileKeyPair{
+							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+						},
+					},
+				},
+				Kubernetes: &KubernetesConfig{},
 			},
 			wantErr:     true,
 			errContains: "not a valid hostname",
@@ -539,8 +649,14 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: "test", Host: "10.0.0.5"},
 				Port:        8443,
 				MetricsPort: 9090,
-				TLS:         TLSConfig{Certificates: TLSCertificatesConfig{Files: []TLSCertificateFile{{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"}}}},
-				Kubernetes:  &KubernetesConfig{},
+				TLS: TLSConfig{
+					Certificates: TLSCertificateSources{
+						Files: []TLSCertificateFileKeyPair{
+							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+						},
+					},
+				},
+				Kubernetes: &KubernetesConfig{},
 			},
 			wantErr:     true,
 			errContains: "not a trusted Twingate domain",
@@ -552,7 +668,11 @@ func TestConfig_Validate(t *testing.T) {
 				Port:        -1,
 				MetricsPort: 9090,
 				TLS: TLSConfig{
-					Certificates: TLSCertificatesConfig{Files: []TLSCertificateFile{{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"}}},
+					Certificates: TLSCertificateSources{
+						Files: []TLSCertificateFileKeyPair{
+							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+						},
+					},
 				},
 				Kubernetes: &KubernetesConfig{},
 			},
@@ -566,7 +686,11 @@ func TestConfig_Validate(t *testing.T) {
 				Port:        8443,
 				MetricsPort: 70000,
 				TLS: TLSConfig{
-					Certificates: TLSCertificatesConfig{Files: []TLSCertificateFile{{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"}}},
+					Certificates: TLSCertificateSources{
+						Files: []TLSCertificateFileKeyPair{
+							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+						},
+					},
 				},
 				Kubernetes: &KubernetesConfig{},
 			},
@@ -580,7 +704,11 @@ func TestConfig_Validate(t *testing.T) {
 				Port:        8443,
 				MetricsPort: 9090,
 				TLS: TLSConfig{
-					Certificates: TLSCertificatesConfig{Files: []TLSCertificateFile{{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"}}},
+					Certificates: TLSCertificateSources{
+						Files: []TLSCertificateFileKeyPair{
+							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+						},
+					},
 				},
 			},
 			wantErr:     true,
@@ -609,13 +737,26 @@ func TestTLSConfig_Validate(t *testing.T) {
 		errContains string
 	}{
 		{
-			name:    "valid",
-			tls:     TLSConfig{Certificates: TLSCertificatesConfig{Files: []TLSCertificateFile{{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"}}}},
+			name: "valid",
+			tls: TLSConfig{
+				Certificates: TLSCertificateSources{
+					Files: []TLSCertificateFileKeyPair{
+						{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+					},
+				},
+			},
 			wantErr: false,
 		},
 		{
-			name:    "multiple certificates",
-			tls:     TLSConfig{Certificates: TLSCertificatesConfig{Files: []TLSCertificateFile{{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"}, {CertificateFile: "other.crt", PrivateKeyFile: "other.key"}}}},
+			name: "multiple certificates",
+			tls: TLSConfig{
+				Certificates: TLSCertificateSources{
+					Files: []TLSCertificateFileKeyPair{
+						{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+						{CertificateFile: "other.crt", PrivateKeyFile: "other.key"},
+					},
+				},
+			},
 			wantErr: false,
 		},
 		{
@@ -625,16 +766,42 @@ func TestTLSConfig_Validate(t *testing.T) {
 			errContains: "required field is missing: certificates.files",
 		},
 		{
-			name:        "file missing certificate",
-			tls:         TLSConfig{Certificates: TLSCertificatesConfig{Files: []TLSCertificateFile{{PrivateKeyFile: "tls.key"}}}},
+			name: "file missing certificate",
+			tls: TLSConfig{
+				Certificates: TLSCertificateSources{
+					Files: []TLSCertificateFileKeyPair{
+						{PrivateKeyFile: "tls.key"},
+					},
+				},
+			},
 			wantErr:     true,
 			errContains: "certificates.files[0]: required field is missing: certificateFile",
 		},
 		{
-			name:        "file missing private key",
-			tls:         TLSConfig{Certificates: TLSCertificatesConfig{Files: []TLSCertificateFile{{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"}, {CertificateFile: "other.crt"}}}},
+			name: "file missing private key",
+			tls: TLSConfig{
+				Certificates: TLSCertificateSources{
+					Files: []TLSCertificateFileKeyPair{
+						{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+						{CertificateFile: "other.crt"},
+					},
+				},
+			},
 			wantErr:     true,
 			errContains: "certificates.files[1]: required field is missing: privateKeyFile",
+		},
+		{
+			name: "duplicate certificate file",
+			tls: TLSConfig{
+				Certificates: TLSCertificateSources{
+					Files: []TLSCertificateFileKeyPair{
+						{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+						{CertificateFile: "tls.crt", PrivateKeyFile: "other.key"},
+					},
+				},
+			},
+			wantErr:     true,
+			errContains: `duplicate certificateFile: "tls.crt"`,
 		},
 	}
 

@@ -10,10 +10,12 @@ linters:
     - dupl
     - depguard
     - dogsled
-    - exhaustruct
+    - exhaustruct  # Deprecated since v2.13.0 and replaced by exhaustruct_v5
+    - exhaustruct_v5
     - forcetypeassert  # Covered by revive linter's unchecked-type-assertion rule
     - funlen
     - gochecknoglobals
+    - gomodguard  # Deprecated since v2.12.0 and replaced by gomodguard_v2
     - gosmopolitan
     - lll  # Covered by revive linter's line-length-limit rule
     - maintidx

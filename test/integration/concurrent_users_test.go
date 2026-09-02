@@ -55,8 +55,8 @@ func TestConcurrentUsers(t *testing.T) {
 		Port:        gatewayPort,
 		MetricsPort: 0,
 		TLS: gatewayconfig.TLSConfig{
-			Certificates: gatewayconfig.TLSCertificatesConfig{
-				Files: []gatewayconfig.TLSCertificateFile{
+			Certificates: gatewayconfig.TLSCertificateSources{
+				Files: []gatewayconfig.TLSCertificateFileKeyPair{
 					{
 						CertificateFile: "../data/proxy/tls.crt",
 						PrivateKeyFile:  "../data/proxy/tls.key",
@@ -215,7 +215,7 @@ func TestConcurrentUsers(t *testing.T) {
 					},
 				},
 			}
-			rand.Shuffle(len(commands), func(i, j int) {
+			rand.Shuffle(len(commands), func(i, j int) { //nolint:gosec // G404: shuffles command order in a test, not security-sensitive
 				commands[i], commands[j] = commands[j], commands[i]
 			})
 

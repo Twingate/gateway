@@ -76,59 +76,24 @@ func TestProxy_ProxiesConnection(t *testing.T) {
 }
 
 func TestProxy_StartFailure(t *testing.T) {
-	// Start runs its CA and downstream-config setup synchronously and returns any failure
-	// before the accept loop, so these cases call it directly and assert the returned error.
-	tests := []struct {
-		name    string
-		setup   func(t *testing.T, sshProxy *SSHProxy)
-		wantErr string
-	}{
-		{
-			name: "CA start failure",
-			setup: func(t *testing.T, sshProxy *SSHProxy) {
-				t.Helper()
+	// Start brings up the CA synchronously and returns any failure before the accept loop.
+	authMethod, err := newAppRoleAuthMethod(&gatewayconfig.SSHCAVaultAppRoleConfig{
+		RoleID:   "role-id",
+		SecretID: "secret-id",
+	})
+	require.NoError(t, err)
 
-				authMethod, err := newAppRoleAuthMethod(&gatewayconfig.SSHCAVaultAppRoleConfig{
-					RoleID:   "role-id",
-					SecretID: "secret-id",
-				})
-				require.NoError(t, err)
-
-				sshProxy.config.caProvider = &vaultCAProvider{
-					vault: &Vault{
-						client:     newDeadVaultCA(t).client,
-						authMethod: authMethod,
-						logger:     zap.NewNop(),
-					},
-				}
-			},
-			wantErr: "failed to login to Vault",
-		},
-		{
-			name: "downstream config failure",
-			setup: func(t *testing.T, sshProxy *SSHProxy) {
-				t.Helper()
-
-				fake := newFakeCAProvider(sshProxy.config.caProvider)
-				fake.host = &stubCA{
-					signer:     testSigner(t),
-					errOnCalls: map[int]error{1: errors.New("sign failed")},
-				}
-				sshProxy.config.caProvider = fake
-			},
-			wantErr: "host cert signer",
+	sshProxy := newTestProxy(t)
+	sshProxy.config.caProvider = &vaultCAProvider{
+		vault: &Vault{
+			client:     newDeadVaultCA(t).client,
+			authMethod: authMethod,
+			logger:     zap.NewNop(),
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			sshProxy := newTestProxy(t)
-			tt.setup(t, sshProxy)
-
-			err := sshProxy.Start(t.Context(), newTestListener(t, "unused:22"))
-			require.ErrorContains(t, err, tt.wantErr)
-		})
-	}
+	err = sshProxy.Start(t.Context(), newTestListener(t, "unused:22"))
+	require.ErrorContains(t, err, "failed to login to Vault")
 }
 
 func TestProxy_AcceptError(t *testing.T) {
@@ -279,8 +244,8 @@ func TestProxy_UpstreamFailures(t *testing.T) {
 				// fails to sign breaks that before anything is dialed.
 				fake := newFakeCAProvider(sshProxy.config.caProvider)
 				fake.user = &stubCA{
-					signer:     testSigner(t),
-					errOnCalls: map[int]error{1: errors.New("sign failed")},
+					signer:  testSigner(t),
+					errFrom: 1,
 				}
 				sshProxy.config.caProvider = fake
 
@@ -485,10 +450,8 @@ func newFakeCAProvider(current caProvider) *fakeCAProvider {
 	}
 }
 
-// newTestProxy builds an SSHProxy in manual CA mode with its downstream config ready, so tests
-// can drive Serve/serveConn directly without going through Start. The proxy logs to a nop
-// logger: the host-cert renewal goroutine outlives the test and logs its shutdown when
-// t.Context() is canceled, which a t-bound logger would race with.
+// newTestProxy builds an SSHProxy in manual CA mode, so tests can drive Serve/serveConn
+// directly without going through Start.
 func newTestProxy(t *testing.T) *SSHProxy {
 	t.Helper()
 
@@ -508,14 +471,7 @@ func newTestProxyWithLogger(t *testing.T, logger *zap.Logger) *SSHProxy {
 	}, logger)
 	require.NoError(t, err)
 
-	sshProxy := NewProxy(*config)
-
-	downstreamConfig, err := config.GetDownstreamConfig(t.Context())
-	require.NoError(t, err)
-
-	sshProxy.downstreamConfig = downstreamConfig
-
-	return sshProxy
+	return NewProxy(*config)
 }
 
 // caPublicKey returns the public key of the given certificate authority.
@@ -634,6 +590,14 @@ func (s *echoServer) identity() (username string, userCert *ssh.Certificate) {
 	return s.username, s.userCert
 }
 
+// The test GAT claims describe a resource whose address is a wildcard, so the host certificate is
+// signed for the host the connection requested plus the resource's aliases, never the address.
+const (
+	testRequestedHost   = "resource.corp.internal"
+	testResourceAddress = "*.corp.internal"
+	testResourceAlias   = "resource.internal"
+)
+
 // newProxyConn wraps conn in the connect.ProxyConn the proxy serves, with test GAT claims and
 // the address of the upstream the proxy dials.
 func newProxyConn(conn net.Conn, upstreamAddr string) *connect.ProxyConn {
@@ -644,9 +608,13 @@ func newProxyConn(conn net.Conn, upstreamAddr string) *connect.ProxyConn {
 		connect.CreateProxyConnMetrics(prometheus.NewRegistry()))
 	proxyConn.Claims = &token.GATClaims{
 		Resource: token.Resource{
+			ID:              "resource-1",
+			Address:         testResourceAddress,
+			Aliases:         []string{testResourceAlias},
 			GatewayMetadata: token.GatewayMetadata{Upstream: token.Upstream{Port: upstreamPort}},
 		},
 	}
+	proxyConn.RequestedHost = testRequestedHost
 	proxyConn.UpstreamHost = upstreamHost
 	proxyConn.ID = "test-conn-id"
 
@@ -723,12 +691,19 @@ func dialDownstream(t *testing.T, sshProxy *SSHProxy, clientConn net.Conn) (*ssh
 	}
 
 	clientConfig := &ssh.ClientConfig{
-		User:              "downstream-client",
-		HostKeyCallback:   checker.CheckHostKey,
+		User: "downstream-client",
+		HostKeyCallback: func(addr string, remote net.Addr, key ssh.PublicKey) error {
+			// checker.CheckHostKey skips hostname verification when the principal list is empty.
+			cert, ok := key.(*ssh.Certificate)
+			require.True(t, ok)
+			assert.ElementsMatch(t, []string{testRequestedHost, testResourceAlias}, cert.ValidPrincipals)
+
+			return checker.CheckHostKey(addr, remote, key)
+		},
 		HostKeyAlgorithms: []string{ssh.CertAlgoED25519v01},
 	}
 
-	conn, channels, requests, err := ssh.NewClientConn(clientConn, "upstream:22", clientConfig)
+	conn, channels, requests, err := ssh.NewClientConn(clientConn, net.JoinHostPort(testRequestedHost, "22"), clientConfig)
 	if err != nil {
 		return nil, err
 	}

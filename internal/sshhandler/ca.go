@@ -38,10 +38,53 @@ type ca interface {
 	sign(ctx context.Context, req *certificateRequest) (*ssh.Certificate, error)
 }
 
-// rotatingCA is a CA whose signing key can rotate during the process lifetime.
-// The channel returned by rotated receives a value after each rotation.
-type rotatingCA interface {
+// rotatableCA is a CA whose signing key can rotate during the process lifetime.
+type rotatableCA interface {
+	// rotated returns a channel that is closed at the next key rotation. Once it is closed,
+	// call rotated again for a fresh channel.
 	rotated() <-chan struct{}
+}
+
+// rotationNotifier implements rotatableCA by closing the current channel at each rotation. Its
+// zero value is ready to use, so a CA embeds it and needs no wiring of its own.
+type rotationNotifier struct {
+	mu sync.Mutex
+	// ch is nil until rotated creates one, and returns to nil when notifyRotation closes it.
+	ch chan struct{}
+}
+
+func (n *rotationNotifier) rotated() <-chan struct{} {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	if n.ch == nil {
+		n.ch = make(chan struct{})
+	}
+
+	return n.ch
+}
+
+// notifyRotationsFrom announces a rotation for every value received on rotated, until ctx is
+// canceled. Whoever owns the CA's lifetime runs this; the CA itself starts nothing.
+func (n *rotationNotifier) notifyRotationsFrom(ctx context.Context, rotated <-chan struct{}) {
+	for {
+		select {
+		case <-rotated:
+			n.notifyRotation()
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+func (n *rotationNotifier) notifyRotation() {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	if n.ch != nil {
+		close(n.ch)
+		n.ch = nil
+	}
 }
 
 // caProvider supplies the CAs for SSH authentication and runs any background
@@ -93,7 +136,6 @@ func newManualCA(privateKeyFile string, logger *zap.Logger) (*manualCAProvider, 
 
 	ca := &embeddedCA{
 		getSigner: reloader.getSigner,
-		rotateCh:  reloader.reloadCh,
 	}
 
 	publicKeyStr := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(reloader.getSigner().PublicKey())))
@@ -108,6 +150,8 @@ func newManualCA(privateKeyFile string, logger *zap.Logger) (*manualCAProvider, 
 
 func (p *manualCAProvider) Start(ctx context.Context) error {
 	p.keyReloader.Run(ctx)
+
+	go p.ca.notifyRotationsFrom(ctx, p.keyReloader.reloadCh)
 
 	return nil
 }
@@ -208,12 +252,9 @@ const clockSkewBuffer = 30 * time.Second
 // embeddedCA signs certificates with a signer held in process. The signer is read
 // through a getter on every operation, so it can be swapped by a keyReloader.
 type embeddedCA struct {
-	getSigner func() ssh.Signer
-	rotateCh  <-chan struct{} // Receives a value after each key rotation (implements rotatingCA)
-}
+	rotationNotifier
 
-func (ca *embeddedCA) rotated() <-chan struct{} {
-	return ca.rotateCh
+	getSigner func() ssh.Signer
 }
 
 func (ca *embeddedCA) publicKey(_ context.Context) (ssh.PublicKey, error) {

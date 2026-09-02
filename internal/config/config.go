@@ -16,6 +16,8 @@ import (
 	"go.uber.org/zap"
 	"go.yaml.in/yaml/v4"
 	"golang.org/x/crypto/ssh"
+
+	"gateway/internal/util/useragent"
 )
 
 var (
@@ -25,6 +27,7 @@ var (
 	ErrInvalidPort       = errors.New("invalid port number")
 	ErrDuplicateUpstream = errors.New("duplicate upstream name")
 	ErrDuplicateTLSCA    = errors.New("duplicate TLS CA name")
+	ErrDuplicateTLSCert  = errors.New("duplicate certificateFile")
 	ErrInvalidSSHKeyType = errors.New("invalid SSH key type")
 	ErrNegativeTTL       = errors.New("TTL must be non-negative")
 )
@@ -89,15 +92,15 @@ type AuditLogConfig struct {
 
 // TLSConfig represents the downstream TLS configuration.
 type TLSConfig struct {
-	Certificates TLSCertificatesConfig `yaml:"certificates"`
+	Certificates TLSCertificateSources `yaml:"certificates"`
 }
 
-// TLSCertificatesConfig lists the TLS certificates the Gateway can serve.
-type TLSCertificatesConfig struct {
-	Files []TLSCertificateFile `yaml:"files"`
+// TLSCertificateSources lists the TLS certificates the Gateway can serve.
+type TLSCertificateSources struct {
+	Files []TLSCertificateFileKeyPair `yaml:"files"`
 }
 
-type TLSCertificateFile struct {
+type TLSCertificateFileKeyPair struct {
 	CertificateFile string `yaml:"certificateFile"`
 	PrivateKeyFile  string `yaml:"privateKeyFile"`
 }
@@ -261,6 +264,7 @@ func resolveTwingateHostname(targetURL, defaultHost string, retryMax int, logger
 	logger = logger.With(zap.String("url", targetURL), zap.String("defaultHost", defaultHost))
 
 	client := retryablehttp.NewClient()
+	client.HTTPClient.Transport = useragent.Transport{Base: client.HTTPClient.Transport}
 	client.HTTPClient.Timeout = 1 * time.Second
 	client.HTTPClient.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
 		return http.ErrUseLastResponse
@@ -362,16 +366,24 @@ func (t *TLSConfig) Validate() error {
 		return fmt.Errorf("%w: certificates.files", ErrRequired)
 	}
 
-	for i, file := range t.Certificates.Files {
-		if err := file.Validate(); err != nil {
+	certificateFiles := make(map[string]struct{})
+
+	for i, keyPair := range t.Certificates.Files {
+		if err := keyPair.Validate(); err != nil {
 			return fmt.Errorf("certificates.files[%d]: %w", i, err)
 		}
+
+		if _, exists := certificateFiles[keyPair.CertificateFile]; exists {
+			return fmt.Errorf("%w: %q", ErrDuplicateTLSCert, keyPair.CertificateFile)
+		}
+
+		certificateFiles[keyPair.CertificateFile] = struct{}{}
 	}
 
 	return nil
 }
 
-func (t *TLSCertificateFile) Validate() error {
+func (t *TLSCertificateFileKeyPair) Validate() error {
 	if t.CertificateFile == "" {
 		return fmt.Errorf("%w: certificateFile", ErrRequired)
 	}

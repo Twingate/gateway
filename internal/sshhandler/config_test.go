@@ -74,11 +74,11 @@ func TestNewConfig(t *testing.T) {
 			assert.Equal(t, auditLog, config.auditLog)
 			assert.Equal(t, "gateway", config.gatewayUsername)
 
-			require.NotNil(t, config.hostSigner)
+			require.NotNil(t, config.hostCerts)
 			require.NotNil(t, config.userSigner)
-			assert.False(t, keysEqual(config.hostPublicKey, config.userPublicKey),
+			assert.False(t, keysEqual(config.hostCerts.publicKey, config.userPublicKey),
 				"host and user public keys must be distinct")
-			assert.False(t, keysEqual(config.hostSigner.PublicKey(), config.userSigner.PublicKey()),
+			assert.False(t, keysEqual(config.hostCerts.keySigner.PublicKey(), config.userSigner.PublicKey()),
 				"host and user signers must be distinct")
 		})
 	}

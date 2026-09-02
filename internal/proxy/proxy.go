@@ -150,6 +150,7 @@ func (p *Proxy) Start() error {
 	}
 
 	connectListener, err := connect.NewListener(
+		ctx,
 		p.config.Twingate,
 		p.config.TLS,
 		channels,

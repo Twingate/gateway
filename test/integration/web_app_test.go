@@ -42,8 +42,8 @@ func TestWebApp(t *testing.T) {
 		Port:        gatewayPort,
 		MetricsPort: 0,
 		TLS: gatewayconfig.TLSConfig{
-			Certificates: gatewayconfig.TLSCertificatesConfig{
-				Files: []gatewayconfig.TLSCertificateFile{
+			Certificates: gatewayconfig.TLSCertificateSources{
+				Files: []gatewayconfig.TLSCertificateFileKeyPair{
 					{
 						CertificateFile: "../data/proxy/tls.crt",
 						PrivateKeyFile:  "../data/proxy/tls.key",
@@ -124,6 +124,8 @@ func TestWebApp(t *testing.T) {
 		"X-Twingate-Client-Geo-Country": "US",
 		// From GAT Token
 		"X-Twingate-Username": "alex@acme.com",
+		// Downstream scheme
+		"X-Forwarded-Proto": "http",
 	}
 
 	for header, expected := range expectedHeaders {

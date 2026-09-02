@@ -23,7 +23,7 @@ import (
 	"gateway/internal/token"
 )
 
-var testCertFiles = []config.TLSCertificateFile{
+var testKeyPairs = []config.TLSCertificateFileKeyPair{
 	{
 		CertificateFile: "../../test/data/proxy/tls.crt",
 		PrivateKeyFile:  "../../test/data/proxy/tls.key",
@@ -104,9 +104,7 @@ func createClaims(t *testing.T, resourceType token.ResourceType) *token.GATClaim
 	t.Helper()
 
 	return &token.GATClaims{
-		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(1 * time.Hour)),
-		},
+		ExpiresAt: jwt.NewNumericDate(time.Now().Add(1 * time.Hour)),
 		User: token.User{
 			ID:       "user-1",
 			Username: "user@acme.com",
@@ -139,7 +137,7 @@ func createTestListenerWithChannels(t *testing.T) *testListenerFixtures {
 
 	registry := prometheus.NewRegistry()
 	logger := zap.NewNop()
-	certReloader := NewCertReloader(testCertFiles, logger)
+	certReloader := NewCertReloader(testKeyPairs, logger)
 
 	// Create listener with minimal config (we'll override the factory)
 	listener := &Listener{
@@ -348,7 +346,7 @@ func TestListener_UnsupportedResourceType(t *testing.T) {
 
 	registry := prometheus.NewRegistry()
 	logger := zap.NewNop()
-	certReloader := NewCertReloader(testCertFiles, logger)
+	certReloader := NewCertReloader(testKeyPairs, logger)
 
 	listener := &Listener{
 		channels:     channels,
@@ -411,7 +409,7 @@ func TestListener_Serve_GracefulShutdown(t *testing.T) {
 		channels:     channels,
 		logger:       logger,
 		metrics:      CreateProxyConnMetrics(prometheus.NewRegistry()),
-		certReloader: NewCertReloader(testCertFiles, logger),
+		certReloader: NewCertReloader(testKeyPairs, logger),
 	}
 
 	listener.proxyConnFactory = func(conn net.Conn, _ *tls.Config, _ Validator, _ *zap.Logger) Conn {
