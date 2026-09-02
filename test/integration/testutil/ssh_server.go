@@ -107,7 +107,8 @@ func SetupRemoteEchoServer(t *testing.T, containerID string, port int) {
 
 	// #nosec G204 -- inputs are from trusted operator configuration
 	_, err := RunCommand(exec.Command("docker", "exec", "-d", containerID,
-		"/bin/busybox", "nc", "-lk", "-p", strconv.Itoa(port), "-e", "/bin/cat"))
+		// Must use the busybox applet because the image installs netcat-openbsd as `nc`, which has no -e.
+		"/bin/busybox", "nc", "-l", "-p", strconv.Itoa(port), "-e", "/bin/cat"))
 	require.NoError(t, err, "failed to start echo server in docker container")
 }
 

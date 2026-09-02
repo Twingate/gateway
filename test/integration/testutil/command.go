@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 func RunCommand(cmd *exec.Cmd) ([]byte, error) {
@@ -28,11 +27,12 @@ func RunCommand(cmd *exec.Cmd) ([]byte, error) {
 }
 
 const (
-	// A failed pull discards its progress whatever ended it, so waiting out containerd's 30s
-	// response-header timeout gains nothing. The cap still has to clear a legitimate slow pull of
-	// these images, which take 2-8s, because a retry starts over.
+	// A failed pull discards its progress, so there is nothing to gain by waiting out containerd's
+	// 30s response-header timeout. The cap must still clear a slow but healthy pull, because a
+	// retry restarts the download from scratch.
 	pullAttemptTimeout = 15 * time.Second
-	pullBudget         = 90 * time.Second
+	pullAttempts       = 3
+	pullRetryInterval  = 2 * time.Second
 )
 
 // ensureDockerImage makes image available in the local image store. It skips the pull when the
@@ -43,30 +43,36 @@ func ensureDockerImage(t *testing.T, image string) {
 	// `docker pull` contacts the registry even when the image is already present, so this check avoids an
 	// unnecessary network request.
 	//
-	// #nosec G204 -- image is a constant defined in this package
+	// #nosec G204 -- image is supplied by test code
 	if _, err := RunCommand(exec.Command("docker", "image", "inspect", image)); err == nil {
 		return
 	}
 
 	var pullErr error
 
-	err := wait.PollUntilContextTimeout(t.Context(), 2*time.Second, pullBudget, true, func(ctx context.Context) (bool, error) {
-		attemptCtx, cancel := context.WithTimeout(ctx, pullAttemptTimeout)
-		defer cancel()
-
-		// #nosec G204 -- image is a constant defined in this package
-		if _, pullErr = RunCommand(exec.CommandContext(attemptCtx, "docker", "pull", image)); pullErr != nil {
-			// The cap kills the command, so on its own the error reads only as a signal.
-			if errors.Is(attemptCtx.Err(), context.DeadlineExceeded) {
-				pullErr = fmt.Errorf("timed out after %s: %w", pullAttemptTimeout, pullErr)
-			}
-
-			t.Logf("Retrying pull of %s: %v", image, pullErr)
-
-			return false, nil //nolint:nilerr
+	for attempt := range pullAttempts {
+		if attempt > 0 {
+			time.Sleep(pullRetryInterval)
 		}
 
-		return true, nil
-	})
-	require.NoError(t, err, "failed to pull docker image %s: %v", image, pullErr)
+		attemptCtx, cancel := context.WithTimeout(t.Context(), pullAttemptTimeout)
+
+		// #nosec G204 -- image is supplied by test code
+		_, pullErr = RunCommand(exec.CommandContext(attemptCtx, "docker", "pull", image))
+
+		cancel()
+
+		if pullErr == nil {
+			return
+		}
+
+		// A killed process reports only "signal: killed", so name the deadline that killed it.
+		if errors.Is(attemptCtx.Err(), context.DeadlineExceeded) {
+			pullErr = fmt.Errorf("timed out after %s: %w", pullAttemptTimeout, pullErr)
+		}
+
+		t.Logf("Pull of %s failed: %v", image, pullErr)
+	}
+
+	require.NoError(t, pullErr, "failed to pull docker image %s", image)
 }
