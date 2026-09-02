@@ -15,10 +15,14 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 )
 
+const vaultImage = "hashicorp/vault:1.21.4"
+
 func SetupVaultServer(t *testing.T) (string, int) {
 	t.Helper()
 
 	containerName := "gateway-integration-test-vault-" + strings.ToLower(t.Name())
+
+	ensureDockerImage(t, vaultImage)
 
 	// #nosec G204 -- inputs are from trusted operator configuration
 	_, err := RunCommand(exec.Command("docker", "run", "-d",
@@ -29,7 +33,7 @@ func SetupVaultServer(t *testing.T) (string, int) {
 		"-e", "VAULT_DEV_LISTEN_ADDRESS=0.0.0.0:8200",
 		"-e", "VAULT_TOKEN=root",
 		"-e", "VAULT_ADDR=http://127.0.0.1:8200",
-		"hashicorp/vault:1.21.4",
+		vaultImage,
 		"server", "-dev",
 	))
 	require.NoError(t, err, "failed to create Vault container")
