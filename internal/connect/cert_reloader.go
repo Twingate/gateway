@@ -53,10 +53,22 @@ func (cr *CertReloader) Run(ctx context.Context) {
 // GetCertificate returns the first certificate the client supports, falling back to the
 // first loaded certificate when none of them matches.
 func (cr *CertReloader) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+	if cert := cr.MatchCertificate(hello); cert != nil {
+		return cert, nil
+	}
+
+	if cert := cr.firstCertificate(); cert != nil {
+		return cert, nil
+	}
+
+	return nil, errNoCertificates
+}
+
+// MatchCertificate returns the first certificate the client supports, or nil when
+// none of them matches.
+func (cr *CertReloader) MatchCertificate(hello *tls.ClientHelloInfo) *tls.Certificate {
 	cr.mu.RLock()
 	defer cr.mu.RUnlock()
-
-	var defaultCert *tls.Certificate
 
 	for _, keyPair := range cr.keyPairs {
 		cert, ok := cr.certs[keyPair.CertificateFile]
@@ -65,20 +77,26 @@ func (cr *CertReloader) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certifi
 		}
 
 		if err := hello.SupportsCertificate(cert); err == nil {
-			return cert, nil
-		}
-
-		if defaultCert == nil {
-			defaultCert = cert
+			return cert
 		}
 	}
 
-	if defaultCert == nil {
-		return nil, errNoCertificates
+	return nil
+}
+
+// firstCertificate returns the first loaded certificate, in configuration order,
+// or nil when none is loaded.
+func (cr *CertReloader) firstCertificate() *tls.Certificate {
+	cr.mu.RLock()
+	defer cr.mu.RUnlock()
+
+	for _, keyPair := range cr.keyPairs {
+		if cert, ok := cr.certs[keyPair.CertificateFile]; ok {
+			return cert
+		}
 	}
 
-	// If nothing matches, return the first loaded certificate.
-	return defaultCert, nil
+	return nil
 }
 
 func (cr *CertReloader) load(keyPair config.TLSCertificateFileKeyPair) error {

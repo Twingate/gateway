@@ -31,7 +31,7 @@ func (l *mockConnListener) Accept() (net.Conn, error) {
 	}
 
 	connMetrics := connect.CreateProxyConnMetrics(prometheus.NewRegistry())
-	proxyConn := connect.NewProxyConn(conn, nil, nil, zap.NewNop(), connMetrics)
+	proxyConn := connect.NewProxyConn(conn, nil, nil, nil, zap.NewNop(), connMetrics)
 	proxyConn.ID = "test-conn"
 	proxyConn.RequestedHost = "localhost"
 	proxyConn.UpstreamHost = "localhost"
@@ -46,7 +46,7 @@ func (l *mockConnListener) Accept() (net.Conn, error) {
 func TestProxyConnFromContext(t *testing.T) {
 	t.Run("Returns ProxyConn from context", func(t *testing.T) {
 		connMetrics := connect.CreateProxyConnMetrics(prometheus.NewRegistry())
-		expected := connect.NewProxyConn(nil, nil, nil, zap.NewNop(), connMetrics)
+		expected := connect.NewProxyConn(nil, nil, nil, nil, zap.NewNop(), connMetrics)
 
 		ctx := context.WithValue(t.Context(), ConnContextKey{}, expected)
 

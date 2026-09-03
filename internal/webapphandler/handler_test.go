@@ -43,7 +43,7 @@ func mustParse(t *testing.T, templates map[string]string) map[string]*template.T
 
 func TestNewHandler_PanicsOnRewriteError(t *testing.T) {
 	connMetrics := connect.CreateProxyConnMetrics(prometheus.NewRegistry())
-	conn := connect.NewProxyConn(nil, nil, nil, zap.NewNop(), connMetrics)
+	conn := connect.NewProxyConn(nil, nil, nil, nil, zap.NewNop(), connMetrics)
 	conn.Claims = &token.GATClaims{
 		User: token.User{Username: "alice@acme.com"},
 	}
@@ -200,7 +200,7 @@ func TestRewrite(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			connMetrics := connect.CreateProxyConnMetrics(prometheus.NewRegistry())
-			conn := connect.NewProxyConn(nil, nil, nil, zap.NewNop(), connMetrics)
+			conn := connect.NewProxyConn(nil, nil, nil, nil, zap.NewNop(), connMetrics)
 			conn.UpstreamHost = tt.upstreamHost
 			conn.Token = tt.jwtToken
 			conn.Claims = tt.claims
@@ -226,7 +226,7 @@ func TestRewrite(t *testing.T) {
 
 func TestRewrite_PreservesClientHost(t *testing.T) {
 	connMetrics := connect.CreateProxyConnMetrics(prometheus.NewRegistry())
-	conn := connect.NewProxyConn(nil, nil, nil, zap.NewNop(), connMetrics)
+	conn := connect.NewProxyConn(nil, nil, nil, nil, zap.NewNop(), connMetrics)
 	conn.UpstreamHost = "admin.example.int"
 	conn.Claims = &token.GATClaims{
 		Resource: token.Resource{GatewayMetadata: token.GatewayMetadata{Upstream: token.Upstream{Port: 80}}},
@@ -257,7 +257,7 @@ func TestRewrite_UpstreamScheme(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			connMetrics := connect.CreateProxyConnMetrics(prometheus.NewRegistry())
-			conn := connect.NewProxyConn(nil, nil, nil, zap.NewNop(), connMetrics)
+			conn := connect.NewProxyConn(nil, nil, nil, nil, zap.NewNop(), connMetrics)
 			conn.UpstreamHost = "admin.example.int"
 			conn.Claims = &token.GATClaims{
 				Resource: token.Resource{
@@ -283,7 +283,7 @@ func TestRewrite_UpstreamScheme(t *testing.T) {
 
 func TestRewrite_StripsClientIdentityHeaders(t *testing.T) {
 	connMetrics := connect.CreateProxyConnMetrics(prometheus.NewRegistry())
-	conn := connect.NewProxyConn(nil, nil, nil, zap.NewNop(), connMetrics)
+	conn := connect.NewProxyConn(nil, nil, nil, nil, zap.NewNop(), connMetrics)
 	conn.UpstreamHost = "admin.example.int"
 	conn.Claims = &token.GATClaims{
 		Resource: token.Resource{GatewayMetadata: token.GatewayMetadata{Upstream: token.Upstream{Port: 80}}},
@@ -313,7 +313,7 @@ func TestRewrite_SkipsInvalidGATHeaders(t *testing.T) {
 	}
 
 	connMetrics := connect.CreateProxyConnMetrics(prometheus.NewRegistry())
-	conn := connect.NewProxyConn(nil, nil, nil, zap.NewNop(), connMetrics)
+	conn := connect.NewProxyConn(nil, nil, nil, nil, zap.NewNop(), connMetrics)
 	conn.Token = "test-token"
 	conn.Claims = withRequestHeaderRewrites(baseClaims, map[string]string{
 		"X-Malformed": "{{unclosed",
@@ -343,7 +343,7 @@ func TestCreateTransport(t *testing.T) {
 
 func TestBuildVariables_CoversAllowedKeys(t *testing.T) {
 	connMetrics := connect.CreateProxyConnMetrics(prometheus.NewRegistry())
-	conn := connect.NewProxyConn(nil, nil, nil, zap.NewNop(), connMetrics)
+	conn := connect.NewProxyConn(nil, nil, nil, nil, zap.NewNop(), connMetrics)
 	conn.Claims = &token.GATClaims{}
 
 	got := slices.Sorted(maps.Keys(buildVariables(conn)))
@@ -380,7 +380,7 @@ func TestRewrite_SetsXForwardedProto(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			connMetrics := connect.CreateProxyConnMetrics(prometheus.NewRegistry())
-			conn := connect.NewProxyConn(nil, nil, nil, zap.NewNop(), connMetrics)
+			conn := connect.NewProxyConn(nil, nil, nil, nil, zap.NewNop(), connMetrics)
 			conn.UpstreamHost = "admin.example.int"
 			conn.Claims = &token.GATClaims{
 				Resource: token.Resource{
