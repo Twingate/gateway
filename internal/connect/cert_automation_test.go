@@ -4,12 +4,16 @@
 package connect
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rsa"
+	"crypto/tls"
 	"crypto/x509"
+	"math/big"
 	"net"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -17,9 +21,59 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
+	lru "github.com/hashicorp/golang-lru/v2"
+
 	"gateway/internal/config"
 	"gateway/test/data"
 )
+
+// stubIssuer issues placeholder certificates, reporting each issuance start on entered
+// and blocking hosts that have a gate until their gate closes. Configure gates before
+// the first issuance.
+type stubIssuer struct {
+	entered  chan string
+	gates    map[string]chan struct{}
+	rotateCh chan struct{}
+
+	serials atomic.Int64
+}
+
+func newStubIssuer() *stubIssuer {
+	return &stubIssuer{
+		entered:  make(chan string, 16),
+		gates:    map[string]chan struct{}{},
+		rotateCh: make(chan struct{}, 1),
+	}
+}
+
+func (s *stubIssuer) run(context.Context) {}
+
+func (s *stubIssuer) rotated() <-chan struct{} { return s.rotateCh }
+
+func (s *stubIssuer) issue(_ context.Context, names []string) (*tls.Certificate, error) {
+	s.entered <- names[0]
+
+	if gate, ok := s.gates[names[0]]; ok {
+		<-gate
+	}
+
+	now := time.Now()
+
+	return &tls.Certificate{Leaf: &x509.Certificate{
+		SerialNumber: big.NewInt(s.serials.Add(1)),
+		NotBefore:    now,
+		NotAfter:     now.Add(time.Hour),
+	}}, nil
+}
+
+func newStubAutomation(t *testing.T, issuer certIssuer) *CertAutomation {
+	t.Helper()
+
+	cache, err := lru.New[string, *tls.Certificate](maxCachedCerts)
+	require.NoError(t, err)
+
+	return &CertAutomation{issuer: issuer, logger: zap.NewNop(), cache: cache}
+}
 
 func TestNewCertAutomation_Errors(t *testing.T) {
 	nonCA := createKeyPair(t, generateCert(t))
@@ -308,47 +362,128 @@ func TestCertAutomation_GetCertificateForHost_RenewsPastThreshold(t *testing.T) 
 	assert.Equal(t, 1, cert.cache.Len())
 }
 
-// Concurrent cold misses for one host must issue once. This is what the
-// re-check inside the lock in GetCertificateForHost buys; without it every
-// caller issues its own certificate.
-func TestCertAutomation_GetCertificateForHost_ConcurrentColdMissIssuesOnce(t *testing.T) {
+// Concurrent cold misses for one host may each sign their own certificate, since
+// signing outside the lock keeps a slow CA from stalling handshakes for other names.
+// The cache still converges to one certificate per name set.
+func TestCertAutomation_GetCertificateForHost_ConcurrentColdMissesConverge(t *testing.T) {
 	const callers = 10
 
 	cert, err := NewCertAutomation(*testAutomationConfig(), zap.NewNop())
 	require.NoError(t, err)
 
-	var (
-		mu       sync.Mutex
-		wg       sync.WaitGroup
-		issueErr error
-		serials  = map[string]struct{}{}
-	)
+	var wg sync.WaitGroup
 
+	errs := make([]error, callers)
 	start := make(chan struct{})
 
-	for range callers {
+	for i := range callers {
 		wg.Go(func() {
 			<-start
 
-			got, err := cert.GetCertificateForHost(t.Context(), "cold.internal")
-
-			mu.Lock()
-			defer mu.Unlock()
-
-			if err != nil {
-				issueErr = err
-
-				return
-			}
-
-			serials[got.Leaf.SerialNumber.String()] = struct{}{}
+			_, errs[i] = cert.GetCertificateForHost(t.Context(), "cold.internal")
 		})
 	}
 
 	close(start)
 	wg.Wait()
 
-	require.NoError(t, issueErr)
-	assert.Len(t, serials, 1, "concurrent cold misses should issue exactly once")
-	assert.Equal(t, 1, cert.cache.Len())
+	for _, err := range errs {
+		require.NoError(t, err)
+	}
+
+	require.Equal(t, 1, cert.cache.Len())
+
+	cached, ok := cert.cache.Get("cold.internal")
+	require.True(t, ok)
+
+	again, err := cert.GetCertificateForHost(t.Context(), "cold.internal")
+	require.NoError(t, err)
+	assert.Same(t, cached, again, "a warm cache should serve without signing")
+}
+
+// A slow CA must not stall handshakes for other name sets: only callers for the
+// gated host wait on its issuance.
+func TestCertAutomation_GetCertificateForHost_SlowIssuanceDoesNotBlockOtherHosts(t *testing.T) {
+	issuer := newStubIssuer()
+	gate := make(chan struct{})
+	issuer.gates["slow.acme.int"] = gate
+
+	openGate := sync.OnceFunc(func() { close(gate) })
+	defer openGate()
+
+	automation := newStubAutomation(t, issuer)
+
+	slowDone := make(chan error, 1)
+
+	go func() {
+		_, err := automation.GetCertificateForHost(t.Context(), "slow.acme.int")
+		slowDone <- err
+	}()
+
+	require.Equal(t, "slow.acme.int", <-issuer.entered, "slow issuance should be in flight")
+
+	fastDone := make(chan error, 1)
+
+	go func() {
+		_, err := automation.GetCertificateForHost(t.Context(), "fast.acme.int")
+		fastDone <- err
+	}()
+
+	select {
+	case err := <-fastDone:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("issuance for one host blocked a handshake for another")
+	}
+
+	openGate()
+	require.NoError(t, <-slowDone)
+}
+
+// A certificate whose issuance was in flight when the CA rotated is served to that
+// handshake only; the cache never holds a certificate from a previous CA.
+func TestCertAutomation_GetCertificateForHost_RotationMidIssuanceIsNotCached(t *testing.T) {
+	issuer := newStubIssuer()
+	gate := make(chan struct{})
+	issuer.gates["app.acme.int"] = gate
+
+	automation := newStubAutomation(t, issuer)
+	automation.Run(t.Context())
+
+	type result struct {
+		cert *tls.Certificate
+		err  error
+	}
+
+	done := make(chan result, 1)
+
+	go func() {
+		cert, err := automation.GetCertificateForHost(t.Context(), "app.acme.int")
+		done <- result{cert, err}
+	}()
+
+	require.Equal(t, "app.acme.int", <-issuer.entered, "issuance should be in flight")
+
+	issuer.rotateCh <- struct{}{}
+
+	// Wait for the purge, so releasing the issuance cannot race it.
+	require.Eventually(t, func() bool {
+		automation.mu.Lock()
+		defer automation.mu.Unlock()
+
+		return automation.caRotations > 0
+	}, 5*time.Second, time.Millisecond)
+
+	close(gate)
+
+	first := <-done
+	require.NoError(t, first.err)
+
+	_, cached := automation.cache.Get("app.acme.int")
+	assert.False(t, cached, "a certificate signed by the previous CA must not be cached")
+
+	second, err := automation.GetCertificateForHost(t.Context(), "app.acme.int")
+	require.NoError(t, err)
+	assert.NotEqual(t, first.cert.Leaf.SerialNumber, second.Leaf.SerialNumber,
+		"the next handshake should get a certificate from the current CA")
 }

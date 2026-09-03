@@ -36,8 +36,9 @@ type CertAutomation struct {
 	issuer certIssuer
 	logger *zap.Logger
 
-	mu    sync.Mutex
-	cache *lru.Cache[string, *tls.Certificate]
+	mu          sync.Mutex // orders cache writes against rotation purges
+	caRotations int        // counts CA rotations, so a certificate signed before one is not cached
+	cache       *lru.Cache[string, *tls.Certificate]
 }
 
 func NewCertAutomation(cfg config.TLSAutomationConfig, logger *zap.Logger) (*CertAutomation, error) {
@@ -87,14 +88,11 @@ func (c *CertAutomation) GetCertificateForHost(ctx context.Context, host string,
 	}
 
 	c.mu.Lock()
-	defer c.mu.Unlock()
+	rotations := c.caRotations
+	c.mu.Unlock()
 
-	// Re-check under the lock: a caller ahead in the queue may have issued
-	// this host already, which keeps concurrent cold misses to one issuance.
-	if cert, ok := c.cachedCert(key); ok {
-		return cert, nil
-	}
-
+	// Sign outside the lock so a slow CA cannot stall handshakes for names that are already
+	// cached. A burst against a cold cache may sign the same names twice, which is cheaper.
 	cert, err := c.issuer.issue(ctx, names)
 	if err != nil {
 		return nil, err
@@ -105,7 +103,14 @@ func (c *CertAutomation) GetCertificateForHost(ctx context.Context, host string,
 		zap.Time("not_after", cert.Leaf.NotAfter),
 	)
 
-	c.cache.Add(key, cert)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// The CA rotated while this certificate was in flight: serve it to this handshake
+	// only, so the cache never holds a certificate from a previous CA.
+	if rotations == c.caRotations {
+		c.cache.Add(key, cert)
+	}
 
 	return cert, nil
 }
@@ -128,13 +133,14 @@ func certNames(host string, aliases []string) []string {
 	return names
 }
 
-// purgeOnRotation purges under the issuance lock, so an issuance already in flight
-// cannot put a certificate from the previous CA back in the cache.
+// purgeOnRotation drops every cached certificate and counts the rotation, so an
+// issuance already in flight cannot put a certificate from the previous CA back in the cache.
 func (c *CertAutomation) purgeOnRotation(ctx context.Context, rotated <-chan struct{}) {
 	for {
 		select {
 		case <-rotated:
 			c.mu.Lock()
+			c.caRotations++
 			purged := c.cache.Len()
 			c.cache.Purge()
 			c.mu.Unlock()
