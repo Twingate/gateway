@@ -67,6 +67,8 @@ func (m *CertManager) GetCertificateForHost(hello *tls.ClientHelloInfo, host str
 		return m.certs.GetCertificate(hello)
 	}
 
+	// No certificate is returned when certs is empty or no matching certificate is found
+	// so we fall back to automation.
 	if cert := m.certs.MatchCertificate(hello); cert != nil {
 		return cert, nil
 	}

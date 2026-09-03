@@ -527,19 +527,26 @@ func upgradeToTLSHandshake(t *testing.T, proxyConn *ProxyConn, clientTLSConfig *
 }
 
 func TestProxyConn_getTLSConfig(t *testing.T) {
+	certManager := newTestCertManager(t, config.TLSConfig{Automation: testAutomationConfig()})
+	resource := token.Resource{Type: token.ResourceTypeWebApp, Address: "grafana.internal", Aliases: []string{"echo.internal", "echo-alt.internal"}}
+
 	proxyConn := &ProxyConn{
-		TLSConfig:     &tls.Config{},
-		CertManager:   newTestCertManager(t, config.TLSConfig{Automation: testAutomationConfig()}),
-		RequestedHost: "grafana.internal",
-		Claims:        &token.GATClaims{Resource: token.Resource{Type: token.ResourceTypeWebApp, Aliases: []string{"echo.internal", "echo-alt.internal"}}},
-		Logger:        zap.NewNop(),
+		TLSConfig:   &tls.Config{},
+		CertManager: certManager,
+		Claims:      &token.GATClaims{Resource: resource},
+		Logger:      zap.NewNop(),
 	}
 
-	cert, err := proxyConn.getTLSConfig().GetCertificate(clientHello("other.internal"))
+	cert, err := proxyConn.getTLSConfig().GetCertificate(clientHello("grafana.internal"))
 	require.NoError(t, err)
 
 	assert.Equal(t, "grafana.internal", cert.Leaf.Subject.CommonName)
 	assert.Equal(t, []string{"grafana.internal", "echo-alt.internal", "echo.internal"}, cert.Leaf.DNSNames)
+
+	// Connecting through the alias shares the address certificate.
+	again, err := proxyConn.getTLSConfig().GetCertificate(clientHello("echo.internal"))
+	require.NoError(t, err)
+	assert.Same(t, cert, again)
 }
 
 func TestProxyConn_UpgradeToTLS_HandshakeError(t *testing.T) {
@@ -549,11 +556,10 @@ func TestProxyConn_UpgradeToTLS_HandshakeError(t *testing.T) {
 	wrongPool.AppendCertsFromPEM(data.ServerCert)
 
 	proxyConn := &ProxyConn{
-		TLSConfig:     &tls.Config{},
-		CertManager:   newTestCertManager(t, config.TLSConfig{Automation: testAutomationConfig()}),
-		RequestedHost: "app.internal",
-		Claims:        &token.GATClaims{Resource: token.Resource{Type: token.ResourceTypeWebApp}},
-		Logger:        zap.NewNop(),
+		TLSConfig:   &tls.Config{},
+		CertManager: newTestCertManager(t, config.TLSConfig{Automation: testAutomationConfig()}),
+		Claims:      &token.GATClaims{Resource: token.Resource{Type: token.ResourceTypeWebApp, Address: "app.internal"}},
+		Logger:      zap.NewNop(),
 	}
 
 	err := upgradeToTLSHandshake(t, proxyConn, &tls.Config{
@@ -570,7 +576,7 @@ func TestProxyConn_UpgradeToTLS_NoCertificateError(t *testing.T) {
 		TLSConfig:     &tls.Config{},
 		CertManager:   newTestCertManager(t, config.TLSConfig{}),
 		RequestedHost: "app.internal",
-		Claims:        &token.GATClaims{Resource: token.Resource{Type: token.ResourceTypeWebApp}},
+		Claims:        &token.GATClaims{Resource: token.Resource{Type: token.ResourceTypeWebApp, Address: "app.internal"}},
 		Logger:        zap.NewNop(),
 	}
 

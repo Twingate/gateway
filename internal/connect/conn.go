@@ -258,7 +258,7 @@ func (p *ProxyConn) UpgradeToTLS() error {
 func (p *ProxyConn) getTLSConfig() *tls.Config {
 	tlsConfig := p.TLSConfig.Clone()
 	tlsConfig.GetCertificate = func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
-		cert, err := p.CertManager.GetCertificateForHost(hello, p.RequestedHost, p.Claims.Resource.Aliases...)
+		cert, err := p.CertManager.GetCertificateForHost(hello, p.Claims.Resource.Address, p.Claims.Resource.Aliases...)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get certificate for %q: %w", p.RequestedHost, err)
 		}

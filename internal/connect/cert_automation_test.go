@@ -222,6 +222,13 @@ func TestCertAutomation_GetCertificateForHost_CoversAliases(t *testing.T) {
 			wantCN:  "app.internal",
 			wantDNS: []string{"app.internal"},
 		},
+		{
+			name:    "wildcard host stays first",
+			host:    "*.internal",
+			aliases: []string{"app.internal", "alt.internal"},
+			wantCN:  "*.internal",
+			wantDNS: []string{"*.internal", "alt.internal", "app.internal"},
+		},
 	}
 
 	for _, tt := range tests {
