@@ -15,6 +15,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -332,34 +333,32 @@ func TestCertAutomation_GetCertificateForHost_CachesPerNameSet(t *testing.T) {
 }
 
 func TestCertAutomation_GetCertificateForHost_RenewsPastThreshold(t *testing.T) {
-	cfg := testAutomationConfig()
-	cfg.Certificate.TTL = 2 * time.Hour
+	synctest.Test(t, func(t *testing.T) {
+		cfg := testAutomationConfig()
+		cfg.Certificate.TTL = 2 * time.Hour
 
-	cert, err := NewCertAutomation(*cfg, zap.NewNop())
-	require.NoError(t, err)
+		cert, err := NewCertAutomation(*cfg, zap.NewNop())
+		require.NoError(t, err)
 
-	first, err := cert.GetCertificateForHost(t.Context(), "app.internal")
-	require.NoError(t, err)
+		first, err := cert.GetCertificateForHost(t.Context(), "app.internal")
+		require.NoError(t, err)
 
-	// A fresh certificate is well short of its renewal threshold.
-	again, err := cert.GetCertificateForHost(t.Context(), "app.internal")
-	require.NoError(t, err)
-	assert.Same(t, first, again)
+		// A fresh certificate is well short of its renewal threshold.
+		again, err := cert.GetCertificateForHost(t.Context(), "app.internal")
+		require.NoError(t, err)
+		assert.Same(t, first, again)
 
-	// Age the cached certificate past 80% of its lifetime.
-	cached, ok := cert.cache.Get("app.internal")
-	require.True(t, ok)
+		// Move past 80% of the certificate's lifetime, but short of its expiry.
+		time.Sleep(100 * time.Minute)
 
-	cached.Leaf.NotBefore = time.Now().Add(-2 * time.Hour)
-	cached.Leaf.NotAfter = time.Now().Add(10 * time.Minute)
+		second, err := cert.GetCertificateForHost(t.Context(), "app.internal")
+		require.NoError(t, err)
 
-	second, err := cert.GetCertificateForHost(t.Context(), "app.internal")
-	require.NoError(t, err)
+		assert.NotEqual(t, first.Leaf.SerialNumber, second.Leaf.SerialNumber)
 
-	assert.NotEqual(t, first.Leaf.SerialNumber, second.Leaf.SerialNumber)
-
-	// Re-issuing replaces the cached entry rather than adding another one.
-	assert.Equal(t, 1, cert.cache.Len())
+		// Re-issuing replaces the cached entry rather than adding another one.
+		assert.Equal(t, 1, cert.cache.Len())
+	})
 }
 
 // Concurrent cold misses for one host may each sign their own certificate, since

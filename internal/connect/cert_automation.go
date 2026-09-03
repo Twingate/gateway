@@ -21,12 +21,8 @@ import (
 
 const (
 	defaultCertTTL = 24 * time.Hour
-
 	maxCachedCerts = 1024
-
-	// renewFraction is the fraction of a certificate's lifetime after which the
-	// next handshake issues a fresh one.
-	renewFraction = 0.8
+	renewFraction  = 0.8
 )
 
 // CertAutomation issues short-lived certificates through the configured issuer.
@@ -36,8 +32,9 @@ type CertAutomation struct {
 	issuer certIssuer
 	logger *zap.Logger
 
-	mu          sync.Mutex // orders cache writes against rotation purges
-	caRotations int        // counts CA rotations, so a certificate signed before one is not cached
+	mu sync.Mutex
+	// counts CA rotations, so a certificate signed before one is not cached
+	caRotations int
 	cache       *lru.Cache[string, *tls.Certificate]
 }
 
@@ -115,9 +112,6 @@ func (c *CertAutomation) GetCertificateForHost(ctx context.Context, host string,
 	return cert, nil
 }
 
-// certNames is host followed by its aliases, sorted and without duplicates,
-// so the same name set always yields the same cache key. host stays first so
-// it becomes the common name.
 func certNames(host string, aliases []string) []string {
 	names := make([]string, 0, len(aliases)+1)
 	names = append(names, host)
@@ -128,13 +122,13 @@ func certNames(host string, aliases []string) []string {
 		}
 	}
 
+	// host stays first so it becomes the common name
 	slices.Sort(names[1:])
 
 	return names
 }
 
-// purgeOnRotation drops every cached certificate and counts the rotation, so an
-// issuance already in flight cannot put a certificate from the previous CA back in the cache.
+// purgeOnRotation drops every cached certificate and counts the rotation.
 func (c *CertAutomation) purgeOnRotation(ctx context.Context, rotated <-chan struct{}) {
 	for {
 		select {
