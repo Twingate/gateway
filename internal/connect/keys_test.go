@@ -132,7 +132,6 @@ func TestKeyConfig_generate(t *testing.T) {
 				return
 			}
 
-
 			ecdsaKey, ok := key.(*ecdsa.PrivateKey)
 			require.True(t, ok, "expected an ECDSA key")
 			assert.Equal(t, tt.wantCurve, ecdsaKey.Curve)
