@@ -257,9 +257,9 @@ func (v *vaultIssuer) issue(ctx context.Context, names []string) (*tls.Certifica
 		"ttl": v.ttl.String(),
 	}
 
-	// PKI roles restricted to domains reject IP common names outright, so an
-	// IP host (the no-SNI local-address fallback) is covered through ip_sans
-	// alone; such a role needs require_cn=false.
+	// PKI role rejects IP host as common name, so an IP host is covered through ip_sans.
+	// Leaving the common name empty is allowed, but some CAs reject it.
+	// Hence, the role needs set require_cn=false.
 	if net.ParseIP(names[0]) == nil {
 		data["common_name"] = names[0]
 	}
@@ -317,8 +317,8 @@ func (v *vaultIssuer) issue(ctx context.Context, names []string) (*tls.Certifica
 	}, nil
 }
 
-// certificateRequestPEM builds a PEM-encoded CSR for key covering names, with
-// the requested host as the common name and every name in the SANs.
+// certificateRequestPEM builds a PEM-encoded CSR for key, with the first name
+// as the common name (omitted when it is an IP) and every name as a DNS or IP SAN.
 func certificateRequestPEM(key crypto.Signer, names []string) (string, error) {
 	template := &x509.CertificateRequest{}
 	if net.ParseIP(names[0]) == nil {
