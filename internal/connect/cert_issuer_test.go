@@ -228,54 +228,58 @@ func TestLocalIssuer_issue_Errors(t *testing.T) {
 	})
 }
 
-// issueTestCertificate returns leaf, key, and CA PEMs shaped like a Vault PKI
-// issue response covering names.
-func issueTestCertificate(t *testing.T, names []string) (certPEM, keyPEM, caPEM string) {
+// signTestCSR signs the PEM CSR against ca the way Vault's PKI sign endpoint
+// does: the certificate covers the CSR's SANs and carries the CSR's public key.
+func signTestCSR(t *testing.T, ca tls.Certificate, csrPEM string, mutate func(*x509.Certificate)) string {
 	t.Helper()
 
-	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	block, _ := pem.Decode([]byte(csrPEM))
+	require.NotNil(t, block, "request payload should carry a PEM CSR")
+
+	csr, err := x509.ParseCertificateRequest(block.Bytes)
 	require.NoError(t, err)
 
-	caTemplate := &x509.Certificate{
-		SerialNumber:          big.NewInt(1),
-		Subject:               pkix.Name{CommonName: "test CA"},
-		NotBefore:             time.Now().Add(-time.Hour),
-		NotAfter:              time.Now().Add(time.Hour),
-		IsCA:                  true,
-		BasicConstraintsValid: true,
-		KeyUsage:              x509.KeyUsageCertSign,
-	}
-
-	caDER, err := x509.CreateCertificate(rand.Reader, caTemplate, caTemplate, &caKey.PublicKey, caKey)
+	caCert, err := x509.ParseCertificate(ca.Certificate[0])
 	require.NoError(t, err)
 
-	caCert, err := x509.ParseCertificate(caDER)
-	require.NoError(t, err)
-
-	leafKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	require.NoError(t, err)
-
-	leafTemplate := &x509.Certificate{
+	template := &x509.Certificate{
 		SerialNumber: big.NewInt(2),
-		Subject:      pkix.Name{CommonName: names[0]},
-		DNSNames:     names,
+		Subject:      csr.Subject,
+		DNSNames:     csr.DNSNames,
+		IPAddresses:  csr.IPAddresses,
 		NotBefore:    time.Now().Add(-time.Hour),
 		NotAfter:     time.Now().Add(time.Hour),
 		KeyUsage:     x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 	}
 
-	leafDER, err := x509.CreateCertificate(rand.Reader, leafTemplate, caCert, &leafKey.PublicKey, caKey)
+	if mutate != nil {
+		mutate(template)
+	}
+
+	der, err := x509.CreateCertificate(rand.Reader, template, caCert, csr.PublicKey, ca.PrivateKey)
 	require.NoError(t, err)
 
-	keyDER, err := x509.MarshalECPrivateKey(leafKey)
-	require.NoError(t, err)
+	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}))
+}
 
-	certPEM = string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leafDER}))
-	keyPEM = string(pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER}))
-	caPEM = string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER}))
+func caPEM(t *testing.T, ca tls.Certificate) string {
+	t.Helper()
 
-	return certPEM, keyPEM, caPEM
+	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ca.Certificate[0]}))
+}
+
+// decodeSignPayload returns the request payload with the dynamic CSR split off.
+func decodeSignPayload(t *testing.T, r *http.Request) (csr string, payload map[string]any) {
+	t.Helper()
+
+	require.NoError(t, json.NewDecoder(r.Body).Decode(&payload))
+
+	csr, ok := payload["csr"].(string)
+	require.True(t, ok && csr != "", "request payload should carry a CSR")
+	delete(payload, "csr")
+
+	return csr, payload
 }
 
 // newTestVaultIssuer returns a vaultIssuer whose client talks to a test server
@@ -298,6 +302,7 @@ func newTestVaultIssuer(t *testing.T, handler http.HandlerFunc) *vaultIssuer {
 		vault: &vault.Vault{Client: client, Logger: zap.NewNop()},
 		mount: "pki",
 		role:  "test-role",
+		key:   keyConfig{typ: keyTypeECDSA, bits: 256},
 		ttl:   24 * time.Hour,
 	}
 }
@@ -306,8 +311,6 @@ type mockAuthMethod struct {
 	secret *vaultapi.Secret
 }
 
-// Login fails once the context is canceled so RunTokenRenewalLoop can exit
-// through LoginWithRetry's ctx.Done branch.
 func (m *mockAuthMethod) Login(ctx context.Context, _ *vaultapi.Client) (*vaultapi.Secret, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -343,21 +346,21 @@ func vaultAuthSecret(clientToken string, leaseDuration int) *vaultapi.Secret {
 
 func TestVaultIssuer_Issue(t *testing.T) {
 	names := []string{"app.example.com", "a.example.com", "b.example.com"}
-	certPEM, keyPEM, caPEM := issueTestCertificate(t, names)
+	ca := generateCA(t)
 
 	issuer := newTestVaultIssuer(t, func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/v1/pki/issue/test-role", r.URL.Path)
+		assert.Equal(t, "/v1/pki/sign/test-role", r.URL.Path)
 
-		var payload map[string]any
-		assert.NoError(t, json.NewDecoder(r.Body).Decode(&payload))
-		assert.Equal(t, "app.example.com", payload["common_name"])
-		assert.Equal(t, "a.example.com,b.example.com", payload["alt_names"])
-		assert.Equal(t, "24h0m0s", payload["ttl"])
+		csr, payload := decodeSignPayload(t, r)
+		assert.Equal(t, map[string]any{
+			"common_name": "app.example.com",
+			"alt_names":   "app.example.com,a.example.com,b.example.com",
+			"ttl":         "24h0m0s",
+		}, payload)
 
 		_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
-			"certificate": certPEM,
-			"private_key": keyPEM,
-			"ca_chain":    []string{caPEM},
+			"certificate": signTestCSR(t, ca, csr, nil),
+			"ca_chain":    []string{caPEM(t, ca)},
 		}})
 	})
 
@@ -366,6 +369,11 @@ func TestVaultIssuer_Issue(t *testing.T) {
 	require.NotNil(t, cert.Leaf)
 	assert.Equal(t, names, cert.Leaf.DNSNames)
 	assert.Len(t, cert.Certificate, 2)
+
+	// The certificate carries the local key: the pair must work in a handshake.
+	key, ok := cert.PrivateKey.(*ecdsa.PrivateKey)
+	require.True(t, ok)
+	assert.True(t, key.PublicKey.Equal(cert.Leaf.PublicKey))
 }
 
 func TestVaultIssuer_Issue_IPSANs(t *testing.T) {
@@ -376,31 +384,35 @@ func TestVaultIssuer_Issue_IPSANs(t *testing.T) {
 	}{
 		{
 			// The no-SNI local-address fallback requests the dialed IP alone;
-			// Vault covers an IP common name in the IP SANs itself.
+			// an IP is never sent as the common name since PKI roles
+			// restricted to domains reject it.
 			name:        "bare ip host",
 			names:       []string{"10.0.0.5"},
-			wantPayload: map[string]any{"common_name": "10.0.0.5", "ttl": "24h0m0s"},
+			wantPayload: map[string]any{"ttl": "24h0m0s", "ip_sans": "10.0.0.5"},
 		},
 		{
-			name:        "dns host with ip alias",
-			names:       []string{"app.example.com", "10.0.0.5", "a.example.com"},
-			wantPayload: map[string]any{"common_name": "app.example.com", "ttl": "24h0m0s", "alt_names": "a.example.com", "ip_sans": "10.0.0.5"},
+			name:  "dns host with ip alias",
+			names: []string{"app.example.com", "10.0.0.5", "a.example.com"},
+			wantPayload: map[string]any{
+				"common_name": "app.example.com",
+				"ttl":         "24h0m0s",
+				"alt_names":   "app.example.com,a.example.com",
+				"ip_sans":     "10.0.0.5",
+			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			certPEM, keyPEM, caPEM := issueTestCertificate(t, tt.names)
+			ca := generateCA(t)
 
 			issuer := newTestVaultIssuer(t, func(w http.ResponseWriter, r *http.Request) {
-				var payload map[string]any
-				assert.NoError(t, json.NewDecoder(r.Body).Decode(&payload))
+				csr, payload := decodeSignPayload(t, r)
 				assert.Equal(t, tt.wantPayload, payload)
 
 				_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
-					"certificate": certPEM,
-					"private_key": keyPEM,
-					"ca_chain":    []string{caPEM},
+					"certificate": signTestCSR(t, ca, csr, nil),
+					"ca_chain":    []string{caPEM(t, ca)},
 				}})
 			})
 
@@ -410,14 +422,78 @@ func TestVaultIssuer_Issue_IPSANs(t *testing.T) {
 	}
 }
 
-func TestVaultIssuer_Issue_IssuingCAFallback(t *testing.T) {
-	certPEM, keyPEM, caPEM := issueTestCertificate(t, []string{"app.example.com"})
+func TestVaultIssuer_Issue_RejectsMismatchedCertificate(t *testing.T) {
+	names := []string{"app.example.com"}
 
-	issuer := newTestVaultIssuer(t, func(w http.ResponseWriter, _ *http.Request) {
+	tests := []struct {
+		name string
+		sign func(t *testing.T, ca tls.Certificate, csr string) string
+	}{
+		{
+			name: "extra granted name",
+			sign: func(t *testing.T, ca tls.Certificate, csr string) string {
+				t.Helper()
+
+				return signTestCSR(t, ca, csr, func(cert *x509.Certificate) {
+					cert.DNSNames = append(cert.DNSNames, "extra.example.com")
+				})
+			},
+		},
+		{
+			name: "missing requested name",
+			sign: func(t *testing.T, ca tls.Certificate, csr string) string {
+				t.Helper()
+
+				return signTestCSR(t, ca, csr, func(cert *x509.Certificate) {
+					cert.DNSNames = nil
+				})
+			},
+		},
+		{
+			name: "wrong public key",
+			sign: func(t *testing.T, ca tls.Certificate, _ string) string {
+				t.Helper()
+
+				otherKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+				require.NoError(t, err)
+
+				otherCSR, err := certificateRequestPEM(otherKey, names)
+				require.NoError(t, err)
+
+				return signTestCSR(t, ca, otherCSR, nil)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ca := generateCA(t)
+
+			issuer := newTestVaultIssuer(t, func(w http.ResponseWriter, r *http.Request) {
+				csr, _ := decodeSignPayload(t, r)
+
+				_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
+					"certificate": tt.sign(t, ca, csr),
+					"ca_chain":    []string{caPEM(t, ca)},
+				}})
+			})
+
+			_, err := issuer.issue(t.Context(), names)
+			require.Error(t, err)
+			assert.ErrorIs(t, err, errVaultCertMismatch)
+		})
+	}
+}
+
+func TestVaultIssuer_Issue_IssuingCAFallback(t *testing.T) {
+	ca := generateCA(t)
+
+	issuer := newTestVaultIssuer(t, func(w http.ResponseWriter, r *http.Request) {
+		csr, _ := decodeSignPayload(t, r)
+
 		_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
-			"certificate": certPEM,
-			"private_key": keyPEM,
-			"issuing_ca":  caPEM,
+			"certificate": signTestCSR(t, ca, csr, nil),
+			"issuing_ca":  caPEM(t, ca),
 		}})
 	})
 
@@ -427,18 +503,14 @@ func TestVaultIssuer_Issue_IssuingCAFallback(t *testing.T) {
 }
 
 func TestVaultIssuer_Issue_Error(t *testing.T) {
-	certPEM, keyPEM, _ := issueTestCertificate(t, []string{"app.example.com"})
-
 	tests := []struct {
 		name         string
 		responseData map[string]any // nil sends {"data": null}
-		wantErr      error
 	}{
-		{name: "null data", responseData: nil, wantErr: errVaultIssueFailed},
-		{name: "missing certificate", responseData: map[string]any{"private_key": keyPEM}, wantErr: errVaultIssueFailed},
-		{name: "empty certificate", responseData: map[string]any{"certificate": "", "private_key": keyPEM}, wantErr: errVaultIssueFailed},
-		{name: "missing private key", responseData: map[string]any{"certificate": certPEM}, wantErr: errVaultIssueFailed},
-		{name: "unparseable certificate", responseData: map[string]any{"certificate": "garbage", "private_key": keyPEM}},
+		{name: "null data", responseData: nil},
+		{name: "missing certificate", responseData: map[string]any{"expiration": 1}},
+		{name: "empty certificate", responseData: map[string]any{"certificate": ""}},
+		{name: "unparseable certificate", responseData: map[string]any{"certificate": "garbage"}},
 	}
 
 	for _, tt := range tests {
@@ -449,10 +521,7 @@ func TestVaultIssuer_Issue_Error(t *testing.T) {
 
 			_, err := issuer.issue(t.Context(), []string{"app.example.com"})
 			require.Error(t, err)
-
-			if tt.wantErr != nil {
-				assert.ErrorIs(t, err, tt.wantErr)
-			}
+			assert.ErrorIs(t, err, errVaultIssueFailed)
 		})
 	}
 }
