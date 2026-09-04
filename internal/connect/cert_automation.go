@@ -114,10 +114,10 @@ func (c *CertAutomation) GetCertificateForHost(ctx context.Context, host string,
 
 func certNames(host string, aliases []string) []string {
 	names := make([]string, 0, len(aliases)+1)
-	names = append(names, host)
+	names = append(names, strings.ToLower(host))
 
 	for _, alias := range aliases {
-		if alias != "" && !slices.Contains(names, alias) {
+		if alias = strings.ToLower(alias); alias != "" && !slices.Contains(names, alias) {
 			names = append(names, alias)
 		}
 	}
