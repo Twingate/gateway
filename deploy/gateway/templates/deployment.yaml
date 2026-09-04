@@ -1,4 +1,4 @@
-{{- $manualCAEnabled := and .Values.ssh.enabled .Values.ssh.ca .Values.ssh.ca.manual -}}
+{{- $localCAEnabled := and .Values.ssh.enabled .Values.ssh.ca .Values.ssh.ca.local -}}
 {{- $vaultCABundleEnabled := and .Values.ssh.enabled .Values.ssh.ca .Values.ssh.ca.vault (or .Values.ssh.ca.vault.caBundle .Values.ssh.ca.vault.existingCABundleSecret) -}}
 {{- $vaultAppRoleEnabled := and .Values.ssh.enabled .Values.ssh.ca .Values.ssh.ca.vault .Values.ssh.ca.vault.auth .Values.ssh.ca.vault.auth.appRole -}}
 apiVersion: apps/v1
@@ -75,8 +75,8 @@ spec:
               mountPath: /etc/gateway/tls
               readOnly: true
             {{- if .Values.ssh.enabled }}
-            {{- if $manualCAEnabled }}
-            - name: ssh-manual-ca
+            {{- if $localCAEnabled }}
+            - name: ssh-local-ca
               mountPath: /etc/gateway/ssh
               readOnly: true
             {{- end }}
@@ -102,10 +102,10 @@ spec:
           secret:
             secretName: {{ include "gateway.tlsSecretName" . }}
         {{- if .Values.ssh.enabled }}
-        {{- if $manualCAEnabled }}
-        - name: ssh-manual-ca
+        {{- if $localCAEnabled }}
+        - name: ssh-local-ca
           secret:
-            secretName: {{ include "gateway.sshManualCASecretName" . }}
+            secretName: {{ include "gateway.sshLocalCASecretName" . }}
         {{- end }}
         {{- if $vaultCABundleEnabled }}
         - name: vault-ca-bundle

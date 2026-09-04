@@ -54,10 +54,10 @@ data:
         userCertificate:
           ttl: {{ .userCertificate.ttl | quote }}
       {{- end }}
-      {{- if and .ca .ca.manual }}
+      {{- if and .ca .ca.local }}
 
       ca:
-        manual:
+        local:
           privateKeyFile: "/etc/gateway/ssh/ca-private-key"
       {{- end }}
       {{- if and .ca .ca.vault }}

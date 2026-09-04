@@ -185,11 +185,11 @@
         },
         "ca": {
           "type": "object",
-          "description": "CA configuration. Exactly one of manual or vault must be configured when SSH is enabled.",
+          "description": "CA configuration. Exactly one of local or vault must be configured when SSH is enabled.",
           "properties": {
-            "manual": {
+            "local": {
               "type": "object",
-              "description": "Manual CA configuration.",
+              "description": "Local CA configuration.",
               "properties": {
                 "existingSecret": {
                   "type": "string",
@@ -342,7 +342,7 @@
         "properties": {
           "ca": {
             "oneOf": [
-              {"required": ["manual"]},
+              {"required": ["local"]},
               {"required": ["vault"]}
             ]
           }
