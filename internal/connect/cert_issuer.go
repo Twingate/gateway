@@ -253,8 +253,8 @@ func (v *vaultIssuer) issue(ctx context.Context, names []string) (*tls.Certifica
 	}
 
 	data := map[string]any{
-		"csr":         csr,
-		"ttl":         v.ttl.String(),
+		"csr": csr,
+		"ttl": v.ttl.String(),
 	}
 
 	// PKI roles restricted to domains reject IP common names outright, so an
