@@ -111,10 +111,10 @@ func SetupVaultServer(t *testing.T) (string, int) {
 	_, err = RunCommand(exec.Command("docker", "exec", containerName,
 		"vault", "write", "pki/roles/gateway-tls",
 		"key_type=any",
-		"allowed_domains=acme.int",
+		"allowed_domains=acme.int,127.0.0.1", // The no-SNI IP fallback mints for the dialed IP, common name included
 		"allow_subdomains=true",
+		"allow_bare_domains=true",
 		"allow_ip_sans=true",
-		"require_cn=false", // The no-SNI IP fallback sends no common name
 		"max_ttl=72h",
 	))
 	require.NoError(t, err, "failed to create PKI signing role in Vault")

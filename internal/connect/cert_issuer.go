@@ -253,15 +253,9 @@ func (v *vaultIssuer) issue(ctx context.Context, names []string) (*tls.Certifica
 	}
 
 	data := map[string]any{
-		"csr": csr,
-		"ttl": v.ttl.String(),
-	}
-
-	// PKI role rejects IP host as common name, so an IP host is covered through ip_sans.
-	// Leaving the common name empty is allowed, but some CAs reject it.
-	// Hence, the role needs set require_cn=false.
-	if net.ParseIP(names[0]) == nil {
-		data["common_name"] = names[0]
+		"csr":         csr,
+		"common_name": names[0],
+		"ttl":         v.ttl.String(),
 	}
 
 	var altNames, ipSANs []string
@@ -318,12 +312,9 @@ func (v *vaultIssuer) issue(ctx context.Context, names []string) (*tls.Certifica
 }
 
 // certificateRequestPEM builds a PEM-encoded CSR for key, with the first name
-// as the common name (omitted when it is an IP) and every name as a DNS or IP SAN.
+// as the common name and every name as a DNS or IP SAN.
 func certificateRequestPEM(key crypto.Signer, names []string) (string, error) {
-	template := &x509.CertificateRequest{}
-	if net.ParseIP(names[0]) == nil {
-		template.Subject = pkix.Name{CommonName: names[0]}
-	}
+	template := &x509.CertificateRequest{Subject: pkix.Name{CommonName: names[0]}}
 
 	for _, name := range names {
 		if ip := net.ParseIP(name); ip != nil {

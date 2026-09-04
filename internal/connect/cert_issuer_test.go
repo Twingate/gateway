@@ -387,9 +387,9 @@ func TestVaultIssuer_Issue_IPSANs(t *testing.T) {
 		wantPayload map[string]any
 	}{
 		{
-			name:        "bare ip host has no common name",
+			name:        "bare ip host is the common name",
 			names:       []string{"10.0.0.5"},
-			wantPayload: map[string]any{"ttl": "24h0m0s", "ip_sans": "10.0.0.5"},
+			wantPayload: map[string]any{"common_name": "10.0.0.5", "ttl": "24h0m0s", "ip_sans": "10.0.0.5"},
 		},
 		{
 			name:  "dns host with ip alias",
