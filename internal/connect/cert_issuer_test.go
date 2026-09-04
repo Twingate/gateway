@@ -5,6 +5,7 @@ package connect
 
 import (
 	"context"
+	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -14,9 +15,13 @@ import (
 	"crypto/x509/pkix"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
+	"io"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -65,6 +70,17 @@ func caPool(t *testing.T, ca tls.Certificate) *x509.CertPool {
 	return pool
 }
 
+// failingSigner presents a valid public key but refuses to sign.
+type failingSigner struct {
+	pub crypto.PublicKey
+}
+
+func (s failingSigner) Public() crypto.PublicKey { return s.pub }
+
+func (s failingSigner) Sign(io.Reader, []byte, crypto.SignerOpts) ([]byte, error) {
+	return nil, errors.New("sign failed")
+}
+
 func TestLocalIssuer_load_SignalsOnlyOnCAChange(t *testing.T) {
 	ca := generateCA(t)
 	file := createKeyPair(t, ca)
@@ -91,8 +107,62 @@ func TestLocalIssuer_load_SignalsOnlyOnCAChange(t *testing.T) {
 	assert.Len(t, issuer.rotated(), 1)
 }
 
+func TestLocalIssuer_load_Errors(t *testing.T) {
+	valid := createKeyPair(t, generateCA(t))
+	other := createKeyPair(t, generateCA(t))
+	nonCA := createKeyPair(t, generateCert(t))
+
+	corruptCert := filepath.Join(t.TempDir(), "corrupt.crt")
+	require.NoError(t, os.WriteFile(corruptCert, []byte("not a certificate"), 0o600))
+
+	tests := []struct {
+		name        string
+		cfg         config.TLSLocalIssuerConfig
+		wantErr     error
+		errContains string
+	}{
+		{
+			name:        "missing files",
+			cfg:         config.TLSLocalIssuerConfig{CertificateFile: "missing.crt", PrivateKeyFile: "missing.key"},
+			errContains: "failed to load CA key pair",
+		},
+		{
+			name:        "unparseable certificate",
+			cfg:         config.TLSLocalIssuerConfig{CertificateFile: corruptCert, PrivateKeyFile: valid.PrivateKeyFile},
+			errContains: "failed to load CA key pair",
+		},
+		{
+			name:        "mismatched certificate and key",
+			cfg:         config.TLSLocalIssuerConfig{CertificateFile: valid.CertificateFile, PrivateKeyFile: other.PrivateKeyFile},
+			errContains: "failed to load CA key pair",
+		},
+		{
+			name:        "certificate is not a CA",
+			cfg:         config.TLSLocalIssuerConfig(nonCA),
+			wantErr:     errNotCACertificate,
+			errContains: nonCA.CertificateFile,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := newLocalIssuer(&tt.cfg, keyConfig{typ: keyTypeECDSA, bits: 256}, defaultCertTTL, zap.NewNop())
+			require.Error(t, err)
+
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+			}
+
+			if tt.errContains != "" {
+				assert.Contains(t, err.Error(), tt.errContains)
+			}
+		})
+	}
+}
+
 func TestLocalIssuer_issue(t *testing.T) {
-	file := createKeyPair(t, generateCA(t))
+	ca := generateCA(t)
+	file := createKeyPair(t, ca)
 
 	issuer, err := newLocalIssuer(
 		&config.TLSLocalIssuerConfig{CertificateFile: file.CertificateFile, PrivateKeyFile: file.PrivateKeyFile},
@@ -105,6 +175,10 @@ func TestLocalIssuer_issue(t *testing.T) {
 	issued, err := issuer.issue(t.Context(), []string{"app.acme.int", "10.0.0.5", "alt.acme.int", "::1"})
 	require.NoError(t, err)
 
+	key, ok := issued.PrivateKey.(*ecdsa.PrivateKey)
+	require.True(t, ok, "expected an ECDSA leaf key")
+	assert.Equal(t, 256, key.Params().BitSize)
+
 	assert.Equal(t, "app.acme.int", issued.Leaf.Subject.CommonName)
 	assert.Equal(t, []string{"app.acme.int", "alt.acme.int"}, issued.Leaf.DNSNames)
 
@@ -114,6 +188,44 @@ func TestLocalIssuer_issue(t *testing.T) {
 	}
 
 	assert.Equal(t, []string{"10.0.0.5", "::1"}, gotIPs)
+
+	_, err = issued.Leaf.Verify(x509.VerifyOptions{
+		DNSName:   "app.acme.int",
+		Roots:     caPool(t, ca),
+		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	})
+	require.NoError(t, err)
+}
+
+func TestLocalIssuer_issue_Errors(t *testing.T) {
+	t.Run("key generation fails", func(t *testing.T) {
+		cfg := config.TLSLocalIssuerConfig(createKeyPair(t, generateCA(t)))
+
+		// An invalid key config pass
+		issuer, err := newLocalIssuer(&cfg, keyConfig{typ: keyTypeECDSA, bits: 128}, defaultCertTTL, zap.NewNop())
+		require.NoError(t, err)
+
+		_, err = issuer.issue(t.Context(), []string{"app.acme.int"})
+		require.ErrorIs(t, err, errUnsupportedKeyBits)
+		assert.Contains(t, err.Error(), "failed to generate leaf key")
+	})
+
+	t.Run("CA key fails to sign", func(t *testing.T) {
+		ca := generateCA(t)
+
+		caCert, err := x509.ParseCertificate(ca.Certificate[0])
+		require.NoError(t, err)
+
+		issuer := &localIssuer{
+			key:    keyConfig{typ: keyTypeECDSA, bits: 256},
+			ttl:    defaultCertTTL,
+			caCert: caCert,
+			caKey:  failingSigner{pub: caCert.PublicKey},
+		}
+
+		_, err = issuer.issue(t.Context(), []string{"app.acme.int"})
+		require.ErrorContains(t, err, "failed to sign leaf certificate")
+	})
 }
 
 // issueTestCertificate returns leaf, key, and CA PEMs shaped like a Vault PKI
