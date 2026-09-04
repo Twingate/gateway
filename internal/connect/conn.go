@@ -53,6 +53,7 @@ type ProxyConn struct {
 	net.Conn
 
 	TLSConfig        *tls.Config
+	CertManager      *CertManager
 	ConnectValidator Validator
 	Logger           *zap.Logger
 
@@ -69,10 +70,18 @@ type ProxyConn struct {
 	once    sync.Once
 }
 
-func NewProxyConn(conn net.Conn, tlsConfig *tls.Config, validator Validator, logger *zap.Logger, metrics *ProxyConnMetrics) *ProxyConn {
+func NewProxyConn(
+	conn net.Conn,
+	tlsConfig *tls.Config,
+	certManager *CertManager,
+	validator Validator,
+	logger *zap.Logger,
+	metrics *ProxyConnMetrics,
+) *ProxyConn {
 	return &ProxyConn{
 		Conn:             conn,
 		TLSConfig:        tlsConfig,
+		CertManager:      certManager,
 		ConnectValidator: validator,
 		Logger:           logger,
 		tracker:          NewProxyConnMetricsTracker(ConnCategoryUnknown, metrics),
@@ -233,7 +242,7 @@ func (p *ProxyConn) Authenticate() error {
 }
 
 func (p *ProxyConn) UpgradeToTLS() error {
-	tlsConn := tls.Server(p.Conn, p.TLSConfig)
+	tlsConn := tls.Server(p.Conn, p.getTLSConfig())
 	if err := tlsConn.Handshake(); err != nil {
 		p.Logger.Error("failed to upgrade TLS", zap.Error(err))
 
@@ -244,6 +253,20 @@ func (p *ProxyConn) UpgradeToTLS() error {
 	p.Conn = tlsConn
 
 	return nil
+}
+
+func (p *ProxyConn) getTLSConfig() *tls.Config {
+	tlsConfig := p.TLSConfig.Clone()
+	tlsConfig.GetCertificate = func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+		cert, err := p.CertManager.GetCertificateForHost(hello, p.Claims.Resource.Address, p.Claims.Resource.Aliases...)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get certificate for %q: %w", p.RequestedHost, err)
+		}
+
+		return cert, nil
+	}
+
+	return tlsConfig
 }
 
 func (p *ProxyConn) setConnectInfo(connectInfo Info) {

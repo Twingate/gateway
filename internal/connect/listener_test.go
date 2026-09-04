@@ -23,10 +23,14 @@ import (
 	"gateway/internal/token"
 )
 
-var testKeyPairs = []config.TLSCertificateFileKeyPair{
-	{
-		CertificateFile: "../../test/data/proxy/tls.crt",
-		PrivateKeyFile:  "../../test/data/proxy/tls.key",
+var testTLSConfig = config.TLSConfig{
+	Certificates: config.TLSCertificateSources{
+		Files: []config.TLSCertificateFileKeyPair{
+			{
+				CertificateFile: "../../test/data/proxy/tls.crt",
+				PrivateKeyFile:  "../../test/data/proxy/tls.key",
+			},
+		},
 	},
 }
 
@@ -137,14 +141,12 @@ func createTestListenerWithChannels(t *testing.T) *testListenerFixtures {
 
 	registry := prometheus.NewRegistry()
 	logger := zap.NewNop()
-	certReloader := NewCertReloader(testKeyPairs, logger)
-
 	// Create listener with minimal config (we'll override the factory)
 	listener := &Listener{
-		channels:     channels,
-		logger:       logger,
-		metrics:      CreateProxyConnMetrics(registry),
-		certReloader: certReloader,
+		channels:    channels,
+		logger:      logger,
+		metrics:     CreateProxyConnMetrics(registry),
+		certManager: newTestCertManager(t, testTLSConfig),
 	}
 
 	return &testListenerFixtures{
@@ -346,13 +348,11 @@ func TestListener_UnsupportedResourceType(t *testing.T) {
 
 	registry := prometheus.NewRegistry()
 	logger := zap.NewNop()
-	certReloader := NewCertReloader(testKeyPairs, logger)
-
 	listener := &Listener{
-		channels:     channels,
-		logger:       logger,
-		metrics:      CreateProxyConnMetrics(registry),
-		certReloader: certReloader,
+		channels:    channels,
+		logger:      logger,
+		metrics:     CreateProxyConnMetrics(registry),
+		certManager: newTestCertManager(t, testTLSConfig),
 	}
 
 	sshClaims := createClaims(t, token.ResourceTypeSSH)
@@ -406,10 +406,10 @@ func TestListener_Serve_GracefulShutdown(t *testing.T) {
 	kubernetesClaims := createClaims(t, token.ResourceTypeKubernetes)
 
 	listener := &Listener{
-		channels:     channels,
-		logger:       logger,
-		metrics:      CreateProxyConnMetrics(prometheus.NewRegistry()),
-		certReloader: NewCertReloader(testKeyPairs, logger),
+		channels:    channels,
+		logger:      logger,
+		metrics:     CreateProxyConnMetrics(prometheus.NewRegistry()),
+		certManager: newTestCertManager(t, testTLSConfig),
 	}
 
 	listener.proxyConnFactory = func(conn net.Conn, _ *tls.Config, _ Validator, _ *zap.Logger) Conn {

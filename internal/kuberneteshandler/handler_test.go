@@ -20,7 +20,7 @@ import (
 
 func TestRewrite(t *testing.T) {
 	connMetrics := connect.CreateProxyConnMetrics(prometheus.NewRegistry())
-	conn := connect.NewProxyConn(nil, nil, nil, zap.NewNop(), connMetrics)
+	conn := connect.NewProxyConn(nil, nil, nil, nil, zap.NewNop(), connMetrics)
 	conn.RequestedHost = "kubernetes.default.svc"
 	conn.UpstreamHost = "kubernetes.default.svc"
 	conn.Claims = &token.GATClaims{

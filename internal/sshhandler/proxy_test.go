@@ -604,7 +604,7 @@ func newProxyConn(conn net.Conn, upstreamAddr string) *connect.ProxyConn {
 	upstreamHost, port, _ := net.SplitHostPort(upstreamAddr)
 	upstreamPort, _ := strconv.Atoi(port)
 
-	proxyConn := connect.NewProxyConn(conn, nil, nil, zap.NewNop(),
+	proxyConn := connect.NewProxyConn(conn, nil, nil, nil, zap.NewNop(),
 		connect.CreateProxyConnMetrics(prometheus.NewRegistry()))
 	proxyConn.Claims = &token.GATClaims{
 		Resource: token.Resource{

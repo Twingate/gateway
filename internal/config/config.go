@@ -93,6 +93,7 @@ type AuditLogConfig struct {
 // TLSConfig represents the downstream TLS configuration.
 type TLSConfig struct {
 	Certificates TLSCertificateSources `yaml:"certificates"`
+	Automation   *TLSAutomationConfig  `yaml:"automation,omitempty"`
 }
 
 // TLSCertificateSources lists the TLS certificates the Gateway can serve.
@@ -109,6 +110,31 @@ type TLSCertificateFileKeyPair struct {
 type CA struct {
 	Name     string `yaml:"name"`
 	CertFile string `yaml:"certFile"`
+}
+
+// TLSAutomationConfig configures on-demand issuing of downstream certificates.
+type TLSAutomationConfig struct {
+	Certificate TLSAutomationCertificateConfig `yaml:"certificate"`
+	Issuer      TLSIssuerConfig                `yaml:"issuer"`
+}
+
+type TLSAutomationCertificateConfig struct {
+	TTL time.Duration           `yaml:"ttl"`
+	Key TLSCertificateKeyConfig `yaml:"key"`
+}
+
+type TLSCertificateKeyConfig struct {
+	Type string `yaml:"type"` // ecdsa or rsa. Defaults to ecdsa.
+	Bits int    `yaml:"bits"` // ECDSA: 256/384/521, RSA: 2048/3072/4096. Defaults to 256 for ECDSA, 2048 for RSA.
+}
+
+type TLSIssuerConfig struct {
+	Local *TLSLocalIssuerConfig `yaml:"local,omitempty"`
+}
+
+type TLSLocalIssuerConfig struct {
+	CertificateFile string `yaml:"certificateFile"`
+	PrivateKeyFile  string `yaml:"privateKeyFile"`
 }
 
 type KubernetesConfig struct {
@@ -362,7 +388,7 @@ func (c *Config) Validate() error {
 }
 
 func (t *TLSConfig) Validate() error {
-	if len(t.Certificates.Files) == 0 {
+	if t.Automation == nil && len(t.Certificates.Files) == 0 {
 		return fmt.Errorf("%w: certificates.files", ErrRequired)
 	}
 
@@ -380,6 +406,12 @@ func (t *TLSConfig) Validate() error {
 		certificateFiles[keyPair.CertificateFile] = struct{}{}
 	}
 
+	if t.Automation != nil {
+		if err := t.Automation.Validate(); err != nil {
+			return fmt.Errorf("automation: %w", err)
+		}
+	}
+
 	return nil
 }
 
@@ -389,6 +421,72 @@ func (t *TLSCertificateFileKeyPair) Validate() error {
 	}
 
 	if t.PrivateKeyFile == "" {
+		return fmt.Errorf("%w: privateKeyFile", ErrRequired)
+	}
+
+	return nil
+}
+
+var (
+	ErrMissingTLSIssuerConfig = errors.New("at least one TLS issuer must be configured")
+	ErrInvalidTLSKeyType      = errors.New("invalid TLS key type")
+)
+
+func (a *TLSAutomationConfig) Validate() error {
+	if err := a.Certificate.Validate(); err != nil {
+		return fmt.Errorf("certificate: %w", err)
+	}
+
+	if err := a.Issuer.Validate(); err != nil {
+		return fmt.Errorf("issuer: %w", err)
+	}
+
+	return nil
+}
+
+func (c *TLSAutomationCertificateConfig) Validate() error {
+	if c.TTL < 0 {
+		return fmt.Errorf("%w: ttl", ErrNegativeTTL)
+	}
+
+	if err := c.Key.Validate(); err != nil {
+		return fmt.Errorf("key: %w", err)
+	}
+
+	return nil
+}
+
+func (k *TLSCertificateKeyConfig) Validate() error {
+	validTypes := map[string]bool{
+		"ecdsa": true,
+		"rsa":   true,
+	}
+
+	if k.Type != "" && !validTypes[k.Type] {
+		return fmt.Errorf("%w: %q", ErrInvalidTLSKeyType, k.Type)
+	}
+
+	return nil
+}
+
+func (i *TLSIssuerConfig) Validate() error {
+	if i.Local == nil {
+		return ErrMissingTLSIssuerConfig
+	}
+
+	if err := i.Local.Validate(); err != nil {
+		return fmt.Errorf("local: %w", err)
+	}
+
+	return nil
+}
+
+func (l *TLSLocalIssuerConfig) Validate() error {
+	if l.CertificateFile == "" {
+		return fmt.Errorf("%w: certificateFile", ErrRequired)
+	}
+
+	if l.PrivateKeyFile == "" {
 		return fmt.Errorf("%w: privateKeyFile", ErrRequired)
 	}
 

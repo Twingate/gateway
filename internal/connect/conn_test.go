@@ -25,6 +25,7 @@ import (
 
 	promtestutil "github.com/prometheus/client_golang/prometheus/testutil"
 
+	"gateway/internal/config"
 	"gateway/internal/token"
 	"gateway/test/data"
 )
@@ -483,6 +484,109 @@ func TestProxyConn_Authenticate_FailedValidation(t *testing.T) {
 	assert.Nil(t, proxyConn.Claims)
 
 	<-done
+}
+
+func upgradeToTLSHandshake(t *testing.T, proxyConn *ProxyConn, clientTLSConfig *tls.Config) error {
+	t.Helper()
+
+	listener, addr := startMockListener(t)
+	defer listener.Close()
+
+	clientCh := make(chan error, 1)
+
+	go func() {
+		conn, err := net.Dial("tcp", addr)
+		if err != nil {
+			clientCh <- err
+
+			return
+		}
+
+		defer conn.Close()
+
+		clientCh <- tls.Client(conn, clientTLSConfig).Handshake()
+	}()
+
+	conn, err := listener.Accept()
+	require.NoError(t, err)
+
+	proxyConn.Conn = conn
+
+	serverErr := proxyConn.UpgradeToTLS()
+	if serverErr != nil {
+		_ = conn.Close()
+
+		<-clientCh
+
+		return serverErr
+	}
+
+	require.NoError(t, <-clientCh)
+
+	return nil
+}
+
+func TestProxyConn_getTLSConfig(t *testing.T) {
+	certManager := newTestCertManager(t, config.TLSConfig{Automation: testAutomationConfig()})
+	resource := token.Resource{Type: token.ResourceTypeWebApp, Address: "grafana.internal", Aliases: []string{"echo.internal", "echo-alt.internal"}}
+
+	proxyConn := &ProxyConn{
+		TLSConfig:   &tls.Config{},
+		CertManager: certManager,
+		Claims:      &token.GATClaims{Resource: resource},
+		Logger:      zap.NewNop(),
+	}
+
+	cert, err := proxyConn.getTLSConfig().GetCertificate(clientHello("grafana.internal"))
+	require.NoError(t, err)
+
+	assert.Equal(t, "grafana.internal", cert.Leaf.Subject.CommonName)
+	assert.Equal(t, []string{"grafana.internal", "echo-alt.internal", "echo.internal"}, cert.Leaf.DNSNames)
+
+	// Connecting through the alias shares the address certificate.
+	again, err := proxyConn.getTLSConfig().GetCertificate(clientHello("echo.internal"))
+	require.NoError(t, err)
+	assert.Same(t, cert, again)
+}
+
+func TestProxyConn_UpgradeToTLS_HandshakeError(t *testing.T) {
+	// The client trusts a different CA, so it rejects the issued certificate
+	// and the server-side handshake fails.
+	wrongPool := x509.NewCertPool()
+	wrongPool.AppendCertsFromPEM(data.ServerCert)
+
+	proxyConn := &ProxyConn{
+		TLSConfig:   &tls.Config{},
+		CertManager: newTestCertManager(t, config.TLSConfig{Automation: testAutomationConfig()}),
+		Claims:      &token.GATClaims{Resource: token.Resource{Type: token.ResourceTypeWebApp, Address: "app.internal"}},
+		Logger:      zap.NewNop(),
+	}
+
+	err := upgradeToTLSHandshake(t, proxyConn, &tls.Config{
+		ServerName: "app.internal",
+		RootCAs:    wrongPool,
+		MinVersion: tls.VersionTLS13,
+	})
+
+	require.Error(t, err)
+}
+
+func TestProxyConn_UpgradeToTLS_NoCertificateError(t *testing.T) {
+	proxyConn := &ProxyConn{
+		TLSConfig:     &tls.Config{},
+		CertManager:   newTestCertManager(t, config.TLSConfig{}),
+		RequestedHost: "app.internal",
+		Claims:        &token.GATClaims{Resource: token.Resource{Type: token.ResourceTypeWebApp, Address: "app.internal"}},
+		Logger:        zap.NewNop(),
+	}
+
+	err := upgradeToTLSHandshake(t, proxyConn, &tls.Config{
+		ServerName: "app.internal",
+		MinVersion: tls.VersionTLS13,
+	})
+
+	require.ErrorIs(t, err, errNoCertificates)
+	assert.ErrorContains(t, err, `failed to get certificate for "app.internal"`)
 }
 
 func TestIsHealthCheckRequest(t *testing.T) {
