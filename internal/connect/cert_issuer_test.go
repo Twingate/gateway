@@ -127,9 +127,10 @@ func TestLocalIssuer_load_Errors(t *testing.T) {
 			errContains: "failed to load CA key pair",
 		},
 		{
-			name:    "certificate is not a CA",
-			cfg:     config.TLSLocalIssuerConfig(nonCA),
-			wantErr: errNotCACertificate,
+			name:        "certificate is not a CA",
+			cfg:         config.TLSLocalIssuerConfig(nonCA),
+			wantErr:     errNotCACertificate,
+			errContains: nonCA.CertificateFile,
 		},
 	}
 

@@ -112,12 +112,12 @@ func (l *localIssuer) load() error {
 	}
 
 	if !caCert.IsCA {
-		return errNotCACertificate
+		return fmt.Errorf("%w: %q", errNotCACertificate, l.certFile)
 	}
 
 	caKey, ok := pair.PrivateKey.(crypto.Signer)
 	if !ok {
-		return errCAKeyNotSigner
+		return fmt.Errorf("%w: %q", errCAKeyNotSigner, l.keyFile)
 	}
 
 	l.mu.Lock()
