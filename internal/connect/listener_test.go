@@ -6,6 +6,7 @@ package connect
 import (
 	"bufio"
 	"crypto/tls"
+	"errors"
 	"io"
 	"net"
 	"sync"
@@ -456,6 +457,26 @@ func TestListener_Serve_GracefulShutdown(t *testing.T) {
 		require.False(t, ok, "channel should be closed after Serve returns")
 	case <-time.After(2 * time.Second):
 		t.Fatal("timeout waiting for Serve to return")
+	}
+}
+
+func TestListener_Serve_CertManagerRunError(t *testing.T) {
+	fixtures := createTestListenerWithChannels(t)
+
+	issuer := newStubIssuer()
+	issuer.runErr = errors.New("vault login failed")
+	fixtures.listener.certManager.automation = newStubAutomation(t, issuer)
+
+	err := fixtures.listener.Serve(t.Context(), fixtures.tcpListener)
+	require.ErrorIs(t, err, issuer.runErr)
+
+	for name, channel := range map[string]chan Conn{"http": fixtures.httpChannel, "ssh": fixtures.sshChannel} {
+		select {
+		case _, open := <-channel:
+			assert.False(t, open, "%s channel should be closed", name)
+		default:
+			t.Errorf("%s channel should be closed when Serve fails to start", name)
+		}
 	}
 }
 

@@ -139,14 +139,16 @@ func NewListener(
 // The caller owns the listener and is responsible for closing it.
 // Serve closes the channels when it returns.
 func (l *Listener) Serve(ctx context.Context, listener net.Listener) error {
-	l.certManager.Run(ctx)
-
 	var wg sync.WaitGroup
 
 	defer func() {
 		wg.Wait()
 		l.closeChannels()
 	}()
+
+	if err := l.certManager.Run(ctx); err != nil {
+		return err
+	}
 
 	for {
 		conn, err := listener.Accept()
