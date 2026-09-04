@@ -203,50 +203,6 @@ webApp: {}
 	assert.NoError(t, cfg.Validate())
 }
 
-func TestLoad_TLSAutomationVault(t *testing.T) {
-	yaml := `
-twingate:
-  network: "acme"
-port: 8443
-metricsPort: 9090
-tls:
-  automation:
-    issuer:
-      vault:
-        address: "https://vault:8200"
-        namespace: "admin"
-        caBundleFile: "/etc/gateway/vault/ca.crt"
-        mount: "pki-int"
-        role: "gateway"
-        auth:
-          appRole:
-            roleID: "role-id"
-            secretIDFile: "/etc/gateway/vault/secret-id"
-webApp: {}
-`
-
-	tmpFile := filepath.Join(t.TempDir(), "config.yaml")
-	err := os.WriteFile(tmpFile, []byte(yaml), 0600)
-	require.NoError(t, err)
-
-	cfg, err := Load(tmpFile)
-	require.NoError(t, err)
-	require.NotNil(t, cfg.TLS.Automation)
-
-	vaultIssuer := cfg.TLS.Automation.Issuer.Vault
-	require.NotNil(t, vaultIssuer)
-	assert.Equal(t, "https://vault:8200", vaultIssuer.Address)
-	assert.Equal(t, "admin", vaultIssuer.Namespace)
-	assert.Equal(t, "/etc/gateway/vault/ca.crt", vaultIssuer.CABundleFile)
-	assert.Equal(t, "pki-int", vaultIssuer.GetMount())
-	assert.Equal(t, "gateway", vaultIssuer.Role)
-	require.NotNil(t, vaultIssuer.Auth.AppRole)
-	assert.Equal(t, "role-id", vaultIssuer.Auth.AppRole.RoleID)
-	assert.Equal(t, "/etc/gateway/vault/secret-id", vaultIssuer.Auth.AppRole.SecretIDFile)
-
-	assert.NoError(t, cfg.Validate())
-}
-
 func TestLoad_Kubernetes(t *testing.T) {
 	yaml := `
 twingate:

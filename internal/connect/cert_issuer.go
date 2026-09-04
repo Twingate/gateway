@@ -43,7 +43,7 @@ var serialNumberLimit = new(big.Int).Lsh(big.NewInt(1), 128)
 // certIssuer issues a certificate covering a set of names and runs any
 // background maintenance its backend needs.
 type certIssuer interface {
-	run(ctx context.Context)
+	run(ctx context.Context) error
 	issue(ctx context.Context, names []string) (*tls.Certificate, error)
 }
 
@@ -101,8 +101,10 @@ func newLocalIssuer(cfg *config.TLSLocalIssuerConfig, keyCfg keyConfig, ttl time
 	return issuer, nil
 }
 
-func (l *localIssuer) run(ctx context.Context) {
+func (l *localIssuer) run(ctx context.Context) error {
 	l.reloader.Run(ctx)
+
+	return nil
 }
 
 func (l *localIssuer) rotated() <-chan struct{} {
@@ -220,22 +222,20 @@ func newVaultIssuer(cfg *config.TLSVaultIssuerConfig, keyCfg keyConfig, ttl time
 	return &vaultIssuer{vault: v, mount: cfg.GetMount(), role: cfg.Role, key: keyCfg, ttl: ttl}, nil
 }
 
-// run logs in to Vault in the background and keeps the token renewed. Unlike
-// the SSH CA, login failures retry instead of failing startup: CertManager.Run
-// carries no error, so handshakes fail until login succeeds, then self-heal.
-func (v *vaultIssuer) run(ctx context.Context) {
+// run logs in to Vault and keeps the token renewed in the background.
+func (v *vaultIssuer) run(ctx context.Context) error {
 	if v.vault.AuthMethod == nil {
-		return
+		return nil
 	}
 
-	go func() {
-		secret := v.vault.LoginWithRetry(ctx)
-		if secret == nil {
-			return
-		}
+	secret, err := v.vault.Client.Auth().Login(ctx, v.vault.AuthMethod)
+	if err != nil {
+		return fmt.Errorf("failed to login to Vault: %w", err)
+	}
 
-		v.vault.RunTokenRenewalLoop(ctx, secret)
-	}()
+	go v.vault.RunTokenRenewalLoop(ctx, secret)
+
+	return nil
 }
 
 // issue asks Vault to sign a locally generated key for names through
@@ -306,7 +306,7 @@ func (v *vaultIssuer) issue(ctx context.Context, names []string) (*tls.Certifica
 		return nil, fmt.Errorf("failed to parse issued certificate: %w", err)
 	}
 
-	if err := verifyIssuedCertificate(leaf, key, names); err != nil {
+	if err := verifyIssuedCertificate(leaf, key, names, v.ttl); err != nil {
 		return nil, err
 	}
 
@@ -342,8 +342,8 @@ func certificateRequestPEM(key crypto.Signer, names []string) (string, error) {
 }
 
 // verifyIssuedCertificate rejects a CA-issued certificate that is signed by a different signer or
-// grants more than the requested asked for.
-func verifyIssuedCertificate(leaf *x509.Certificate, key crypto.Signer, names []string) error {
+// grants more than the request asked for, in names or in validity.
+func verifyIssuedCertificate(leaf *x509.Certificate, key crypto.Signer, names []string, ttl time.Duration) error {
 	type publicKey interface {
 		Equal(other crypto.PublicKey) bool
 	}
@@ -375,6 +375,11 @@ func verifyIssuedCertificate(leaf *x509.Certificate, key crypto.Signer, names []
 	if !maps.Equal(granted, requested) {
 		return fmt.Errorf("%w: granted names %q do not match requested %q",
 			errVaultCertMismatch, slices.Sorted(maps.Keys(granted)), slices.Sorted(maps.Keys(requested)))
+	}
+
+	maxNotAfter := time.Now().Add(ttl).Add(clockSkewBuffer)
+	if leaf.NotAfter.After(maxNotAfter) {
+		return fmt.Errorf("%w: validity %s exceeds requested TTL (max %s)", errVaultCertMismatch, leaf.NotAfter, maxNotAfter)
 	}
 
 	return nil

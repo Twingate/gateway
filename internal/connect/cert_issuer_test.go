@@ -309,11 +309,16 @@ func newTestVaultIssuer(t *testing.T, handler http.HandlerFunc) *vaultIssuer {
 
 type mockAuthMethod struct {
 	secret *vaultapi.Secret
+	err    error
 }
 
 func (m *mockAuthMethod) Login(ctx context.Context, _ *vaultapi.Client) (*vaultapi.Secret, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
+	}
+
+	if m.err != nil {
+		return nil, m.err
 	}
 
 	return m.secret, nil
@@ -370,7 +375,6 @@ func TestVaultIssuer_Issue(t *testing.T) {
 	assert.Equal(t, names, cert.Leaf.DNSNames)
 	assert.Len(t, cert.Certificate, 2)
 
-	// The certificate carries the local key: the pair must work in a handshake.
 	key, ok := cert.PrivateKey.(*ecdsa.PrivateKey)
 	require.True(t, ok)
 	assert.True(t, key.PublicKey.Equal(cert.Leaf.PublicKey))
@@ -383,10 +387,7 @@ func TestVaultIssuer_Issue_IPSANs(t *testing.T) {
 		wantPayload map[string]any
 	}{
 		{
-			// The no-SNI local-address fallback requests the dialed IP alone;
-			// an IP is never sent as the common name since PKI roles
-			// restricted to domains reject it.
-			name:        "bare ip host",
+			name:        "bare ip host has no common name",
 			names:       []string{"10.0.0.5"},
 			wantPayload: map[string]any{"ttl": "24h0m0s", "ip_sans": "10.0.0.5"},
 		},
@@ -463,6 +464,16 @@ func TestVaultIssuer_Issue_RejectsMismatchedCertificate(t *testing.T) {
 				return signTestCSR(t, ca, otherCSR, nil)
 			},
 		},
+		{
+			name: "validity exceeds requested ttl",
+			sign: func(t *testing.T, ca tls.Certificate, csr string) string {
+				t.Helper()
+
+				return signTestCSR(t, ca, csr, func(cert *x509.Certificate) {
+					cert.NotAfter = time.Now().Add(48 * time.Hour)
+				})
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -536,7 +547,7 @@ func TestVaultIssuer_Issue_RequestFails(t *testing.T) {
 	assert.NotErrorIs(t, err, errVaultIssueFailed)
 }
 
-func TestVaultIssuer_Run_LoginsInBackground(t *testing.T) {
+func TestVaultIssuer_Run_Login(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		secret := vaultAuthSecret("login-token", 60)
 		issuer := &vaultIssuer{vault: newTestVault(t, &mockAuthMethod{secret: secret})}
@@ -544,7 +555,8 @@ func TestVaultIssuer_Run_LoginsInBackground(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
 
-		issuer.run(ctx)
+		err := issuer.run(ctx)
+		require.NoError(t, err)
 		synctest.Wait()
 
 		assert.Equal(t, "login-token", issuer.vault.Client.Token())
@@ -554,7 +566,15 @@ func TestVaultIssuer_Run_LoginsInBackground(t *testing.T) {
 func TestVaultIssuer_Run_NoAuthMethod(t *testing.T) {
 	issuer := &vaultIssuer{vault: newTestVault(t, nil)}
 
-	issuer.run(t.Context())
+	require.NoError(t, issuer.run(t.Context()))
 
 	assert.Equal(t, "initial-token", issuer.vault.Client.Token())
+}
+
+func TestVaultIssuer_Run_LoginError(t *testing.T) {
+	issuer := &vaultIssuer{vault: newTestVault(t, &mockAuthMethod{err: errors.New("permission denied")})}
+
+	err := issuer.run(t.Context())
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "failed to login to Vault")
 }

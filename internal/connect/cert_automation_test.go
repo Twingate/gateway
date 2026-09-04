@@ -33,6 +33,7 @@ type stubIssuer struct {
 	entered  chan string
 	gates    map[string]chan struct{}
 	rotateCh chan struct{}
+	runErr   error
 
 	serials atomic.Int64
 }
@@ -45,7 +46,7 @@ func newStubIssuer() *stubIssuer {
 	}
 }
 
-func (s *stubIssuer) run(context.Context) {}
+func (s *stubIssuer) run(context.Context) error { return s.runErr }
 
 func (s *stubIssuer) rotated() <-chan struct{} { return s.rotateCh }
 
@@ -188,7 +189,7 @@ func TestCertAutomation_Run_ReissuesAfterCARotation(t *testing.T) {
 	cert, err := NewCertAutomation(*cfg, zap.NewNop())
 	require.NoError(t, err)
 
-	cert.Run(t.Context())
+	require.NoError(t, cert.Run(t.Context()))
 
 	issued, err := cert.GetCertificateForHost(t.Context(), "app.acme.int")
 	require.NoError(t, err)
@@ -334,7 +335,7 @@ func TestCertAutomation_GetCertificateForHost_RotationMidIssuanceIsNotCached(t *
 	issuer.gates["app.acme.int"] = gate
 
 	automation := newStubAutomation(t, issuer)
-	automation.Run(t.Context())
+	require.NoError(t, automation.Run(t.Context()))
 
 	type result struct {
 		cert *tls.Certificate

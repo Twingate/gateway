@@ -128,8 +128,6 @@ type TLSCertificateKeyConfig struct {
 	Bits int    `yaml:"bits"` // ECDSA: 256/384/521, RSA: 2048/3072/4096. Defaults to 256 for ECDSA, 2048 for RSA.
 }
 
-// TLSIssuerConfig selects the backend that signs automated downstream
-// certificates. Exactly one of Local or Vault must be set.
 type TLSIssuerConfig struct {
 	Local *TLSLocalIssuerConfig `yaml:"local,omitempty"`
 	Vault *TLSVaultIssuerConfig `yaml:"vault,omitempty"`
@@ -140,12 +138,11 @@ type TLSLocalIssuerConfig struct {
 	PrivateKeyFile  string `yaml:"privateKeyFile"`
 }
 
-// TLSVaultIssuerConfig configures an issuer backed by Vault's PKI secrets engine.
 type TLSVaultIssuerConfig struct {
 	VaultConfig `yaml:",inline"`
 
-	Mount string `yaml:"mount,omitempty"` // PKI secrets engine mount point. Defaults to "pki"
-	Role  string `yaml:"role"`            // PKI role used to issue leaf certificates
+	Mount string `yaml:"mount,omitempty"`
+	Role  string `yaml:"role"`
 }
 
 type KubernetesConfig struct {

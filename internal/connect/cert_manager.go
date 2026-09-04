@@ -35,12 +35,16 @@ func newCertManager(tlsCfg config.TLSConfig, logger *zap.Logger) (*CertManager, 
 	return manager, nil
 }
 
-func (m *CertManager) Run(ctx context.Context) {
+func (m *CertManager) Run(ctx context.Context) error {
 	m.certs.Run(ctx)
 
 	if m.automation != nil {
-		m.automation.Run(ctx)
+		if err := m.automation.Run(ctx); err != nil {
+			return err
+		}
 	}
+
+	return nil
 }
 
 // GetCertificate returns a certificate for the outer TLS handshake based on the SNI host, falling back to
