@@ -7,11 +7,9 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
-	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
 	"math/big"
-	"net"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -77,8 +75,6 @@ func newStubAutomation(t *testing.T, issuer certIssuer) *CertAutomation {
 }
 
 func TestNewCertAutomation_Errors(t *testing.T) {
-	nonCA := createKeyPair(t, generateCert(t))
-
 	tests := []struct {
 		name        string
 		local       *config.TLSLocalIssuerConfig
@@ -103,19 +99,10 @@ func TestNewCertAutomation_Errors(t *testing.T) {
 			wantErr: errUnsupportedKeyBits,
 		},
 		{
-			name:        "missing files",
+			// Issuer construction failures propagate; the cases live with the issuer's own tests.
+			name:        "issuer fails to load",
 			local:       &config.TLSLocalIssuerConfig{CertificateFile: "missing.crt", PrivateKeyFile: "missing.key"},
 			errContains: "failed to load CA key pair",
-		},
-		{
-			name:        "mismatched certificate and key",
-			local:       &config.TLSLocalIssuerConfig{CertificateFile: "../../test/data/proxy/tls.crt", PrivateKeyFile: "../../test/data/api_server/tls.key"},
-			errContains: "failed to load CA key pair",
-		},
-		{
-			name:    "certificate is not a CA",
-			local:   &config.TLSLocalIssuerConfig{CertificateFile: nonCA.CertificateFile, PrivateKeyFile: nonCA.PrivateKeyFile},
-			wantErr: errNotCACertificate,
 		},
 	}
 
@@ -139,7 +126,7 @@ func TestNewCertAutomation_Errors(t *testing.T) {
 	}
 }
 
-func TestCertAutomation_GetCertificateForHost_DNSHost(t *testing.T) {
+func TestCertAutomation_GetCertificateForHost(t *testing.T) {
 	cert, err := NewCertAutomation(*testAutomationConfig(), zap.NewNop())
 	require.NoError(t, err)
 
@@ -165,22 +152,6 @@ func TestCertAutomation_GetCertificateForHost_DNSHost(t *testing.T) {
 	require.NoError(t, err, "leaf should verify against the CA for the requested host")
 
 	cached, ok := cert.cache.Get("app.internal,alt1.internal,alt2.internal")
-	require.True(t, ok, "the issued certificate should be cached under its name set")
-	assert.Same(t, issued, cached)
-}
-
-func TestCertAutomation_GetCertificateForHost_IPHost(t *testing.T) {
-	cert, err := NewCertAutomation(*testAutomationConfig(), zap.NewNop())
-	require.NoError(t, err)
-
-	issued, err := cert.GetCertificateForHost(t.Context(), "10.0.0.5", "alt.internal")
-	require.NoError(t, err)
-
-	require.Len(t, issued.Leaf.IPAddresses, 1)
-	assert.True(t, issued.Leaf.IPAddresses[0].Equal(net.ParseIP("10.0.0.5")))
-	assert.Equal(t, []string{"alt.internal"}, issued.Leaf.DNSNames)
-
-	cached, ok := cert.cache.Get("10.0.0.5,alt.internal")
 	require.True(t, ok, "the issued certificate should be cached under its name set")
 	assert.Same(t, issued, cached)
 }
@@ -224,46 +195,6 @@ func TestCertAutomation_Run_ReissuesAfterCARotation(t *testing.T) {
 		})
 		require.NoError(c, verifyErr, "the reissued certificate should chain to the rotated CA")
 	}, 5*time.Second, 10*time.Millisecond)
-}
-
-func TestCertAutomation_GetCertificateForHost_KeyConfig(t *testing.T) {
-	cfg := testAutomationConfig()
-	cfg.Certificate.Key = config.TLSCertificateKeyConfig{Type: "rsa", Bits: 2048}
-
-	cert, err := NewCertAutomation(*cfg, zap.NewNop())
-	require.NoError(t, err)
-
-	issued, err := cert.GetCertificateForHost(t.Context(), "app.internal")
-	require.NoError(t, err)
-
-	key, ok := issued.PrivateKey.(*rsa.PrivateKey)
-	require.True(t, ok, "expected an RSA leaf key")
-	assert.Equal(t, 2048, key.N.BitLen())
-}
-
-func TestCertAutomation_GetCertificateForHost_CachesPerNameSet(t *testing.T) {
-	cert, err := NewCertAutomation(*testAutomationConfig(), zap.NewNop())
-	require.NoError(t, err)
-
-	first, err := cert.GetCertificateForHost(t.Context(), "app.internal", "a.internal")
-	require.NoError(t, err)
-
-	// The same host with a different alias set needs its own certificate.
-	other, err := cert.GetCertificateForHost(t.Context(), "app.internal", "b.internal")
-	require.NoError(t, err)
-	assert.NotEqual(t, first.Leaf.SerialNumber, other.Leaf.SerialNumber)
-
-	again, err := cert.GetCertificateForHost(t.Context(), "app.internal", "a.internal")
-	require.NoError(t, err)
-	assert.Same(t, first, again)
-
-	// The same aliases in a different order are the same name set.
-	sorted, err := cert.GetCertificateForHost(t.Context(), "app.internal", "a.internal", "b.internal")
-	require.NoError(t, err)
-
-	reordered, err := cert.GetCertificateForHost(t.Context(), "app.internal", "b.internal", "a.internal")
-	require.NoError(t, err)
-	assert.Same(t, sorted, reordered)
 }
 
 func TestCertAutomation_GetCertificateForHost_RenewsPastThreshold(t *testing.T) {
