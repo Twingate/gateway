@@ -218,14 +218,16 @@ tls:
         name: ""
         kind: Issuer
         group: cert-manager.io
-      # Defaults to the chart's fullname when empty.
       commonName: ""
       # Leave empty to use cert-manager defaults.
       duration: ""
       renewBefore: ""
   # IP address to be included as Subject Alternative Names in the TLS cert
   ipAddresses: []
-  # DNS names to be included as Subject Alternative Names in the TLS cert
+  # DNS names to be included as Subject Alternative Names in the TLS cert. When the Gateway's
+  # Kubernetes proxy is enabled (`twingateOperator.kubernetesResource.enabled` or
+  # `kubernetes.enabled`), the DNS names of the built-in `kubernetes` Service are added
+  # automatically.
   dnsNames: []
   # Content of the certificate to be added to the secret
   cert: ""
