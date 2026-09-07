@@ -451,14 +451,16 @@
         "ipAddresses": {
           "type": "array",
           "items": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1
           },
           "description": "IP addresses to include as Subject Alternative Names in the TLS certificate."
         },
         "dnsNames": {
           "type": "array",
           "items": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1
           },
           "description": "DNS names to include as Subject Alternative Names in the TLS certificate. When the Gateway's Kubernetes proxy is enabled (twingateOperator.kubernetesResource.enabled or kubernetes.enabled), the DNS names of the built-in kubernetes Service are added automatically."
         },
