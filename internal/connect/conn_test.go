@@ -535,7 +535,7 @@ func TestProxyConn_UpgradeToTLS(t *testing.T) {
 		TLSConfig: &tls.Config{MinVersion: tls.VersionTLS13, GetCertificate: certManager.GetCertificate},
 		Logger:    zap.NewNop(),
 	}
-	
+
 	// The upgraded handshake reuses the listener configuration, so the client is served a
 	// certificate for the name it asked for without the connection holding any of its own.
 	require.NoError(t, upgradeToTLSHandshake(t, proxyConn, &tls.Config{

@@ -33,8 +33,10 @@ func newTestCertManager(t *testing.T, tlsCfg config.TLSConfig) *CertManager {
 	require.NoError(t, err)
 
 	// Load synchronously instead of waiting on the reloaders.
-	for _, file := range tlsCfg.Certificates.Files {
-		require.NoError(t, service.certs.load(file))
+	if tlsCfg.Certificates != nil {
+		for _, file := range tlsCfg.Certificates.Files {
+			require.NoError(t, service.certs.load(file))
+		}
 	}
 
 	return service
@@ -63,7 +65,7 @@ func TestNewCertManager_AutomationError(t *testing.T) {
 
 func TestCertManager_GetCertificate(t *testing.T) {
 	fooCert := generateCert(t, "foo.acme.int")
-	files := config.TLSCertificateSources{Files: []config.TLSCertificateFileKeyPair{createKeyPair(t, fooCert)}}
+	files := &config.TLSCertificateSources{Files: []config.TLSCertificateFileKeyPair{createKeyPair(t, fooCert)}}
 
 	tests := []struct {
 		name       string
@@ -95,6 +97,12 @@ func TestCertManager_GetCertificate(t *testing.T) {
 			tlsCfg:   config.TLSConfig{Certificates: files, Automation: testAutomationConfig()},
 			hello:    clientHello(""),
 			wantCert: fooCert.Certificate,
+		},
+		{
+			name:       "SNI is issued on demand without configured certificates",
+			tlsCfg:     config.TLSConfig{Automation: testAutomationConfig()},
+			hello:      clientHello("foo.acme.int"),
+			wantIssued: []string{"foo.acme.int"},
 		},
 		{
 			name:       "IP SNI is issued on demand",

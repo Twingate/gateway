@@ -92,8 +92,8 @@ type AuditLogConfig struct {
 
 // TLSConfig represents the downstream TLS configuration.
 type TLSConfig struct {
-	Certificates TLSCertificateSources `yaml:"certificates"`
-	Automation   *TLSAutomationConfig  `yaml:"automation,omitempty"`
+	Certificates *TLSCertificateSources `yaml:"certificates,omitempty"`
+	Automation   *TLSAutomationConfig   `yaml:"automation,omitempty"`
 }
 
 // TLSCertificateSources lists the TLS certificates the Gateway can serve.
@@ -388,15 +388,35 @@ func (c *Config) Validate() error {
 }
 
 func (t *TLSConfig) Validate() error {
-	if t.Automation == nil && len(t.Certificates.Files) == 0 {
+	if t.Certificates == nil && t.Automation == nil {
 		return fmt.Errorf("%w: certificates.files", ErrRequired)
+	}
+
+	if t.Certificates != nil {
+		if err := t.Certificates.Validate(); err != nil {
+			return fmt.Errorf("certificates: %w", err)
+		}
+	}
+
+	if t.Automation != nil {
+		if err := t.Automation.Validate(); err != nil {
+			return fmt.Errorf("automation: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func (t *TLSCertificateSources) Validate() error {
+	if len(t.Files) == 0 {
+		return fmt.Errorf("%w: files", ErrRequired)
 	}
 
 	certificateFiles := make(map[string]struct{})
 
-	for i, keyPair := range t.Certificates.Files {
+	for i, keyPair := range t.Files {
 		if err := keyPair.Validate(); err != nil {
-			return fmt.Errorf("certificates.files[%d]: %w", i, err)
+			return fmt.Errorf("files[%d]: %w", i, err)
 		}
 
 		if _, exists := certificateFiles[keyPair.CertificateFile]; exists {
@@ -404,12 +424,6 @@ func (t *TLSConfig) Validate() error {
 		}
 
 		certificateFiles[keyPair.CertificateFile] = struct{}{}
-	}
-
-	if t.Automation != nil {
-		if err := t.Automation.Validate(); err != nil {
-			return fmt.Errorf("automation: %w", err)
-		}
 	}
 
 	return nil

@@ -24,7 +24,7 @@ import (
 )
 
 var testTLSConfig = config.TLSConfig{
-	Certificates: config.TLSCertificateSources{
+	Certificates: &config.TLSCertificateSources{
 		Files: []config.TLSCertificateFileKeyPair{
 			{
 				CertificateFile: "../../test/data/proxy/tls.crt",

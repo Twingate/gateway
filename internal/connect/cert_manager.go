@@ -20,7 +20,12 @@ type CertManager struct {
 }
 
 func newCertManager(tlsCfg config.TLSConfig, logger *zap.Logger) (*CertManager, error) {
-	manager := &CertManager{certs: NewCertReloader(tlsCfg.Certificates.Files, logger)}
+	var keyPairs []config.TLSCertificateFileKeyPair
+	if tlsCfg.Certificates != nil {
+		keyPairs = tlsCfg.Certificates.Files
+	}
+
+	manager := &CertManager{certs: NewCertReloader(keyPairs, logger)}
 
 	if tlsCfg.Automation != nil {
 		automation, err := NewCertAutomation(*tlsCfg.Automation, logger)
