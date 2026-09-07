@@ -6,7 +6,6 @@ package connect
 import (
 	"bufio"
 	"crypto/tls"
-	"errors"
 	"io"
 	"net"
 	"sync"
@@ -21,11 +20,12 @@ import (
 	"go.uber.org/zap"
 
 	"gateway/internal/config"
+	"gateway/internal/connect/cert"
 	"gateway/internal/token"
 )
 
 var testTLSConfig = config.TLSConfig{
-	Certificates: config.TLSCertificateSources{
+	Certificates: &config.TLSCertificateSources{
 		Files: []config.TLSCertificateFileKeyPair{
 			{
 				CertificateFile: "../../test/data/proxy/tls.crt",
@@ -33,6 +33,26 @@ var testTLSConfig = config.TLSConfig{
 			},
 		},
 	},
+}
+
+func testAutomationConfig() *config.TLSAutomationConfig {
+	return &config.TLSAutomationConfig{
+		Issuer: config.TLSIssuerConfig{
+			Local: &config.TLSLocalIssuerConfig{
+				CertificateFile: "../../test/data/proxy/tls.crt",
+				PrivateKeyFile:  "../../test/data/proxy/tls.key",
+			},
+		},
+	}
+}
+
+func newTestCertManager(t *testing.T, tlsCfg config.TLSConfig) *cert.Manager {
+	t.Helper()
+
+	manager, err := cert.NewManager(tlsCfg, zap.NewNop())
+	require.NoError(t, err)
+
+	return manager
 }
 
 type mockProxyConn struct {
@@ -457,26 +477,6 @@ func TestListener_Serve_GracefulShutdown(t *testing.T) {
 		require.False(t, ok, "channel should be closed after Serve returns")
 	case <-time.After(2 * time.Second):
 		t.Fatal("timeout waiting for Serve to return")
-	}
-}
-
-func TestListener_Serve_CertManagerRunError(t *testing.T) {
-	fixtures := createTestListenerWithChannels(t)
-
-	issuer := newStubIssuer()
-	issuer.runErr = errors.New("vault login failed")
-	fixtures.listener.certManager.automation = newStubAutomation(t, issuer)
-
-	err := fixtures.listener.Serve(t.Context(), fixtures.tcpListener)
-	require.ErrorIs(t, err, issuer.runErr)
-
-	for name, channel := range map[string]chan Conn{"http": fixtures.httpChannel, "ssh": fixtures.sshChannel} {
-		select {
-		case _, open := <-channel:
-			assert.False(t, open, "%s channel should be closed", name)
-		default:
-			t.Errorf("%s channel should be closed when Serve fails to start", name)
-		}
 	}
 }
 

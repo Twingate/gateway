@@ -1,7 +1,7 @@
 // Copyright (c) Twingate Inc.
 // SPDX-License-Identifier: MPL-2.0
 
-package connect
+package cert
 
 import (
 	"crypto/rand"
@@ -21,13 +21,13 @@ import (
 	"gateway/internal/config"
 )
 
-func TestCertReloader_Run(t *testing.T) {
+func TestReloader_Run(t *testing.T) {
 	fooCert := generateCert(t, "foo.acme.int")
 	barCert := generateCert(t, "bar.acme.int")
 	fooKeyPair := createKeyPair(t, fooCert)
 	barKeyPair := createKeyPair(t, barCert)
 
-	cr := NewCertReloader([]config.TLSCertificateFileKeyPair{fooKeyPair, barKeyPair}, zap.NewNop())
+	cr := newReloader([]config.TLSCertificateFileKeyPair{fooKeyPair, barKeyPair}, zap.NewNop())
 	cr.Run(t.Context())
 
 	requireCert(t, cr, "foo.acme.int", fooCert)
@@ -40,7 +40,7 @@ func TestCertReloader_Run(t *testing.T) {
 	requireCert(t, cr, "foo.acme.int", fooCert)
 }
 
-func TestCertReloader_load(t *testing.T) {
+func TestReloader_load(t *testing.T) {
 	cert := generateCert(t)
 	keyPair := createKeyPair(t, cert)
 	otherKeyPair := createKeyPair(t, generateCert(t))
@@ -65,7 +65,7 @@ func TestCertReloader_load(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cr := NewCertReloader([]config.TLSCertificateFileKeyPair{tt.keyPair}, zap.NewNop())
+			cr := newReloader([]config.TLSCertificateFileKeyPair{tt.keyPair}, zap.NewNop())
 
 			err := cr.load(tt.keyPair)
 
@@ -80,7 +80,7 @@ func TestCertReloader_load(t *testing.T) {
 	}
 }
 
-func TestCertReloader_GetCertificate(t *testing.T) {
+func TestReloader_GetCertificate(t *testing.T) {
 	fooCert := generateCert(t, "foo.acme.int")
 	barCert := generateCert(t, "bar.acme.int")
 
@@ -89,7 +89,7 @@ func TestCertReloader_GetCertificate(t *testing.T) {
 
 	missing := config.TLSCertificateFileKeyPair{CertificateFile: "nonexistent.crt", PrivateKeyFile: "nonexistent.key"}
 
-	cr := NewCertReloader([]config.TLSCertificateFileKeyPair{missing, fooKeyPair, barKeyPair}, zap.NewNop())
+	cr := newReloader([]config.TLSCertificateFileKeyPair{missing, fooKeyPair, barKeyPair}, zap.NewNop())
 	require.NoError(t, cr.load(fooKeyPair))
 	require.NoError(t, cr.load(barKeyPair))
 	require.Error(t, cr.load(missing))
@@ -113,7 +113,7 @@ func TestCertReloader_GetCertificate(t *testing.T) {
 	}
 }
 
-func TestCertReloader_GetCertificate_NoCertificates(t *testing.T) {
+func TestReloader_GetCertificate_NoCertificates(t *testing.T) {
 	tests := []struct {
 		name     string
 		keyPairs []config.TLSCertificateFileKeyPair
@@ -130,7 +130,7 @@ func TestCertReloader_GetCertificate_NoCertificates(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cr := NewCertReloader(tt.keyPairs, zap.NewNop())
+			cr := newReloader(tt.keyPairs, zap.NewNop())
 
 			for _, keyPair := range tt.keyPairs {
 				require.Error(t, cr.load(keyPair))
@@ -138,7 +138,7 @@ func TestCertReloader_GetCertificate_NoCertificates(t *testing.T) {
 
 			got, err := cr.GetCertificate(clientHello("bar.acme.int"))
 			assert.Nil(t, got)
-			require.ErrorIs(t, err, errNoCertificates)
+			require.ErrorIs(t, err, ErrNoCertificates)
 		})
 	}
 }
@@ -150,13 +150,13 @@ func clientHello(serverName string) *tls.ClientHelloInfo {
 	}
 }
 
-func requireCert(t *testing.T, certReloader *CertReloader, serverName string, expectedCert tls.Certificate) {
+func requireCert(t *testing.T, cr *reloader, serverName string, expectedCert tls.Certificate) {
 	t.Helper()
 
 	hello := clientHello(serverName)
 
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		existingCert, err := certReloader.GetCertificate(hello)
+		existingCert, err := cr.GetCertificate(hello)
 		require.NoError(c, err)
 
 		require.NotNil(c, existingCert)

@@ -101,8 +101,8 @@ func TestTLSVault(t *testing.T) {
 				t.Logf("Failed to start Gateway: %v", err)
 			}()
 
-			// The health check dials by IP without SNI, so readiness already
-			// proves the local-address fallback mints an IP certificate via Vault.
+			// The health check dials without SNI, so readiness already proves
+			// Vault signs a request that asks for no names.
 			testutil.GatewayHealthCheck(t, port)
 
 			conn, err := tls.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", port), &tls.Config{

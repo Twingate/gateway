@@ -16,6 +16,7 @@ import (
 	"go.uber.org/zap"
 
 	"gateway/internal/config"
+	"gateway/internal/connect/cert"
 	"gateway/internal/token"
 )
 
@@ -73,7 +74,7 @@ type Listener struct {
 	channels map[token.ResourceType]chan<- Conn
 
 	tokenParser      *token.Parser
-	certManager      *CertManager
+	certManager      *cert.Manager
 	tlsConfig        *tls.Config
 	connectValidator Validator
 	logger           *zap.Logger
@@ -102,9 +103,9 @@ func NewListener(
 		return nil, fmt.Errorf("failed to create token parser: %w", err)
 	}
 
-	certManager, err := newCertManager(tlsCfg, logger)
+	certManager, err := cert.NewManager(tlsCfg, logger)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create TLS certificate manager: %w", err)
 	}
 
 	tlsConfig := &tls.Config{
@@ -128,7 +129,7 @@ func NewListener(
 		logger:           logger,
 		metrics:          metrics,
 		proxyConnFactory: func(conn net.Conn, tlsConfig *tls.Config, connectValidator Validator, logger *zap.Logger) Conn {
-			return NewProxyConn(conn, tlsConfig, certManager, connectValidator, logger, metrics)
+			return NewProxyConn(conn, tlsConfig, connectValidator, logger, metrics)
 		},
 	}
 

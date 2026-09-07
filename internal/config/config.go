@@ -92,8 +92,8 @@ type AuditLogConfig struct {
 
 // TLSConfig represents the downstream TLS configuration.
 type TLSConfig struct {
-	Certificates TLSCertificateSources `yaml:"certificates"`
-	Automation   *TLSAutomationConfig  `yaml:"automation,omitempty"`
+	Certificates *TLSCertificateSources `yaml:"certificates,omitempty"`
+	Automation   *TLSAutomationConfig   `yaml:"automation,omitempty"`
 }
 
 // TLSCertificateSources lists the TLS certificates the Gateway can serve.
@@ -401,15 +401,35 @@ func (c *Config) Validate() error {
 }
 
 func (t *TLSConfig) Validate() error {
-	if t.Automation == nil && len(t.Certificates.Files) == 0 {
-		return fmt.Errorf("%w: certificates.files", ErrRequired)
+	if t.Certificates == nil && t.Automation == nil {
+		return ErrMissingTLSCertificateSource
+	}
+
+	if t.Certificates != nil {
+		if err := t.Certificates.Validate(); err != nil {
+			return fmt.Errorf("certificates: %w", err)
+		}
+	}
+
+	if t.Automation != nil {
+		if err := t.Automation.Validate(); err != nil {
+			return fmt.Errorf("automation: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func (t *TLSCertificateSources) Validate() error {
+	if len(t.Files) == 0 {
+		return fmt.Errorf("%w: files", ErrRequired)
 	}
 
 	certificateFiles := make(map[string]struct{})
 
-	for i, keyPair := range t.Certificates.Files {
+	for i, keyPair := range t.Files {
 		if err := keyPair.Validate(); err != nil {
-			return fmt.Errorf("certificates.files[%d]: %w", i, err)
+			return fmt.Errorf("files[%d]: %w", i, err)
 		}
 
 		if _, exists := certificateFiles[keyPair.CertificateFile]; exists {
@@ -417,12 +437,6 @@ func (t *TLSConfig) Validate() error {
 		}
 
 		certificateFiles[keyPair.CertificateFile] = struct{}{}
-	}
-
-	if t.Automation != nil {
-		if err := t.Automation.Validate(); err != nil {
-			return fmt.Errorf("automation: %w", err)
-		}
 	}
 
 	return nil
@@ -441,9 +455,10 @@ func (t *TLSCertificateFileKeyPair) Validate() error {
 }
 
 var (
-	ErrMissingTLSIssuerConfig     = errors.New("at least one TLS issuer must be configured")
-	ErrConflictingTLSIssuerConfig = errors.New("only one of 'local' or 'vault' can be specified for TLS issuer config")
-	ErrInvalidTLSKeyType          = errors.New("invalid TLS key type")
+	ErrMissingTLSCertificateSource = errors.New("at least one TLS certificate source must be configured")
+	ErrMissingTLSIssuerConfig      = errors.New("at least one TLS issuer must be configured")
+	ErrConflictingTLSIssuerConfig  = errors.New("only one of 'local' or 'vault' can be specified for TLS issuer config")
+	ErrInvalidTLSKeyType           = errors.New("invalid TLS key type")
 )
 
 func (a *TLSAutomationConfig) Validate() error {

@@ -1,13 +1,12 @@
 // Copyright (c) Twingate Inc.
 // SPDX-License-Identifier: MPL-2.0
 
-package connect
+package cert
 
 import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -20,16 +19,16 @@ import (
 )
 
 const (
-	defaultCertTTL = 24 * time.Hour
+	defaultTTL     = 24 * time.Hour
 	maxCachedCerts = 1024
 	renewFraction  = 0.8
 )
 
-// CertAutomation issues short-lived certificates through the configured issuer.
+// automation issues short-lived certificates through the configured issuer.
 // It caches one certificate per requested name set and issues a fresh one once the
 // cached certificate is past its renewal threshold.
-type CertAutomation struct {
-	issuer certIssuer
+type automation struct {
+	issuer issuer
 	logger *zap.Logger
 
 	mu sync.Mutex
@@ -38,7 +37,7 @@ type CertAutomation struct {
 	cache       *lru.Cache[string, *tls.Certificate]
 }
 
-func NewCertAutomation(cfg config.TLSAutomationConfig, logger *zap.Logger) (*CertAutomation, error) {
+func newAutomation(cfg config.TLSAutomationConfig, logger *zap.Logger) (*automation, error) {
 	keyCfg, err := newKeyConfig(cfg.Certificate.Key.Type, cfg.Certificate.Key.Bits)
 	if err != nil {
 		return nil, fmt.Errorf("invalid certificate key config: %w", err)
@@ -46,10 +45,10 @@ func NewCertAutomation(cfg config.TLSAutomationConfig, logger *zap.Logger) (*Cer
 
 	certTTL := cfg.Certificate.TTL
 	if certTTL == 0 {
-		certTTL = defaultCertTTL
+		certTTL = defaultTTL
 	}
 
-	issuer, err := newCertIssuer(cfg.Issuer, keyCfg, certTTL, logger)
+	issuer, err := newIssuer(cfg.Issuer, keyCfg, certTTL, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -59,14 +58,14 @@ func NewCertAutomation(cfg config.TLSAutomationConfig, logger *zap.Logger) (*Cer
 		return nil, fmt.Errorf("failed to create certificate cache: %w", err)
 	}
 
-	return &CertAutomation{
+	return &automation{
 		issuer: issuer,
 		logger: logger,
 		cache:  cache,
 	}, nil
 }
 
-func (c *CertAutomation) Run(ctx context.Context) error {
+func (c *automation) Run(ctx context.Context) error {
 	if err := c.issuer.run(ctx); err != nil {
 		return err
 	}
@@ -80,11 +79,11 @@ func (c *CertAutomation) Run(ctx context.Context) error {
 	return nil
 }
 
-func (c *CertAutomation) GetCertificateForHost(ctx context.Context, host string, aliases ...string) (*tls.Certificate, error) {
-	names := certNames(host, aliases)
-	key := strings.Join(names, ",")
+// GetCertificateForHost issues a certificate covering the given host, caching it under that name.
+func (c *automation) GetCertificateForHost(ctx context.Context, host string) (*tls.Certificate, error) {
+	host = strings.ToLower(host)
 
-	if cert, ok := c.cachedCert(key); ok {
+	if cert, ok := c.cachedCert(host); ok {
 		return cert, nil
 	}
 
@@ -94,13 +93,13 @@ func (c *CertAutomation) GetCertificateForHost(ctx context.Context, host string,
 
 	// Sign outside the lock so a slow CA cannot stall handshakes for names that are already
 	// cached. A burst against a cold cache may sign the same names twice, which is cheaper.
-	cert, err := c.issuer.issue(ctx, names)
+	cert, err := c.issuer.issue(ctx, host)
 	if err != nil {
 		return nil, err
 	}
 
 	c.logger.Debug("Issued downstream certificate",
-		zap.Strings("hosts", names),
+		zap.String("host", host),
 		zap.Time("not_after", cert.Leaf.NotAfter),
 	)
 
@@ -110,30 +109,14 @@ func (c *CertAutomation) GetCertificateForHost(ctx context.Context, host string,
 	// The CA rotated while this certificate was in flight: serve it to this handshake
 	// only, so the cache never holds a certificate from a previous CA.
 	if rotations == c.caRotations {
-		c.cache.Add(key, cert)
+		c.cache.Add(host, cert)
 	}
 
 	return cert, nil
 }
 
-func certNames(host string, aliases []string) []string {
-	names := make([]string, 0, len(aliases)+1)
-	names = append(names, strings.ToLower(host))
-
-	for _, alias := range aliases {
-		if alias = strings.ToLower(alias); alias != "" && !slices.Contains(names, alias) {
-			names = append(names, alias)
-		}
-	}
-
-	// host stays first so it becomes the common name
-	slices.Sort(names[1:])
-
-	return names
-}
-
 // purgeOnRotation drops every cached certificate and counts the rotation.
-func (c *CertAutomation) purgeOnRotation(ctx context.Context, rotated <-chan struct{}) {
+func (c *automation) purgeOnRotation(ctx context.Context, rotated <-chan struct{}) {
 	for {
 		select {
 		case <-rotated:
@@ -153,7 +136,7 @@ func (c *CertAutomation) purgeOnRotation(ctx context.Context, rotated <-chan str
 // cachedCert returns the cached certificate for the given name set while it is
 // short of renewFraction of its lifetime. The lifetime is read off the
 // certificate itself, since an issuer may hand back a shorter one than asked for.
-func (c *CertAutomation) cachedCert(key string) (*tls.Certificate, bool) {
+func (c *automation) cachedCert(key string) (*tls.Certificate, bool) {
 	cert, ok := c.cache.Get(key)
 	if !ok {
 		return nil, false

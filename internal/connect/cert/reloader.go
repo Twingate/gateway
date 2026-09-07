@@ -1,7 +1,7 @@
 // Copyright (c) Twingate Inc.
 // SPDX-License-Identifier: MPL-2.0
 
-package connect
+package cert
 
 import (
 	"context"
@@ -12,39 +12,39 @@ import (
 	"go.uber.org/zap"
 
 	"gateway/internal/config"
-	"gateway/internal/reloader"
+	filereloader "gateway/internal/reloader"
 )
 
-// errNoCertificates is returned when no certificate has been loaded.
-var errNoCertificates = errors.New("no certificate could be loaded")
+// ErrNoCertificates is returned when no certificate has been loaded.
+var ErrNoCertificates = errors.New("no certificate could be loaded")
 
-type CertReloader struct {
+type reloader struct {
 	logger   *zap.Logger
 	keyPairs []config.TLSCertificateFileKeyPair
 
 	mu    sync.RWMutex
 	certs map[string]*tls.Certificate
 
-	reloaders []*reloader.Reloader
+	reloaders []*filereloader.Reloader
 }
 
-func NewCertReloader(keyPairs []config.TLSCertificateFileKeyPair, logger *zap.Logger) *CertReloader {
-	cr := &CertReloader{
+func newReloader(keyPairs []config.TLSCertificateFileKeyPair, logger *zap.Logger) *reloader {
+	cr := &reloader{
 		logger:    logger,
 		keyPairs:  keyPairs,
 		certs:     make(map[string]*tls.Certificate, len(keyPairs)),
-		reloaders: make([]*reloader.Reloader, 0, len(keyPairs)),
+		reloaders: make([]*filereloader.Reloader, 0, len(keyPairs)),
 	}
 
 	for _, keyPair := range keyPairs {
 		load := func() error { return cr.load(keyPair) }
-		cr.reloaders = append(cr.reloaders, reloader.New([]string{keyPair.CertificateFile, keyPair.PrivateKeyFile}, load, logger))
+		cr.reloaders = append(cr.reloaders, filereloader.New([]string{keyPair.CertificateFile, keyPair.PrivateKeyFile}, load, logger))
 	}
 
 	return cr
 }
 
-func (cr *CertReloader) Run(ctx context.Context) {
+func (cr *reloader) Run(ctx context.Context) {
 	for _, r := range cr.reloaders {
 		r.Run(ctx)
 	}
@@ -52,7 +52,7 @@ func (cr *CertReloader) Run(ctx context.Context) {
 
 // GetCertificate returns the first certificate the client supports, falling back to the
 // first loaded certificate when none of them matches.
-func (cr *CertReloader) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+func (cr *reloader) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
 	if cert := cr.MatchCertificate(hello); cert != nil {
 		return cert, nil
 	}
@@ -61,12 +61,12 @@ func (cr *CertReloader) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certifi
 		return cert, nil
 	}
 
-	return nil, errNoCertificates
+	return nil, ErrNoCertificates
 }
 
 // MatchCertificate returns the first certificate the client supports, or nil when
 // none of them matches.
-func (cr *CertReloader) MatchCertificate(hello *tls.ClientHelloInfo) *tls.Certificate {
+func (cr *reloader) MatchCertificate(hello *tls.ClientHelloInfo) *tls.Certificate {
 	cr.mu.RLock()
 	defer cr.mu.RUnlock()
 
@@ -86,7 +86,7 @@ func (cr *CertReloader) MatchCertificate(hello *tls.ClientHelloInfo) *tls.Certif
 
 // firstCertificate returns the first loaded certificate, in configuration order,
 // or nil when none is loaded.
-func (cr *CertReloader) firstCertificate() *tls.Certificate {
+func (cr *reloader) firstCertificate() *tls.Certificate {
 	cr.mu.RLock()
 	defer cr.mu.RUnlock()
 
@@ -99,7 +99,7 @@ func (cr *CertReloader) firstCertificate() *tls.Certificate {
 	return nil
 }
 
-func (cr *CertReloader) load(keyPair config.TLSCertificateFileKeyPair) error {
+func (cr *reloader) load(keyPair config.TLSCertificateFileKeyPair) error {
 	cert, err := tls.LoadX509KeyPair(keyPair.CertificateFile, keyPair.PrivateKeyFile)
 	if err != nil {
 		return err

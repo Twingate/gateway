@@ -1,7 +1,7 @@
 // Copyright (c) Twingate Inc.
 // SPDX-License-Identifier: MPL-2.0
 
-package connect
+package cert
 
 import (
 	"bytes"
@@ -10,7 +10,6 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
-	"crypto/x509/pkix"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -25,7 +24,7 @@ import (
 	"go.uber.org/zap"
 
 	"gateway/internal/config"
-	"gateway/internal/reloader"
+	filereloader "gateway/internal/reloader"
 	"gateway/internal/vault"
 )
 
@@ -40,20 +39,21 @@ var (
 
 var serialNumberLimit = new(big.Int).Lsh(big.NewInt(1), 128)
 
-// certIssuer issues a certificate covering a set of names and runs any
-// background maintenance its backend needs.
-type certIssuer interface {
+// issuer issues the certificate served on a handshake, signs certificate requests
+// with its CA and runs any background maintenance its backend needs.
+type issuer interface {
 	run(ctx context.Context) error
-	issue(ctx context.Context, names []string) (*tls.Certificate, error)
+	issue(ctx context.Context, name string) (*tls.Certificate, error)
+	sign(ctx context.Context, csr *x509.CertificateRequest) (leaf *x509.Certificate, caChain []*x509.Certificate, err error)
 }
 
-// rotatableIssuer is a certIssuer whose CA can rotate during the process lifetime.
+// rotatableIssuer is an issuer whose CA can rotate during the process lifetime.
 // The channel returned by rotated receives a value after each rotation.
 type rotatableIssuer interface {
 	rotated() <-chan struct{}
 }
 
-func newCertIssuer(cfg config.TLSIssuerConfig, keyCfg keyConfig, ttl time.Duration, logger *zap.Logger) (certIssuer, error) {
+func newIssuer(cfg config.TLSIssuerConfig, keyCfg keyConfig, ttl time.Duration, logger *zap.Logger) (issuer, error) {
 	switch {
 	case cfg.Local != nil:
 		return newLocalIssuer(cfg.Local, keyCfg, ttl, logger)
@@ -79,7 +79,7 @@ type localIssuer struct {
 	caCert *x509.Certificate
 	caKey  crypto.Signer
 
-	reloader *reloader.Reloader
+	reloader *filereloader.Reloader
 }
 
 func newLocalIssuer(cfg *config.TLSLocalIssuerConfig, keyCfg keyConfig, ttl time.Duration, logger *zap.Logger) (*localIssuer, error) {
@@ -91,7 +91,7 @@ func newLocalIssuer(cfg *config.TLSLocalIssuerConfig, keyCfg keyConfig, ttl time
 		logger:   logger,
 		rotateCh: make(chan struct{}, 1),
 	}
-	issuer.reloader = reloader.New([]string{cfg.CertificateFile, cfg.PrivateKeyFile}, issuer.load, logger)
+	issuer.reloader = filereloader.New([]string{cfg.CertificateFile, cfg.PrivateKeyFile}, issuer.load, logger)
 
 	// Load up front so a misconfigured issuer fails at startup.
 	if err := issuer.load(); err != nil {
@@ -154,15 +154,14 @@ func (l *localIssuer) load() error {
 	return nil
 }
 
-func (l *localIssuer) issue(_ context.Context, names []string) (*tls.Certificate, error) {
-	key, err := l.key.generate()
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate leaf key: %w", err)
-	}
+func (l *localIssuer) issue(ctx context.Context, name string) (*tls.Certificate, error) {
+	return issueCertificate(ctx, l, l.key, name)
+}
 
+func (l *localIssuer) sign(_ context.Context, csr *x509.CertificateRequest) (*x509.Certificate, []*x509.Certificate, error) {
 	serial, err := rand.Int(rand.Reader, serialNumberLimit)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate serial number: %w", err)
+		return nil, nil, fmt.Errorf("failed to generate serial number: %w", err)
 	}
 
 	l.mu.RLock()
@@ -172,36 +171,82 @@ func (l *localIssuer) issue(_ context.Context, names []string) (*tls.Certificate
 	now := time.Now()
 	template := &x509.Certificate{
 		SerialNumber: serial,
-		Subject:      pkix.Name{CommonName: names[0]},
 		NotBefore:    now.Add(-clockSkewBuffer),
 		NotAfter:     now.Add(l.ttl),
 		KeyUsage:     x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		DNSNames:     csr.DNSNames,
+		IPAddresses:  csr.IPAddresses,
 	}
 
-	for _, name := range names {
-		if ip := net.ParseIP(name); ip != nil {
-			template.IPAddresses = append(template.IPAddresses, ip)
-		} else {
-			template.DNSNames = append(template.DNSNames, name)
-		}
-	}
-
-	leafDER, err := x509.CreateCertificate(rand.Reader, template, caCert, key.Public(), caKey)
+	leafDER, err := x509.CreateCertificate(rand.Reader, template, caCert, csr.PublicKey, caKey)
 	if err != nil {
-		return nil, fmt.Errorf("failed to sign leaf certificate: %w", err)
+		return nil, nil, fmt.Errorf("failed to sign leaf certificate: %w", err)
 	}
 
 	leaf, err := x509.ParseCertificate(leafDER)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse leaf certificate: %w", err)
+		return nil, nil, fmt.Errorf("failed to parse leaf certificate: %w", err)
+	}
+
+	return leaf, []*x509.Certificate{caCert}, nil
+}
+
+// issueCertificate generates a leaf key and has the issuer's CA sign a request
+// covering name, assembling the certificate served on the handshake.
+func issueCertificate(ctx context.Context, i issuer, keyCfg keyConfig, name string) (*tls.Certificate, error) {
+	key, err := keyCfg.generate()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate leaf key: %w", err)
+	}
+
+	csr, err := certificateRequest(key, name)
+	if err != nil {
+		return nil, err
+	}
+
+	leaf, caChain, err := i.sign(ctx, csr)
+	if err != nil {
+		return nil, err
+	}
+
+	chain := make([][]byte, 0, len(caChain)+1)
+	chain = append(chain, leaf.Raw)
+
+	for _, ca := range caChain {
+		chain = append(chain, ca.Raw)
 	}
 
 	return &tls.Certificate{
-		Certificate: [][]byte{leafDER, caCert.Raw},
+		Certificate: chain,
 		PrivateKey:  key,
 		Leaf:        leaf,
 	}, nil
+}
+
+// certificateRequest builds a certificate request covering name, signed by key so a
+// backend can forward it to a remote CA.
+func certificateRequest(key crypto.Signer, name string) (*x509.CertificateRequest, error) {
+	template := &x509.CertificateRequest{}
+
+	// A handshake without SNI leaves no name, and the certificate then covers none.
+	if ip := net.ParseIP(name); ip != nil {
+		template.IPAddresses = []net.IP{ip}
+	} else if name != "" {
+		template.DNSNames = []string{name}
+	}
+
+	der, err := x509.CreateCertificateRequest(rand.Reader, template, key)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create certificate request: %w", err)
+	}
+
+	csr, err := x509.ParseCertificateRequest(der)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse certificate request: %w", err)
+	}
+
+	return csr, nil
 }
 
 // vaultIssuer issues leaf certificates through Vault's PKI secrets engine.
@@ -238,130 +283,87 @@ func (v *vaultIssuer) run(ctx context.Context) error {
 	return nil
 }
 
-// issue asks Vault to sign a locally generated key for names through
-// <mount>/sign/<role>, so the private key never leaves the Gateway. The context
-// is the TLS handshake's, so an abandoned handshake cancels the in-flight request.
-func (v *vaultIssuer) issue(ctx context.Context, names []string) (*tls.Certificate, error) {
-	key, err := v.key.generate()
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate leaf key: %w", err)
-	}
+func (v *vaultIssuer) issue(ctx context.Context, name string) (*tls.Certificate, error) {
+	return issueCertificate(ctx, v, v.key, name)
+}
 
-	csr, err := certificateRequestPEM(key, names)
-	if err != nil {
-		return nil, err
-	}
-
+// sign has Vault sign the request through <mount>/sign/<role>, so the private key
+// never leaves the Gateway. The context is the TLS handshake's, so an abandoned
+// handshake cancels the in-flight request.
+func (v *vaultIssuer) sign(ctx context.Context, csr *x509.CertificateRequest) (*x509.Certificate, []*x509.Certificate, error) {
 	data := map[string]any{
-		"csr":         csr,
-		"common_name": names[0],
+		"csr":         string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csr.Raw})),
+		"common_name": commonName(csr),
 		"ttl":         v.ttl.String(),
 	}
 
-	var altNames, ipSANs []string
+	if len(csr.DNSNames) > 0 {
+		data["alt_names"] = strings.Join(csr.DNSNames, ",")
+	}
 
-	for _, name := range names {
-		if net.ParseIP(name) != nil {
-			ipSANs = append(ipSANs, name)
-		} else {
-			altNames = append(altNames, name)
+	if len(csr.IPAddresses) > 0 {
+		ipSANs := make([]string, 0, len(csr.IPAddresses))
+		for _, ip := range csr.IPAddresses {
+			ipSANs = append(ipSANs, ip.String())
 		}
-	}
 
-	if len(altNames) > 0 {
-		data["alt_names"] = strings.Join(altNames, ",")
-	}
-
-	if len(ipSANs) > 0 {
 		data["ip_sans"] = strings.Join(ipSANs, ",")
 	}
 
 	secret, err := v.vault.Client.Logical().WriteWithContext(ctx, v.mount+"/sign/"+v.role, data)
 	if err != nil {
-		return nil, fmt.Errorf("failed to issue certificate: %w", err)
+		return nil, nil, fmt.Errorf("failed to issue certificate: %w", err)
 	}
 
 	if secret == nil || secret.Data == nil {
-		return nil, fmt.Errorf("%w: empty response", errVaultIssueFailed)
+		return nil, nil, fmt.Errorf("%w: empty response", errVaultIssueFailed)
 	}
 
 	certPEM, ok := secret.Data["certificate"].(string)
 	if !ok || certPEM == "" {
-		return nil, fmt.Errorf("%w: no certificate in response", errVaultIssueFailed)
+		return nil, nil, fmt.Errorf("%w: no certificate in response", errVaultIssueFailed)
 	}
 
 	chain, err := parseCertificateChain(append([]string{certPEM}, caChain(secret.Data)...))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	leaf, err := x509.ParseCertificate(chain[0])
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse issued certificate: %w", err)
+	leaf := chain[0]
+	if err := verifyIssuedCertificate(leaf, csr, v.ttl); err != nil {
+		return nil, nil, err
 	}
 
-	if err := verifyIssuedCertificate(leaf, key, names, v.ttl); err != nil {
-		return nil, err
-	}
-
-	return &tls.Certificate{
-		Certificate: chain,
-		PrivateKey:  key,
-		Leaf:        leaf,
-	}, nil
+	return leaf, chain[1:], nil
 }
 
-// certificateRequestPEM builds a PEM-encoded CSR for key, with the first name
-// as the common name and every name as a DNS or IP SAN.
-func certificateRequestPEM(key crypto.Signer, names []string) (string, error) {
-	template := &x509.CertificateRequest{Subject: pkix.Name{CommonName: names[0]}}
-
-	for _, name := range names {
-		if ip := net.ParseIP(name); ip != nil {
-			template.IPAddresses = append(template.IPAddresses, ip)
-		} else {
-			template.DNSNames = append(template.DNSNames, name)
-		}
+// commonName returns the request's name for Vault's common_name field. A handshake
+// without SNI leaves it empty, which a PKI role only accepts with require_cn=false.
+func commonName(csr *x509.CertificateRequest) string {
+	if len(csr.DNSNames) > 0 {
+		return csr.DNSNames[0]
 	}
 
-	der, err := x509.CreateCertificateRequest(rand.Reader, template, key)
-	if err != nil {
-		return "", fmt.Errorf("failed to create certificate request: %w", err)
+	if len(csr.IPAddresses) > 0 {
+		return csr.IPAddresses[0].String()
 	}
 
-	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: der})), nil
+	return ""
 }
 
 // verifyIssuedCertificate rejects a CA-issued certificate that is signed by a different signer or
 // grants more than the request asked for, in names or in validity.
-func verifyIssuedCertificate(leaf *x509.Certificate, key crypto.Signer, names []string, ttl time.Duration) error {
+func verifyIssuedCertificate(leaf *x509.Certificate, csr *x509.CertificateRequest, ttl time.Duration) error {
 	type publicKey interface {
 		Equal(other crypto.PublicKey) bool
 	}
 
-	if pub, ok := key.Public().(publicKey); !ok || !pub.Equal(leaf.PublicKey) {
+	if pub, ok := csr.PublicKey.(publicKey); !ok || !pub.Equal(leaf.PublicKey) {
 		return fmt.Errorf("%w: certificate public key does not match the Gateway's key", errVaultCertMismatch)
 	}
 
-	granted := make(map[string]struct{}, len(leaf.DNSNames)+len(leaf.IPAddresses))
-	for _, name := range leaf.DNSNames {
-		granted[strings.ToLower(name)] = struct{}{}
-	}
-
-	for _, ip := range leaf.IPAddresses {
-		granted[ip.String()] = struct{}{}
-	}
-
-	requested := make(map[string]struct{}, len(names))
-
-	for _, name := range names {
-		// Canonicalize IPs the same way granted names are, so notations match.
-		if ip := net.ParseIP(name); ip != nil {
-			name = ip.String()
-		}
-
-		requested[name] = struct{}{}
-	}
+	granted := certificateNames(leaf.DNSNames, leaf.IPAddresses)
+	requested := certificateNames(csr.DNSNames, csr.IPAddresses)
 
 	if !maps.Equal(granted, requested) {
 		return fmt.Errorf("%w: granted names %q do not match requested %q",
@@ -376,8 +378,25 @@ func verifyIssuedCertificate(leaf *x509.Certificate, key crypto.Signer, names []
 	return nil
 }
 
-func parseCertificateChain(pems []string) ([][]byte, error) {
-	chain := make([][]byte, 0, len(pems))
+// certificateNames returns the names as a set, lowercased and in canonical IP
+// notation so both sides of a comparison match.
+func certificateNames(dnsNames []string, ips []net.IP) map[string]struct{} {
+	names := make(map[string]struct{}, len(dnsNames)+len(ips))
+
+	for _, name := range dnsNames {
+		names[strings.ToLower(name)] = struct{}{}
+	}
+
+	for _, ip := range ips {
+		names[ip.String()] = struct{}{}
+	}
+
+	return names
+}
+
+// parseCertificateChain parses the PEM certificates in a CA's response, leaf first.
+func parseCertificateChain(pems []string) ([]*x509.Certificate, error) {
+	chain := make([]*x509.Certificate, 0, len(pems))
 
 	for _, certPEM := range pems {
 		block, _ := pem.Decode([]byte(certPEM))
@@ -385,7 +404,12 @@ func parseCertificateChain(pems []string) ([][]byte, error) {
 			return nil, fmt.Errorf("%w: response is not PEM certificates", errVaultIssueFailed)
 		}
 
-		chain = append(chain, block.Bytes)
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse issued certificate: %w", err)
+		}
+
+		chain = append(chain, cert)
 	}
 
 	return chain, nil
