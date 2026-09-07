@@ -105,7 +105,7 @@ func NewListener(
 
 	certManager, err := cert.NewManager(tlsCfg, logger)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create TLS certificate manager: %w", err)
 	}
 
 	tlsConfig := &tls.Config{

@@ -190,6 +190,7 @@ webApp: {}
 	cfg, err := Load(tmpFile)
 	require.NoError(t, err)
 	require.NotNil(t, cfg.TLS.Automation)
+	require.NotNil(t, cfg.TLS.Certificates)
 
 	assert.Equal(t, []TLSCertificateFileKeyPair{{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"}}, cfg.TLS.Certificates.Files)
 
@@ -811,7 +812,7 @@ func TestTLSConfig_Validate(t *testing.T) {
 			name:        "missing certificates",
 			tls:         TLSConfig{},
 			wantErr:     true,
-			errContains: "required field is missing: certificates.files",
+			errContains: "at least one TLS certificate source must be configured",
 		},
 		{
 			name:        "invalid certificates",

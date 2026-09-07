@@ -389,7 +389,7 @@ func (c *Config) Validate() error {
 
 func (t *TLSConfig) Validate() error {
 	if t.Certificates == nil && t.Automation == nil {
-		return fmt.Errorf("%w: certificates.files", ErrRequired)
+		return ErrMissingTLSCertificateSource
 	}
 
 	if t.Certificates != nil {
@@ -442,8 +442,9 @@ func (t *TLSCertificateFileKeyPair) Validate() error {
 }
 
 var (
-	ErrMissingTLSIssuerConfig = errors.New("at least one TLS issuer must be configured")
-	ErrInvalidTLSKeyType      = errors.New("invalid TLS key type")
+	ErrMissingTLSCertificateSource = errors.New("at least one TLS certificate source must be configured")
+	ErrMissingTLSIssuerConfig      = errors.New("at least one TLS issuer must be configured")
+	ErrInvalidTLSKeyType           = errors.New("invalid TLS key type")
 )
 
 func (a *TLSAutomationConfig) Validate() error {
