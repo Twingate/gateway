@@ -10,7 +10,6 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
-	"crypto/x509/pkix"
 	"errors"
 	"fmt"
 	"math/big"
@@ -33,11 +32,11 @@ var (
 
 var serialNumberLimit = new(big.Int).Lsh(big.NewInt(1), 128)
 
-// certIssuer issues a certificate covering a set of names and runs any
+// certIssuer issues a certificate covering a hostname and runs any
 // background maintenance its backend needs.
 type certIssuer interface {
 	run(ctx context.Context)
-	issue(ctx context.Context, names []string) (*tls.Certificate, error)
+	issue(ctx context.Context, name string) (*tls.Certificate, error)
 }
 
 // rotatableIssuer is a certIssuer whose CA can rotate during the process lifetime.
@@ -143,7 +142,7 @@ func (l *localIssuer) load() error {
 	return nil
 }
 
-func (l *localIssuer) issue(_ context.Context, names []string) (*tls.Certificate, error) {
+func (l *localIssuer) issue(_ context.Context, name string) (*tls.Certificate, error) {
 	key, err := l.key.generate()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate leaf key: %w", err)
@@ -161,19 +160,17 @@ func (l *localIssuer) issue(_ context.Context, names []string) (*tls.Certificate
 	now := time.Now()
 	template := &x509.Certificate{
 		SerialNumber: serial,
-		Subject:      pkix.Name{CommonName: names[0]},
 		NotBefore:    now.Add(-clockSkewBuffer),
 		NotAfter:     now.Add(l.ttl),
 		KeyUsage:     x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 	}
 
-	for _, name := range names {
-		if ip := net.ParseIP(name); ip != nil {
-			template.IPAddresses = append(template.IPAddresses, ip)
-		} else {
-			template.DNSNames = append(template.DNSNames, name)
-		}
+	// A handshake without SNI leaves no name, and the certificate then covers none.
+	if ip := net.ParseIP(name); ip != nil {
+		template.IPAddresses = []net.IP{ip}
+	} else if name != "" {
+		template.DNSNames = []string{name}
 	}
 
 	leafDER, err := x509.CreateCertificate(rand.Reader, template, caCert, key.Public(), caKey)

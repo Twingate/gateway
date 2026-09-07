@@ -49,10 +49,10 @@ func (s *stubIssuer) run(context.Context) {}
 
 func (s *stubIssuer) rotated() <-chan struct{} { return s.rotateCh }
 
-func (s *stubIssuer) issue(_ context.Context, names []string) (*tls.Certificate, error) {
-	s.entered <- names[0]
+func (s *stubIssuer) issue(_ context.Context, name string) (*tls.Certificate, error) {
+	s.entered <- name
 
-	if gate, ok := s.gates[names[0]]; ok {
+	if gate, ok := s.gates[name]; ok {
 		<-gate
 	}
 
@@ -130,11 +130,11 @@ func TestCertAutomation_GetCertificateForHost(t *testing.T) {
 	cert, err := NewCertAutomation(*testAutomationConfig(), zap.NewNop())
 	require.NoError(t, err)
 
-	issued, err := cert.GetCertificateForHost(t.Context(), "app.internal", "alt1.internal", "alt2.internal")
+	// hostname is lowercased
+	issued, err := cert.GetCertificateForHost(t.Context(), "APP.internal")
 	require.NoError(t, err)
 
-	assert.Equal(t, "app.internal", issued.Leaf.Subject.CommonName)
-	assert.Equal(t, []string{"app.internal", "alt1.internal", "alt2.internal"}, issued.Leaf.DNSNames)
+	assert.Equal(t, []string{"app.internal"}, issued.Leaf.DNSNames)
 	assert.WithinDuration(t, time.Now().Add(24*time.Hour), issued.Leaf.NotAfter, time.Minute)
 
 	key, ok := issued.PrivateKey.(*ecdsa.PrivateKey)
@@ -151,8 +151,33 @@ func TestCertAutomation_GetCertificateForHost(t *testing.T) {
 	})
 	require.NoError(t, err, "leaf should verify against the CA for the requested host")
 
-	cached, ok := cert.cache.Get("app.internal,alt1.internal,alt2.internal")
-	require.True(t, ok, "the issued certificate should be cached under its name set")
+	cached, ok := cert.cache.Get("app.internal")
+	require.True(t, ok, "the issued certificate should be cached under its host")
+	assert.Same(t, issued, cached)
+}
+
+func TestCertAutomation_GetCertificateForHost_EmptyHost(t *testing.T) {
+	cert, err := NewCertAutomation(*testAutomationConfig(), zap.NewNop())
+	require.NoError(t, err)
+
+	issued, err := cert.GetCertificateForHost(t.Context(), "")
+	require.NoError(t, err)
+
+	assert.Empty(t, issued.Leaf.DNSNames)
+	assert.Empty(t, issued.Leaf.IPAddresses)
+	assert.Empty(t, issued.Leaf.Subject.CommonName)
+
+	pool := x509.NewCertPool()
+	pool.AppendCertsFromPEM(data.ProxyCert)
+
+	_, err = issued.Leaf.Verify(x509.VerifyOptions{
+		Roots:     pool,
+		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	})
+	require.NoError(t, err, "leaf should still chain to the CA")
+
+	cached, ok := cert.cache.Get("")
+	require.True(t, ok, "the nameless certificate should be cached under the empty host")
 	assert.Same(t, issued, cached)
 }
 
@@ -350,55 +375,4 @@ func TestCertAutomation_GetCertificateForHost_RotationMidIssuanceIsNotCached(t *
 	require.NoError(t, err)
 	assert.NotEqual(t, first.cert.Leaf.SerialNumber, second.Leaf.SerialNumber,
 		"the next handshake should get a certificate from the current CA")
-}
-
-func TestCertNames(t *testing.T) {
-	tests := []struct {
-		name    string
-		host    string
-		aliases []string
-		want    []string
-	}{
-		{
-			name:    "aliases are sorted after the host",
-			host:    "app.internal",
-			aliases: []string{"b.internal", "a.internal"},
-			want:    []string{"app.internal", "a.internal", "b.internal"},
-		},
-		{
-			name:    "ip host with dns aliases",
-			host:    "10.0.0.5",
-			aliases: []string{"app.internal", "alt.internal"},
-			want:    []string{"10.0.0.5", "alt.internal", "app.internal"},
-		},
-		{
-			name:    "alias repeating the host is not duplicated",
-			host:    "app.internal",
-			aliases: []string{"app.internal", "alt.internal", ""},
-			want:    []string{"app.internal", "alt.internal"},
-		},
-		{
-			name: "no aliases",
-			host: "app.internal",
-			want: []string{"app.internal"},
-		},
-		{
-			name:    "wildcard host stays first",
-			host:    "*.internal",
-			aliases: []string{"app.internal", "alt.internal"},
-			want:    []string{"*.internal", "alt.internal", "app.internal"},
-		},
-		{
-			name:    "names are lowercased",
-			host:    "APP.Internal",
-			aliases: []string{"ALT.Internal"},
-			want:    []string{"app.internal", "alt.internal"},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, certNames(tt.host, tt.aliases))
-		})
-	}
 }

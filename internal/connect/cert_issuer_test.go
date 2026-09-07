@@ -162,22 +162,14 @@ func TestLocalIssuer_issue(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	issued, err := issuer.issue(t.Context(), []string{"app.acme.int", "10.0.0.5", "alt.acme.int", "::1"})
+	issued, err := issuer.issue(t.Context(), "app.acme.int")
 	require.NoError(t, err)
 
 	key, ok := issued.PrivateKey.(*ecdsa.PrivateKey)
 	require.True(t, ok, "expected an ECDSA leaf key")
 	assert.Equal(t, 256, key.Params().BitSize)
 
-	assert.Equal(t, "app.acme.int", issued.Leaf.Subject.CommonName)
-	assert.Equal(t, []string{"app.acme.int", "alt.acme.int"}, issued.Leaf.DNSNames)
-
-	var gotIPs []string
-	for _, ip := range issued.Leaf.IPAddresses {
-		gotIPs = append(gotIPs, ip.String())
-	}
-
-	assert.Equal(t, []string{"10.0.0.5", "::1"}, gotIPs)
+	assert.Equal(t, []string{"app.acme.int"}, issued.Leaf.DNSNames)
 
 	_, err = issued.Leaf.Verify(x509.VerifyOptions{
 		DNSName:   "app.acme.int",
@@ -195,7 +187,7 @@ func TestLocalIssuer_issue_Errors(t *testing.T) {
 		issuer, err := newLocalIssuer(&cfg, keyConfig{typ: keyTypeECDSA, bits: 128}, defaultCertTTL, zap.NewNop())
 		require.NoError(t, err)
 
-		_, err = issuer.issue(t.Context(), []string{"app.acme.int"})
+		_, err = issuer.issue(t.Context(), "app.acme.int")
 		require.ErrorIs(t, err, errUnsupportedKeyBits)
 		assert.Contains(t, err.Error(), "failed to generate leaf key")
 	})
@@ -213,7 +205,7 @@ func TestLocalIssuer_issue_Errors(t *testing.T) {
 			caKey:  failingSigner{pub: caCert.PublicKey},
 		}
 
-		_, err = issuer.issue(t.Context(), []string{"app.acme.int"})
+		_, err = issuer.issue(t.Context(), "app.acme.int")
 		require.ErrorContains(t, err, "failed to sign leaf certificate")
 	})
 }

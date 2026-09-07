@@ -128,7 +128,7 @@ func NewListener(
 		logger:           logger,
 		metrics:          metrics,
 		proxyConnFactory: func(conn net.Conn, tlsConfig *tls.Config, connectValidator Validator, logger *zap.Logger) Conn {
-			return NewProxyConn(conn, tlsConfig, certManager, connectValidator, logger, metrics)
+			return NewProxyConn(conn, tlsConfig, connectValidator, logger, metrics)
 		},
 	}
 

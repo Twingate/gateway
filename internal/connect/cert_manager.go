@@ -7,7 +7,6 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"net"
 
 	"go.uber.org/zap"
 
@@ -43,26 +42,8 @@ func (m *CertManager) Run(ctx context.Context) {
 	}
 }
 
-// GetCertificate returns a certificate for the outer TLS handshake based on the SNI host, falling back to
-// the connection's local IP for clients that send none (e.g. health probes).
+// GetCertificate returns the certificate for a downstream TLS handshake.
 func (m *CertManager) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
-	host := hello.ServerName
-	if host == "" {
-		var err error
-
-		host, _, err = net.SplitHostPort(hello.Conn.LocalAddr().String())
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse local address: %w", err)
-		}
-	}
-
-	return m.GetCertificateForHost(hello, host)
-}
-
-// GetCertificateForHost returns a certificate based on given host.
-// When the host is not covered by a configured certificate, it issues a new one on demand through the automation
-// and includes the aliases as additional subject alternative names.
-func (m *CertManager) GetCertificateForHost(hello *tls.ClientHelloInfo, host string, aliases ...string) (*tls.Certificate, error) {
 	if m.automation == nil {
 		return m.certs.GetCertificate(hello)
 	}
@@ -73,5 +54,5 @@ func (m *CertManager) GetCertificateForHost(hello *tls.ClientHelloInfo, host str
 		return cert, nil
 	}
 
-	return m.automation.GetCertificateForHost(hello.Context(), host, aliases...)
+	return m.automation.GetCertificateForHost(hello.Context(), hello.ServerName)
 }

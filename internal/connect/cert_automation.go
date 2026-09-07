@@ -7,7 +7,6 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -76,11 +75,11 @@ func (c *CertAutomation) Run(ctx context.Context) {
 	}
 }
 
-func (c *CertAutomation) GetCertificateForHost(ctx context.Context, host string, aliases ...string) (*tls.Certificate, error) {
-	names := certNames(host, aliases)
-	key := strings.Join(names, ",")
+// GetCertificateForHost issues a certificate covering the given host, caching it under that name.
+func (c *CertAutomation) GetCertificateForHost(ctx context.Context, host string) (*tls.Certificate, error) {
+	host = strings.ToLower(host)
 
-	if cert, ok := c.cachedCert(key); ok {
+	if cert, ok := c.cachedCert(host); ok {
 		return cert, nil
 	}
 
@@ -90,13 +89,13 @@ func (c *CertAutomation) GetCertificateForHost(ctx context.Context, host string,
 
 	// Sign outside the lock so a slow CA cannot stall handshakes for names that are already
 	// cached. A burst against a cold cache may sign the same names twice, which is cheaper.
-	cert, err := c.issuer.issue(ctx, names)
+	cert, err := c.issuer.issue(ctx, host)
 	if err != nil {
 		return nil, err
 	}
 
 	c.logger.Debug("Issued downstream certificate",
-		zap.Strings("hosts", names),
+		zap.String("host", host),
 		zap.Time("not_after", cert.Leaf.NotAfter),
 	)
 
@@ -106,26 +105,10 @@ func (c *CertAutomation) GetCertificateForHost(ctx context.Context, host string,
 	// The CA rotated while this certificate was in flight: serve it to this handshake
 	// only, so the cache never holds a certificate from a previous CA.
 	if rotations == c.caRotations {
-		c.cache.Add(key, cert)
+		c.cache.Add(host, cert)
 	}
 
 	return cert, nil
-}
-
-func certNames(host string, aliases []string) []string {
-	names := make([]string, 0, len(aliases)+1)
-	names = append(names, strings.ToLower(host))
-
-	for _, alias := range aliases {
-		if alias = strings.ToLower(alias); alias != "" && !slices.Contains(names, alias) {
-			names = append(names, alias)
-		}
-	}
-
-	// host stays first so it becomes the common name
-	slices.Sort(names[1:])
-
-	return names
 }
 
 // purgeOnRotation drops every cached certificate and counts the rotation.
