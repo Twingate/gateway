@@ -1,7 +1,7 @@
 // Copyright (c) Twingate Inc.
 // SPDX-License-Identifier: MPL-2.0
 
-package connect
+package cert
 
 import (
 	"context"
@@ -13,22 +13,22 @@ import (
 	"gateway/internal/config"
 )
 
-// CertManager returns the certificate served on a downstream TLS handshake.
-type CertManager struct {
-	certs      *CertReloader
-	automation *CertAutomation
+// Manager returns the certificate served on a downstream TLS handshake.
+type Manager struct {
+	certs      *reloader
+	automation *automation
 }
 
-func newCertManager(tlsCfg config.TLSConfig, logger *zap.Logger) (*CertManager, error) {
+func NewManager(tlsCfg config.TLSConfig, logger *zap.Logger) (*Manager, error) {
 	var keyPairs []config.TLSCertificateFileKeyPair
 	if tlsCfg.Certificates != nil {
 		keyPairs = tlsCfg.Certificates.Files
 	}
 
-	manager := &CertManager{certs: NewCertReloader(keyPairs, logger)}
+	manager := &Manager{certs: newReloader(keyPairs, logger)}
 
 	if tlsCfg.Automation != nil {
-		automation, err := NewCertAutomation(*tlsCfg.Automation, logger)
+		automation, err := newAutomation(*tlsCfg.Automation, logger)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create cert automation: %w", err)
 		}
@@ -39,7 +39,7 @@ func newCertManager(tlsCfg config.TLSConfig, logger *zap.Logger) (*CertManager, 
 	return manager, nil
 }
 
-func (m *CertManager) Run(ctx context.Context) {
+func (m *Manager) Run(ctx context.Context) {
 	m.certs.Run(ctx)
 
 	if m.automation != nil {
@@ -48,7 +48,7 @@ func (m *CertManager) Run(ctx context.Context) {
 }
 
 // GetCertificate returns the certificate for a downstream TLS handshake.
-func (m *CertManager) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+func (m *Manager) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
 	if m.automation == nil {
 		return m.certs.GetCertificate(hello)
 	}

@@ -20,6 +20,7 @@ import (
 	"go.uber.org/zap"
 
 	"gateway/internal/config"
+	"gateway/internal/connect/cert"
 	"gateway/internal/token"
 )
 
@@ -32,6 +33,26 @@ var testTLSConfig = config.TLSConfig{
 			},
 		},
 	},
+}
+
+func testAutomationConfig() *config.TLSAutomationConfig {
+	return &config.TLSAutomationConfig{
+		Issuer: config.TLSIssuerConfig{
+			Local: &config.TLSLocalIssuerConfig{
+				CertificateFile: "../../test/data/proxy/tls.crt",
+				PrivateKeyFile:  "../../test/data/proxy/tls.key",
+			},
+		},
+	}
+}
+
+func newTestCertManager(t *testing.T, tlsCfg config.TLSConfig) *cert.Manager {
+	t.Helper()
+
+	manager, err := cert.NewManager(tlsCfg, zap.NewNop())
+	require.NoError(t, err)
+
+	return manager
 }
 
 type mockProxyConn struct {

@@ -1,7 +1,7 @@
 // Copyright (c) Twingate Inc.
 // SPDX-License-Identifier: MPL-2.0
 
-package connect
+package cert
 
 import (
 	"crypto"
@@ -78,7 +78,7 @@ func TestLocalIssuer_load_SignalsOnlyOnCAChange(t *testing.T) {
 	issuer, err := newLocalIssuer(
 		&config.TLSLocalIssuerConfig{CertificateFile: file.CertificateFile, PrivateKeyFile: file.PrivateKeyFile},
 		keyConfig{typ: keyTypeECDSA, bits: 256},
-		defaultCertTTL,
+		defaultTTL,
 		zap.NewNop(),
 	)
 	require.NoError(t, err)
@@ -136,7 +136,7 @@ func TestLocalIssuer_load_Errors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := newLocalIssuer(&tt.cfg, keyConfig{typ: keyTypeECDSA, bits: 256}, defaultCertTTL, zap.NewNop())
+			_, err := newLocalIssuer(&tt.cfg, keyConfig{typ: keyTypeECDSA, bits: 256}, defaultTTL, zap.NewNop())
 			require.Error(t, err)
 
 			if tt.wantErr != nil {
@@ -157,7 +157,7 @@ func TestLocalIssuer_issue(t *testing.T) {
 	issuer, err := newLocalIssuer(
 		&config.TLSLocalIssuerConfig{CertificateFile: file.CertificateFile, PrivateKeyFile: file.PrivateKeyFile},
 		keyConfig{typ: keyTypeECDSA, bits: 256},
-		defaultCertTTL,
+		defaultTTL,
 		zap.NewNop(),
 	)
 	require.NoError(t, err)
@@ -184,7 +184,7 @@ func TestLocalIssuer_issue_Errors(t *testing.T) {
 		cfg := config.TLSLocalIssuerConfig(createKeyPair(t, generateCA(t)))
 
 		// An invalid key config pass
-		issuer, err := newLocalIssuer(&cfg, keyConfig{typ: keyTypeECDSA, bits: 128}, defaultCertTTL, zap.NewNop())
+		issuer, err := newLocalIssuer(&cfg, keyConfig{typ: keyTypeECDSA, bits: 128}, defaultTTL, zap.NewNop())
 		require.NoError(t, err)
 
 		_, err = issuer.issue(t.Context(), "app.acme.int")
@@ -200,7 +200,7 @@ func TestLocalIssuer_issue_Errors(t *testing.T) {
 
 		issuer := &localIssuer{
 			key:    keyConfig{typ: keyTypeECDSA, bits: 256},
-			ttl:    defaultCertTTL,
+			ttl:    defaultTTL,
 			caCert: caCert,
 			caKey:  failingSigner{pub: caCert.PublicKey},
 		}

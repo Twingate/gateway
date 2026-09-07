@@ -26,6 +26,7 @@ import (
 	promtestutil "github.com/prometheus/client_golang/prometheus/testutil"
 
 	"gateway/internal/config"
+	"gateway/internal/connect/cert"
 	"gateway/internal/token"
 	"gateway/test/data"
 )
@@ -578,7 +579,7 @@ func TestProxyConn_UpgradeToTLS_NoCertificateError(t *testing.T) {
 		MinVersion: tls.VersionTLS13,
 	})
 
-	require.ErrorIs(t, err, errNoCertificates)
+	require.ErrorIs(t, err, cert.ErrNoCertificates)
 }
 
 func TestIsHealthCheckRequest(t *testing.T) {

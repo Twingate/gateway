@@ -1,7 +1,7 @@
 // Copyright (c) Twingate Inc.
 // SPDX-License-Identifier: MPL-2.0
 
-package connect
+package cert
 
 import (
 	"crypto/tls"
@@ -19,17 +19,17 @@ func testAutomationConfig() *config.TLSAutomationConfig {
 	return &config.TLSAutomationConfig{
 		Issuer: config.TLSIssuerConfig{
 			Local: &config.TLSLocalIssuerConfig{
-				CertificateFile: "../../test/data/proxy/tls.crt",
-				PrivateKeyFile:  "../../test/data/proxy/tls.key",
+				CertificateFile: "../../../test/data/proxy/tls.crt",
+				PrivateKeyFile:  "../../../test/data/proxy/tls.key",
 			},
 		},
 	}
 }
 
-func newTestCertManager(t *testing.T, tlsCfg config.TLSConfig) *CertManager {
+func newTestManager(t *testing.T, tlsCfg config.TLSConfig) *Manager {
 	t.Helper()
 
-	service, err := newCertManager(tlsCfg, zap.NewNop())
+	service, err := NewManager(tlsCfg, zap.NewNop())
 	require.NoError(t, err)
 
 	// Load synchronously instead of waiting on the reloaders.
@@ -51,8 +51,8 @@ func leafNames(cert *tls.Certificate) []string {
 	return names
 }
 
-func TestNewCertManager_AutomationError(t *testing.T) {
-	_, err := newCertManager(config.TLSConfig{
+func TestNewManager_AutomationError(t *testing.T) {
+	_, err := NewManager(config.TLSConfig{
 		Automation: &config.TLSAutomationConfig{
 			Issuer: config.TLSIssuerConfig{
 				Local: &config.TLSLocalIssuerConfig{CertificateFile: "missing.crt", PrivateKeyFile: "missing.key"},
@@ -63,7 +63,7 @@ func TestNewCertManager_AutomationError(t *testing.T) {
 	assert.ErrorContains(t, err, "failed to create cert automation")
 }
 
-func TestCertManager_GetCertificate(t *testing.T) {
+func TestManager_GetCertificate(t *testing.T) {
 	fooCert := generateCert(t, "foo.acme.int")
 	files := &config.TLSCertificateSources{Files: []config.TLSCertificateFileKeyPair{createKeyPair(t, fooCert)}}
 
@@ -99,10 +99,10 @@ func TestCertManager_GetCertificate(t *testing.T) {
 			wantCert: fooCert.Certificate,
 		},
 		{
-			name:       "SNI is issued on demand without configured certificates",
+			name:       "SNI is issued on demand when no certificates are configured at all",
 			tlsCfg:     config.TLSConfig{Automation: testAutomationConfig()},
-			hello:      clientHello("foo.acme.int"),
-			wantIssued: []string{"foo.acme.int"},
+			hello:      clientHello("app.acme.int"),
+			wantIssued: []string{"app.acme.int"},
 		},
 		{
 			name:       "IP SNI is issued on demand",
@@ -114,7 +114,7 @@ func TestCertManager_GetCertificate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := newTestCertManager(t, tt.tlsCfg).GetCertificate(tt.hello)
+			got, err := newTestManager(t, tt.tlsCfg).GetCertificate(tt.hello)
 			require.NoError(t, err)
 
 			if tt.wantCert != nil {

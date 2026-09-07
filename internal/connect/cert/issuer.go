@@ -1,7 +1,7 @@
 // Copyright (c) Twingate Inc.
 // SPDX-License-Identifier: MPL-2.0
 
-package connect
+package cert
 
 import (
 	"bytes"
@@ -20,7 +20,7 @@ import (
 	"go.uber.org/zap"
 
 	"gateway/internal/config"
-	"gateway/internal/reloader"
+	filereloader "gateway/internal/reloader"
 )
 
 const clockSkewBuffer = 30 * time.Second
@@ -32,20 +32,20 @@ var (
 
 var serialNumberLimit = new(big.Int).Lsh(big.NewInt(1), 128)
 
-// certIssuer issues a certificate covering a hostname and runs any
+// issuer issues a certificate covering a hostname and runs any
 // background maintenance its backend needs.
-type certIssuer interface {
+type issuer interface {
 	run(ctx context.Context)
 	issue(ctx context.Context, name string) (*tls.Certificate, error)
 }
 
-// rotatableIssuer is a certIssuer whose CA can rotate during the process lifetime.
+// rotatableIssuer is an issuer whose CA can rotate during the process lifetime.
 // The channel returned by rotated receives a value after each rotation.
 type rotatableIssuer interface {
 	rotated() <-chan struct{}
 }
 
-func newCertIssuer(cfg config.TLSIssuerConfig, keyCfg keyConfig, ttl time.Duration, logger *zap.Logger) (certIssuer, error) {
+func newIssuer(cfg config.TLSIssuerConfig, keyCfg keyConfig, ttl time.Duration, logger *zap.Logger) (issuer, error) {
 	switch {
 	case cfg.Local != nil:
 		return newLocalIssuer(cfg.Local, keyCfg, ttl, logger)
@@ -69,7 +69,7 @@ type localIssuer struct {
 	caCert *x509.Certificate
 	caKey  crypto.Signer
 
-	reloader *reloader.Reloader
+	reloader *filereloader.Reloader
 }
 
 func newLocalIssuer(cfg *config.TLSLocalIssuerConfig, keyCfg keyConfig, ttl time.Duration, logger *zap.Logger) (*localIssuer, error) {
@@ -81,7 +81,7 @@ func newLocalIssuer(cfg *config.TLSLocalIssuerConfig, keyCfg keyConfig, ttl time
 		logger:   logger,
 		rotateCh: make(chan struct{}, 1),
 	}
-	issuer.reloader = reloader.New([]string{cfg.CertificateFile, cfg.PrivateKeyFile}, issuer.load, logger)
+	issuer.reloader = filereloader.New([]string{cfg.CertificateFile, cfg.PrivateKeyFile}, issuer.load, logger)
 
 	// Load up front so a misconfigured issuer fails at startup.
 	if err := issuer.load(); err != nil {

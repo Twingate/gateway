@@ -1,7 +1,7 @@
 // Copyright (c) Twingate Inc.
 // SPDX-License-Identifier: MPL-2.0
 
-package connect
+package cert
 
 import (
 	"context"
@@ -65,16 +65,16 @@ func (s *stubIssuer) issue(_ context.Context, name string) (*tls.Certificate, er
 	}}, nil
 }
 
-func newStubAutomation(t *testing.T, issuer certIssuer) *CertAutomation {
+func newStubAutomation(t *testing.T, issuer issuer) *automation {
 	t.Helper()
 
 	cache, err := lru.New[string, *tls.Certificate](maxCachedCerts)
 	require.NoError(t, err)
 
-	return &CertAutomation{issuer: issuer, logger: zap.NewNop(), cache: cache}
+	return &automation{issuer: issuer, logger: zap.NewNop(), cache: cache}
 }
 
-func TestNewCertAutomation_Errors(t *testing.T) {
+func TestNewAutomation_Errors(t *testing.T) {
 	tests := []struct {
 		name        string
 		local       *config.TLSLocalIssuerConfig
@@ -88,13 +88,13 @@ func TestNewCertAutomation_Errors(t *testing.T) {
 		},
 		{
 			name:    "unsupported key type",
-			local:   &config.TLSLocalIssuerConfig{CertificateFile: "../../test/data/proxy/tls.crt", PrivateKeyFile: "../../test/data/proxy/tls.key"},
+			local:   &config.TLSLocalIssuerConfig{CertificateFile: "../../../test/data/proxy/tls.crt", PrivateKeyFile: "../../../test/data/proxy/tls.key"},
 			key:     config.TLSCertificateKeyConfig{Type: "ed25519"},
 			wantErr: errUnsupportedKeyType,
 		},
 		{
 			name:    "unsupported key bits",
-			local:   &config.TLSLocalIssuerConfig{CertificateFile: "../../test/data/proxy/tls.crt", PrivateKeyFile: "../../test/data/proxy/tls.key"},
+			local:   &config.TLSLocalIssuerConfig{CertificateFile: "../../../test/data/proxy/tls.crt", PrivateKeyFile: "../../../test/data/proxy/tls.key"},
 			key:     config.TLSCertificateKeyConfig{Type: "ecdsa", Bits: 128},
 			wantErr: errUnsupportedKeyBits,
 		},
@@ -108,7 +108,7 @@ func TestNewCertAutomation_Errors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := NewCertAutomation(config.TLSAutomationConfig{
+			_, err := newAutomation(config.TLSAutomationConfig{
 				Certificate: config.TLSAutomationCertificateConfig{Key: tt.key},
 				Issuer:      config.TLSIssuerConfig{Local: tt.local},
 			}, zap.NewNop())
@@ -126,8 +126,8 @@ func TestNewCertAutomation_Errors(t *testing.T) {
 	}
 }
 
-func TestCertAutomation_GetCertificateForHost(t *testing.T) {
-	cert, err := NewCertAutomation(*testAutomationConfig(), zap.NewNop())
+func TestAutomation_GetCertificateForHost(t *testing.T) {
+	cert, err := newAutomation(*testAutomationConfig(), zap.NewNop())
 	require.NoError(t, err)
 
 	// hostname is lowercased
@@ -156,8 +156,8 @@ func TestCertAutomation_GetCertificateForHost(t *testing.T) {
 	assert.Same(t, issued, cached)
 }
 
-func TestCertAutomation_GetCertificateForHost_EmptyHost(t *testing.T) {
-	cert, err := NewCertAutomation(*testAutomationConfig(), zap.NewNop())
+func TestAutomation_GetCertificateForHost_EmptyHost(t *testing.T) {
+	cert, err := newAutomation(*testAutomationConfig(), zap.NewNop())
 	require.NoError(t, err)
 
 	issued, err := cert.GetCertificateForHost(t.Context(), "")
@@ -181,14 +181,14 @@ func TestCertAutomation_GetCertificateForHost_EmptyHost(t *testing.T) {
 	assert.Same(t, issued, cached)
 }
 
-func TestCertAutomation_Run_ReissuesAfterCARotation(t *testing.T) {
+func TestAutomation_Run_ReissuesAfterCARotation(t *testing.T) {
 	ca := generateCA(t)
 	file := createKeyPair(t, ca)
 
 	cfg := testAutomationConfig()
 	cfg.Issuer.Local = &config.TLSLocalIssuerConfig{CertificateFile: file.CertificateFile, PrivateKeyFile: file.PrivateKeyFile}
 
-	cert, err := NewCertAutomation(*cfg, zap.NewNop())
+	cert, err := newAutomation(*cfg, zap.NewNop())
 	require.NoError(t, err)
 
 	cert.Run(t.Context())
@@ -222,12 +222,12 @@ func TestCertAutomation_Run_ReissuesAfterCARotation(t *testing.T) {
 	}, 5*time.Second, 10*time.Millisecond)
 }
 
-func TestCertAutomation_GetCertificateForHost_RenewsPastThreshold(t *testing.T) {
+func TestAutomation_GetCertificateForHost_RenewsPastThreshold(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		cfg := testAutomationConfig()
 		cfg.Certificate.TTL = 2 * time.Hour
 
-		cert, err := NewCertAutomation(*cfg, zap.NewNop())
+		cert, err := newAutomation(*cfg, zap.NewNop())
 		require.NoError(t, err)
 
 		first, err := cert.GetCertificateForHost(t.Context(), "app.internal")
@@ -253,11 +253,11 @@ func TestCertAutomation_GetCertificateForHost_RenewsPastThreshold(t *testing.T) 
 
 // Concurrent cold misses for one host may each sign their own certificate, since
 // signing outside the lock keeps a slow CA from stalling handshakes for other names.
-// The cache still converges to one certificate per name set.
-func TestCertAutomation_GetCertificateForHost_ConcurrentColdMissesConverge(t *testing.T) {
+// The cache still converges to one certificate per hostname.
+func TestAutomation_GetCertificateForHost_ConcurrentColdMissesConverge(t *testing.T) {
 	const callers = 10
 
-	cert, err := NewCertAutomation(*testAutomationConfig(), zap.NewNop())
+	cert, err := newAutomation(*testAutomationConfig(), zap.NewNop())
 	require.NoError(t, err)
 
 	var wg sync.WaitGroup
@@ -292,7 +292,7 @@ func TestCertAutomation_GetCertificateForHost_ConcurrentColdMissesConverge(t *te
 
 // A slow CA must not stall handshakes for other name sets: only callers for the
 // gated host wait on its issuance.
-func TestCertAutomation_GetCertificateForHost_SlowIssuanceDoesNotBlockOtherHosts(t *testing.T) {
+func TestAutomation_GetCertificateForHost_SlowIssuanceDoesNotBlockOtherHosts(t *testing.T) {
 	issuer := newStubIssuer()
 	gate := make(chan struct{})
 	issuer.gates["slow.acme.int"] = gate
@@ -331,7 +331,7 @@ func TestCertAutomation_GetCertificateForHost_SlowIssuanceDoesNotBlockOtherHosts
 
 // A certificate whose issuance was in flight when the CA rotated is served to that
 // handshake only; the cache never holds a certificate from a previous CA.
-func TestCertAutomation_GetCertificateForHost_RotationMidIssuanceIsNotCached(t *testing.T) {
+func TestAutomation_GetCertificateForHost_RotationMidIssuanceIsNotCached(t *testing.T) {
 	issuer := newStubIssuer()
 	gate := make(chan struct{})
 	issuer.gates["app.acme.int"] = gate
