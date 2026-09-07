@@ -65,14 +65,18 @@ func newAutomation(cfg config.TLSAutomationConfig, logger *zap.Logger) (*automat
 	}, nil
 }
 
-func (c *automation) Run(ctx context.Context) {
-	c.issuer.run(ctx)
+func (c *automation) Run(ctx context.Context) error {
+	if err := c.issuer.run(ctx); err != nil {
+		return err
+	}
 
 	// When the issuer can rotate its CA, drop the cached certificates as soon as
 	// it does rather than serving ones that no longer chain to it.
 	if issuer, ok := c.issuer.(rotatableIssuer); ok {
 		go c.purgeOnRotation(ctx, issuer.rotated())
 	}
+
+	return nil
 }
 
 // GetCertificateForHost issues a certificate covering the given host, caching it under that name.

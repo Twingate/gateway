@@ -63,6 +63,15 @@ func TestNewManager_AutomationError(t *testing.T) {
 	assert.ErrorContains(t, err, "failed to create cert automation")
 }
 
+func TestManager_Run_IssuerFailsToStart(t *testing.T) {
+	issuer := newStubIssuer()
+	issuer.runErr = errStubRun
+
+	manager := &Manager{certs: newReloader(nil, zap.NewNop()), automation: newStubAutomation(t, issuer)}
+
+	require.ErrorIs(t, manager.Run(t.Context()), errStubRun)
+}
+
 func TestManager_GetCertificate(t *testing.T) {
 	fooCert := generateCert(t, "foo.acme.int")
 	files := &config.TLSCertificateSources{Files: []config.TLSCertificateFileKeyPair{createKeyPair(t, fooCert)}}

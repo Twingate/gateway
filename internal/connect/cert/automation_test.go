@@ -9,6 +9,7 @@ import (
 	"crypto/elliptic"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"math/big"
 	"sync"
 	"sync/atomic"
@@ -26,6 +27,10 @@ import (
 	"gateway/test/data"
 )
 
+var (
+	errStubRun = errors.New("stub issuer failed to start")
+)
+
 // stubIssuer issues placeholder certificates, reporting each issuance start on entered
 // and blocking hosts that have a gate until their gate closes. Configure gates before
 // the first issuance.
@@ -33,6 +38,7 @@ type stubIssuer struct {
 	entered  chan string
 	gates    map[string]chan struct{}
 	rotateCh chan struct{}
+	runErr   error
 
 	serials atomic.Int64
 }
@@ -45,7 +51,7 @@ func newStubIssuer() *stubIssuer {
 	}
 }
 
-func (s *stubIssuer) run(context.Context) {}
+func (s *stubIssuer) run(context.Context) error { return s.runErr }
 
 func (s *stubIssuer) rotated() <-chan struct{} { return s.rotateCh }
 
@@ -63,6 +69,10 @@ func (s *stubIssuer) issue(_ context.Context, name string) (*tls.Certificate, er
 		NotBefore:    now,
 		NotAfter:     now.Add(time.Hour),
 	}}, nil
+}
+
+func (s *stubIssuer) sign(context.Context, *x509.CertificateRequest) (*x509.Certificate, []*x509.Certificate, error) {
+	return nil, nil, nil
 }
 
 func newStubAutomation(t *testing.T, issuer issuer) *automation {
@@ -124,6 +134,13 @@ func TestNewAutomation_Errors(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAutomation_Run_IssuerFailsToStart(t *testing.T) {
+	issuer := newStubIssuer()
+	issuer.runErr = errStubRun
+
+	require.ErrorIs(t, newStubAutomation(t, issuer).Run(t.Context()), errStubRun)
 }
 
 func TestAutomation_GetCertificateForHost(t *testing.T) {
@@ -191,7 +208,7 @@ func TestAutomation_Run_ReissuesAfterCARotation(t *testing.T) {
 	cert, err := newAutomation(*cfg, zap.NewNop())
 	require.NoError(t, err)
 
-	cert.Run(t.Context())
+	require.NoError(t, cert.Run(t.Context()))
 
 	issued, err := cert.GetCertificateForHost(t.Context(), "app.acme.int")
 	require.NoError(t, err)
@@ -337,7 +354,7 @@ func TestAutomation_GetCertificateForHost_RotationMidIssuanceIsNotCached(t *test
 	issuer.gates["app.acme.int"] = gate
 
 	automation := newStubAutomation(t, issuer)
-	automation.Run(t.Context())
+	require.NoError(t, automation.Run(t.Context()))
 
 	type result struct {
 		cert *tls.Certificate

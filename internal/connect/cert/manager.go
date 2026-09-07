@@ -39,12 +39,16 @@ func NewManager(tlsCfg config.TLSConfig, logger *zap.Logger) (*Manager, error) {
 	return manager, nil
 }
 
-func (m *Manager) Run(ctx context.Context) {
+func (m *Manager) Run(ctx context.Context) error {
 	m.certs.Run(ctx)
 
 	if m.automation != nil {
-		m.automation.Run(ctx)
+		if err := m.automation.Run(ctx); err != nil {
+			return err
+		}
 	}
+
+	return nil
 }
 
 // GetCertificate returns the certificate for a downstream TLS handshake.

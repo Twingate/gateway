@@ -16,6 +16,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -169,7 +170,9 @@ func TestLocalIssuer_issue(t *testing.T) {
 	require.True(t, ok, "expected an ECDSA leaf key")
 	assert.Equal(t, 256, key.Params().BitSize)
 
-	assert.Equal(t, []string{"app.acme.int"}, issued.Leaf.DNSNames)
+	require.Len(t, issued.Certificate, 2)
+	assert.Equal(t, issued.Leaf.Raw, issued.Certificate[0])
+	assert.Equal(t, ca.Certificate[0], issued.Certificate[1])
 
 	_, err = issued.Leaf.Verify(x509.VerifyOptions{
 		DNSName:   "app.acme.int",
@@ -179,33 +182,118 @@ func TestLocalIssuer_issue(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestLocalIssuer_issue_Errors(t *testing.T) {
-	t.Run("key generation fails", func(t *testing.T) {
-		cfg := config.TLSLocalIssuerConfig(createKeyPair(t, generateCA(t)))
+func TestLocalIssuer_issue_KeyGenerationFails(t *testing.T) {
+	cfg := config.TLSLocalIssuerConfig(createKeyPair(t, generateCA(t)))
 
-		// An invalid key config pass
-		issuer, err := newLocalIssuer(&cfg, keyConfig{typ: keyTypeECDSA, bits: 128}, defaultTTL, zap.NewNop())
-		require.NoError(t, err)
+	issuer, err := newLocalIssuer(&cfg, keyConfig{typ: keyTypeECDSA, bits: 128}, defaultTTL, zap.NewNop())
+	require.NoError(t, err)
 
-		_, err = issuer.issue(t.Context(), "app.acme.int")
-		require.ErrorIs(t, err, errUnsupportedKeyBits)
-		assert.Contains(t, err.Error(), "failed to generate leaf key")
-	})
+	_, err = issuer.issue(t.Context(), "app.acme.int")
+	require.ErrorIs(t, err, errUnsupportedKeyBits)
+	assert.Contains(t, err.Error(), "failed to generate leaf key")
+}
 
-	t.Run("CA key fails to sign", func(t *testing.T) {
-		ca := generateCA(t)
+func TestLocalIssuer_sign(t *testing.T) {
+	ca := generateCA(t)
+	file := createKeyPair(t, ca)
 
-		caCert, err := x509.ParseCertificate(ca.Certificate[0])
-		require.NoError(t, err)
+	issuer, err := newLocalIssuer(
+		&config.TLSLocalIssuerConfig{CertificateFile: file.CertificateFile, PrivateKeyFile: file.PrivateKeyFile},
+		keyConfig{typ: keyTypeECDSA, bits: 256},
+		defaultTTL,
+		zap.NewNop(),
+	)
+	require.NoError(t, err)
 
-		issuer := &localIssuer{
-			key:    keyConfig{typ: keyTypeECDSA, bits: 256},
-			ttl:    defaultTTL,
-			caCert: caCert,
-			caKey:  failingSigner{pub: caCert.PublicKey},
-		}
+	key, err := keyConfig{typ: keyTypeECDSA, bits: 256}.generate()
+	require.NoError(t, err)
 
-		_, err = issuer.issue(t.Context(), "app.acme.int")
-		require.ErrorContains(t, err, "failed to sign leaf certificate")
-	})
+	csr, err := certificateRequest(key, "app.acme.int")
+	require.NoError(t, err)
+
+	leaf, caChain, err := issuer.sign(t.Context(), csr)
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"app.acme.int"}, leaf.DNSNames)
+	assert.Empty(t, leaf.IPAddresses)
+	assert.Empty(t, leaf.Subject.CommonName)
+	assert.Equal(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, leaf.ExtKeyUsage)
+
+	requested, ok := key.Public().(*ecdsa.PublicKey)
+	require.True(t, ok)
+	assert.True(t, requested.Equal(leaf.PublicKey), "the leaf should carry the requested public key")
+	assert.WithinDuration(t, time.Now().Add(defaultTTL), leaf.NotAfter, time.Minute)
+	assert.True(t, leaf.NotBefore.Before(time.Now()), "the leaf should already be valid, to absorb clock skew")
+
+	require.Len(t, caChain, 1)
+	assert.Equal(t, ca.Certificate[0], caChain[0].Raw)
+}
+
+func TestLocalIssuer_sign_CAKeyFails(t *testing.T) {
+	ca := generateCA(t)
+
+	caCert, err := x509.ParseCertificate(ca.Certificate[0])
+	require.NoError(t, err)
+
+	issuer := &localIssuer{ttl: defaultTTL, caCert: caCert, caKey: failingSigner{pub: caCert.PublicKey}}
+
+	key, err := keyConfig{typ: keyTypeECDSA, bits: 256}.generate()
+	require.NoError(t, err)
+
+	csr, err := certificateRequest(key, "app.acme.int")
+	require.NoError(t, err)
+
+	_, _, err = issuer.sign(t.Context(), csr)
+	require.ErrorContains(t, err, "failed to sign leaf certificate")
+}
+
+func TestCertificateRequest(t *testing.T) {
+	tests := []struct {
+		name      string
+		host      string
+		wantNames []string
+	}{
+		{
+			name:      "hostname becomes a DNS name",
+			host:      "app.acme.int",
+			wantNames: []string{"app.acme.int"},
+		},
+		{
+			name:      "IP becomes an IP address",
+			host:      "10.0.0.5",
+			wantNames: []string{"10.0.0.5"},
+		},
+		{
+			// A handshake without SNI leaves no name to request.
+			name: "no host asks for no names",
+			host: "",
+		},
+	}
+
+	key, err := keyConfig{typ: keyTypeECDSA, bits: 256}.generate()
+	require.NoError(t, err)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			csr, err := certificateRequest(key, tt.host)
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.wantNames, csrNames(csr))
+			assert.Empty(t, csr.Subject.CommonName)
+
+			// A backend forwards the request to a remote CA, so it has to carry its own
+			// DER and prove possession of the key it asks for.
+			assert.NotEmpty(t, csr.Raw)
+			assert.NoError(t, csr.CheckSignature())
+		})
+	}
+}
+
+func csrNames(csr *x509.CertificateRequest) []string {
+	names := slices.Clone(csr.DNSNames)
+	for _, ip := range csr.IPAddresses {
+		names = append(names, ip.String())
+	}
+
+	return names
 }

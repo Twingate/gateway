@@ -32,11 +32,12 @@ var (
 
 var serialNumberLimit = new(big.Int).Lsh(big.NewInt(1), 128)
 
-// issuer issues a certificate covering a hostname and runs any
-// background maintenance its backend needs.
+// issuer issues the certificate served on a handshake, signs certificate requests
+// with its CA and runs any background maintenance its backend needs.
 type issuer interface {
-	run(ctx context.Context)
+	run(ctx context.Context) error
 	issue(ctx context.Context, name string) (*tls.Certificate, error)
+	sign(ctx context.Context, csr *x509.CertificateRequest) (leaf *x509.Certificate, caChain []*x509.Certificate, err error)
 }
 
 // rotatableIssuer is an issuer whose CA can rotate during the process lifetime.
@@ -91,8 +92,10 @@ func newLocalIssuer(cfg *config.TLSLocalIssuerConfig, keyCfg keyConfig, ttl time
 	return issuer, nil
 }
 
-func (l *localIssuer) run(ctx context.Context) {
+func (l *localIssuer) run(ctx context.Context) error {
 	l.reloader.Run(ctx)
+
+	return nil
 }
 
 func (l *localIssuer) rotated() <-chan struct{} {
@@ -142,15 +145,40 @@ func (l *localIssuer) load() error {
 	return nil
 }
 
-func (l *localIssuer) issue(_ context.Context, name string) (*tls.Certificate, error) {
+func (l *localIssuer) issue(ctx context.Context, name string) (*tls.Certificate, error) {
 	key, err := l.key.generate()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate leaf key: %w", err)
 	}
 
+	csr, err := certificateRequest(key, name)
+	if err != nil {
+		return nil, err
+	}
+
+	leaf, caChain, err := l.sign(ctx, csr)
+	if err != nil {
+		return nil, err
+	}
+
+	chain := make([][]byte, 0, len(caChain)+1)
+	chain = append(chain, leaf.Raw)
+
+	for _, ca := range caChain {
+		chain = append(chain, ca.Raw)
+	}
+
+	return &tls.Certificate{
+		Certificate: chain,
+		PrivateKey:  key,
+		Leaf:        leaf,
+	}, nil
+}
+
+func (l *localIssuer) sign(_ context.Context, csr *x509.CertificateRequest) (*x509.Certificate, []*x509.Certificate, error) {
 	serial, err := rand.Int(rand.Reader, serialNumberLimit)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate serial number: %w", err)
+		return nil, nil, fmt.Errorf("failed to generate serial number: %w", err)
 	}
 
 	l.mu.RLock()
@@ -164,7 +192,27 @@ func (l *localIssuer) issue(_ context.Context, name string) (*tls.Certificate, e
 		NotAfter:     now.Add(l.ttl),
 		KeyUsage:     x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		DNSNames:     csr.DNSNames,
+		IPAddresses:  csr.IPAddresses,
 	}
+
+	leafDER, err := x509.CreateCertificate(rand.Reader, template, caCert, csr.PublicKey, caKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to sign leaf certificate: %w", err)
+	}
+
+	leaf, err := x509.ParseCertificate(leafDER)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to parse leaf certificate: %w", err)
+	}
+
+	return leaf, []*x509.Certificate{caCert}, nil
+}
+
+// certificateRequest builds a certificate request covering name, signed by key so a
+// backend can forward it to a remote CA.
+func certificateRequest(key crypto.Signer, name string) (*x509.CertificateRequest, error) {
+	template := &x509.CertificateRequest{}
 
 	// A handshake without SNI leaves no name, and the certificate then covers none.
 	if ip := net.ParseIP(name); ip != nil {
@@ -173,19 +221,15 @@ func (l *localIssuer) issue(_ context.Context, name string) (*tls.Certificate, e
 		template.DNSNames = []string{name}
 	}
 
-	leafDER, err := x509.CreateCertificate(rand.Reader, template, caCert, key.Public(), caKey)
+	der, err := x509.CreateCertificateRequest(rand.Reader, template, key)
 	if err != nil {
-		return nil, fmt.Errorf("failed to sign leaf certificate: %w", err)
+		return nil, fmt.Errorf("failed to create certificate request: %w", err)
 	}
 
-	leaf, err := x509.ParseCertificate(leafDER)
+	csr, err := x509.ParseCertificateRequest(der)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse leaf certificate: %w", err)
+		return nil, fmt.Errorf("failed to parse certificate request: %w", err)
 	}
 
-	return &tls.Certificate{
-		Certificate: [][]byte{leafDER, caCert.Raw},
-		PrivateKey:  key,
-		Leaf:        leaf,
-	}, nil
+	return csr, nil
 }
