@@ -114,7 +114,7 @@ func SetupVaultServer(t *testing.T) (string, int) {
 		"allowed_domains=acme.int",
 		"allow_subdomains=true",
 		"allow_ip_sans=true",
-		"require_cn=false", // A handshake without SNI asks for no names, common name included
+		"require_cn=false", // A handshake without SNI asks for no names, so the common name is empty
 		"max_ttl=72h",
 	))
 	require.NoError(t, err, "failed to create PKI signing role in Vault")
