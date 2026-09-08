@@ -41,7 +41,7 @@ type automation struct {
 	cache       *lru.Cache[string, *tls.Certificate]
 }
 
-func newAutomation(cfg config.TLSAutomationConfig, logger *zap.Logger) (*automation, error) {
+func newAutomation(cfg *config.TLSAutomationConfig, logger *zap.Logger) (*automation, error) {
 	keyCfg, err := newKeyConfig(cfg.Certificate.Key.Type, cfg.Certificate.Key.Bits)
 	if err != nil {
 		return nil, fmt.Errorf("invalid certificate key config: %w", err)

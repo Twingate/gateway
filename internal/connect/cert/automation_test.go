@@ -128,7 +128,7 @@ func TestNewAutomation_Errors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := newAutomation(config.TLSAutomationConfig{
+			_, err := newAutomation(&config.TLSAutomationConfig{
 				Certificate: config.TLSAutomationCertificateConfig{Key: tt.key},
 				Issuer:      config.TLSIssuerConfig{Local: tt.local},
 			}, zap.NewNop())
@@ -160,7 +160,7 @@ func TestAutomation_issue(t *testing.T) {
 	cfg := testAutomationConfig()
 	cfg.Issuer.Local = &config.TLSLocalIssuerConfig{CertificateFile: file.CertificateFile, PrivateKeyFile: file.PrivateKeyFile}
 
-	cert, err := newAutomation(*cfg, zap.NewNop())
+	cert, err := newAutomation(cfg, zap.NewNop())
 	require.NoError(t, err)
 
 	issued, err := cert.issue(t.Context(), "app.acme.int")
@@ -186,7 +186,7 @@ func TestAutomation_issue_KeyGenerationFails(t *testing.T) {
 }
 
 func TestAutomation_getCertificateForHost(t *testing.T) {
-	cert, err := newAutomation(*testAutomationConfig(), zap.NewNop())
+	cert, err := newAutomation(testAutomationConfig(), zap.NewNop())
 	require.NoError(t, err)
 
 	// hostname is lowercased
@@ -216,7 +216,7 @@ func TestAutomation_getCertificateForHost(t *testing.T) {
 }
 
 func TestAutomation_getCertificateForHost_EmptyHost(t *testing.T) {
-	cert, err := newAutomation(*testAutomationConfig(), zap.NewNop())
+	cert, err := newAutomation(testAutomationConfig(), zap.NewNop())
 	require.NoError(t, err)
 
 	issued, err := cert.getCertificateForHost(t.Context(), "")
@@ -258,7 +258,7 @@ func TestAutomation_Run_ReissuesAfterCARotation(t *testing.T) {
 	cfg := testAutomationConfig()
 	cfg.Issuer.Local = &config.TLSLocalIssuerConfig{CertificateFile: file.CertificateFile, PrivateKeyFile: file.PrivateKeyFile}
 
-	cert, err := newAutomation(*cfg, zap.NewNop())
+	cert, err := newAutomation(cfg, zap.NewNop())
 	require.NoError(t, err)
 
 	require.NoError(t, cert.run(t.Context()))
@@ -297,7 +297,7 @@ func TestAutomation_getCertificateForHost_ReissuesAfterExpiry(t *testing.T) {
 		cfg := testAutomationConfig()
 		cfg.Certificate.TTL = 2 * time.Hour
 
-		cert, err := newAutomation(*cfg, zap.NewNop())
+		cert, err := newAutomation(cfg, zap.NewNop())
 		require.NoError(t, err)
 
 		first, err := cert.getCertificateForHost(t.Context(), "app.internal")
@@ -328,7 +328,7 @@ func TestAutomation_getCertificateForHost_ReissuesAfterExpiry(t *testing.T) {
 func TestAutomation_getCertificateForHost_ConcurrentColdMissesConverge(t *testing.T) {
 	const callers = 10
 
-	cert, err := newAutomation(*testAutomationConfig(), zap.NewNop())
+	cert, err := newAutomation(testAutomationConfig(), zap.NewNop())
 	require.NoError(t, err)
 
 	var wg sync.WaitGroup

@@ -31,7 +31,7 @@ func NewManager(tlsCfg config.TLSConfig, logger *zap.Logger) (*Manager, error) {
 	manager := &Manager{certs: newReloader(keyPairs, logger)}
 
 	if tlsCfg.Automation != nil {
-		automation, err := newAutomation(*tlsCfg.Automation, logger)
+		automation, err := newAutomation(tlsCfg.Automation, logger)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create cert automation: %w", err)
 		}
