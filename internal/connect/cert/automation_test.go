@@ -361,7 +361,7 @@ func TestAutomation_getCertificateForHost_ConcurrentColdMissesConverge(t *testin
 	assert.Same(t, cached, again, "a warm cache should serve without signing")
 }
 
-// A slow CA must not stall handshakes for other name sets: only callers for the
+// A slow CA must not stall handshakes for other names: only callers for the
 // gated host wait on its issuance.
 func TestAutomation_getCertificateForHost_SlowIssuanceDoesNotBlockOtherHosts(t *testing.T) {
 	issuer := newStubIssuer()

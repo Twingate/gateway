@@ -28,7 +28,7 @@ const (
 )
 
 // automation issues short-lived certificates through the configured issuer.
-// It caches one certificate per requested name set and issues a fresh one once the
+// It caches one certificate per requested name and issues a fresh one once the
 // cached certificate expires.
 type automation struct {
 	issuer issuer
@@ -120,8 +120,6 @@ func (a *automation) getCertificateForHost(ctx context.Context, host string) (*t
 	return cert, nil
 }
 
-// issue generates a leaf key and has the issuer's CA sign a request covering name,
-// assembling the certificate served on the handshake.
 func (a *automation) issue(ctx context.Context, name string) (*tls.Certificate, error) {
 	key, err := a.key.generate()
 	if err != nil {
@@ -152,7 +150,6 @@ func (a *automation) issue(ctx context.Context, name string) (*tls.Certificate, 
 	}, nil
 }
 
-// purgeOnRotation drops every cached certificate and counts the rotation.
 func (a *automation) purgeOnRotation(ctx context.Context, rotated <-chan struct{}) {
 	for {
 		select {

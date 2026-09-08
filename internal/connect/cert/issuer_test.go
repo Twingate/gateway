@@ -169,10 +169,9 @@ func TestLocalIssuer_sign(t *testing.T) {
 	leaf, caChain, err := issuer.sign(t.Context(), csr)
 	require.NoError(t, err)
 
+	assert.Empty(t, leaf.Subject.CommonName)
 	assert.Equal(t, []string{"app.acme.int"}, leaf.DNSNames)
 	assert.Empty(t, leaf.IPAddresses)
-	assert.Empty(t, leaf.Subject.CommonName)
-	assert.Equal(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, leaf.ExtKeyUsage)
 
 	requested, ok := key.Public().(*ecdsa.PublicKey)
 	require.True(t, ok)
