@@ -136,3 +136,10 @@ func TestManager_GetCertificate(t *testing.T) {
 		})
 	}
 }
+
+func TestManager_GetCertificate_NoCertificates(t *testing.T) {
+	got, err := newTestManager(t, config.TLSConfig{}).GetCertificate(clientHello("app.acme.int"))
+
+	assert.Nil(t, got)
+	require.ErrorIs(t, err, ErrNoCertificates)
+}
