@@ -25,12 +25,11 @@ import (
 const (
 	defaultTTL     = 24 * time.Hour
 	maxCachedCerts = 1024
-	renewFraction  = 0.8
 )
 
 // automation issues short-lived certificates through the configured issuer.
 // It caches one certificate per requested name set and issues a fresh one once the
-// cached certificate is past its renewal threshold.
+// cached certificate expires.
 type automation struct {
 	issuer issuer
 	key    keyConfig
@@ -89,7 +88,7 @@ func (c *automation) run(ctx context.Context) error {
 func (c *automation) getCertificateForHost(ctx context.Context, host string) (*tls.Certificate, error) {
 	host = strings.ToLower(host)
 
-	if cert, ok := c.cachedCert(host); ok {
+	if cert := c.cachedCert(host); cert != nil {
 		return cert, nil
 	}
 
@@ -171,19 +170,17 @@ func (c *automation) purgeOnRotation(ctx context.Context, rotated <-chan struct{
 	}
 }
 
-// cachedCert returns the cached certificate for the given name set while it is
-// short of renewFraction of its lifetime. The lifetime is read off the
-// certificate itself, since an issuer may hand back a shorter one than asked for.
-func (c *automation) cachedCert(key string) (*tls.Certificate, bool) {
+func (c *automation) cachedCert(key string) *tls.Certificate {
 	cert, ok := c.cache.Get(key)
 	if !ok {
-		return nil, false
+		return nil
 	}
 
-	lifetime := cert.Leaf.NotAfter.Sub(cert.Leaf.NotBefore)
-	renewAfter := cert.Leaf.NotBefore.Add(time.Duration(float64(lifetime) * renewFraction))
+	if time.Now().Before(cert.Leaf.NotAfter) {
+		return cert
+	}
 
-	return cert, time.Now().Before(renewAfter)
+	return nil
 }
 
 // certificateRequest builds a certificate request covering name, signed by key so a

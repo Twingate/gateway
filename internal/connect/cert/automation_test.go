@@ -287,7 +287,7 @@ func TestAutomation_Run_ReissuesAfterCARotation(t *testing.T) {
 	}, 5*time.Second, 10*time.Millisecond)
 }
 
-func TestAutomation_getCertificateForHost_RenewsPastThreshold(t *testing.T) {
+func TestAutomation_getCertificateForHost_ReissuesAfterExpiry(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		cfg := testAutomationConfig()
 		cfg.Certificate.TTL = 2 * time.Hour
@@ -298,13 +298,14 @@ func TestAutomation_getCertificateForHost_RenewsPastThreshold(t *testing.T) {
 		first, err := cert.getCertificateForHost(t.Context(), "app.internal")
 		require.NoError(t, err)
 
-		// A fresh certificate is well short of its renewal threshold.
+		// Move the certificate's lifetime close to its expiry.
+		time.Sleep(119 * time.Minute)
+
 		again, err := cert.getCertificateForHost(t.Context(), "app.internal")
 		require.NoError(t, err)
 		assert.Same(t, first, again)
 
-		// Move past 80% of the certificate's lifetime, but short of its expiry.
-		time.Sleep(100 * time.Minute)
+		time.Sleep(2*time.Minute + time.Second)
 
 		second, err := cert.getCertificateForHost(t.Context(), "app.internal")
 		require.NoError(t, err)
