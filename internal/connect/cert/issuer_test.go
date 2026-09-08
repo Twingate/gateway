@@ -77,7 +77,6 @@ func TestLocalIssuer_load_SignalsOnlyOnCAChange(t *testing.T) {
 
 	issuer, err := newLocalIssuer(
 		&config.TLSLocalIssuerConfig{CertificateFile: file.CertificateFile, PrivateKeyFile: file.PrivateKeyFile},
-		defaultTTL,
 		zap.NewNop(),
 	)
 	require.NoError(t, err)
@@ -135,7 +134,7 @@ func TestLocalIssuer_load_Errors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := newLocalIssuer(&tt.cfg, defaultTTL, zap.NewNop())
+			_, err := newLocalIssuer(&tt.cfg, zap.NewNop())
 			require.Error(t, err)
 
 			if tt.wantErr != nil {
@@ -155,7 +154,6 @@ func TestLocalIssuer_sign(t *testing.T) {
 
 	issuer, err := newLocalIssuer(
 		&config.TLSLocalIssuerConfig{CertificateFile: file.CertificateFile, PrivateKeyFile: file.PrivateKeyFile},
-		defaultTTL,
 		zap.NewNop(),
 	)
 	require.NoError(t, err)
@@ -163,10 +161,9 @@ func TestLocalIssuer_sign(t *testing.T) {
 	key, err := keyConfig{typ: keyTypeECDSA, bits: 256}.generate()
 	require.NoError(t, err)
 
-	csr, err := certificateRequest(key, "app.acme.int")
-	require.NoError(t, err)
+	req := newCertificateRequest(key, "app.acme.int", defaultTTL)
 
-	leaf, caChain, err := issuer.sign(t.Context(), csr)
+	leaf, caChain, err := issuer.sign(t.Context(), req)
 	require.NoError(t, err)
 
 	assert.Empty(t, leaf.Subject.CommonName)
@@ -183,27 +180,19 @@ func TestLocalIssuer_sign(t *testing.T) {
 	assert.Equal(t, ca.Certificate[0], caChain[0].Raw)
 }
 
-func TestLocalIssuer_sign_InvalidRequest(t *testing.T) {
-	issuer := &localIssuer{ttl: defaultTTL}
-
-	_, _, err := issuer.sign(t.Context(), []byte("not a certificate request"))
-	require.ErrorContains(t, err, "failed to parse certificate request")
-}
-
 func TestLocalIssuer_sign_CAKeyFails(t *testing.T) {
 	ca := generateCA(t)
 
 	caCert, err := x509.ParseCertificate(ca.Certificate[0])
 	require.NoError(t, err)
 
-	issuer := &localIssuer{ttl: defaultTTL, caCert: caCert, caKey: failingSigner{pub: caCert.PublicKey}}
+	issuer := &localIssuer{caCert: caCert, caKey: failingSigner{pub: caCert.PublicKey}}
 
 	key, err := keyConfig{typ: keyTypeECDSA, bits: 256}.generate()
 	require.NoError(t, err)
 
-	csr, err := certificateRequest(key, "app.acme.int")
-	require.NoError(t, err)
+	req := newCertificateRequest(key, "app.acme.int", defaultTTL)
 
-	_, _, err = issuer.sign(t.Context(), csr)
+	_, _, err = issuer.sign(t.Context(), req)
 	require.ErrorContains(t, err, "failed to sign leaf certificate")
 }

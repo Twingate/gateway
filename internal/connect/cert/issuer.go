@@ -31,11 +31,11 @@ var (
 
 var serialNumberLimit = new(big.Int).Lsh(big.NewInt(1), 128)
 
-// issuer signs DER-encoded certificate requests with its CA and runs any background
-// maintenance its backend needs.
+// issuer signs certificate requests with its CA and runs any background maintenance
+// its backend needs.
 type issuer interface {
 	run(ctx context.Context) error
-	sign(ctx context.Context, csr []byte) (leaf *x509.Certificate, caChain []*x509.Certificate, err error)
+	sign(ctx context.Context, req *certificateRequest) (leaf *x509.Certificate, caChain []*x509.Certificate, err error)
 }
 
 // rotatableIssuer is an issuer whose CA can rotate during the process lifetime.
@@ -44,10 +44,10 @@ type rotatableIssuer interface {
 	rotated() <-chan struct{}
 }
 
-func newIssuer(cfg config.TLSIssuerConfig, ttl time.Duration, logger *zap.Logger) (issuer, error) {
+func newIssuer(cfg config.TLSIssuerConfig, logger *zap.Logger) (issuer, error) {
 	switch {
 	case cfg.Local != nil:
-		return newLocalIssuer(cfg.Local, ttl, logger)
+		return newLocalIssuer(cfg.Local, logger)
 	default:
 		return nil, config.ErrMissingTLSIssuerConfig
 	}
@@ -58,7 +58,6 @@ func newIssuer(cfg config.TLSIssuerConfig, ttl time.Duration, logger *zap.Logger
 type localIssuer struct {
 	certFile string
 	keyFile  string
-	ttl      time.Duration
 	logger   *zap.Logger
 
 	rotateCh chan struct{} // Receives a value after each CA rotation (implements rotatableIssuer)
@@ -70,11 +69,10 @@ type localIssuer struct {
 	reloader *filereloader.Reloader
 }
 
-func newLocalIssuer(cfg *config.TLSLocalIssuerConfig, ttl time.Duration, logger *zap.Logger) (*localIssuer, error) {
+func newLocalIssuer(cfg *config.TLSLocalIssuerConfig, logger *zap.Logger) (*localIssuer, error) {
 	issuer := &localIssuer{
 		certFile: cfg.CertificateFile,
 		keyFile:  cfg.PrivateKeyFile,
-		ttl:      ttl,
 		logger:   logger,
 		rotateCh: make(chan struct{}, 1),
 	}
@@ -141,12 +139,7 @@ func (l *localIssuer) load() error {
 	return nil
 }
 
-func (l *localIssuer) sign(_ context.Context, csr []byte) (*x509.Certificate, []*x509.Certificate, error) {
-	req, err := x509.ParseCertificateRequest(csr)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to parse certificate request: %w", err)
-	}
-
+func (l *localIssuer) sign(_ context.Context, req *certificateRequest) (*x509.Certificate, []*x509.Certificate, error) {
 	serial, err := rand.Int(rand.Reader, serialNumberLimit)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to generate serial number: %w", err)
@@ -160,14 +153,14 @@ func (l *localIssuer) sign(_ context.Context, csr []byte) (*x509.Certificate, []
 	template := &x509.Certificate{
 		SerialNumber: serial,
 		NotBefore:    now.Add(-clockSkewBuffer),
-		NotAfter:     now.Add(l.ttl),
+		NotAfter:     now.Add(req.ttl),
 		KeyUsage:     x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		DNSNames:     req.DNSNames,
-		IPAddresses:  req.IPAddresses,
+		DNSNames:     req.dnsNames,
+		IPAddresses:  req.ipAddresses,
 	}
 
-	leafDER, err := x509.CreateCertificate(rand.Reader, template, caCert, req.PublicKey, caKey)
+	leafDER, err := x509.CreateCertificate(rand.Reader, template, caCert, req.key.Public(), caKey)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to sign leaf certificate: %w", err)
 	}

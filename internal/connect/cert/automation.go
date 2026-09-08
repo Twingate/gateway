@@ -33,6 +33,7 @@ const (
 type automation struct {
 	issuer issuer
 	key    keyConfig
+	ttl    time.Duration
 	logger *zap.Logger
 
 	mu sync.Mutex
@@ -52,7 +53,7 @@ func newAutomation(cfg *config.TLSAutomationConfig, logger *zap.Logger) (*automa
 		certTTL = defaultTTL
 	}
 
-	issuer, err := newIssuer(cfg.Issuer, certTTL, logger)
+	issuer, err := newIssuer(cfg.Issuer, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -65,6 +66,7 @@ func newAutomation(cfg *config.TLSAutomationConfig, logger *zap.Logger) (*automa
 	return &automation{
 		issuer: issuer,
 		key:    keyCfg,
+		ttl:    certTTL,
 		logger: logger,
 		cache:  cache,
 	}, nil
@@ -126,12 +128,7 @@ func (a *automation) issue(ctx context.Context, name string) (*tls.Certificate, 
 		return nil, fmt.Errorf("failed to generate leaf key: %w", err)
 	}
 
-	csr, err := certificateRequest(key, name)
-	if err != nil {
-		return nil, err
-	}
-
-	leaf, caChain, err := a.issuer.sign(ctx, csr)
+	leaf, caChain, err := a.issuer.sign(ctx, newCertificateRequest(key, name, a.ttl))
 	if err != nil {
 		return nil, err
 	}
@@ -180,22 +177,34 @@ func (a *automation) cachedCert(key string) *tls.Certificate {
 	return nil
 }
 
-// certificateRequest builds a DER-encoded certificate request covering name, signed by
-// key so a backend can forward it to a remote CA.
-func certificateRequest(key crypto.Signer, name string) ([]byte, error) {
-	template := &x509.CertificateRequest{}
+type certificateRequest struct {
+	key         crypto.Signer
+	dnsNames    []string
+	ipAddresses []net.IP
+	ttl         time.Duration
+}
+
+func newCertificateRequest(key crypto.Signer, name string, ttl time.Duration) *certificateRequest {
+	req := &certificateRequest{key: key, ttl: ttl}
 
 	// A handshake without SNI leaves no name, and the certificate then covers none.
 	if ip := net.ParseIP(name); ip != nil {
-		template.IPAddresses = []net.IP{ip}
+		req.ipAddresses = []net.IP{ip}
 	} else if name != "" {
-		template.DNSNames = []string{name}
+		req.dnsNames = []string{name}
 	}
 
-	der, err := x509.CreateCertificateRequest(rand.Reader, template, key)
+	return req
+}
+
+// csr builds the request DER-encoded and signed by the leaf key.
+func (c *certificateRequest) csr() ([]byte, error) {
+	template := &x509.CertificateRequest{DNSNames: c.dnsNames, IPAddresses: c.ipAddresses}
+
+	csr, err := x509.CreateCertificateRequest(rand.Reader, template, c.key)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create certificate request: %w", err)
 	}
 
-	return der, nil
+	return csr, nil
 }
