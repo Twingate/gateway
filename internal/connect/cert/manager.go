@@ -40,10 +40,10 @@ func NewManager(tlsCfg config.TLSConfig, logger *zap.Logger) (*Manager, error) {
 }
 
 func (m *Manager) Run(ctx context.Context) error {
-	m.certs.Run(ctx)
+	m.certs.run(ctx)
 
 	if m.automation != nil {
-		if err := m.automation.Run(ctx); err != nil {
+		if err := m.automation.run(ctx); err != nil {
 			return err
 		}
 	}
@@ -54,14 +54,14 @@ func (m *Manager) Run(ctx context.Context) error {
 // GetCertificate returns the certificate for a downstream TLS handshake.
 func (m *Manager) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
 	if m.automation == nil {
-		return m.certs.GetCertificate(hello)
+		return m.certs.getCertificate(hello)
 	}
 
 	// No certificate is returned when certs is empty or no matching certificate is found
 	// so we fall back to automation.
-	if cert := m.certs.MatchCertificate(hello); cert != nil {
+	if cert := m.certs.matchCertificate(hello); cert != nil {
 		return cert, nil
 	}
 
-	return m.automation.GetCertificateForHost(hello.Context(), hello.ServerName)
+	return m.automation.getCertificateForHost(hello.Context(), hello.ServerName)
 }

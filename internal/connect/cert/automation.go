@@ -71,7 +71,7 @@ func newAutomation(cfg config.TLSAutomationConfig, logger *zap.Logger) (*automat
 	}, nil
 }
 
-func (c *automation) Run(ctx context.Context) error {
+func (c *automation) run(ctx context.Context) error {
 	if err := c.issuer.run(ctx); err != nil {
 		return err
 	}
@@ -85,8 +85,8 @@ func (c *automation) Run(ctx context.Context) error {
 	return nil
 }
 
-// GetCertificateForHost issues a certificate covering the given host, caching it under that name.
-func (c *automation) GetCertificateForHost(ctx context.Context, host string) (*tls.Certificate, error) {
+// getCertificateForHost issues a certificate covering the given host, caching it under that name.
+func (c *automation) getCertificateForHost(ctx context.Context, host string) (*tls.Certificate, error) {
 	host = strings.ToLower(host)
 
 	if cert, ok := c.cachedCert(host); ok {

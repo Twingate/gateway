@@ -44,16 +44,16 @@ func newReloader(keyPairs []config.TLSCertificateFileKeyPair, logger *zap.Logger
 	return cr
 }
 
-func (cr *reloader) Run(ctx context.Context) {
+func (cr *reloader) run(ctx context.Context) {
 	for _, r := range cr.reloaders {
 		r.Run(ctx)
 	}
 }
 
-// GetCertificate returns the first certificate the client supports, falling back to the
+// getCertificate returns the first certificate the client supports, falling back to the
 // first loaded certificate when none of them matches.
-func (cr *reloader) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
-	if cert := cr.MatchCertificate(hello); cert != nil {
+func (cr *reloader) getCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+	if cert := cr.matchCertificate(hello); cert != nil {
 		return cert, nil
 	}
 
@@ -64,9 +64,9 @@ func (cr *reloader) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate
 	return nil, ErrNoCertificates
 }
 
-// MatchCertificate returns the first certificate the client supports, or nil when
+// matchCertificate returns the first certificate the client supports, or nil when
 // none of them matches.
-func (cr *reloader) MatchCertificate(hello *tls.ClientHelloInfo) *tls.Certificate {
+func (cr *reloader) matchCertificate(hello *tls.ClientHelloInfo) *tls.Certificate {
 	cr.mu.RLock()
 	defer cr.mu.RUnlock()
 

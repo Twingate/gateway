@@ -21,14 +21,14 @@ import (
 	"gateway/internal/config"
 )
 
-func TestReloader_Run(t *testing.T) {
+func TestReloader_run(t *testing.T) {
 	fooCert := generateCert(t, "foo.acme.int")
 	barCert := generateCert(t, "bar.acme.int")
 	fooKeyPair := createKeyPair(t, fooCert)
 	barKeyPair := createKeyPair(t, barCert)
 
 	cr := newReloader([]config.TLSCertificateFileKeyPair{fooKeyPair, barKeyPair}, zap.NewNop())
-	cr.Run(t.Context())
+	cr.run(t.Context())
 
 	requireCert(t, cr, "foo.acme.int", fooCert)
 	requireCert(t, cr, "bar.acme.int", barCert)
@@ -80,7 +80,7 @@ func TestReloader_load(t *testing.T) {
 	}
 }
 
-func TestReloader_GetCertificate(t *testing.T) {
+func TestReloader_getCertificate(t *testing.T) {
 	fooCert := generateCert(t, "foo.acme.int")
 	barCert := generateCert(t, "bar.acme.int")
 
@@ -106,14 +106,14 @@ func TestReloader_GetCertificate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := cr.GetCertificate(clientHello(tt.serverName))
+			got, err := cr.getCertificate(clientHello(tt.serverName))
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, got.Certificate)
 		})
 	}
 }
 
-func TestReloader_GetCertificate_NoCertificates(t *testing.T) {
+func TestReloader_getCertificate_NoCertificates(t *testing.T) {
 	tests := []struct {
 		name     string
 		keyPairs []config.TLSCertificateFileKeyPair
@@ -136,7 +136,7 @@ func TestReloader_GetCertificate_NoCertificates(t *testing.T) {
 				require.Error(t, cr.load(keyPair))
 			}
 
-			got, err := cr.GetCertificate(clientHello("bar.acme.int"))
+			got, err := cr.getCertificate(clientHello("bar.acme.int"))
 			assert.Nil(t, got)
 			require.ErrorIs(t, err, ErrNoCertificates)
 		})
@@ -156,7 +156,7 @@ func requireCert(t *testing.T, cr *reloader, serverName string, expectedCert tls
 	hello := clientHello(serverName)
 
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		existingCert, err := cr.GetCertificate(hello)
+		existingCert, err := cr.getCertificate(hello)
 		require.NoError(c, err)
 
 		require.NotNil(c, existingCert)
