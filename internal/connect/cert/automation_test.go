@@ -59,13 +59,8 @@ func (s *stubIssuer) run(context.Context) error { return s.runErr }
 
 func (s *stubIssuer) rotated() <-chan struct{} { return s.rotateCh }
 
-func (s *stubIssuer) sign(_ context.Context, csr []byte) (*x509.Certificate, []*x509.Certificate, error) {
-	req, err := x509.ParseCertificateRequest(csr)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	name := strings.Join(csrNames(req), ",")
+func (s *stubIssuer) sign(_ context.Context, req *certificateRequest) (*x509.Certificate, []*x509.Certificate, error) {
+	name := strings.Join(requestNames(req), ",")
 	s.entered <- name
 
 	if gate, ok := s.gates[name]; ok {
@@ -91,7 +86,13 @@ func newStubAutomation(t *testing.T, issuer issuer) *automation {
 	cache, err := lru.New[string, *tls.Certificate](maxCachedCerts)
 	require.NoError(t, err)
 
-	return &automation{issuer: issuer, key: keyConfig{typ: keyTypeECDSA, bits: 256}, logger: zap.NewNop(), cache: cache}
+	return &automation{
+		issuer: issuer,
+		key:    keyConfig{typ: keyTypeECDSA, bits: 256},
+		ttl:    defaultTTL,
+		logger: zap.NewNop(),
+		cache:  cache,
+	}
 }
 
 func TestNewAutomation_Errors(t *testing.T) {
@@ -470,7 +471,7 @@ func TestAutomation_getCertificateForHost_RotationMidIssuanceIsNotCached(t *test
 		"the next handshake should get a certificate from the current CA")
 }
 
-func TestCertificateRequest(t *testing.T) {
+func TestNewCertificateRequest(t *testing.T) {
 	tests := []struct {
 		name      string
 		host      string
@@ -498,17 +499,22 @@ func TestCertificateRequest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			der, err := certificateRequest(key, tt.host)
+			req := newCertificateRequest(key, tt.host, defaultTTL)
+
+			assert.Equal(t, tt.wantNames, requestNames(req))
+			assert.Equal(t, defaultTTL, req.ttl)
+			assert.Equal(t, key, req.key)
+
+			der, err := req.csr()
 			require.NoError(t, err)
 
 			csr, err := x509.ParseCertificateRequest(der)
 			require.NoError(t, err)
 
-			assert.Equal(t, tt.wantNames, csrNames(csr))
+			// A backend reads the names off the request but forwards the CSR, so the two
+			// have to agree, and the CSR has to prove possession of the key it asks for.
+			assert.Equal(t, requestNames(req), csrNames(csr))
 			assert.Empty(t, csr.Subject.CommonName)
-
-			// A backend forwards the request to a remote CA, so it has to prove
-			// possession of the key it asks for.
 			assert.NoError(t, csr.CheckSignature())
 		})
 	}
@@ -517,6 +523,15 @@ func TestCertificateRequest(t *testing.T) {
 func csrNames(csr *x509.CertificateRequest) []string {
 	names := slices.Clone(csr.DNSNames)
 	for _, ip := range csr.IPAddresses {
+		names = append(names, ip.String())
+	}
+
+	return names
+}
+
+func requestNames(req *certificateRequest) []string {
+	names := slices.Clone(req.dnsNames)
+	for _, ip := range req.ipAddresses {
 		names = append(names, ip.String())
 	}
 

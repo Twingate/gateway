@@ -87,7 +87,6 @@ func TestLocalIssuer_load_SignalsOnlyOnCAChange(t *testing.T) {
 
 	issuer, err := newLocalIssuer(
 		&config.TLSLocalIssuerConfig{CertificateFile: file.CertificateFile, PrivateKeyFile: file.PrivateKeyFile},
-		defaultTTL,
 		zap.NewNop(),
 	)
 	require.NoError(t, err)
@@ -145,7 +144,7 @@ func TestLocalIssuer_load_Errors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := newLocalIssuer(&tt.cfg, defaultTTL, zap.NewNop())
+			_, err := newLocalIssuer(&tt.cfg, zap.NewNop())
 			require.Error(t, err)
 
 			if tt.wantErr != nil {
@@ -165,7 +164,6 @@ func TestLocalIssuer_sign(t *testing.T) {
 
 	issuer, err := newLocalIssuer(
 		&config.TLSLocalIssuerConfig{CertificateFile: file.CertificateFile, PrivateKeyFile: file.PrivateKeyFile},
-		defaultTTL,
 		zap.NewNop(),
 	)
 	require.NoError(t, err)
@@ -173,10 +171,9 @@ func TestLocalIssuer_sign(t *testing.T) {
 	key, err := keyConfig{typ: keyTypeECDSA, bits: 256}.generate()
 	require.NoError(t, err)
 
-	csr, err := certificateRequest(key, "app.acme.int")
-	require.NoError(t, err)
+	req := newCertificateRequest(key, "app.acme.int", defaultTTL)
 
-	leaf, caChain, err := issuer.sign(t.Context(), csr)
+	leaf, caChain, err := issuer.sign(t.Context(), req)
 	require.NoError(t, err)
 
 	assert.Empty(t, leaf.Subject.CommonName)
@@ -193,28 +190,20 @@ func TestLocalIssuer_sign(t *testing.T) {
 	assert.Equal(t, ca.Certificate[0], caChain[0].Raw)
 }
 
-func TestLocalIssuer_sign_InvalidRequest(t *testing.T) {
-	issuer := &localIssuer{ttl: defaultTTL}
-
-	_, _, err := issuer.sign(t.Context(), []byte("not a certificate request"))
-	require.ErrorContains(t, err, "failed to parse certificate request")
-}
-
 func TestLocalIssuer_sign_CAKeyFails(t *testing.T) {
 	ca := generateCA(t)
 
 	caCert, err := x509.ParseCertificate(ca.Certificate[0])
 	require.NoError(t, err)
 
-	issuer := &localIssuer{ttl: defaultTTL, caCert: caCert, caKey: failingSigner{pub: caCert.PublicKey}}
+	issuer := &localIssuer{caCert: caCert, caKey: failingSigner{pub: caCert.PublicKey}}
 
 	key, err := keyConfig{typ: keyTypeECDSA, bits: 256}.generate()
 	require.NoError(t, err)
 
-	csr, err := certificateRequest(key, "app.acme.int")
-	require.NoError(t, err)
+	req := newCertificateRequest(key, "app.acme.int", defaultTTL)
 
-	_, _, err = issuer.sign(t.Context(), csr)
+	_, _, err = issuer.sign(t.Context(), req)
 	require.ErrorContains(t, err, "failed to sign leaf certificate")
 }
 
@@ -296,7 +285,6 @@ func newTestVaultIssuer(t *testing.T, handler http.HandlerFunc) *vaultIssuer {
 		vault: &vault.Vault{Client: client, Logger: zap.NewNop()},
 		mount: "pki",
 		role:  "test-role",
-		ttl:   24 * time.Hour,
 	}
 }
 
@@ -307,10 +295,7 @@ func signHost(t *testing.T, issuer *vaultIssuer, host string) (*x509.Certificate
 	key, err := keyConfig{typ: keyTypeECDSA, bits: 256}.generate()
 	require.NoError(t, err)
 
-	csr, err := certificateRequest(key, host)
-	require.NoError(t, err)
-
-	return issuer.sign(t.Context(), csr)
+	return issuer.sign(t.Context(), newCertificateRequest(key, host, 24*time.Hour))
 }
 
 type mockAuthMethod struct {
@@ -378,13 +363,6 @@ func TestVaultIssuer_sign(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"app.example.com"}, leaf.DNSNames)
 	assert.Len(t, caChain, 1)
-}
-
-func TestVaultIssuer_sign_InvalidRequest(t *testing.T) {
-	issuer := &vaultIssuer{ttl: defaultTTL}
-
-	_, _, err := issuer.sign(t.Context(), []byte("not a certificate request"))
-	require.ErrorContains(t, err, "failed to parse certificate request")
 }
 
 func TestVaultIssuer_sign_Names(t *testing.T) {
@@ -462,7 +440,7 @@ func TestVaultIssuer_sign_RejectsMismatchedCertificate(t *testing.T) {
 				otherKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 				require.NoError(t, err)
 
-				otherCSR, err := certificateRequest(otherKey, host)
+				otherCSR, err := newCertificateRequest(otherKey, host, 24*time.Hour).csr()
 				require.NoError(t, err)
 
 				return signTestCSR(t, ca, csrPEM(otherCSR), nil)

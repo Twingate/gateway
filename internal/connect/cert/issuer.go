@@ -39,11 +39,11 @@ var (
 
 var serialNumberLimit = new(big.Int).Lsh(big.NewInt(1), 128)
 
-// issuer signs DER-encoded certificate requests with its CA and runs any background
-// maintenance its backend needs.
+// issuer signs certificate requests with its CA and runs any background maintenance
+// its backend needs.
 type issuer interface {
 	run(ctx context.Context) error
-	sign(ctx context.Context, csr []byte) (leaf *x509.Certificate, caChain []*x509.Certificate, err error)
+	sign(ctx context.Context, req *certificateRequest) (leaf *x509.Certificate, caChain []*x509.Certificate, err error)
 }
 
 // rotatableIssuer is an issuer whose CA can rotate during the process lifetime.
@@ -52,12 +52,12 @@ type rotatableIssuer interface {
 	rotated() <-chan struct{}
 }
 
-func newIssuer(cfg config.TLSIssuerConfig, ttl time.Duration, logger *zap.Logger) (issuer, error) {
+func newIssuer(cfg config.TLSIssuerConfig, logger *zap.Logger) (issuer, error) {
 	switch {
 	case cfg.Local != nil:
-		return newLocalIssuer(cfg.Local, ttl, logger)
+		return newLocalIssuer(cfg.Local, logger)
 	case cfg.Vault != nil:
-		return newVaultIssuer(cfg.Vault, ttl, logger)
+		return newVaultIssuer(cfg.Vault, logger)
 	default:
 		return nil, config.ErrMissingTLSIssuerConfig
 	}
@@ -68,7 +68,6 @@ func newIssuer(cfg config.TLSIssuerConfig, ttl time.Duration, logger *zap.Logger
 type localIssuer struct {
 	certFile string
 	keyFile  string
-	ttl      time.Duration
 	logger   *zap.Logger
 
 	rotateCh chan struct{} // Receives a value after each CA rotation (implements rotatableIssuer)
@@ -80,11 +79,10 @@ type localIssuer struct {
 	reloader *filereloader.Reloader
 }
 
-func newLocalIssuer(cfg *config.TLSLocalIssuerConfig, ttl time.Duration, logger *zap.Logger) (*localIssuer, error) {
+func newLocalIssuer(cfg *config.TLSLocalIssuerConfig, logger *zap.Logger) (*localIssuer, error) {
 	issuer := &localIssuer{
 		certFile: cfg.CertificateFile,
 		keyFile:  cfg.PrivateKeyFile,
-		ttl:      ttl,
 		logger:   logger,
 		rotateCh: make(chan struct{}, 1),
 	}
@@ -151,12 +149,7 @@ func (l *localIssuer) load() error {
 	return nil
 }
 
-func (l *localIssuer) sign(_ context.Context, csr []byte) (*x509.Certificate, []*x509.Certificate, error) {
-	req, err := x509.ParseCertificateRequest(csr)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to parse certificate request: %w", err)
-	}
-
+func (l *localIssuer) sign(_ context.Context, req *certificateRequest) (*x509.Certificate, []*x509.Certificate, error) {
 	serial, err := rand.Int(rand.Reader, serialNumberLimit)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to generate serial number: %w", err)
@@ -170,14 +163,14 @@ func (l *localIssuer) sign(_ context.Context, csr []byte) (*x509.Certificate, []
 	template := &x509.Certificate{
 		SerialNumber: serial,
 		NotBefore:    now.Add(-clockSkewBuffer),
-		NotAfter:     now.Add(l.ttl),
+		NotAfter:     now.Add(req.ttl),
 		KeyUsage:     x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		DNSNames:     req.DNSNames,
-		IPAddresses:  req.IPAddresses,
+		DNSNames:     req.dnsNames,
+		IPAddresses:  req.ipAddresses,
 	}
 
-	leafDER, err := x509.CreateCertificate(rand.Reader, template, caCert, req.PublicKey, caKey)
+	leafDER, err := x509.CreateCertificate(rand.Reader, template, caCert, req.key.Public(), caKey)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to sign leaf certificate: %w", err)
 	}
@@ -195,16 +188,15 @@ type vaultIssuer struct {
 	vault *vault.Vault
 	mount string
 	role  string
-	ttl   time.Duration
 }
 
-func newVaultIssuer(cfg *config.TLSVaultIssuerConfig, ttl time.Duration, logger *zap.Logger) (*vaultIssuer, error) {
+func newVaultIssuer(cfg *config.TLSVaultIssuerConfig, logger *zap.Logger) (*vaultIssuer, error) {
 	v, err := vault.New(cfg.VaultConfig, logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Vault client: %w", err)
 	}
 
-	return &vaultIssuer{vault: v, mount: cfg.GetMount(), role: cfg.Role, ttl: ttl}, nil
+	return &vaultIssuer{vault: v, mount: cfg.GetMount(), role: cfg.Role}, nil
 }
 
 // run logs in to Vault and keeps the token renewed in the background.
@@ -226,25 +218,25 @@ func (v *vaultIssuer) run(ctx context.Context) error {
 // sign has Vault sign the request through <mount>/sign/<role>, so the private key
 // never leaves the Gateway. The context is the TLS handshake's, so an abandoned
 // handshake cancels the in-flight request.
-func (v *vaultIssuer) sign(ctx context.Context, csr []byte) (*x509.Certificate, []*x509.Certificate, error) {
-	req, err := x509.ParseCertificateRequest(csr)
+func (v *vaultIssuer) sign(ctx context.Context, req *certificateRequest) (*x509.Certificate, []*x509.Certificate, error) {
+	csr, err := req.csr()
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to parse certificate request: %w", err)
+		return nil, nil, err
 	}
 
 	data := map[string]any{
 		"csr":         string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csr})),
 		"common_name": commonName(req),
-		"ttl":         v.ttl.String(),
+		"ttl":         req.ttl.String(),
 	}
 
-	if len(req.DNSNames) > 0 {
-		data["alt_names"] = strings.Join(req.DNSNames, ",")
+	if len(req.dnsNames) > 0 {
+		data["alt_names"] = strings.Join(req.dnsNames, ",")
 	}
 
-	if len(req.IPAddresses) > 0 {
-		ipSANs := make([]string, 0, len(req.IPAddresses))
-		for _, ip := range req.IPAddresses {
+	if len(req.ipAddresses) > 0 {
+		ipSANs := make([]string, 0, len(req.ipAddresses))
+		for _, ip := range req.ipAddresses {
 			ipSANs = append(ipSANs, ip.String())
 		}
 
@@ -271,7 +263,7 @@ func (v *vaultIssuer) sign(ctx context.Context, csr []byte) (*x509.Certificate, 
 	}
 
 	leaf := chain[0]
-	if err := verifyIssuedCertificate(leaf, req, v.ttl); err != nil {
+	if err := verifyIssuedCertificate(leaf, req); err != nil {
 		return nil, nil, err
 	}
 
@@ -280,13 +272,13 @@ func (v *vaultIssuer) sign(ctx context.Context, csr []byte) (*x509.Certificate, 
 
 // commonName returns the request's name for Vault's common_name field. A handshake
 // without SNI leaves it empty, which a PKI role only accepts with require_cn=false.
-func commonName(csr *x509.CertificateRequest) string {
-	if len(csr.DNSNames) > 0 {
-		return csr.DNSNames[0]
+func commonName(req *certificateRequest) string {
+	if len(req.dnsNames) > 0 {
+		return req.dnsNames[0]
 	}
 
-	if len(csr.IPAddresses) > 0 {
-		return csr.IPAddresses[0].String()
+	if len(req.ipAddresses) > 0 {
+		return req.ipAddresses[0].String()
 	}
 
 	return ""
@@ -294,24 +286,24 @@ func commonName(csr *x509.CertificateRequest) string {
 
 // verifyIssuedCertificate rejects a CA-issued certificate that is signed by a different signer or
 // grants more than the request asked for, in names or in validity.
-func verifyIssuedCertificate(leaf *x509.Certificate, csr *x509.CertificateRequest, ttl time.Duration) error {
+func verifyIssuedCertificate(leaf *x509.Certificate, req *certificateRequest) error {
 	type publicKey interface {
 		Equal(other crypto.PublicKey) bool
 	}
 
-	if pub, ok := csr.PublicKey.(publicKey); !ok || !pub.Equal(leaf.PublicKey) {
+	if pub, ok := req.key.Public().(publicKey); !ok || !pub.Equal(leaf.PublicKey) {
 		return fmt.Errorf("%w: certificate public key does not match the Gateway's key", errVaultCertMismatch)
 	}
 
 	granted := certificateNames(leaf.DNSNames, leaf.IPAddresses)
-	requested := certificateNames(csr.DNSNames, csr.IPAddresses)
+	requested := certificateNames(req.dnsNames, req.ipAddresses)
 
 	if !maps.Equal(granted, requested) {
 		return fmt.Errorf("%w: granted names %q do not match requested %q",
 			errVaultCertMismatch, slices.Sorted(maps.Keys(granted)), slices.Sorted(maps.Keys(requested)))
 	}
 
-	maxNotAfter := time.Now().Add(ttl).Add(clockSkewBuffer)
+	maxNotAfter := time.Now().Add(req.ttl).Add(clockSkewBuffer)
 	if leaf.NotAfter.After(maxNotAfter) {
 		return fmt.Errorf("%w: validity %s exceeds requested TTL (max %s)", errVaultCertMismatch, leaf.NotAfter, maxNotAfter)
 	}
