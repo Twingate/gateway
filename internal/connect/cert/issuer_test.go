@@ -16,7 +16,6 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
-	"slices"
 	"testing"
 	"time"
 
@@ -78,7 +77,6 @@ func TestLocalIssuer_load_SignalsOnlyOnCAChange(t *testing.T) {
 
 	issuer, err := newLocalIssuer(
 		&config.TLSLocalIssuerConfig{CertificateFile: file.CertificateFile, PrivateKeyFile: file.PrivateKeyFile},
-		keyConfig{typ: keyTypeECDSA, bits: 256},
 		defaultTTL,
 		zap.NewNop(),
 	)
@@ -137,7 +135,7 @@ func TestLocalIssuer_load_Errors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := newLocalIssuer(&tt.cfg, keyConfig{typ: keyTypeECDSA, bits: 256}, defaultTTL, zap.NewNop())
+			_, err := newLocalIssuer(&tt.cfg, defaultTTL, zap.NewNop())
 			require.Error(t, err)
 
 			if tt.wantErr != nil {
@@ -151,55 +149,12 @@ func TestLocalIssuer_load_Errors(t *testing.T) {
 	}
 }
 
-func TestLocalIssuer_issue(t *testing.T) {
-	ca := generateCA(t)
-	file := createKeyPair(t, ca)
-
-	issuer, err := newLocalIssuer(
-		&config.TLSLocalIssuerConfig{CertificateFile: file.CertificateFile, PrivateKeyFile: file.PrivateKeyFile},
-		keyConfig{typ: keyTypeECDSA, bits: 256},
-		defaultTTL,
-		zap.NewNop(),
-	)
-	require.NoError(t, err)
-
-	issued, err := issuer.issue(t.Context(), "app.acme.int")
-	require.NoError(t, err)
-
-	key, ok := issued.PrivateKey.(*ecdsa.PrivateKey)
-	require.True(t, ok, "expected an ECDSA leaf key")
-	assert.Equal(t, 256, key.Params().BitSize)
-
-	require.Len(t, issued.Certificate, 2)
-	assert.Equal(t, issued.Leaf.Raw, issued.Certificate[0])
-	assert.Equal(t, ca.Certificate[0], issued.Certificate[1])
-
-	_, err = issued.Leaf.Verify(x509.VerifyOptions{
-		DNSName:   "app.acme.int",
-		Roots:     caPool(t, ca),
-		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-	})
-	require.NoError(t, err)
-}
-
-func TestLocalIssuer_issue_KeyGenerationFails(t *testing.T) {
-	cfg := config.TLSLocalIssuerConfig(createKeyPair(t, generateCA(t)))
-
-	issuer, err := newLocalIssuer(&cfg, keyConfig{typ: keyTypeECDSA, bits: 128}, defaultTTL, zap.NewNop())
-	require.NoError(t, err)
-
-	_, err = issuer.issue(t.Context(), "app.acme.int")
-	require.ErrorIs(t, err, errUnsupportedKeyBits)
-	assert.Contains(t, err.Error(), "failed to generate leaf key")
-}
-
 func TestLocalIssuer_sign(t *testing.T) {
 	ca := generateCA(t)
 	file := createKeyPair(t, ca)
 
 	issuer, err := newLocalIssuer(
 		&config.TLSLocalIssuerConfig{CertificateFile: file.CertificateFile, PrivateKeyFile: file.PrivateKeyFile},
-		keyConfig{typ: keyTypeECDSA, bits: 256},
 		defaultTTL,
 		zap.NewNop(),
 	)
@@ -245,55 +200,4 @@ func TestLocalIssuer_sign_CAKeyFails(t *testing.T) {
 
 	_, _, err = issuer.sign(t.Context(), csr)
 	require.ErrorContains(t, err, "failed to sign leaf certificate")
-}
-
-func TestCertificateRequest(t *testing.T) {
-	tests := []struct {
-		name      string
-		host      string
-		wantNames []string
-	}{
-		{
-			name:      "hostname becomes a DNS name",
-			host:      "app.acme.int",
-			wantNames: []string{"app.acme.int"},
-		},
-		{
-			name:      "IP becomes an IP address",
-			host:      "10.0.0.5",
-			wantNames: []string{"10.0.0.5"},
-		},
-		{
-			// A handshake without SNI leaves no name to request.
-			name: "no host asks for no names",
-			host: "",
-		},
-	}
-
-	key, err := keyConfig{typ: keyTypeECDSA, bits: 256}.generate()
-	require.NoError(t, err)
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			csr, err := certificateRequest(key, tt.host)
-			require.NoError(t, err)
-
-			assert.Equal(t, tt.wantNames, csrNames(csr))
-			assert.Empty(t, csr.Subject.CommonName)
-
-			// A backend forwards the request to a remote CA, so it has to carry its own
-			// DER and prove possession of the key it asks for.
-			assert.NotEmpty(t, csr.Raw)
-			assert.NoError(t, csr.CheckSignature())
-		})
-	}
-}
-
-func csrNames(csr *x509.CertificateRequest) []string {
-	names := slices.Clone(csr.DNSNames)
-	for _, ip := range csr.IPAddresses {
-		names = append(names, ip.String())
-	}
-
-	return names
 }

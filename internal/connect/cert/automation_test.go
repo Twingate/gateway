@@ -11,6 +11,8 @@ import (
 	"crypto/x509"
 	"errors"
 	"math/big"
+	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -28,17 +30,19 @@ import (
 )
 
 var (
-	errStubRun = errors.New("stub issuer failed to start")
+	errStubRun  = errors.New("stub issuer failed to start")
+	errStubSign = errors.New("stub issuer failed to sign")
 )
 
-// stubIssuer issues placeholder certificates, reporting each issuance start on entered
-// and blocking hosts that have a gate until their gate closes. Configure gates before
-// the first issuance.
+// stubIssuer signs placeholder certificates, reporting each signing start on entered
+// and blocking requests for a host that has a gate until their gate closes. Configure
+// gates before the first request.
 type stubIssuer struct {
 	entered  chan string
 	gates    map[string]chan struct{}
 	rotateCh chan struct{}
 	runErr   error
+	signErr  error
 
 	serials atomic.Int64
 }
@@ -55,24 +59,25 @@ func (s *stubIssuer) run(context.Context) error { return s.runErr }
 
 func (s *stubIssuer) rotated() <-chan struct{} { return s.rotateCh }
 
-func (s *stubIssuer) issue(_ context.Context, name string) (*tls.Certificate, error) {
+func (s *stubIssuer) sign(_ context.Context, csr *x509.CertificateRequest) (*x509.Certificate, []*x509.Certificate, error) {
+	name := strings.Join(csrNames(csr), ",")
 	s.entered <- name
 
 	if gate, ok := s.gates[name]; ok {
 		<-gate
 	}
 
+	if s.signErr != nil {
+		return nil, nil, s.signErr
+	}
+
 	now := time.Now()
 
-	return &tls.Certificate{Leaf: &x509.Certificate{
+	return &x509.Certificate{
 		SerialNumber: big.NewInt(s.serials.Add(1)),
 		NotBefore:    now,
 		NotAfter:     now.Add(time.Hour),
-	}}, nil
-}
-
-func (s *stubIssuer) sign(context.Context, *x509.CertificateRequest) (*x509.Certificate, []*x509.Certificate, error) {
-	return nil, nil, nil
+	}, nil, nil
 }
 
 func newStubAutomation(t *testing.T, issuer issuer) *automation {
@@ -81,7 +86,7 @@ func newStubAutomation(t *testing.T, issuer issuer) *automation {
 	cache, err := lru.New[string, *tls.Certificate](maxCachedCerts)
 	require.NoError(t, err)
 
-	return &automation{issuer: issuer, logger: zap.NewNop(), cache: cache}
+	return &automation{issuer: issuer, key: keyConfig{typ: keyTypeECDSA, bits: 256}, logger: zap.NewNop(), cache: cache}
 }
 
 func TestNewAutomation_Errors(t *testing.T) {
@@ -143,6 +148,38 @@ func TestAutomation_Run_IssuerFailsToStart(t *testing.T) {
 	require.ErrorIs(t, newStubAutomation(t, issuer).Run(t.Context()), errStubRun)
 }
 
+func TestAutomation_issue(t *testing.T) {
+	ca := generateCA(t)
+	file := createKeyPair(t, ca)
+
+	cfg := testAutomationConfig()
+	cfg.Issuer.Local = &config.TLSLocalIssuerConfig{CertificateFile: file.CertificateFile, PrivateKeyFile: file.PrivateKeyFile}
+
+	cert, err := newAutomation(*cfg, zap.NewNop())
+	require.NoError(t, err)
+
+	issued, err := cert.issue(t.Context(), "app.acme.int")
+	require.NoError(t, err)
+
+	require.Len(t, issued.Certificate, 2)
+	assert.Equal(t, issued.Leaf.Raw, issued.Certificate[0], "the leaf should come first in the chain")
+	assert.Equal(t, ca.Certificate[0], issued.Certificate[1])
+
+	key, ok := issued.PrivateKey.(*ecdsa.PrivateKey)
+	require.True(t, ok, "expected an ECDSA leaf key")
+	assert.True(t, key.PublicKey.Equal(issued.Leaf.PublicKey), "the served key should be the one the leaf was signed for")
+}
+
+// A key config that generate rejects cannot come from newAutomation, which validates it first.
+func TestAutomation_issue_KeyGenerationFails(t *testing.T) {
+	cert := newStubAutomation(t, newStubIssuer())
+	cert.key = keyConfig{typ: keyTypeECDSA, bits: 128}
+
+	_, err := cert.issue(t.Context(), "app.acme.int")
+	require.ErrorIs(t, err, errUnsupportedKeyBits)
+	assert.Contains(t, err.Error(), "failed to generate leaf key")
+}
+
 func TestAutomation_GetCertificateForHost(t *testing.T) {
 	cert, err := newAutomation(*testAutomationConfig(), zap.NewNop())
 	require.NoError(t, err)
@@ -196,6 +233,17 @@ func TestAutomation_GetCertificateForHost_EmptyHost(t *testing.T) {
 	cached, ok := cert.cache.Get("")
 	require.True(t, ok, "the nameless certificate should be cached under the empty host")
 	assert.Same(t, issued, cached)
+}
+
+func TestAutomation_GetCertificateForHost_SigningFails(t *testing.T) {
+	issuer := newStubIssuer()
+	issuer.signErr = errStubSign
+
+	cert := newStubAutomation(t, issuer)
+
+	_, err := cert.GetCertificateForHost(t.Context(), "app.acme.int")
+	require.ErrorIs(t, err, errStubSign)
+	assert.Zero(t, cert.cache.Len(), "a failed issuance should cache nothing")
 }
 
 func TestAutomation_Run_ReissuesAfterCARotation(t *testing.T) {
@@ -392,4 +440,55 @@ func TestAutomation_GetCertificateForHost_RotationMidIssuanceIsNotCached(t *test
 	require.NoError(t, err)
 	assert.NotEqual(t, first.cert.Leaf.SerialNumber, second.Leaf.SerialNumber,
 		"the next handshake should get a certificate from the current CA")
+}
+
+func TestCertificateRequest(t *testing.T) {
+	tests := []struct {
+		name      string
+		host      string
+		wantNames []string
+	}{
+		{
+			name:      "hostname becomes a DNS name",
+			host:      "app.acme.int",
+			wantNames: []string{"app.acme.int"},
+		},
+		{
+			name:      "IP becomes an IP address",
+			host:      "10.0.0.5",
+			wantNames: []string{"10.0.0.5"},
+		},
+		{
+			// A handshake without SNI leaves no name to request.
+			name: "no host asks for no names",
+			host: "",
+		},
+	}
+
+	key, err := keyConfig{typ: keyTypeECDSA, bits: 256}.generate()
+	require.NoError(t, err)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			csr, err := certificateRequest(key, tt.host)
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.wantNames, csrNames(csr))
+			assert.Empty(t, csr.Subject.CommonName)
+
+			// A backend forwards the request to a remote CA, so it has to carry its own
+			// DER and prove possession of the key it asks for.
+			assert.NotEmpty(t, csr.Raw)
+			assert.NoError(t, csr.CheckSignature())
+		})
+	}
+}
+
+func csrNames(csr *x509.CertificateRequest) []string {
+	names := slices.Clone(csr.DNSNames)
+	for _, ip := range csr.IPAddresses {
+		names = append(names, ip.String())
+	}
+
+	return names
 }

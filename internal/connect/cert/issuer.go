@@ -13,7 +13,6 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"net"
 	"sync"
 	"time"
 
@@ -32,11 +31,10 @@ var (
 
 var serialNumberLimit = new(big.Int).Lsh(big.NewInt(1), 128)
 
-// issuer issues the certificate served on a handshake, signs certificate requests
-// with its CA and runs any background maintenance its backend needs.
+// issuer signs certificate requests with its CA and runs any background maintenance
+// its backend needs.
 type issuer interface {
 	run(ctx context.Context) error
-	issue(ctx context.Context, name string) (*tls.Certificate, error)
 	sign(ctx context.Context, csr *x509.CertificateRequest) (leaf *x509.Certificate, caChain []*x509.Certificate, err error)
 }
 
@@ -46,10 +44,10 @@ type rotatableIssuer interface {
 	rotated() <-chan struct{}
 }
 
-func newIssuer(cfg config.TLSIssuerConfig, keyCfg keyConfig, ttl time.Duration, logger *zap.Logger) (issuer, error) {
+func newIssuer(cfg config.TLSIssuerConfig, ttl time.Duration, logger *zap.Logger) (issuer, error) {
 	switch {
 	case cfg.Local != nil:
-		return newLocalIssuer(cfg.Local, keyCfg, ttl, logger)
+		return newLocalIssuer(cfg.Local, ttl, logger)
 	default:
 		return nil, config.ErrMissingTLSIssuerConfig
 	}
@@ -60,7 +58,6 @@ func newIssuer(cfg config.TLSIssuerConfig, keyCfg keyConfig, ttl time.Duration, 
 type localIssuer struct {
 	certFile string
 	keyFile  string
-	key      keyConfig
 	ttl      time.Duration
 	logger   *zap.Logger
 
@@ -73,11 +70,10 @@ type localIssuer struct {
 	reloader *filereloader.Reloader
 }
 
-func newLocalIssuer(cfg *config.TLSLocalIssuerConfig, keyCfg keyConfig, ttl time.Duration, logger *zap.Logger) (*localIssuer, error) {
+func newLocalIssuer(cfg *config.TLSLocalIssuerConfig, ttl time.Duration, logger *zap.Logger) (*localIssuer, error) {
 	issuer := &localIssuer{
 		certFile: cfg.CertificateFile,
 		keyFile:  cfg.PrivateKeyFile,
-		key:      keyCfg,
 		ttl:      ttl,
 		logger:   logger,
 		rotateCh: make(chan struct{}, 1),
@@ -145,36 +141,6 @@ func (l *localIssuer) load() error {
 	return nil
 }
 
-func (l *localIssuer) issue(ctx context.Context, name string) (*tls.Certificate, error) {
-	key, err := l.key.generate()
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate leaf key: %w", err)
-	}
-
-	csr, err := certificateRequest(key, name)
-	if err != nil {
-		return nil, err
-	}
-
-	leaf, caChain, err := l.sign(ctx, csr)
-	if err != nil {
-		return nil, err
-	}
-
-	chain := make([][]byte, 0, len(caChain)+1)
-	chain = append(chain, leaf.Raw)
-
-	for _, ca := range caChain {
-		chain = append(chain, ca.Raw)
-	}
-
-	return &tls.Certificate{
-		Certificate: chain,
-		PrivateKey:  key,
-		Leaf:        leaf,
-	}, nil
-}
-
 func (l *localIssuer) sign(_ context.Context, csr *x509.CertificateRequest) (*x509.Certificate, []*x509.Certificate, error) {
 	serial, err := rand.Int(rand.Reader, serialNumberLimit)
 	if err != nil {
@@ -207,29 +173,4 @@ func (l *localIssuer) sign(_ context.Context, csr *x509.CertificateRequest) (*x5
 	}
 
 	return leaf, []*x509.Certificate{caCert}, nil
-}
-
-// certificateRequest builds a certificate request covering name, signed by key so a
-// backend can forward it to a remote CA.
-func certificateRequest(key crypto.Signer, name string) (*x509.CertificateRequest, error) {
-	template := &x509.CertificateRequest{}
-
-	// A handshake without SNI leaves no name, and the certificate then covers none.
-	if ip := net.ParseIP(name); ip != nil {
-		template.IPAddresses = []net.IP{ip}
-	} else if name != "" {
-		template.DNSNames = []string{name}
-	}
-
-	der, err := x509.CreateCertificateRequest(rand.Reader, template, key)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create certificate request: %w", err)
-	}
-
-	csr, err := x509.ParseCertificateRequest(der)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse certificate request: %w", err)
-	}
-
-	return csr, nil
 }

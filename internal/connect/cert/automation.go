@@ -5,8 +5,12 @@ package cert
 
 import (
 	"context"
+	"crypto"
+	"crypto/rand"
 	"crypto/tls"
+	"crypto/x509"
 	"fmt"
+	"net"
 	"strings"
 	"sync"
 	"time"
@@ -29,6 +33,7 @@ const (
 // cached certificate is past its renewal threshold.
 type automation struct {
 	issuer issuer
+	key    keyConfig
 	logger *zap.Logger
 
 	mu sync.Mutex
@@ -48,7 +53,7 @@ func newAutomation(cfg config.TLSAutomationConfig, logger *zap.Logger) (*automat
 		certTTL = defaultTTL
 	}
 
-	issuer, err := newIssuer(cfg.Issuer, keyCfg, certTTL, logger)
+	issuer, err := newIssuer(cfg.Issuer, certTTL, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -60,6 +65,7 @@ func newAutomation(cfg config.TLSAutomationConfig, logger *zap.Logger) (*automat
 
 	return &automation{
 		issuer: issuer,
+		key:    keyCfg,
 		logger: logger,
 		cache:  cache,
 	}, nil
@@ -93,7 +99,7 @@ func (c *automation) GetCertificateForHost(ctx context.Context, host string) (*t
 
 	// Sign outside the lock so a slow CA cannot stall handshakes for names that are already
 	// cached. A burst against a cold cache may sign the same names twice, which is cheaper.
-	cert, err := c.issuer.issue(ctx, host)
+	cert, err := c.issue(ctx, host)
 	if err != nil {
 		return nil, err
 	}
@@ -113,6 +119,38 @@ func (c *automation) GetCertificateForHost(ctx context.Context, host string) (*t
 	}
 
 	return cert, nil
+}
+
+// issue generates a leaf key and has the issuer's CA sign a request covering name,
+// assembling the certificate served on the handshake.
+func (c *automation) issue(ctx context.Context, name string) (*tls.Certificate, error) {
+	key, err := c.key.generate()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate leaf key: %w", err)
+	}
+
+	csr, err := certificateRequest(key, name)
+	if err != nil {
+		return nil, err
+	}
+
+	leaf, caChain, err := c.issuer.sign(ctx, csr)
+	if err != nil {
+		return nil, err
+	}
+
+	chain := make([][]byte, 0, len(caChain)+1)
+	chain = append(chain, leaf.Raw)
+
+	for _, ca := range caChain {
+		chain = append(chain, ca.Raw)
+	}
+
+	return &tls.Certificate{
+		Certificate: chain,
+		PrivateKey:  key,
+		Leaf:        leaf,
+	}, nil
 }
 
 // purgeOnRotation drops every cached certificate and counts the rotation.
@@ -146,4 +184,29 @@ func (c *automation) cachedCert(key string) (*tls.Certificate, bool) {
 	renewAfter := cert.Leaf.NotBefore.Add(time.Duration(float64(lifetime) * renewFraction))
 
 	return cert, time.Now().Before(renewAfter)
+}
+
+// certificateRequest builds a certificate request covering name, signed by key so a
+// backend can forward it to a remote CA.
+func certificateRequest(key crypto.Signer, name string) (*x509.CertificateRequest, error) {
+	template := &x509.CertificateRequest{}
+
+	// A handshake without SNI leaves no name, and the certificate then covers none.
+	if ip := net.ParseIP(name); ip != nil {
+		template.IPAddresses = []net.IP{ip}
+	} else if name != "" {
+		template.DNSNames = []string{name}
+	}
+
+	der, err := x509.CreateCertificateRequest(rand.Reader, template, key)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create certificate request: %w", err)
+	}
+
+	csr, err := x509.ParseCertificateRequest(der)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse certificate request: %w", err)
+	}
+
+	return csr, nil
 }
