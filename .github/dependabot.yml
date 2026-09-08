@@ -6,6 +6,11 @@ updates:
       interval: daily
     allow:
       - dependency-type: all
+    ignore:
+      # Nested module with no tags of its own; Dependabot mistakes the stale
+      # charmbracelet/x root tag v0.1.0 for a release of the submodule and
+      # produces an unresolvable go.mod. Updated transitively via svu/fang.
+      - dependency-name: github.com/charmbracelet/x/exp/charmtone
     open-pull-requests-limit: 5
   - package-ecosystem: docker
     directory: "/"
