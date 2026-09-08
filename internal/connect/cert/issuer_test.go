@@ -533,6 +533,7 @@ func TestGCPIssuer_sign(t *testing.T) {
 		// The certificate ID has to match GCP CA Service's `[a-zA-Z0-9_-]{1,63}` constraint.
 		assert.Regexp(t, "[a-zA-Z0-9_-]{1,63}", req.GetCertificateId())
 		assert.NotEmpty(t, req.GetRequestId())
+		assert.Empty(t, req.GetIssuingCertificateAuthorityId())
 
 		return &privatecapb.Certificate{
 			PemCertificate:      signTestCSR(t, ca, req.GetCertificate().GetPemCsr()),
@@ -544,6 +545,23 @@ func TestGCPIssuer_sign(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"app.acme.int"}, leaf.DNSNames)
 	assert.Len(t, caChain, 1)
+}
+
+func TestGCPIssuer_sign_PinIssuingCA(t *testing.T) {
+	ca := generateCA(t)
+
+	issuer := newTestGCPIssuer(t, func(req *privatecapb.CreateCertificateRequest) (*privatecapb.Certificate, error) {
+		assert.Equal(t, "gateway-ca", req.GetIssuingCertificateAuthorityId())
+
+		return &privatecapb.Certificate{
+			PemCertificate:      signTestCSR(t, ca, req.GetCertificate().GetPemCsr()),
+			PemCertificateChain: []string{caPEM(t, ca)},
+		}, nil
+	})
+	issuer.issuingCA = "gateway-ca"
+
+	_, _, err := issuer.sign(t.Context(), newCertificateRequest(generateKey(t), "app.acme.int", defaultTTL))
+	require.NoError(t, err)
 }
 
 func TestGCPIssuer_sign_Error(t *testing.T) {

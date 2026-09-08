@@ -147,9 +147,12 @@ type TLSVaultIssuerConfig struct {
 }
 
 type TLSGCPPrivateCAIssuerConfig struct {
-	Project         string `yaml:"project"`
-	Location        string `yaml:"location"`
-	CAPoolID        string `yaml:"caPoolID"`
+	Project  string `yaml:"project"`
+	Location string `yaml:"location"`
+	CAPoolID string `yaml:"caPoolID"`
+	// Pins issuance to one CA in the pool, bypassing the pool's load balancing.
+	IssuingCertificateAuthorityID string `yaml:"issuingCertificateAuthorityID,omitempty"`
+
 	CredentialsFile string `yaml:"credentialsFile,omitempty"` // Defaults to Application Default Credentials
 }
 

@@ -269,6 +269,7 @@ func (v *vaultIssuer) sign(ctx context.Context, req *certificateRequest) (*x509.
 type gcpIssuer struct {
 	credentialsFile string
 	parent          string // The CA pool issuing the certificates
+	issuingCA       string // Pins one CA in the pool
 
 	client *privateca.CertificateAuthorityClient
 }
@@ -277,6 +278,7 @@ func newGCPIssuer(cfg *config.TLSGCPPrivateCAIssuerConfig) *gcpIssuer {
 	return &gcpIssuer{
 		credentialsFile: cfg.CredentialsFile,
 		parent:          fmt.Sprintf("projects/%s/locations/%s/caPools/%s", cfg.Project, cfg.Location, cfg.CAPoolID),
+		issuingCA:       cfg.IssuingCertificateAuthorityID,
 	}
 }
 
@@ -315,7 +317,8 @@ func (g *gcpIssuer) sign(ctx context.Context, req *certificateRequest) (*x509.Ce
 			},
 			Lifetime: durationpb.New(req.ttl),
 		},
-		RequestId: uuid.NewString(),
+		RequestId:                     uuid.NewString(),
+		IssuingCertificateAuthorityId: g.issuingCA,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to issue certificate: %w", err)
