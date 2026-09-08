@@ -31,10 +31,11 @@ import (
 const clockSkewBuffer = 30 * time.Second
 
 var (
-	errNotCACertificate  = errors.New("certificate is not a certificate authority")
-	errCAKeyNotSigner    = errors.New("CA private key does not implement crypto.Signer")
-	errVaultIssueFailed  = errors.New("failed to issue certificate with Vault")
-	errVaultCertMismatch = errors.New("certificate issued by Vault does not match the request")
+	errNotCACertificate   = errors.New("certificate is not a certificate authority")
+	errCAKeyNotSigner     = errors.New("CA private key does not implement crypto.Signer")
+	errVaultIssueFailed   = errors.New("failed to issue certificate with Vault")
+	errCertChainNotPEM    = errors.New("certificate chain is not PEM encoded")
+	errIssuedCertMismatch = errors.New("issued certificate does not match the request")
 )
 
 var serialNumberLimit = new(big.Int).Lsh(big.NewInt(1), 128)
@@ -225,22 +226,8 @@ func (v *vaultIssuer) sign(ctx context.Context, req *certificateRequest) (*x509.
 	}
 
 	data := map[string]any{
-		"csr":         string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csr})),
-		"common_name": commonName(req),
-		"ttl":         req.ttl.String(),
-	}
-
-	if len(req.dnsNames) > 0 {
-		data["alt_names"] = strings.Join(req.dnsNames, ",")
-	}
-
-	if len(req.ipAddresses) > 0 {
-		ipSANs := make([]string, 0, len(req.ipAddresses))
-		for _, ip := range req.ipAddresses {
-			ipSANs = append(ipSANs, ip.String())
-		}
-
-		data["ip_sans"] = strings.Join(ipSANs, ",")
+		"csr": string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csr})),
+		"ttl": req.ttl.String(),
 	}
 
 	secret, err := v.vault.Client.Logical().WriteWithContext(ctx, v.mount+"/sign/"+v.role, data)
@@ -270,20 +257,6 @@ func (v *vaultIssuer) sign(ctx context.Context, req *certificateRequest) (*x509.
 	return leaf, chain[1:], nil
 }
 
-// commonName returns the request's name for Vault's common_name field. A handshake
-// without SNI leaves it empty, which a PKI role only accepts with require_cn=false.
-func commonName(req *certificateRequest) string {
-	if len(req.dnsNames) > 0 {
-		return req.dnsNames[0]
-	}
-
-	if len(req.ipAddresses) > 0 {
-		return req.ipAddresses[0].String()
-	}
-
-	return ""
-}
-
 // verifyIssuedCertificate rejects a CA-issued certificate that is signed by a different signer or
 // grants more than the request asked for, in names or in validity.
 func verifyIssuedCertificate(leaf *x509.Certificate, req *certificateRequest) error {
@@ -292,7 +265,7 @@ func verifyIssuedCertificate(leaf *x509.Certificate, req *certificateRequest) er
 	}
 
 	if pub, ok := req.key.Public().(publicKey); !ok || !pub.Equal(leaf.PublicKey) {
-		return fmt.Errorf("%w: certificate public key does not match the Gateway's key", errVaultCertMismatch)
+		return fmt.Errorf("%w: certificate public key does not match the Gateway's key", errIssuedCertMismatch)
 	}
 
 	granted := certificateNames(leaf.DNSNames, leaf.IPAddresses)
@@ -300,12 +273,12 @@ func verifyIssuedCertificate(leaf *x509.Certificate, req *certificateRequest) er
 
 	if !maps.Equal(granted, requested) {
 		return fmt.Errorf("%w: granted names %q do not match requested %q",
-			errVaultCertMismatch, slices.Sorted(maps.Keys(granted)), slices.Sorted(maps.Keys(requested)))
+			errIssuedCertMismatch, slices.Sorted(maps.Keys(granted)), slices.Sorted(maps.Keys(requested)))
 	}
 
 	maxNotAfter := time.Now().Add(req.ttl).Add(clockSkewBuffer)
 	if leaf.NotAfter.After(maxNotAfter) {
-		return fmt.Errorf("%w: validity %s exceeds requested TTL (max %s)", errVaultCertMismatch, leaf.NotAfter, maxNotAfter)
+		return fmt.Errorf("%w: validity %s exceeds requested TTL (max %s)", errIssuedCertMismatch, leaf.NotAfter, maxNotAfter)
 	}
 
 	return nil
@@ -334,7 +307,7 @@ func parseCertificateChain(pems []string) ([]*x509.Certificate, error) {
 	for _, certPEM := range pems {
 		block, _ := pem.Decode([]byte(certPEM))
 		if block == nil || block.Type != "CERTIFICATE" {
-			return nil, fmt.Errorf("%w: response is not PEM certificates", errVaultIssueFailed)
+			return nil, errCertChainNotPEM
 		}
 
 		cert, err := x509.ParseCertificate(block.Bytes)

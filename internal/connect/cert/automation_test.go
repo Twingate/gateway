@@ -163,7 +163,6 @@ func TestAutomation_Run_IssuerFailsToStart(t *testing.T) {
 	require.ErrorIs(t, newStubAutomation(t, issuer).run(t.Context()), errStubRun)
 }
 
-// The vault issuer is selected when the issuer config names Vault.
 func TestNewAutomation_VaultIssuer(t *testing.T) {
 	automation, err := newAutomation(&config.TLSAutomationConfig{
 		Issuer: config.TLSIssuerConfig{Vault: &config.TLSVaultIssuerConfig{
@@ -494,8 +493,7 @@ func TestNewCertificateRequest(t *testing.T) {
 		},
 	}
 
-	key, err := keyConfig{typ: keyTypeECDSA, bits: 256}.generate()
-	require.NoError(t, err)
+	key := generateKey(t)
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
