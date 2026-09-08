@@ -26,10 +26,18 @@ import (
 	"testing/synctest"
 	"time"
 
+	"cloud.google.com/go/security/privateca/apiv1/privatecapb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"google.golang.org/api/option"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
+	"google.golang.org/grpc/test/bufconn"
 
+	privateca "cloud.google.com/go/security/privateca/apiv1"
 	vaultapi "github.com/hashicorp/vault/api"
 
 	"gateway/internal/config"
@@ -446,6 +454,169 @@ func TestVaultIssuer_run_LoginError(t *testing.T) {
 	err := issuer.run(t.Context())
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "failed to login to Vault")
+}
+
+// fakeCAS stands in for GCP CA Service, delegating CreateCertificate to the test's handler.
+type fakeCAS struct {
+	privatecapb.UnimplementedCertificateAuthorityServiceServer
+
+	createCertificate func(*privatecapb.CreateCertificateRequest) (*privatecapb.Certificate, error)
+}
+
+func (f *fakeCAS) CreateCertificate(_ context.Context, req *privatecapb.CreateCertificateRequest) (*privatecapb.Certificate, error) {
+	return f.createCertificate(req)
+}
+
+// newTestGCPIssuer returns a gcpIssuer whose client talks to a fake CA Service
+// running handler, wired the way run wires the real one.
+func newTestGCPIssuer(t *testing.T, handler func(*privatecapb.CreateCertificateRequest) (*privatecapb.Certificate, error)) *gcpIssuer {
+	t.Helper()
+
+	listener := bufconn.Listen(1 << 20)
+	server := grpc.NewServer()
+	privatecapb.RegisterCertificateAuthorityServiceServer(server, &fakeCAS{createCertificate: handler})
+
+	go func() { _ = server.Serve(listener) }()
+
+	t.Cleanup(server.Stop)
+
+	conn, err := grpc.NewClient("passthrough:///bufconn",
+		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) { return listener.DialContext(ctx) }),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	require.NoError(t, err)
+
+	client, err := privateca.NewCertificateAuthorityClient(t.Context(), option.WithGRPCConn(conn))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = client.Close() })
+
+	issuer := newGCPIssuer(&config.TLSGCPPrivateCAIssuerConfig{
+		Project:  "acme",
+		Location: "us-east1",
+		CAPoolID: "gateway",
+	})
+	issuer.client = client
+
+	return issuer
+}
+
+// writeServiceAccountFile writes a service account key file.
+func writeServiceAccountFile(t *testing.T) string {
+	t.Helper()
+
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+
+	der, err := x509.MarshalPKCS8PrivateKey(key)
+	require.NoError(t, err)
+
+	data, err := json.Marshal(map[string]string{
+		"type":         "service_account",
+		"project_id":   "acme",
+		"client_email": "gateway@acme.iam.gserviceaccount.com",
+		"private_key":  string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der})),
+	})
+	require.NoError(t, err)
+
+	path := filepath.Join(t.TempDir(), "credentials.json")
+	require.NoError(t, os.WriteFile(path, data, 0o600))
+
+	return path
+}
+
+func TestGCPIssuer_sign(t *testing.T) {
+	ca := generateCA(t)
+
+	issuer := newTestGCPIssuer(t, func(req *privatecapb.CreateCertificateRequest) (*privatecapb.Certificate, error) {
+		assert.Equal(t, "projects/acme/locations/us-east1/caPools/gateway", req.GetParent())
+		assert.Equal(t, defaultTTL, req.GetCertificate().GetLifetime().AsDuration())
+		// The certificate ID has to match GCP CA Service's `[a-zA-Z0-9_-]{1,63}` constraint.
+		assert.Regexp(t, "[a-zA-Z0-9_-]{1,63}", req.GetCertificateId())
+		assert.NotEmpty(t, req.GetRequestId())
+
+		return &privatecapb.Certificate{
+			PemCertificate:      signTestCSR(t, ca, req.GetCertificate().GetPemCsr()),
+			PemCertificateChain: []string{caPEM(t, ca)},
+		}, nil
+	})
+
+	leaf, caChain, err := issuer.sign(t.Context(), newCertificateRequest(generateKey(t), "app.acme.int", defaultTTL))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"app.acme.int"}, leaf.DNSNames)
+	assert.Len(t, caChain, 1)
+}
+
+func TestGCPIssuer_sign_Error(t *testing.T) {
+	ca := generateCA(t)
+
+	tests := []struct {
+		name        string
+		issued      *privatecapb.Certificate
+		issueErr    error
+		wantErr     error
+		errContains string
+	}{
+		{
+			name:     "CA Service rejects the request",
+			issueErr: status.Error(codes.PermissionDenied, "caller lacks privateca.certificates.create"),
+			// The CA's reason has to reach the operator rather than be swallowed by the wrap.
+			errContains: "caller lacks privateca.certificates.create",
+		},
+		{
+			name:    "unparseable certificate",
+			issued:  &privatecapb.Certificate{PemCertificate: "garbage"},
+			wantErr: errCertChainNotPEM,
+		},
+		{
+			name:    "certificate does not match the request",
+			issued:  &privatecapb.Certificate{PemCertificate: caPEM(t, ca)},
+			wantErr: errIssuedCertMismatch,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			issuer := newTestGCPIssuer(t, func(*privatecapb.CreateCertificateRequest) (*privatecapb.Certificate, error) {
+				return tt.issued, tt.issueErr
+			})
+
+			_, _, err := issuer.sign(t.Context(), newCertificateRequest(generateKey(t), "app.acme.int", defaultTTL))
+			require.Error(t, err)
+
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+			}
+
+			if tt.errContains != "" {
+				assert.ErrorContains(t, err, tt.errContains)
+			}
+		})
+	}
+}
+
+func TestGCPIssuer_run(t *testing.T) {
+	issuer := newGCPIssuer(&config.TLSGCPPrivateCAIssuerConfig{
+		Project:         "acme",
+		Location:        "us-east1",
+		CAPoolID:        "gateway",
+		CredentialsFile: writeServiceAccountFile(t),
+	})
+
+	require.NoError(t, issuer.run(t.Context()))
+	t.Cleanup(func() { _ = issuer.client.Close() })
+}
+
+func TestGCPIssuer_run_CredentialsFileMissing(t *testing.T) {
+	issuer := newGCPIssuer(&config.TLSGCPPrivateCAIssuerConfig{
+		Project:         "acme",
+		Location:        "us-east1",
+		CAPoolID:        "gateway",
+		CredentialsFile: filepath.Join(t.TempDir(), "missing.json"),
+	})
+
+	err := issuer.run(t.Context())
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "failed to create GCP CA Service client")
 }
 
 func TestVerifyIssuedCertificate(t *testing.T) {

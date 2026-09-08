@@ -21,7 +21,13 @@ import (
 	"sync"
 	"time"
 
+	"cloud.google.com/go/security/privateca/apiv1/privatecapb"
+	"github.com/google/uuid"
 	"go.uber.org/zap"
+	"google.golang.org/api/option"
+	"google.golang.org/protobuf/types/known/durationpb"
+
+	privateca "cloud.google.com/go/security/privateca/apiv1"
 
 	"gateway/internal/config"
 	filereloader "gateway/internal/reloader"
@@ -59,6 +65,8 @@ func newIssuer(cfg config.TLSIssuerConfig, logger *zap.Logger) (issuer, error) {
 		return newLocalIssuer(cfg.Local, logger)
 	case cfg.Vault != nil:
 		return newVaultIssuer(cfg.Vault, logger)
+	case cfg.GCPPrivateCA != nil:
+		return newGCPIssuer(cfg.GCPPrivateCA), nil
 	default:
 		return nil, config.ErrMissingTLSIssuerConfig
 	}
@@ -245,6 +253,75 @@ func (v *vaultIssuer) sign(ctx context.Context, req *certificateRequest) (*x509.
 	}
 
 	chain, err := parseCertificateChain(append([]string{certPEM}, caChain(secret.Data)...))
+	if err != nil {
+		return nil, nil, err
+	}
+
+	leaf := chain[0]
+	if err := verifyIssuedCertificate(leaf, req); err != nil {
+		return nil, nil, err
+	}
+
+	return leaf, chain[1:], nil
+}
+
+// gcpIssuer issues leaf certificates through Google Cloud Certificate Authority Service.
+type gcpIssuer struct {
+	credentialsFile string
+	parent          string // The CA pool issuing the certificates
+
+	client *privateca.CertificateAuthorityClient
+}
+
+func newGCPIssuer(cfg *config.TLSGCPPrivateCAIssuerConfig) *gcpIssuer {
+	return &gcpIssuer{
+		credentialsFile: cfg.CredentialsFile,
+		parent:          fmt.Sprintf("projects/%s/locations/%s/caPools/%s", cfg.Project, cfg.Location, cfg.CAPoolID),
+	}
+}
+
+// run opens the CA Service client, which then lives for the process lifetime.
+func (g *gcpIssuer) run(ctx context.Context) error {
+	var opts []option.ClientOption
+	if g.credentialsFile != "" {
+		opts = append(opts, option.WithAuthCredentialsFile(option.ServiceAccount, g.credentialsFile))
+	}
+
+	client, err := privateca.NewCertificateAuthorityClient(ctx, opts...)
+	if err != nil {
+		return fmt.Errorf("failed to create GCP CA Service client: %w", err)
+	}
+
+	g.client = client
+
+	return nil
+}
+
+// sign has the CA pool sign the request, so the private key never leaves the Gateway.
+// The context is the TLS handshake's, so an abandoned handshake cancels the in-flight
+// request.
+func (g *gcpIssuer) sign(ctx context.Context, req *certificateRequest) (*x509.Certificate, []*x509.Certificate, error) {
+	csr, err := req.csr()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	issued, err := g.client.CreateCertificate(ctx, &privatecapb.CreateCertificateRequest{
+		Parent:        g.parent,
+		CertificateId: "twingate-gateway-" + uuid.NewString(),
+		Certificate: &privatecapb.Certificate{
+			CertificateConfig: &privatecapb.Certificate_PemCsr{
+				PemCsr: string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csr})),
+			},
+			Lifetime: durationpb.New(req.ttl),
+		},
+		RequestId: uuid.NewString(),
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to issue certificate: %w", err)
+	}
+
+	chain, err := parseCertificateChain(append([]string{issued.GetPemCertificate()}, issued.GetPemCertificateChain()...))
 	if err != nil {
 		return nil, nil, err
 	}

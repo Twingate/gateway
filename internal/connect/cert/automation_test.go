@@ -175,6 +175,19 @@ func TestNewAutomation_VaultIssuer(t *testing.T) {
 	assert.IsType(t, &vaultIssuer{}, automation.issuer)
 }
 
+func TestNewAutomation_GCPIssuer(t *testing.T) {
+	automation, err := newAutomation(&config.TLSAutomationConfig{
+		Issuer: config.TLSIssuerConfig{GCPPrivateCA: &config.TLSGCPPrivateCAIssuerConfig{
+			Project:  "acme",
+			Location: "us-east1",
+			CAPoolID: "gateway",
+		}},
+	}, zap.NewNop())
+
+	require.NoError(t, err)
+	assert.IsType(t, &gcpIssuer{}, automation.issuer)
+}
+
 func TestAutomation_issue(t *testing.T) {
 	ca := generateCA(t)
 	file := createKeyPair(t, ca)

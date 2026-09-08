@@ -949,15 +949,27 @@ func TestTLSAutomationConfig_Validate(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "conflicting local and vault issuers",
+			name: "valid with gcpPrivateCA issuer",
+			automation: TLSAutomationConfig{
+				Issuer: TLSIssuerConfig{GCPPrivateCA: &TLSGCPPrivateCAIssuerConfig{
+					Project:  "acme",
+					Location: "us-east1",
+					CAPoolID: "gateway",
+				}},
+			},
+			wantErr: false,
+		},
+		{
+			name: "conflicting local, vault and gcpPrivateCA issuers",
 			automation: TLSAutomationConfig{
 				Issuer: TLSIssuerConfig{
-					Local: localIssuer.Local,
-					Vault: &TLSVaultIssuerConfig{Address: "https://vault:8200", Role: "gateway"},
+					Local:        localIssuer.Local,
+					Vault:        &TLSVaultIssuerConfig{Address: "https://vault:8200", Role: "gateway"},
+					GCPPrivateCA: &TLSGCPPrivateCAIssuerConfig{Project: "acme", Location: "us-east1", CAPoolID: "gateway"},
 				},
 			},
 			wantErr:     true,
-			errContains: "issuer: only one of 'local' or 'vault' can be specified",
+			errContains: "issuer: only one of 'local', 'vault' or 'gcpPrivateCA' can be specified",
 		},
 		{
 			name: "vault issuer missing address",
@@ -966,6 +978,14 @@ func TestTLSAutomationConfig_Validate(t *testing.T) {
 			},
 			wantErr:     true,
 			errContains: "issuer: vault: required field is missing: address",
+		},
+		{
+			name: "invalid gcpPrivateCA issuer",
+			automation: TLSAutomationConfig{
+				Issuer: TLSIssuerConfig{GCPPrivateCA: &TLSGCPPrivateCAIssuerConfig{Location: "us-east1", CAPoolID: "gateway"}},
+			},
+			wantErr:     true,
+			errContains: "issuer: gcpPrivateCA: required field is missing: project",
 		},
 		{
 			name:        "missing issuer",
@@ -1075,6 +1095,50 @@ func TestTLSVaultIssuerConfig_Validate(t *testing.T) {
 func TestTLSVaultIssuerConfig_GetMount(t *testing.T) {
 	assert.Equal(t, "pki", (&TLSVaultIssuerConfig{}).GetMount())
 	assert.Equal(t, "pki-int", (&TLSVaultIssuerConfig{Mount: "pki-int"}).GetMount())
+}
+
+func TestTLSGCPIssuerConfig_Validate(t *testing.T) {
+	tests := []struct {
+		name        string
+		cfg         TLSGCPPrivateCAIssuerConfig
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name: "valid",
+			cfg:  TLSGCPPrivateCAIssuerConfig{Project: "acme", Location: "us-east1", CAPoolID: "gateway"},
+		},
+		{
+			name:        "missing project",
+			cfg:         TLSGCPPrivateCAIssuerConfig{Location: "us-east1", CAPoolID: "gateway"},
+			wantErr:     true,
+			errContains: "required field is missing: project",
+		},
+		{
+			name:        "missing location",
+			cfg:         TLSGCPPrivateCAIssuerConfig{Project: "acme", CAPoolID: "gateway"},
+			wantErr:     true,
+			errContains: "required field is missing: location",
+		},
+		{
+			name:        "missing CA pool",
+			cfg:         TLSGCPPrivateCAIssuerConfig{Project: "acme", Location: "us-east1"},
+			wantErr:     true,
+			errContains: "required field is missing: caPoolID",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.cfg.Validate()
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errContains)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
 }
 
 func TestKubernetesConfig_Validate(t *testing.T) {
