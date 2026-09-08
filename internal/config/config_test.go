@@ -1097,7 +1097,7 @@ func TestTLSVaultIssuerConfig_GetMount(t *testing.T) {
 	assert.Equal(t, "pki-int", (&TLSVaultIssuerConfig{Mount: "pki-int"}).GetMount())
 }
 
-func TestTLSGCPIssuerConfig_Validate(t *testing.T) {
+func TestTLSGCPPrivateCAIssuerConfig_Validate(t *testing.T) {
 	tests := []struct {
 		name        string
 		cfg         TLSGCPPrivateCAIssuerConfig

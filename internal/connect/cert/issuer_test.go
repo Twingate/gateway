@@ -531,7 +531,7 @@ func TestGCPIssuer_sign(t *testing.T) {
 		assert.Equal(t, "projects/acme/locations/us-east1/caPools/gateway", req.GetParent())
 		assert.Equal(t, defaultTTL, req.GetCertificate().GetLifetime().AsDuration())
 		// The certificate ID has to match GCP CA Service's `[a-zA-Z0-9_-]{1,63}` constraint.
-		assert.Regexp(t, "[a-zA-Z0-9_-]{1,63}", req.GetCertificateId())
+		assert.Regexp(t, "^[a-zA-Z0-9_-]{1,63}$", req.GetCertificateId())
 		assert.NotEmpty(t, req.GetRequestId())
 		assert.Empty(t, req.GetIssuingCertificateAuthorityId())
 
