@@ -6,12 +6,15 @@ package cert
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 
 	"go.uber.org/zap"
 
 	"gateway/internal/config"
 )
+
+var ErrNoCertificates = errors.New("no certificate could be loaded")
 
 // Manager returns the certificate served on a downstream TLS handshake.
 type Manager struct {
@@ -53,15 +56,17 @@ func (m *Manager) Run(ctx context.Context) error {
 
 // GetCertificate returns the certificate for a downstream TLS handshake.
 func (m *Manager) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
-	if m.automation == nil {
-		return m.certs.getCertificate(hello)
-	}
-
-	// No certificate is returned when certs is empty or no matching certificate is found
-	// so we fall back to automation.
-	if cert := m.certs.matchCertificate(hello); cert != nil {
+	if cert := m.certs.match(hello); cert != nil {
 		return cert, nil
 	}
 
-	return m.automation.getCertificateForHost(hello.Context(), hello.ServerName)
+	if m.automation != nil {
+		return m.automation.getCertificateForHost(hello.Context(), hello.ServerName)
+	}
+
+	if cert := m.certs.first(); cert != nil {
+		return cert, nil
+	}
+
+	return nil, ErrNoCertificates
 }

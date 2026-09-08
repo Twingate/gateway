@@ -6,7 +6,6 @@ package cert
 import (
 	"context"
 	"crypto/tls"
-	"errors"
 	"sync"
 
 	"go.uber.org/zap"
@@ -14,9 +13,6 @@ import (
 	"gateway/internal/config"
 	filereloader "gateway/internal/reloader"
 )
-
-// ErrNoCertificates is returned when no certificate has been loaded.
-var ErrNoCertificates = errors.New("no certificate could be loaded")
 
 type reloader struct {
 	logger   *zap.Logger
@@ -50,23 +46,8 @@ func (cr *reloader) run(ctx context.Context) {
 	}
 }
 
-// getCertificate returns the first certificate the client supports, falling back to the
-// first loaded certificate when none of them matches.
-func (cr *reloader) getCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
-	if cert := cr.matchCertificate(hello); cert != nil {
-		return cert, nil
-	}
-
-	if cert := cr.firstCertificate(); cert != nil {
-		return cert, nil
-	}
-
-	return nil, ErrNoCertificates
-}
-
-// matchCertificate returns the first certificate the client supports, or nil when
-// none of them matches.
-func (cr *reloader) matchCertificate(hello *tls.ClientHelloInfo) *tls.Certificate {
+// match returns the first certificate in configuration order that the client supports.
+func (cr *reloader) match(hello *tls.ClientHelloInfo) *tls.Certificate {
 	cr.mu.RLock()
 	defer cr.mu.RUnlock()
 
@@ -84,9 +65,8 @@ func (cr *reloader) matchCertificate(hello *tls.ClientHelloInfo) *tls.Certificat
 	return nil
 }
 
-// firstCertificate returns the first loaded certificate, in configuration order,
-// or nil when none is loaded.
-func (cr *reloader) firstCertificate() *tls.Certificate {
+// first returns the first loaded certificate in configuration order.
+func (cr *reloader) first() *tls.Certificate {
 	cr.mu.RLock()
 	defer cr.mu.RUnlock()
 
