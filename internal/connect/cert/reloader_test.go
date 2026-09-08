@@ -27,17 +27,17 @@ func TestReloader_run(t *testing.T) {
 	fooKeyPair := createKeyPair(t, fooCert)
 	barKeyPair := createKeyPair(t, barCert)
 
-	cr := newReloader([]config.TLSCertificateFileKeyPair{fooKeyPair, barKeyPair}, zap.NewNop())
-	cr.run(t.Context())
+	r := newReloader([]config.TLSCertificateFileKeyPair{fooKeyPair, barKeyPair}, zap.NewNop())
+	r.run(t.Context())
 
-	requireCert(t, cr, "foo.acme.int", fooCert)
-	requireCert(t, cr, "bar.acme.int", barCert)
+	requireCert(t, r, "foo.acme.int", fooCert)
+	requireCert(t, r, "bar.acme.int", barCert)
 
 	newBarCert := generateCert(t, "bar.acme.int")
 	replaceKeyPair(t, barKeyPair, newBarCert)
 
-	requireCert(t, cr, "bar.acme.int", newBarCert)
-	requireCert(t, cr, "foo.acme.int", fooCert)
+	requireCert(t, r, "bar.acme.int", newBarCert)
+	requireCert(t, r, "foo.acme.int", fooCert)
 }
 
 func TestReloader_load(t *testing.T) {
@@ -65,9 +65,9 @@ func TestReloader_load(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cr := newReloader([]config.TLSCertificateFileKeyPair{tt.keyPair}, zap.NewNop())
+			r := newReloader([]config.TLSCertificateFileKeyPair{tt.keyPair}, zap.NewNop())
 
-			err := cr.load(tt.keyPair)
+			err := r.load(tt.keyPair)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -89,10 +89,10 @@ func TestReloader_match(t *testing.T) {
 
 	missing := config.TLSCertificateFileKeyPair{CertificateFile: "nonexistent.crt", PrivateKeyFile: "nonexistent.key"}
 
-	cr := newReloader([]config.TLSCertificateFileKeyPair{missing, fooKeyPair, barKeyPair}, zap.NewNop())
-	require.NoError(t, cr.load(fooKeyPair))
-	require.NoError(t, cr.load(barKeyPair))
-	require.Error(t, cr.load(missing))
+	r := newReloader([]config.TLSCertificateFileKeyPair{missing, fooKeyPair, barKeyPair}, zap.NewNop())
+	require.NoError(t, r.load(fooKeyPair))
+	require.NoError(t, r.load(barKeyPair))
+	require.Error(t, r.load(missing))
 
 	tests := []struct {
 		name       string
@@ -106,7 +106,7 @@ func TestReloader_match(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := cr.match(clientHello(tt.serverName))
+			got := r.match(clientHello(tt.serverName))
 
 			if tt.want == nil {
 				assert.Nil(t, got)
@@ -148,12 +148,12 @@ func TestReloader_first(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cr := newReloader(tt.keyPairs, zap.NewNop())
+			r := newReloader(tt.keyPairs, zap.NewNop())
 			for _, keyPair := range tt.keyPairs {
-				_ = cr.load(keyPair)
+				_ = r.load(keyPair)
 			}
 
-			got := cr.first()
+			got := r.first()
 
 			if tt.want == nil {
 				assert.Nil(t, got)
@@ -174,13 +174,13 @@ func clientHello(serverName string) *tls.ClientHelloInfo {
 	}
 }
 
-func requireCert(t *testing.T, cr *reloader, serverName string, expectedCert tls.Certificate) {
+func requireCert(t *testing.T, r *reloader, serverName string, expectedCert tls.Certificate) {
 	t.Helper()
 
 	hello := clientHello(serverName)
 
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		existingCert := cr.match(hello)
+		existingCert := r.match(hello)
 
 		require.NotNil(c, existingCert)
 		require.Equal(c, expectedCert.Certificate, existingCert.Certificate)

@@ -25,7 +25,7 @@ type reloader struct {
 }
 
 func newReloader(keyPairs []config.TLSCertificateFileKeyPair, logger *zap.Logger) *reloader {
-	cr := &reloader{
+	r := &reloader{
 		logger:    logger,
 		keyPairs:  keyPairs,
 		certs:     make(map[string]*tls.Certificate, len(keyPairs)),
@@ -33,26 +33,26 @@ func newReloader(keyPairs []config.TLSCertificateFileKeyPair, logger *zap.Logger
 	}
 
 	for _, keyPair := range keyPairs {
-		load := func() error { return cr.load(keyPair) }
-		cr.reloaders = append(cr.reloaders, filereloader.New([]string{keyPair.CertificateFile, keyPair.PrivateKeyFile}, load, logger))
+		load := func() error { return r.load(keyPair) }
+		r.reloaders = append(r.reloaders, filereloader.New([]string{keyPair.CertificateFile, keyPair.PrivateKeyFile}, load, logger))
 	}
 
-	return cr
+	return r
 }
 
-func (cr *reloader) run(ctx context.Context) {
-	for _, r := range cr.reloaders {
-		r.Run(ctx)
+func (r *reloader) run(ctx context.Context) {
+	for _, fr := range r.reloaders {
+		fr.Run(ctx)
 	}
 }
 
 // match returns the first certificate in configuration order that the client supports.
-func (cr *reloader) match(hello *tls.ClientHelloInfo) *tls.Certificate {
-	cr.mu.RLock()
-	defer cr.mu.RUnlock()
+func (r *reloader) match(hello *tls.ClientHelloInfo) *tls.Certificate {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 
-	for _, keyPair := range cr.keyPairs {
-		cert, ok := cr.certs[keyPair.CertificateFile]
+	for _, keyPair := range r.keyPairs {
+		cert, ok := r.certs[keyPair.CertificateFile]
 		if !ok {
 			continue
 		}
@@ -66,12 +66,12 @@ func (cr *reloader) match(hello *tls.ClientHelloInfo) *tls.Certificate {
 }
 
 // first returns the first loaded certificate in configuration order.
-func (cr *reloader) first() *tls.Certificate {
-	cr.mu.RLock()
-	defer cr.mu.RUnlock()
+func (r *reloader) first() *tls.Certificate {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 
-	for _, keyPair := range cr.keyPairs {
-		if cert, ok := cr.certs[keyPair.CertificateFile]; ok {
+	for _, keyPair := range r.keyPairs {
+		if cert, ok := r.certs[keyPair.CertificateFile]; ok {
 			return cert
 		}
 	}
@@ -79,17 +79,17 @@ func (cr *reloader) first() *tls.Certificate {
 	return nil
 }
 
-func (cr *reloader) load(keyPair config.TLSCertificateFileKeyPair) error {
+func (r *reloader) load(keyPair config.TLSCertificateFileKeyPair) error {
 	cert, err := tls.LoadX509KeyPair(keyPair.CertificateFile, keyPair.PrivateKeyFile)
 	if err != nil {
 		return err
 	}
 
-	cr.mu.Lock()
-	cr.certs[keyPair.CertificateFile] = &cert
-	cr.mu.Unlock()
+	r.mu.Lock()
+	r.certs[keyPair.CertificateFile] = &cert
+	r.mu.Unlock()
 
-	cr.logger.Info("loaded cert and key files", zap.String("certificateFile", keyPair.CertificateFile))
+	r.logger.Info("loaded cert and key files", zap.String("certificateFile", keyPair.CertificateFile))
 
 	return nil
 }

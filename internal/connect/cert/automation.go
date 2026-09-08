@@ -70,51 +70,51 @@ func newAutomation(cfg *config.TLSAutomationConfig, logger *zap.Logger) (*automa
 	}, nil
 }
 
-func (c *automation) run(ctx context.Context) error {
-	if err := c.issuer.run(ctx); err != nil {
+func (a *automation) run(ctx context.Context) error {
+	if err := a.issuer.run(ctx); err != nil {
 		return err
 	}
 
 	// When the issuer can rotate its CA, drop the cached certificates as soon as
 	// it does rather than serving ones that no longer chain to it.
-	if issuer, ok := c.issuer.(rotatableIssuer); ok {
-		go c.purgeOnRotation(ctx, issuer.rotated())
+	if issuer, ok := a.issuer.(rotatableIssuer); ok {
+		go a.purgeOnRotation(ctx, issuer.rotated())
 	}
 
 	return nil
 }
 
 // getCertificateForHost issues a certificate covering the given host, caching it under that name.
-func (c *automation) getCertificateForHost(ctx context.Context, host string) (*tls.Certificate, error) {
+func (a *automation) getCertificateForHost(ctx context.Context, host string) (*tls.Certificate, error) {
 	host = strings.ToLower(host)
 
-	if cert := c.cachedCert(host); cert != nil {
+	if cert := a.cachedCert(host); cert != nil {
 		return cert, nil
 	}
 
-	c.mu.Lock()
-	rotations := c.caRotations
-	c.mu.Unlock()
+	a.mu.Lock()
+	rotations := a.caRotations
+	a.mu.Unlock()
 
 	// Sign outside the lock so a slow CA cannot stall handshakes for names that are already
 	// cached. A burst against a cold cache may sign the same names twice, which is cheaper.
-	cert, err := c.issue(ctx, host)
+	cert, err := a.issue(ctx, host)
 	if err != nil {
 		return nil, err
 	}
 
-	c.logger.Debug("Issued downstream certificate",
+	a.logger.Debug("Issued downstream certificate",
 		zap.String("host", host),
 		zap.Time("not_after", cert.Leaf.NotAfter),
 	)
 
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	a.mu.Lock()
+	defer a.mu.Unlock()
 
 	// The CA rotated while this certificate was in flight: serve it to this handshake
 	// only, so the cache never holds a certificate from a previous CA.
-	if rotations == c.caRotations {
-		c.cache.Add(host, cert)
+	if rotations == a.caRotations {
+		a.cache.Add(host, cert)
 	}
 
 	return cert, nil
@@ -122,8 +122,8 @@ func (c *automation) getCertificateForHost(ctx context.Context, host string) (*t
 
 // issue generates a leaf key and has the issuer's CA sign a request covering name,
 // assembling the certificate served on the handshake.
-func (c *automation) issue(ctx context.Context, name string) (*tls.Certificate, error) {
-	key, err := c.key.generate()
+func (a *automation) issue(ctx context.Context, name string) (*tls.Certificate, error) {
+	key, err := a.key.generate()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate leaf key: %w", err)
 	}
@@ -133,7 +133,7 @@ func (c *automation) issue(ctx context.Context, name string) (*tls.Certificate, 
 		return nil, err
 	}
 
-	leaf, caChain, err := c.issuer.sign(ctx, csr)
+	leaf, caChain, err := a.issuer.sign(ctx, csr)
 	if err != nil {
 		return nil, err
 	}
@@ -153,25 +153,25 @@ func (c *automation) issue(ctx context.Context, name string) (*tls.Certificate, 
 }
 
 // purgeOnRotation drops every cached certificate and counts the rotation.
-func (c *automation) purgeOnRotation(ctx context.Context, rotated <-chan struct{}) {
+func (a *automation) purgeOnRotation(ctx context.Context, rotated <-chan struct{}) {
 	for {
 		select {
 		case <-rotated:
-			c.mu.Lock()
-			c.caRotations++
-			purged := c.cache.Len()
-			c.cache.Purge()
-			c.mu.Unlock()
+			a.mu.Lock()
+			a.caRotations++
+			purged := a.cache.Len()
+			a.cache.Purge()
+			a.mu.Unlock()
 
-			c.logger.Info("Dropped cached downstream certificates after CA rotation", zap.Int("certificates", purged))
+			a.logger.Info("Dropped cached downstream certificates after CA rotation", zap.Int("certificates", purged))
 		case <-ctx.Done():
 			return
 		}
 	}
 }
 
-func (c *automation) cachedCert(key string) *tls.Certificate {
-	cert, ok := c.cache.Get(key)
+func (a *automation) cachedCert(key string) *tls.Certificate {
+	cert, ok := a.cache.Get(key)
 	if !ok {
 		return nil
 	}
