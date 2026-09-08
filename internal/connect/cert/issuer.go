@@ -31,11 +31,11 @@ var (
 
 var serialNumberLimit = new(big.Int).Lsh(big.NewInt(1), 128)
 
-// issuer signs certificate requests with its CA and runs any background maintenance
-// its backend needs.
+// issuer signs DER-encoded certificate requests with its CA and runs any background
+// maintenance its backend needs.
 type issuer interface {
 	run(ctx context.Context) error
-	sign(ctx context.Context, csr *x509.CertificateRequest) (leaf *x509.Certificate, caChain []*x509.Certificate, err error)
+	sign(ctx context.Context, csr []byte) (leaf *x509.Certificate, caChain []*x509.Certificate, err error)
 }
 
 // rotatableIssuer is an issuer whose CA can rotate during the process lifetime.
@@ -141,7 +141,12 @@ func (l *localIssuer) load() error {
 	return nil
 }
 
-func (l *localIssuer) sign(_ context.Context, csr *x509.CertificateRequest) (*x509.Certificate, []*x509.Certificate, error) {
+func (l *localIssuer) sign(_ context.Context, csr []byte) (*x509.Certificate, []*x509.Certificate, error) {
+	req, err := x509.ParseCertificateRequest(csr)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to parse certificate request: %w", err)
+	}
+
 	serial, err := rand.Int(rand.Reader, serialNumberLimit)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to generate serial number: %w", err)
@@ -158,11 +163,11 @@ func (l *localIssuer) sign(_ context.Context, csr *x509.CertificateRequest) (*x5
 		NotAfter:     now.Add(l.ttl),
 		KeyUsage:     x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		DNSNames:     csr.DNSNames,
-		IPAddresses:  csr.IPAddresses,
+		DNSNames:     req.DNSNames,
+		IPAddresses:  req.IPAddresses,
 	}
 
-	leafDER, err := x509.CreateCertificate(rand.Reader, template, caCert, csr.PublicKey, caKey)
+	leafDER, err := x509.CreateCertificate(rand.Reader, template, caCert, req.PublicKey, caKey)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to sign leaf certificate: %w", err)
 	}

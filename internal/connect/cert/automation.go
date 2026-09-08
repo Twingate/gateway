@@ -183,9 +183,9 @@ func (c *automation) cachedCert(key string) *tls.Certificate {
 	return nil
 }
 
-// certificateRequest builds a certificate request covering name, signed by key so a
-// backend can forward it to a remote CA.
-func certificateRequest(key crypto.Signer, name string) (*x509.CertificateRequest, error) {
+// certificateRequest builds a DER-encoded certificate request covering name, signed by
+// key so a backend can forward it to a remote CA.
+func certificateRequest(key crypto.Signer, name string) ([]byte, error) {
 	template := &x509.CertificateRequest{}
 
 	// A handshake without SNI leaves no name, and the certificate then covers none.
@@ -200,10 +200,5 @@ func certificateRequest(key crypto.Signer, name string) (*x509.CertificateReques
 		return nil, fmt.Errorf("failed to create certificate request: %w", err)
 	}
 
-	csr, err := x509.ParseCertificateRequest(der)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse certificate request: %w", err)
-	}
-
-	return csr, nil
+	return der, nil
 }

@@ -184,6 +184,13 @@ func TestLocalIssuer_sign(t *testing.T) {
 	assert.Equal(t, ca.Certificate[0], caChain[0].Raw)
 }
 
+func TestLocalIssuer_sign_InvalidRequest(t *testing.T) {
+	issuer := &localIssuer{ttl: defaultTTL}
+
+	_, _, err := issuer.sign(t.Context(), []byte("not a certificate request"))
+	require.ErrorContains(t, err, "failed to parse certificate request")
+}
+
 func TestLocalIssuer_sign_CAKeyFails(t *testing.T) {
 	ca := generateCA(t)
 

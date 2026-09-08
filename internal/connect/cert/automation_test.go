@@ -59,8 +59,13 @@ func (s *stubIssuer) run(context.Context) error { return s.runErr }
 
 func (s *stubIssuer) rotated() <-chan struct{} { return s.rotateCh }
 
-func (s *stubIssuer) sign(_ context.Context, csr *x509.CertificateRequest) (*x509.Certificate, []*x509.Certificate, error) {
-	name := strings.Join(csrNames(csr), ",")
+func (s *stubIssuer) sign(_ context.Context, csr []byte) (*x509.Certificate, []*x509.Certificate, error) {
+	req, err := x509.ParseCertificateRequest(csr)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	name := strings.Join(csrNames(req), ",")
 	s.entered <- name
 
 	if gate, ok := s.gates[name]; ok {
@@ -471,15 +476,17 @@ func TestCertificateRequest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			csr, err := certificateRequest(key, tt.host)
+			der, err := certificateRequest(key, tt.host)
+			require.NoError(t, err)
+
+			csr, err := x509.ParseCertificateRequest(der)
 			require.NoError(t, err)
 
 			assert.Equal(t, tt.wantNames, csrNames(csr))
 			assert.Empty(t, csr.Subject.CommonName)
 
-			// A backend forwards the request to a remote CA, so it has to carry its own
-			// DER and prove possession of the key it asks for.
-			assert.NotEmpty(t, csr.Raw)
+			// A backend forwards the request to a remote CA, so it has to prove
+			// possession of the key it asks for.
 			assert.NoError(t, csr.CheckSignature())
 		})
 	}
