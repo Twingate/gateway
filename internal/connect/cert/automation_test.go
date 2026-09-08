@@ -11,6 +11,8 @@ import (
 	"crypto/x509"
 	"errors"
 	"math/big"
+	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -28,17 +30,19 @@ import (
 )
 
 var (
-	errStubRun = errors.New("stub issuer failed to start")
+	errStubRun  = errors.New("stub issuer failed to start")
+	errStubSign = errors.New("stub issuer failed to sign")
 )
 
-// stubIssuer issues placeholder certificates, reporting each issuance start on entered
-// and blocking hosts that have a gate until their gate closes. Configure gates before
-// the first issuance.
+// stubIssuer signs placeholder certificates, reporting each signing start on entered
+// and blocking requests for a host that has a gate until their gate closes. Configure
+// gates before the first request.
 type stubIssuer struct {
 	entered  chan string
 	gates    map[string]chan struct{}
 	rotateCh chan struct{}
 	runErr   error
+	signErr  error
 
 	serials atomic.Int64
 }
@@ -55,24 +59,30 @@ func (s *stubIssuer) run(context.Context) error { return s.runErr }
 
 func (s *stubIssuer) rotated() <-chan struct{} { return s.rotateCh }
 
-func (s *stubIssuer) issue(_ context.Context, name string) (*tls.Certificate, error) {
+func (s *stubIssuer) sign(_ context.Context, csr []byte) (*x509.Certificate, []*x509.Certificate, error) {
+	req, err := x509.ParseCertificateRequest(csr)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	name := strings.Join(csrNames(req), ",")
 	s.entered <- name
 
 	if gate, ok := s.gates[name]; ok {
 		<-gate
 	}
 
+	if s.signErr != nil {
+		return nil, nil, s.signErr
+	}
+
 	now := time.Now()
 
-	return &tls.Certificate{Leaf: &x509.Certificate{
+	return &x509.Certificate{
 		SerialNumber: big.NewInt(s.serials.Add(1)),
 		NotBefore:    now,
 		NotAfter:     now.Add(time.Hour),
-	}}, nil
-}
-
-func (s *stubIssuer) sign(context.Context, *x509.CertificateRequest) (*x509.Certificate, []*x509.Certificate, error) {
-	return nil, nil, nil
+	}, nil, nil
 }
 
 func newStubAutomation(t *testing.T, issuer issuer) *automation {
@@ -81,7 +91,7 @@ func newStubAutomation(t *testing.T, issuer issuer) *automation {
 	cache, err := lru.New[string, *tls.Certificate](maxCachedCerts)
 	require.NoError(t, err)
 
-	return &automation{issuer: issuer, logger: zap.NewNop(), cache: cache}
+	return &automation{issuer: issuer, key: keyConfig{typ: keyTypeECDSA, bits: 256}, logger: zap.NewNop(), cache: cache}
 }
 
 func TestNewAutomation_Errors(t *testing.T) {
@@ -127,7 +137,7 @@ func TestNewAutomation_Errors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := newAutomation(config.TLSAutomationConfig{
+			_, err := newAutomation(&config.TLSAutomationConfig{
 				Certificate: config.TLSAutomationCertificateConfig{Key: tt.key},
 				Issuer:      config.TLSIssuerConfig{Local: tt.local, Vault: tt.vault},
 			}, zap.NewNop())
@@ -149,12 +159,12 @@ func TestAutomation_Run_IssuerFailsToStart(t *testing.T) {
 	issuer := newStubIssuer()
 	issuer.runErr = errStubRun
 
-	require.ErrorIs(t, newStubAutomation(t, issuer).Run(t.Context()), errStubRun)
+	require.ErrorIs(t, newStubAutomation(t, issuer).run(t.Context()), errStubRun)
 }
 
 // The vault issuer is selected when the issuer config names Vault.
 func TestNewAutomation_VaultIssuer(t *testing.T) {
-	automation, err := newAutomation(config.TLSAutomationConfig{
+	automation, err := newAutomation(&config.TLSAutomationConfig{
 		Issuer: config.TLSIssuerConfig{Vault: &config.TLSVaultIssuerConfig{
 			Address: "https://vault.acme.int:8200",
 			Role:    "gateway",
@@ -165,12 +175,44 @@ func TestNewAutomation_VaultIssuer(t *testing.T) {
 	assert.IsType(t, &vaultIssuer{}, automation.issuer)
 }
 
-func TestAutomation_GetCertificateForHost(t *testing.T) {
-	cert, err := newAutomation(*testAutomationConfig(), zap.NewNop())
+func TestAutomation_issue(t *testing.T) {
+	ca := generateCA(t)
+	file := createKeyPair(t, ca)
+
+	cfg := testAutomationConfig()
+	cfg.Issuer.Local = &config.TLSLocalIssuerConfig{CertificateFile: file.CertificateFile, PrivateKeyFile: file.PrivateKeyFile}
+
+	cert, err := newAutomation(cfg, zap.NewNop())
+	require.NoError(t, err)
+
+	issued, err := cert.issue(t.Context(), "app.acme.int")
+	require.NoError(t, err)
+
+	require.Len(t, issued.Certificate, 2)
+	assert.Equal(t, issued.Leaf.Raw, issued.Certificate[0], "the leaf should come first in the chain")
+	assert.Equal(t, ca.Certificate[0], issued.Certificate[1])
+
+	key, ok := issued.PrivateKey.(*ecdsa.PrivateKey)
+	require.True(t, ok, "expected an ECDSA leaf key")
+	assert.True(t, key.PublicKey.Equal(issued.Leaf.PublicKey), "the served key should be the one the leaf was signed for")
+}
+
+// A key config that generate rejects cannot come from newAutomation, which validates it first.
+func TestAutomation_issue_KeyGenerationFails(t *testing.T) {
+	cert := newStubAutomation(t, newStubIssuer())
+	cert.key = keyConfig{typ: keyTypeECDSA, bits: 128}
+
+	_, err := cert.issue(t.Context(), "app.acme.int")
+	require.ErrorIs(t, err, errUnsupportedKeyBits)
+	assert.Contains(t, err.Error(), "failed to generate leaf key")
+}
+
+func TestAutomation_getCertificateForHost(t *testing.T) {
+	cert, err := newAutomation(testAutomationConfig(), zap.NewNop())
 	require.NoError(t, err)
 
 	// hostname is lowercased
-	issued, err := cert.GetCertificateForHost(t.Context(), "APP.internal")
+	issued, err := cert.getCertificateForHost(t.Context(), "APP.internal")
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{"app.internal"}, issued.Leaf.DNSNames)
@@ -195,11 +237,11 @@ func TestAutomation_GetCertificateForHost(t *testing.T) {
 	assert.Same(t, issued, cached)
 }
 
-func TestAutomation_GetCertificateForHost_EmptyHost(t *testing.T) {
-	cert, err := newAutomation(*testAutomationConfig(), zap.NewNop())
+func TestAutomation_getCertificateForHost_EmptyHost(t *testing.T) {
+	cert, err := newAutomation(testAutomationConfig(), zap.NewNop())
 	require.NoError(t, err)
 
-	issued, err := cert.GetCertificateForHost(t.Context(), "")
+	issued, err := cert.getCertificateForHost(t.Context(), "")
 	require.NoError(t, err)
 
 	assert.Empty(t, issued.Leaf.DNSNames)
@@ -220,6 +262,17 @@ func TestAutomation_GetCertificateForHost_EmptyHost(t *testing.T) {
 	assert.Same(t, issued, cached)
 }
 
+func TestAutomation_getCertificateForHost_SigningFails(t *testing.T) {
+	issuer := newStubIssuer()
+	issuer.signErr = errStubSign
+
+	cert := newStubAutomation(t, issuer)
+
+	_, err := cert.getCertificateForHost(t.Context(), "app.acme.int")
+	require.ErrorIs(t, err, errStubSign)
+	assert.Zero(t, cert.cache.Len(), "a failed issuance should cache nothing")
+}
+
 func TestAutomation_Run_ReissuesAfterCARotation(t *testing.T) {
 	ca := generateCA(t)
 	file := createKeyPair(t, ca)
@@ -227,12 +280,12 @@ func TestAutomation_Run_ReissuesAfterCARotation(t *testing.T) {
 	cfg := testAutomationConfig()
 	cfg.Issuer.Local = &config.TLSLocalIssuerConfig{CertificateFile: file.CertificateFile, PrivateKeyFile: file.PrivateKeyFile}
 
-	cert, err := newAutomation(*cfg, zap.NewNop())
+	cert, err := newAutomation(cfg, zap.NewNop())
 	require.NoError(t, err)
 
-	require.NoError(t, cert.Run(t.Context()))
+	require.NoError(t, cert.run(t.Context()))
 
-	issued, err := cert.GetCertificateForHost(t.Context(), "app.acme.int")
+	issued, err := cert.getCertificateForHost(t.Context(), "app.acme.int")
 	require.NoError(t, err)
 
 	_, err = issued.Leaf.Verify(x509.VerifyOptions{
@@ -248,7 +301,7 @@ func TestAutomation_Run_ReissuesAfterCARotation(t *testing.T) {
 
 	// The reload and the cache purge are both asynchronous.
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		got, err := cert.GetCertificateForHost(t.Context(), "app.acme.int")
+		got, err := cert.getCertificateForHost(t.Context(), "app.acme.int")
 		require.NoError(c, err)
 		require.NotEqual(c, issued.Leaf.SerialNumber, got.Leaf.SerialNumber, "the cached certificate should have been dropped")
 
@@ -261,26 +314,27 @@ func TestAutomation_Run_ReissuesAfterCARotation(t *testing.T) {
 	}, 5*time.Second, 10*time.Millisecond)
 }
 
-func TestAutomation_GetCertificateForHost_RenewsPastThreshold(t *testing.T) {
+func TestAutomation_getCertificateForHost_ReissuesAfterExpiry(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		cfg := testAutomationConfig()
 		cfg.Certificate.TTL = 2 * time.Hour
 
-		cert, err := newAutomation(*cfg, zap.NewNop())
+		cert, err := newAutomation(cfg, zap.NewNop())
 		require.NoError(t, err)
 
-		first, err := cert.GetCertificateForHost(t.Context(), "app.internal")
+		first, err := cert.getCertificateForHost(t.Context(), "app.internal")
 		require.NoError(t, err)
 
-		// A fresh certificate is well short of its renewal threshold.
-		again, err := cert.GetCertificateForHost(t.Context(), "app.internal")
+		// Move the certificate's lifetime close to its expiry.
+		time.Sleep(119 * time.Minute)
+
+		again, err := cert.getCertificateForHost(t.Context(), "app.internal")
 		require.NoError(t, err)
 		assert.Same(t, first, again)
 
-		// Move past 80% of the certificate's lifetime, but short of its expiry.
-		time.Sleep(100 * time.Minute)
+		time.Sleep(2*time.Minute + time.Second)
 
-		second, err := cert.GetCertificateForHost(t.Context(), "app.internal")
+		second, err := cert.getCertificateForHost(t.Context(), "app.internal")
 		require.NoError(t, err)
 
 		assert.NotEqual(t, first.Leaf.SerialNumber, second.Leaf.SerialNumber)
@@ -293,10 +347,10 @@ func TestAutomation_GetCertificateForHost_RenewsPastThreshold(t *testing.T) {
 // Concurrent cold misses for one host may each sign their own certificate, since
 // signing outside the lock keeps a slow CA from stalling handshakes for other names.
 // The cache still converges to one certificate per hostname.
-func TestAutomation_GetCertificateForHost_ConcurrentColdMissesConverge(t *testing.T) {
+func TestAutomation_getCertificateForHost_ConcurrentColdMissesConverge(t *testing.T) {
 	const callers = 10
 
-	cert, err := newAutomation(*testAutomationConfig(), zap.NewNop())
+	cert, err := newAutomation(testAutomationConfig(), zap.NewNop())
 	require.NoError(t, err)
 
 	var wg sync.WaitGroup
@@ -308,7 +362,7 @@ func TestAutomation_GetCertificateForHost_ConcurrentColdMissesConverge(t *testin
 		wg.Go(func() {
 			<-start
 
-			_, errs[i] = cert.GetCertificateForHost(t.Context(), "cold.internal")
+			_, errs[i] = cert.getCertificateForHost(t.Context(), "cold.internal")
 		})
 	}
 
@@ -324,14 +378,14 @@ func TestAutomation_GetCertificateForHost_ConcurrentColdMissesConverge(t *testin
 	cached, ok := cert.cache.Get("cold.internal")
 	require.True(t, ok)
 
-	again, err := cert.GetCertificateForHost(t.Context(), "cold.internal")
+	again, err := cert.getCertificateForHost(t.Context(), "cold.internal")
 	require.NoError(t, err)
 	assert.Same(t, cached, again, "a warm cache should serve without signing")
 }
 
-// A slow CA must not stall handshakes for other name sets: only callers for the
+// A slow CA must not stall handshakes for other names: only callers for the
 // gated host wait on its issuance.
-func TestAutomation_GetCertificateForHost_SlowIssuanceDoesNotBlockOtherHosts(t *testing.T) {
+func TestAutomation_getCertificateForHost_SlowIssuanceDoesNotBlockOtherHosts(t *testing.T) {
 	issuer := newStubIssuer()
 	gate := make(chan struct{})
 	issuer.gates["slow.acme.int"] = gate
@@ -344,7 +398,7 @@ func TestAutomation_GetCertificateForHost_SlowIssuanceDoesNotBlockOtherHosts(t *
 	slowDone := make(chan error, 1)
 
 	go func() {
-		_, err := automation.GetCertificateForHost(t.Context(), "slow.acme.int")
+		_, err := automation.getCertificateForHost(t.Context(), "slow.acme.int")
 		slowDone <- err
 	}()
 
@@ -353,7 +407,7 @@ func TestAutomation_GetCertificateForHost_SlowIssuanceDoesNotBlockOtherHosts(t *
 	fastDone := make(chan error, 1)
 
 	go func() {
-		_, err := automation.GetCertificateForHost(t.Context(), "fast.acme.int")
+		_, err := automation.getCertificateForHost(t.Context(), "fast.acme.int")
 		fastDone <- err
 	}()
 
@@ -370,13 +424,13 @@ func TestAutomation_GetCertificateForHost_SlowIssuanceDoesNotBlockOtherHosts(t *
 
 // A certificate whose issuance was in flight when the CA rotated is served to that
 // handshake only; the cache never holds a certificate from a previous CA.
-func TestAutomation_GetCertificateForHost_RotationMidIssuanceIsNotCached(t *testing.T) {
+func TestAutomation_getCertificateForHost_RotationMidIssuanceIsNotCached(t *testing.T) {
 	issuer := newStubIssuer()
 	gate := make(chan struct{})
 	issuer.gates["app.acme.int"] = gate
 
 	automation := newStubAutomation(t, issuer)
-	require.NoError(t, automation.Run(t.Context()))
+	require.NoError(t, automation.run(t.Context()))
 
 	type result struct {
 		cert *tls.Certificate
@@ -386,7 +440,7 @@ func TestAutomation_GetCertificateForHost_RotationMidIssuanceIsNotCached(t *test
 	done := make(chan result, 1)
 
 	go func() {
-		cert, err := automation.GetCertificateForHost(t.Context(), "app.acme.int")
+		cert, err := automation.getCertificateForHost(t.Context(), "app.acme.int")
 		done <- result{cert, err}
 	}()
 
@@ -410,8 +464,61 @@ func TestAutomation_GetCertificateForHost_RotationMidIssuanceIsNotCached(t *test
 	_, cached := automation.cache.Get("app.acme.int")
 	assert.False(t, cached, "a certificate signed by the previous CA must not be cached")
 
-	second, err := automation.GetCertificateForHost(t.Context(), "app.acme.int")
+	second, err := automation.getCertificateForHost(t.Context(), "app.acme.int")
 	require.NoError(t, err)
 	assert.NotEqual(t, first.cert.Leaf.SerialNumber, second.Leaf.SerialNumber,
 		"the next handshake should get a certificate from the current CA")
+}
+
+func TestCertificateRequest(t *testing.T) {
+	tests := []struct {
+		name      string
+		host      string
+		wantNames []string
+	}{
+		{
+			name:      "hostname becomes a DNS name",
+			host:      "app.acme.int",
+			wantNames: []string{"app.acme.int"},
+		},
+		{
+			name:      "IP becomes an IP address",
+			host:      "10.0.0.5",
+			wantNames: []string{"10.0.0.5"},
+		},
+		{
+			// A handshake without SNI leaves no name to request.
+			name: "no host asks for no names",
+			host: "",
+		},
+	}
+
+	key, err := keyConfig{typ: keyTypeECDSA, bits: 256}.generate()
+	require.NoError(t, err)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			der, err := certificateRequest(key, tt.host)
+			require.NoError(t, err)
+
+			csr, err := x509.ParseCertificateRequest(der)
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.wantNames, csrNames(csr))
+			assert.Empty(t, csr.Subject.CommonName)
+
+			// A backend forwards the request to a remote CA, so it has to prove
+			// possession of the key it asks for.
+			assert.NoError(t, csr.CheckSignature())
+		})
+	}
+}
+
+func csrNames(csr *x509.CertificateRequest) []string {
+	names := slices.Clone(csr.DNSNames)
+	for _, ip := range csr.IPAddresses {
+		names = append(names, ip.String())
+	}
+
+	return names
 }

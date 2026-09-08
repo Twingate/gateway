@@ -39,12 +39,11 @@ var (
 
 var serialNumberLimit = new(big.Int).Lsh(big.NewInt(1), 128)
 
-// issuer issues the certificate served on a handshake, signs certificate requests
-// with its CA and runs any background maintenance its backend needs.
+// issuer signs DER-encoded certificate requests with its CA and runs any background
+// maintenance its backend needs.
 type issuer interface {
 	run(ctx context.Context) error
-	issue(ctx context.Context, name string) (*tls.Certificate, error)
-	sign(ctx context.Context, csr *x509.CertificateRequest) (leaf *x509.Certificate, caChain []*x509.Certificate, err error)
+	sign(ctx context.Context, csr []byte) (leaf *x509.Certificate, caChain []*x509.Certificate, err error)
 }
 
 // rotatableIssuer is an issuer whose CA can rotate during the process lifetime.
@@ -53,12 +52,12 @@ type rotatableIssuer interface {
 	rotated() <-chan struct{}
 }
 
-func newIssuer(cfg config.TLSIssuerConfig, keyCfg keyConfig, ttl time.Duration, logger *zap.Logger) (issuer, error) {
+func newIssuer(cfg config.TLSIssuerConfig, ttl time.Duration, logger *zap.Logger) (issuer, error) {
 	switch {
 	case cfg.Local != nil:
-		return newLocalIssuer(cfg.Local, keyCfg, ttl, logger)
+		return newLocalIssuer(cfg.Local, ttl, logger)
 	case cfg.Vault != nil:
-		return newVaultIssuer(cfg.Vault, keyCfg, ttl, logger)
+		return newVaultIssuer(cfg.Vault, ttl, logger)
 	default:
 		return nil, config.ErrMissingTLSIssuerConfig
 	}
@@ -69,7 +68,6 @@ func newIssuer(cfg config.TLSIssuerConfig, keyCfg keyConfig, ttl time.Duration, 
 type localIssuer struct {
 	certFile string
 	keyFile  string
-	key      keyConfig
 	ttl      time.Duration
 	logger   *zap.Logger
 
@@ -82,11 +80,10 @@ type localIssuer struct {
 	reloader *filereloader.Reloader
 }
 
-func newLocalIssuer(cfg *config.TLSLocalIssuerConfig, keyCfg keyConfig, ttl time.Duration, logger *zap.Logger) (*localIssuer, error) {
+func newLocalIssuer(cfg *config.TLSLocalIssuerConfig, ttl time.Duration, logger *zap.Logger) (*localIssuer, error) {
 	issuer := &localIssuer{
 		certFile: cfg.CertificateFile,
 		keyFile:  cfg.PrivateKeyFile,
-		key:      keyCfg,
 		ttl:      ttl,
 		logger:   logger,
 		rotateCh: make(chan struct{}, 1),
@@ -154,11 +151,12 @@ func (l *localIssuer) load() error {
 	return nil
 }
 
-func (l *localIssuer) issue(ctx context.Context, name string) (*tls.Certificate, error) {
-	return issueCertificate(ctx, l, l.key, name)
-}
+func (l *localIssuer) sign(_ context.Context, csr []byte) (*x509.Certificate, []*x509.Certificate, error) {
+	req, err := x509.ParseCertificateRequest(csr)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to parse certificate request: %w", err)
+	}
 
-func (l *localIssuer) sign(_ context.Context, csr *x509.CertificateRequest) (*x509.Certificate, []*x509.Certificate, error) {
 	serial, err := rand.Int(rand.Reader, serialNumberLimit)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to generate serial number: %w", err)
@@ -175,11 +173,11 @@ func (l *localIssuer) sign(_ context.Context, csr *x509.CertificateRequest) (*x5
 		NotAfter:     now.Add(l.ttl),
 		KeyUsage:     x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		DNSNames:     csr.DNSNames,
-		IPAddresses:  csr.IPAddresses,
+		DNSNames:     req.DNSNames,
+		IPAddresses:  req.IPAddresses,
 	}
 
-	leafDER, err := x509.CreateCertificate(rand.Reader, template, caCert, csr.PublicKey, caKey)
+	leafDER, err := x509.CreateCertificate(rand.Reader, template, caCert, req.PublicKey, caKey)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to sign leaf certificate: %w", err)
 	}
@@ -192,79 +190,21 @@ func (l *localIssuer) sign(_ context.Context, csr *x509.CertificateRequest) (*x5
 	return leaf, []*x509.Certificate{caCert}, nil
 }
 
-// issueCertificate generates a leaf key and has the issuer's CA sign a request
-// covering name, assembling the certificate served on the handshake.
-func issueCertificate(ctx context.Context, i issuer, keyCfg keyConfig, name string) (*tls.Certificate, error) {
-	key, err := keyCfg.generate()
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate leaf key: %w", err)
-	}
-
-	csr, err := certificateRequest(key, name)
-	if err != nil {
-		return nil, err
-	}
-
-	leaf, caChain, err := i.sign(ctx, csr)
-	if err != nil {
-		return nil, err
-	}
-
-	chain := make([][]byte, 0, len(caChain)+1)
-	chain = append(chain, leaf.Raw)
-
-	for _, ca := range caChain {
-		chain = append(chain, ca.Raw)
-	}
-
-	return &tls.Certificate{
-		Certificate: chain,
-		PrivateKey:  key,
-		Leaf:        leaf,
-	}, nil
-}
-
-// certificateRequest builds a certificate request covering name, signed by key so a
-// backend can forward it to a remote CA.
-func certificateRequest(key crypto.Signer, name string) (*x509.CertificateRequest, error) {
-	template := &x509.CertificateRequest{}
-
-	// A handshake without SNI leaves no name, and the certificate then covers none.
-	if ip := net.ParseIP(name); ip != nil {
-		template.IPAddresses = []net.IP{ip}
-	} else if name != "" {
-		template.DNSNames = []string{name}
-	}
-
-	der, err := x509.CreateCertificateRequest(rand.Reader, template, key)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create certificate request: %w", err)
-	}
-
-	csr, err := x509.ParseCertificateRequest(der)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse certificate request: %w", err)
-	}
-
-	return csr, nil
-}
-
 // vaultIssuer issues leaf certificates through Vault's PKI secrets engine.
 type vaultIssuer struct {
 	vault *vault.Vault
 	mount string
 	role  string
-	key   keyConfig
 	ttl   time.Duration
 }
 
-func newVaultIssuer(cfg *config.TLSVaultIssuerConfig, keyCfg keyConfig, ttl time.Duration, logger *zap.Logger) (*vaultIssuer, error) {
+func newVaultIssuer(cfg *config.TLSVaultIssuerConfig, ttl time.Duration, logger *zap.Logger) (*vaultIssuer, error) {
 	v, err := vault.New(cfg.VaultConfig, logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Vault client: %w", err)
 	}
 
-	return &vaultIssuer{vault: v, mount: cfg.GetMount(), role: cfg.Role, key: keyCfg, ttl: ttl}, nil
+	return &vaultIssuer{vault: v, mount: cfg.GetMount(), role: cfg.Role, ttl: ttl}, nil
 }
 
 // run logs in to Vault and keeps the token renewed in the background.
@@ -283,27 +223,28 @@ func (v *vaultIssuer) run(ctx context.Context) error {
 	return nil
 }
 
-func (v *vaultIssuer) issue(ctx context.Context, name string) (*tls.Certificate, error) {
-	return issueCertificate(ctx, v, v.key, name)
-}
-
 // sign has Vault sign the request through <mount>/sign/<role>, so the private key
 // never leaves the Gateway. The context is the TLS handshake's, so an abandoned
 // handshake cancels the in-flight request.
-func (v *vaultIssuer) sign(ctx context.Context, csr *x509.CertificateRequest) (*x509.Certificate, []*x509.Certificate, error) {
+func (v *vaultIssuer) sign(ctx context.Context, csr []byte) (*x509.Certificate, []*x509.Certificate, error) {
+	req, err := x509.ParseCertificateRequest(csr)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to parse certificate request: %w", err)
+	}
+
 	data := map[string]any{
-		"csr":         string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csr.Raw})),
-		"common_name": commonName(csr),
+		"csr":         string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csr})),
+		"common_name": commonName(req),
 		"ttl":         v.ttl.String(),
 	}
 
-	if len(csr.DNSNames) > 0 {
-		data["alt_names"] = strings.Join(csr.DNSNames, ",")
+	if len(req.DNSNames) > 0 {
+		data["alt_names"] = strings.Join(req.DNSNames, ",")
 	}
 
-	if len(csr.IPAddresses) > 0 {
-		ipSANs := make([]string, 0, len(csr.IPAddresses))
-		for _, ip := range csr.IPAddresses {
+	if len(req.IPAddresses) > 0 {
+		ipSANs := make([]string, 0, len(req.IPAddresses))
+		for _, ip := range req.IPAddresses {
 			ipSANs = append(ipSANs, ip.String())
 		}
 
@@ -330,7 +271,7 @@ func (v *vaultIssuer) sign(ctx context.Context, csr *x509.CertificateRequest) (*
 	}
 
 	leaf := chain[0]
-	if err := verifyIssuedCertificate(leaf, csr, v.ttl); err != nil {
+	if err := verifyIssuedCertificate(leaf, req, v.ttl); err != nil {
 		return nil, nil, err
 	}
 

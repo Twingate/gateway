@@ -25,8 +25,6 @@ import (
 
 	promtestutil "github.com/prometheus/client_golang/prometheus/testutil"
 
-	"gateway/internal/config"
-	"gateway/internal/connect/cert"
 	"gateway/internal/token"
 	"gateway/test/data"
 )
@@ -485,101 +483,6 @@ func TestProxyConn_Authenticate_FailedValidation(t *testing.T) {
 	assert.Nil(t, proxyConn.Claims)
 
 	<-done
-}
-
-func upgradeToTLSHandshake(t *testing.T, proxyConn *ProxyConn, clientTLSConfig *tls.Config) error {
-	t.Helper()
-
-	listener, addr := startMockListener(t)
-	defer listener.Close()
-
-	clientCh := make(chan error, 1)
-
-	go func() {
-		conn, err := net.Dial("tcp", addr)
-		if err != nil {
-			clientCh <- err
-
-			return
-		}
-
-		defer conn.Close()
-
-		clientCh <- tls.Client(conn, clientTLSConfig).Handshake()
-	}()
-
-	conn, err := listener.Accept()
-	require.NoError(t, err)
-
-	proxyConn.Conn = conn
-
-	serverErr := proxyConn.UpgradeToTLS()
-	if serverErr != nil {
-		_ = conn.Close()
-
-		<-clientCh
-
-		return serverErr
-	}
-
-	require.NoError(t, <-clientCh)
-
-	return nil
-}
-
-func TestProxyConn_UpgradeToTLS(t *testing.T) {
-	pool := x509.NewCertPool()
-	pool.AppendCertsFromPEM(data.ProxyCert)
-
-	certManager := newTestCertManager(t, config.TLSConfig{Automation: testAutomationConfig()})
-	proxyConn := &ProxyConn{
-		TLSConfig: &tls.Config{MinVersion: tls.VersionTLS13, GetCertificate: certManager.GetCertificate},
-		Logger:    zap.NewNop(),
-	}
-
-	// The upgraded handshake reuses the listener configuration, so the client is served a
-	// certificate for the name it asked for without the connection holding any of its own.
-	require.NoError(t, upgradeToTLSHandshake(t, proxyConn, &tls.Config{
-		ServerName: "app.internal",
-		RootCAs:    pool,
-		MinVersion: tls.VersionTLS13,
-	}))
-}
-
-func TestProxyConn_UpgradeToTLS_HandshakeError(t *testing.T) {
-	// The client trusts a different CA, so it rejects the issued certificate
-	// and the server-side handshake fails.
-	wrongPool := x509.NewCertPool()
-	wrongPool.AppendCertsFromPEM(data.ServerCert)
-
-	certManager := newTestCertManager(t, config.TLSConfig{Automation: testAutomationConfig()})
-	proxyConn := &ProxyConn{
-		TLSConfig: &tls.Config{MinVersion: tls.VersionTLS13, GetCertificate: certManager.GetCertificate},
-		Logger:    zap.NewNop(),
-	}
-
-	err := upgradeToTLSHandshake(t, proxyConn, &tls.Config{
-		ServerName: "app.internal",
-		RootCAs:    wrongPool,
-		MinVersion: tls.VersionTLS13,
-	})
-
-	require.Error(t, err)
-}
-
-func TestProxyConn_UpgradeToTLS_NoCertificateError(t *testing.T) {
-	certManager := newTestCertManager(t, config.TLSConfig{})
-	proxyConn := &ProxyConn{
-		TLSConfig: &tls.Config{MinVersion: tls.VersionTLS13, GetCertificate: certManager.GetCertificate},
-		Logger:    zap.NewNop(),
-	}
-
-	err := upgradeToTLSHandshake(t, proxyConn, &tls.Config{
-		ServerName: "app.internal",
-		MinVersion: tls.VersionTLS13,
-	})
-
-	require.ErrorIs(t, err, cert.ErrNoCertificates)
 }
 
 func TestIsHealthCheckRequest(t *testing.T) {

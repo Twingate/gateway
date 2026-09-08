@@ -5,8 +5,12 @@ package cert
 
 import (
 	"context"
+	"crypto"
+	"crypto/rand"
 	"crypto/tls"
+	"crypto/x509"
 	"fmt"
+	"net"
 	"strings"
 	"sync"
 	"time"
@@ -21,14 +25,14 @@ import (
 const (
 	defaultTTL     = 24 * time.Hour
 	maxCachedCerts = 1024
-	renewFraction  = 0.8
 )
 
 // automation issues short-lived certificates through the configured issuer.
-// It caches one certificate per requested name set and issues a fresh one once the
-// cached certificate is past its renewal threshold.
+// It caches one certificate per requested name and issues a fresh one once the
+// cached certificate expires.
 type automation struct {
 	issuer issuer
+	key    keyConfig
 	logger *zap.Logger
 
 	mu sync.Mutex
@@ -37,7 +41,7 @@ type automation struct {
 	cache       *lru.Cache[string, *tls.Certificate]
 }
 
-func newAutomation(cfg config.TLSAutomationConfig, logger *zap.Logger) (*automation, error) {
+func newAutomation(cfg *config.TLSAutomationConfig, logger *zap.Logger) (*automation, error) {
 	keyCfg, err := newKeyConfig(cfg.Certificate.Key.Type, cfg.Certificate.Key.Bits)
 	if err != nil {
 		return nil, fmt.Errorf("invalid certificate key config: %w", err)
@@ -48,7 +52,7 @@ func newAutomation(cfg config.TLSAutomationConfig, logger *zap.Logger) (*automat
 		certTTL = defaultTTL
 	}
 
-	issuer, err := newIssuer(cfg.Issuer, keyCfg, certTTL, logger)
+	issuer, err := newIssuer(cfg.Issuer, certTTL, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -60,90 +64,138 @@ func newAutomation(cfg config.TLSAutomationConfig, logger *zap.Logger) (*automat
 
 	return &automation{
 		issuer: issuer,
+		key:    keyCfg,
 		logger: logger,
 		cache:  cache,
 	}, nil
 }
 
-func (c *automation) Run(ctx context.Context) error {
-	if err := c.issuer.run(ctx); err != nil {
+func (a *automation) run(ctx context.Context) error {
+	if err := a.issuer.run(ctx); err != nil {
 		return err
 	}
 
 	// When the issuer can rotate its CA, drop the cached certificates as soon as
 	// it does rather than serving ones that no longer chain to it.
-	if issuer, ok := c.issuer.(rotatableIssuer); ok {
-		go c.purgeOnRotation(ctx, issuer.rotated())
+	if issuer, ok := a.issuer.(rotatableIssuer); ok {
+		go a.purgeOnRotation(ctx, issuer.rotated())
 	}
 
 	return nil
 }
 
-// GetCertificateForHost issues a certificate covering the given host, caching it under that name.
-func (c *automation) GetCertificateForHost(ctx context.Context, host string) (*tls.Certificate, error) {
+// getCertificateForHost issues a certificate covering the given host, caching it under that name.
+func (a *automation) getCertificateForHost(ctx context.Context, host string) (*tls.Certificate, error) {
 	host = strings.ToLower(host)
 
-	if cert, ok := c.cachedCert(host); ok {
+	if cert := a.cachedCert(host); cert != nil {
 		return cert, nil
 	}
 
-	c.mu.Lock()
-	rotations := c.caRotations
-	c.mu.Unlock()
+	a.mu.Lock()
+	rotations := a.caRotations
+	a.mu.Unlock()
 
 	// Sign outside the lock so a slow CA cannot stall handshakes for names that are already
 	// cached. A burst against a cold cache may sign the same names twice, which is cheaper.
-	cert, err := c.issuer.issue(ctx, host)
+	cert, err := a.issue(ctx, host)
 	if err != nil {
 		return nil, err
 	}
 
-	c.logger.Debug("Issued downstream certificate",
+	a.logger.Debug("Issued downstream certificate",
 		zap.String("host", host),
 		zap.Time("not_after", cert.Leaf.NotAfter),
 	)
 
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	a.mu.Lock()
+	defer a.mu.Unlock()
 
 	// The CA rotated while this certificate was in flight: serve it to this handshake
 	// only, so the cache never holds a certificate from a previous CA.
-	if rotations == c.caRotations {
-		c.cache.Add(host, cert)
+	if rotations == a.caRotations {
+		a.cache.Add(host, cert)
 	}
 
 	return cert, nil
 }
 
-// purgeOnRotation drops every cached certificate and counts the rotation.
-func (c *automation) purgeOnRotation(ctx context.Context, rotated <-chan struct{}) {
+func (a *automation) issue(ctx context.Context, name string) (*tls.Certificate, error) {
+	key, err := a.key.generate()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate leaf key: %w", err)
+	}
+
+	csr, err := certificateRequest(key, name)
+	if err != nil {
+		return nil, err
+	}
+
+	leaf, caChain, err := a.issuer.sign(ctx, csr)
+	if err != nil {
+		return nil, err
+	}
+
+	chain := make([][]byte, 0, len(caChain)+1)
+	chain = append(chain, leaf.Raw)
+
+	for _, ca := range caChain {
+		chain = append(chain, ca.Raw)
+	}
+
+	return &tls.Certificate{
+		Certificate: chain,
+		PrivateKey:  key,
+		Leaf:        leaf,
+	}, nil
+}
+
+func (a *automation) purgeOnRotation(ctx context.Context, rotated <-chan struct{}) {
 	for {
 		select {
 		case <-rotated:
-			c.mu.Lock()
-			c.caRotations++
-			purged := c.cache.Len()
-			c.cache.Purge()
-			c.mu.Unlock()
+			a.mu.Lock()
+			a.caRotations++
+			purged := a.cache.Len()
+			a.cache.Purge()
+			a.mu.Unlock()
 
-			c.logger.Info("Dropped cached downstream certificates after CA rotation", zap.Int("certificates", purged))
+			a.logger.Info("Dropped cached downstream certificates after CA rotation", zap.Int("certificates", purged))
 		case <-ctx.Done():
 			return
 		}
 	}
 }
 
-// cachedCert returns the cached certificate for the given name set while it is
-// short of renewFraction of its lifetime. The lifetime is read off the
-// certificate itself, since an issuer may hand back a shorter one than asked for.
-func (c *automation) cachedCert(key string) (*tls.Certificate, bool) {
-	cert, ok := c.cache.Get(key)
+func (a *automation) cachedCert(key string) *tls.Certificate {
+	cert, ok := a.cache.Get(key)
 	if !ok {
-		return nil, false
+		return nil
 	}
 
-	lifetime := cert.Leaf.NotAfter.Sub(cert.Leaf.NotBefore)
-	renewAfter := cert.Leaf.NotBefore.Add(time.Duration(float64(lifetime) * renewFraction))
+	if time.Now().Before(cert.Leaf.NotAfter) {
+		return cert
+	}
 
-	return cert, time.Now().Before(renewAfter)
+	return nil
+}
+
+// certificateRequest builds a DER-encoded certificate request covering name, signed by
+// key so a backend can forward it to a remote CA.
+func certificateRequest(key crypto.Signer, name string) ([]byte, error) {
+	template := &x509.CertificateRequest{}
+
+	// A handshake without SNI leaves no name, and the certificate then covers none.
+	if ip := net.ParseIP(name); ip != nil {
+		template.IPAddresses = []net.IP{ip}
+	} else if name != "" {
+		template.DNSNames = []string{name}
+	}
+
+	der, err := x509.CreateCertificateRequest(rand.Reader, template, key)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create certificate request: %w", err)
+	}
+
+	return der, nil
 }
