@@ -267,22 +267,22 @@ func (v *vaultIssuer) sign(ctx context.Context, req *certificateRequest) (*x509.
 
 // gcpIssuer issues leaf certificates through Google Cloud Certificate Authority Service.
 type gcpIssuer struct {
+	parent          string
+	issuingCA       string
 	credentialsFile string
-	parent          string // The CA pool issuing the certificates
-	issuingCA       string // Pins one CA in the pool
 
 	client *privateca.CertificateAuthorityClient
 }
 
 func newGCPIssuer(cfg *config.TLSGCPPrivateCAIssuerConfig) *gcpIssuer {
 	return &gcpIssuer{
-		credentialsFile: cfg.CredentialsFile,
 		parent:          fmt.Sprintf("projects/%s/locations/%s/caPools/%s", cfg.Project, cfg.Location, cfg.CAPoolID),
 		issuingCA:       cfg.IssuingCertificateAuthorityID,
+		credentialsFile: cfg.CredentialsFile,
 	}
 }
 
-// run opens the CA Service client, which then lives for the process lifetime.
+// run creates the certificate authority service client based on gRPC.
 func (g *gcpIssuer) run(ctx context.Context) error {
 	var opts []option.ClientOption
 	if g.credentialsFile != "" {
@@ -296,7 +296,15 @@ func (g *gcpIssuer) run(ctx context.Context) error {
 
 	g.client = client
 
+	go g.closeOnShutdown(ctx)
+
 	return nil
+}
+
+func (g *gcpIssuer) closeOnShutdown(ctx context.Context) {
+	<-ctx.Done()
+
+	_ = g.client.Close()
 }
 
 // sign has the CA pool sign the request, so the private key never leaves the Gateway.

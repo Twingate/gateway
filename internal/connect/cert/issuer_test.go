@@ -624,6 +624,27 @@ func TestGCPIssuer_run(t *testing.T) {
 	t.Cleanup(func() { _ = issuer.client.Close() })
 }
 
+func TestGCPIssuer_run_ClosesClientOnShutdown(t *testing.T) {
+	issuer := newGCPIssuer(&config.TLSGCPPrivateCAIssuerConfig{
+		Project:         "acme",
+		Location:        "us-east1",
+		CAPoolID:        "gateway",
+		CredentialsFile: writeServiceAccountFile(t),
+	})
+
+	ctx, cancel := context.WithCancel(t.Context())
+	require.NoError(t, issuer.run(ctx))
+
+	req := newCertificateRequest(generateKey(t), "app.acme.int", defaultTTL)
+
+	cancel()
+
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		_, _, err := issuer.sign(t.Context(), req)
+		assert.Equal(c, codes.Canceled, status.Code(err))
+	}, time.Second, 10*time.Millisecond, "a cancelled context should close the client")
+}
+
 func TestGCPIssuer_run_CredentialsFileMissing(t *testing.T) {
 	issuer := newGCPIssuer(&config.TLSGCPPrivateCAIssuerConfig{
 		Project:         "acme",
