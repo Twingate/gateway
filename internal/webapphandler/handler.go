@@ -118,7 +118,7 @@ func rewrite(r *httputil.ProxyRequest, conn *connect.ProxyConn, headers map[stri
 			return fmt.Errorf("header %q: %w", headerName, err)
 		}
 
-		r.Out.Header.Set(headerName, headerValue)
+		setHeader(r, headerName, headerValue)
 	}
 
 	// Per-resource request header rewrites from the GAT are applied last, so they override
@@ -139,8 +139,17 @@ func rewrite(r *httputil.ProxyRequest, conn *connect.ProxyConn, headers map[stri
 			continue
 		}
 
-		r.Out.Header.Set(headerName, headerValue)
+		setHeader(r, headerName, headerValue)
 	}
 
 	return nil
+}
+
+func setHeader(r *httputil.ProxyRequest, name, value string) {
+	switch http.CanonicalHeaderKey(name) {
+	case "Host":
+		r.Out.Host = value
+	default:
+		r.Out.Header.Set(name, value)
+	}
 }
