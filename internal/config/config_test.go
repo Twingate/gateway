@@ -809,10 +809,10 @@ func TestTLSConfig_Validate(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:        "missing certificates",
+			name:        "missing certificates and automation",
 			tls:         TLSConfig{},
 			wantErr:     true,
-			errContains: "at least one TLS certificate source must be configured",
+			errContains: "either 'certificates' or 'automation' must be specified for TLS config",
 		},
 		{
 			name:        "invalid certificates",
