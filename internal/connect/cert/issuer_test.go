@@ -338,11 +338,10 @@ func TestVaultIssuer_sign(t *testing.T) {
 		assert.Equal(t, "/v1/pki/sign/test-role", r.URL.Path)
 
 		csr, payload := decodeVaultSignPayload(t, r)
-		assert.Equal(t, map[string]any{"ttl": "24h0m0s"}, payload)
+		assert.Equal(t, map[string]any{"ttl": "24h0m0s", "format": "pem_bundle"}, payload)
 
 		_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
-			"certificate": signTestCSR(t, ca, csr),
-			"ca_chain":    []string{caPEM(t, ca)},
+			"certificate": signTestCSR(t, ca, csr) + caPEM(t, ca),
 		}})
 	})
 
@@ -352,7 +351,7 @@ func TestVaultIssuer_sign(t *testing.T) {
 	assert.Len(t, caChain, 1)
 }
 
-func TestVaultIssuer_sign_MissingCAChainFallback(t *testing.T) {
+func TestVaultIssuer_sign_LeafOnlyBundle(t *testing.T) {
 	ca := generateCA(t)
 
 	issuer := newTestVaultIssuer(t, func(w http.ResponseWriter, r *http.Request) {
@@ -360,13 +359,13 @@ func TestVaultIssuer_sign_MissingCAChainFallback(t *testing.T) {
 
 		_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
 			"certificate": signTestCSR(t, ca, csr),
-			"issuing_ca":  caPEM(t, ca),
 		}})
 	})
 
-	_, caChain, err := issuer.sign(t.Context(), newCertificateRequest(generateKey(t), "app.acme.int", defaultTTL))
+	leaf, caChain, err := issuer.sign(t.Context(), newCertificateRequest(generateKey(t), "app.acme.int", defaultTTL))
 	require.NoError(t, err)
-	assert.Len(t, caChain, 1)
+	assert.Equal(t, []string{"app.acme.int"}, leaf.DNSNames)
+	assert.Empty(t, caChain)
 }
 
 func TestVaultIssuer_sign_Error(t *testing.T) {
@@ -381,6 +380,7 @@ func TestVaultIssuer_sign_Error(t *testing.T) {
 		{name: "missing certificate", responseData: map[string]any{"expiration": 1}, wantErr: errVaultIssueFailed},
 		{name: "empty certificate", responseData: map[string]any{"certificate": ""}, wantErr: errVaultIssueFailed},
 		{name: "unparseable certificate", responseData: map[string]any{"certificate": "garbage"}, wantErr: errCertChainNotPEM},
+		{name: "blank certificate", responseData: map[string]any{"certificate": " \n "}, wantErr: errCertChainNotPEM},
 		{
 			name:         "certificate does not match the request",
 			responseData: map[string]any{"certificate": caPEM(t, ca)},
@@ -540,9 +540,9 @@ func TestParseCertificateChain(t *testing.T) {
 		wantErr error
 	}{
 		{
-			name:    "certificate chain with multiple PEM blocks",
-			pems:    []string{signTestCSR(t, ca, csrPEM(t, der)), caPEM(t, ca)},
-			wantLen: 2,
+			name:    "multiple entries, each holding one or more certificate",
+			pems:    []string{signTestCSR(t, ca, csrPEM(t, der)) + "\n\n" + caPEM(t, ca), caPEM(t, ca) + "\n\n"},
+			wantLen: 3,
 		},
 		{
 			name:    "not PEM at all",
@@ -551,7 +551,17 @@ func TestParseCertificateChain(t *testing.T) {
 		},
 		{
 			name:    "PEM block is not a certificate",
-			pems:    []string{"garbage"},
+			pems:    []string{csrPEM(t, der)},
+			wantErr: errCertChainNotPEM,
+		},
+		{
+			name:    "whitespace only",
+			pems:    []string{" \n "},
+			wantErr: errCertChainNotPEM,
+		},
+		{
+			name:    "no entries",
+			pems:    nil,
 			wantErr: errCertChainNotPEM,
 		},
 	}

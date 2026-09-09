@@ -228,6 +228,8 @@ func (v *vaultIssuer) sign(ctx context.Context, req *certificateRequest) (*x509.
 	data := map[string]any{
 		"csr": string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csr})),
 		"ttl": req.ttl.String(),
+		// pem_bundle returns the CA chain concatenated onto the leaf
+		"format": "pem_bundle",
 	}
 
 	secret, err := v.vault.Client.Logical().WriteWithContext(ctx, v.mount+"/sign/"+v.role, data)
@@ -244,7 +246,7 @@ func (v *vaultIssuer) sign(ctx context.Context, req *certificateRequest) (*x509.
 		return nil, nil, fmt.Errorf("%w: no certificate in response", errVaultIssueFailed)
 	}
 
-	chain, err := parseCertificateChain(append([]string{certPEM}, vaultCAChainPEMs(secret.Data)...))
+	chain, err := parseCertificateChain([]string{certPEM})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -300,47 +302,33 @@ func certificateSANs(dnsNames []string, ips []net.IP) map[string]struct{} {
 	return names
 }
 
-// parseCertificateChain parses a list of PEM certificates.
+// parseCertificateChain parses a list of PEM certificates. An entry may
+// hold a single certificate or a whole bundle, so each one is decoded to the end.
 func parseCertificateChain(pems []string) ([]*x509.Certificate, error) {
-	chain := make([]*x509.Certificate, 0, len(pems))
+	var chain []*x509.Certificate
 
 	for _, certPEM := range pems {
-		block, _ := pem.Decode([]byte(certPEM))
-		if block == nil || block.Type != "CERTIFICATE" {
-			return nil, errCertChainNotPEM
-		}
+		// Trim the trailing whitespace of the last block
+		for rest := []byte(certPEM); len(bytes.TrimSpace(rest)) > 0; {
+			var block *pem.Block
 
-		cert, err := x509.ParseCertificate(block.Bytes)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse issued certificate: %w", err)
-		}
+			block, rest = pem.Decode(rest)
+			if block == nil || block.Type != "CERTIFICATE" {
+				return nil, errCertChainNotPEM
+			}
 
-		chain = append(chain, cert)
+			cert, err := x509.ParseCertificate(block.Bytes)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse issued certificate: %w", err)
+			}
+
+			chain = append(chain, cert)
+		}
+	}
+
+	if len(chain) == 0 {
+		return nil, errCertChainNotPEM
 	}
 
 	return chain, nil
-}
-
-// vaultCAChainPEMs returns the CA chain PEMs from a Vault PKI sign response's data,
-// preferring ca_chain and falling back to issuing_ca.
-func vaultCAChainPEMs(data map[string]any) []string {
-	if chain, ok := data["ca_chain"].([]any); ok {
-		cas := make([]string, 0, len(chain))
-
-		for _, ca := range chain {
-			if caPEM, ok := ca.(string); ok && caPEM != "" {
-				cas = append(cas, caPEM)
-			}
-		}
-
-		if len(cas) > 0 {
-			return cas
-		}
-	}
-
-	if issuingCA, ok := data["issuing_ca"].(string); ok && issuingCA != "" {
-		return []string{issuingCA}
-	}
-
-	return nil
 }
