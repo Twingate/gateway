@@ -25,11 +25,12 @@ import (
 const (
 	defaultTTL     = 24 * time.Hour
 	maxCachedCerts = 1024
+	expiryBuffer   = 5 * time.Minute
 )
 
 // automation issues short-lived certificates through the configured issuer.
 // It caches one certificate per requested name and issues a fresh one once the
-// cached certificate expires.
+// cached certificate nears its expiry.
 type automation struct {
 	issuer issuer
 	key    keyConfig
@@ -86,8 +87,8 @@ func (a *automation) run(ctx context.Context) error {
 	return nil
 }
 
-// getCertificateForHost issues a certificate covering the given host, caching it under that name.
-func (a *automation) getCertificateForHost(ctx context.Context, host string) (*tls.Certificate, error) {
+// getCertificate issues a certificate covering the given host and caching it under that name.
+func (a *automation) getCertificate(ctx context.Context, host string) (*tls.Certificate, error) {
 	host = strings.ToLower(host)
 
 	if cert := a.cachedCert(host); cert != nil {
@@ -133,11 +134,11 @@ func (a *automation) issue(ctx context.Context, name string) (*tls.Certificate, 
 		return nil, err
 	}
 
-	chain := make([][]byte, 0, len(caChain)+1)
-	chain = append(chain, leaf.Raw)
+	chain := make([][]byte, len(caChain)+1)
+	chain[0] = leaf.Raw
 
-	for _, ca := range caChain {
-		chain = append(chain, ca.Raw)
+	for i, ca := range caChain {
+		chain[i+1] = ca.Raw
 	}
 
 	return &tls.Certificate{
@@ -170,7 +171,7 @@ func (a *automation) cachedCert(key string) *tls.Certificate {
 		return nil
 	}
 
-	if time.Now().Before(cert.Leaf.NotAfter) {
+	if time.Until(cert.Leaf.NotAfter) > expiryBuffer {
 		return cert
 	}
 
@@ -184,10 +185,11 @@ type certificateRequest struct {
 	ttl         time.Duration
 }
 
+// newCertificateRequest creates a new certificate request for the given name and TTL.
+// If an empty name is provided, the certificate would have no Subject Alternative Names.
 func newCertificateRequest(key crypto.Signer, name string, ttl time.Duration) *certificateRequest {
 	req := &certificateRequest{key: key, ttl: ttl}
 
-	// A handshake without SNI leaves no name, and the certificate then covers none.
 	if ip := net.ParseIP(name); ip != nil {
 		req.ipAddresses = []net.IP{ip}
 	} else if name != "" {
@@ -197,7 +199,7 @@ func newCertificateRequest(key crypto.Signer, name string, ttl time.Duration) *c
 	return req
 }
 
-// csr builds the request DER-encoded and signed by the leaf key.
+// csr builds the DER-encoded certificate request.
 func (c *certificateRequest) csr() ([]byte, error) {
 	template := &x509.CertificateRequest{DNSNames: c.dnsNames, IPAddresses: c.ipAddresses}
 

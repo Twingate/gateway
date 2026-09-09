@@ -46,7 +46,7 @@ func (r *reloader) run(ctx context.Context) {
 	}
 }
 
-// match returns the first certificate in configuration order that the client supports.
+// match returns the first certificate in configuration order that can serve this ClientHello.
 func (r *reloader) match(hello *tls.ClientHelloInfo) *tls.Certificate {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

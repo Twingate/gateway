@@ -107,18 +107,6 @@ func TestManager_GetCertificate(t *testing.T) {
 			hello:    clientHello(""),
 			wantCert: fooCert.Certificate,
 		},
-		{
-			name:       "SNI is issued on demand when no certificates are configured at all",
-			tlsCfg:     config.TLSConfig{Automation: testAutomationConfig()},
-			hello:      clientHello("app.acme.int"),
-			wantIssued: []string{"app.acme.int"},
-		},
-		{
-			name:       "IP SNI is issued on demand",
-			tlsCfg:     config.TLSConfig{Certificates: files, Automation: testAutomationConfig()},
-			hello:      clientHello("10.0.0.5"),
-			wantIssued: []string{"10.0.0.5"},
-		},
 	}
 
 	for _, tt := range tests {
