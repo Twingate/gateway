@@ -29,7 +29,7 @@ import (
 func TestTLSVault(t *testing.T) {
 	const gatewayPort = 8452
 
-	vaultContainerID, vaultPort := testutil.SetupVaultServer(t)
+	vaultContainerID, vaultPort := testutil.SetupVaultPKI(t)
 	vaultAddress := fmt.Sprintf("http://127.0.0.1:%d", vaultPort)
 
 	rootCAs := vaultPKIRootPool(t, vaultAddress)
