@@ -15,17 +15,6 @@ import (
 	"gateway/internal/config"
 )
 
-func testAutomationConfig() *config.TLSAutomationConfig {
-	return &config.TLSAutomationConfig{
-		Issuer: config.TLSIssuerConfig{
-			Local: &config.TLSLocalIssuerConfig{
-				CertificateFile: "../../../test/data/proxy/tls.crt",
-				PrivateKeyFile:  "../../../test/data/proxy/tls.key",
-			},
-		},
-	}
-}
-
 func newTestManager(t *testing.T, tlsCfg config.TLSConfig) *Manager {
 	t.Helper()
 
@@ -73,6 +62,15 @@ func TestManager_Run_IssuerFailsToStart(t *testing.T) {
 }
 
 func TestManager_GetCertificate(t *testing.T) {
+	automationCfg := &config.TLSAutomationConfig{
+		Issuer: config.TLSIssuerConfig{
+			Local: &config.TLSLocalIssuerConfig{
+				CertificateFile: "../../../test/data/proxy/tls.crt",
+				PrivateKeyFile:  "../../../test/data/proxy/tls.key",
+			},
+		},
+	}
+
 	fooCert := generateCert(t, "foo.acme.int")
 	files := &config.TLSCertificateSources{Files: []config.TLSCertificateFileKeyPair{createKeyPair(t, fooCert)}}
 
@@ -85,13 +83,13 @@ func TestManager_GetCertificate(t *testing.T) {
 	}{
 		{
 			name:     "SNI covered by a configured certificate",
-			tlsCfg:   config.TLSConfig{Certificates: files, Automation: testAutomationConfig()},
+			tlsCfg:   config.TLSConfig{Certificates: files, Automation: automationCfg},
 			hello:    clientHello("foo.acme.int"),
 			wantCert: fooCert.Certificate,
 		},
 		{
 			name:       "uncovered SNI is issued on demand",
-			tlsCfg:     config.TLSConfig{Certificates: files, Automation: testAutomationConfig()},
+			tlsCfg:     config.TLSConfig{Certificates: files, Automation: automationCfg},
 			hello:      clientHello("other.acme.int"),
 			wantIssued: []string{"other.acme.int"},
 		},
@@ -103,7 +101,7 @@ func TestManager_GetCertificate(t *testing.T) {
 		},
 		{
 			name:     "no SNI is answered by a configured certificate",
-			tlsCfg:   config.TLSConfig{Certificates: files, Automation: testAutomationConfig()},
+			tlsCfg:   config.TLSConfig{Certificates: files, Automation: automationCfg},
 			hello:    clientHello(""),
 			wantCert: fooCert.Certificate,
 		},

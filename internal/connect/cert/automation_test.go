@@ -136,11 +136,14 @@ func TestAutomation_run_IssuerFailsToStart(t *testing.T) {
 func TestAutomation_run_ReissuesAfterCARotation(t *testing.T) {
 	ca := generateCA(t)
 	file := createKeyPair(t, ca)
-
-	cfg := testAutomationConfig()
-	cfg.Issuer.Local = &config.TLSLocalIssuerConfig{CertificateFile: file.CertificateFile, PrivateKeyFile: file.PrivateKeyFile}
-
-	cert, err := newAutomation(cfg, zap.NewNop())
+	cert, err := newAutomation(
+		&config.TLSAutomationConfig{
+			Issuer: config.TLSIssuerConfig{
+				Local: &config.TLSLocalIssuerConfig{CertificateFile: file.CertificateFile, PrivateKeyFile: file.PrivateKeyFile},
+			},
+		},
+		zap.NewNop(),
+	)
 	require.NoError(t, err)
 
 	require.NoError(t, cert.run(t.Context()))
@@ -177,11 +180,14 @@ func TestAutomation_run_ReissuesAfterCARotation(t *testing.T) {
 func TestAutomation_issue(t *testing.T) {
 	ca := generateCA(t)
 	file := createKeyPair(t, ca)
-
-	cfg := testAutomationConfig()
-	cfg.Issuer.Local = &config.TLSLocalIssuerConfig{CertificateFile: file.CertificateFile, PrivateKeyFile: file.PrivateKeyFile}
-
-	cert, err := newAutomation(cfg, zap.NewNop())
+	cert, err := newAutomation(
+		&config.TLSAutomationConfig{
+			Issuer: config.TLSIssuerConfig{
+				Local: &config.TLSLocalIssuerConfig{CertificateFile: file.CertificateFile, PrivateKeyFile: file.PrivateKeyFile},
+			},
+		},
+		zap.NewNop(),
+	)
 	require.NoError(t, err)
 
 	issued, err := cert.issue(t.Context(), "app.acme.int")
