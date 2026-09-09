@@ -540,7 +540,7 @@ func TestParseCertificateChain(t *testing.T) {
 		wantErr error
 	}{
 		{
-			name:    "chain with leaf and CA",
+			name:    "certificate chain with multiple PEM blocks",
 			pems:    []string{signTestCSR(t, ca, csrPEM(t, der)), caPEM(t, ca)},
 			wantLen: 2,
 		},
