@@ -244,7 +244,7 @@ func (v *vaultIssuer) sign(ctx context.Context, req *certificateRequest) (*x509.
 		return nil, nil, fmt.Errorf("%w: no certificate in response", errVaultIssueFailed)
 	}
 
-	chain, err := parseCertificateChain(append([]string{certPEM}, caChain(secret.Data)...))
+	chain, err := parseCertificateChain(append([]string{certPEM}, vaultCAChainPEMs(secret.Data)...))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -268,8 +268,8 @@ func verifyIssuedCertificate(leaf *x509.Certificate, req *certificateRequest) er
 		return fmt.Errorf("%w: certificate public key does not match the Gateway's key", errIssuedCertMismatch)
 	}
 
-	granted := certificateNames(leaf.DNSNames, leaf.IPAddresses)
-	requested := certificateNames(req.dnsNames, req.ipAddresses)
+	granted := certificateSANs(leaf.DNSNames, leaf.IPAddresses)
+	requested := certificateSANs(req.dnsNames, req.ipAddresses)
 
 	if !maps.Equal(granted, requested) {
 		return fmt.Errorf("%w: granted names %q do not match requested %q",
@@ -284,9 +284,9 @@ func verifyIssuedCertificate(leaf *x509.Certificate, req *certificateRequest) er
 	return nil
 }
 
-// certificateNames returns the names as a set, lowercased and in canonical IP
+// certificateSANs returns the SANs as a set, lowercased and in canonical IP
 // notation so both sides of a comparison match.
-func certificateNames(dnsNames []string, ips []net.IP) map[string]struct{} {
+func certificateSANs(dnsNames []string, ips []net.IP) map[string]struct{} {
 	names := make(map[string]struct{}, len(dnsNames)+len(ips))
 
 	for _, name := range dnsNames {
@@ -300,7 +300,7 @@ func certificateNames(dnsNames []string, ips []net.IP) map[string]struct{} {
 	return names
 }
 
-// parseCertificateChain parses the PEM certificates in a CA's response, leaf first.
+// parseCertificateChain parses the PEM certificates in a CA's response.
 func parseCertificateChain(pems []string) ([]*x509.Certificate, error) {
 	chain := make([]*x509.Certificate, 0, len(pems))
 
@@ -321,9 +321,9 @@ func parseCertificateChain(pems []string) ([]*x509.Certificate, error) {
 	return chain, nil
 }
 
-// caChain returns the CA chain PEMs from the response, falling back to the
-// issuing CA when the chain is absent.
-func caChain(data map[string]any) []string {
+// vaultCAChainPEMs returns the CA chain PEMs from a Vault PKI sign response's data,
+// preferring ca_chain and falling back to issuing_ca.
+func vaultCAChainPEMs(data map[string]any) []string {
 	if chain, ok := data["ca_chain"].([]any); ok {
 		cas := make([]string, 0, len(chain))
 

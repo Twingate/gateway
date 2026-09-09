@@ -20,7 +20,7 @@ import (
 	"go.uber.org/zap/zaptest/observer"
 	"golang.org/x/crypto/ssh"
 
-	vault "github.com/hashicorp/vault/api"
+	vaultapi "github.com/hashicorp/vault/api"
 
 	gatewayconfig "gateway/internal/config"
 	"gateway/test/data"
@@ -366,11 +366,11 @@ func newVaultTestCA(t *testing.T, handler http.HandlerFunc) *vaultCA {
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
 
-	config := vault.DefaultConfig()
+	config := vaultapi.DefaultConfig()
 	config.Address = server.URL
 	config.MaxRetries = 0 // Fail fast on error responses instead of retrying with backoff.
 
-	client, err := vault.NewClient(config)
+	client, err := vaultapi.NewClient(config)
 	require.NoError(t, err)
 	client.SetToken("test-token")
 

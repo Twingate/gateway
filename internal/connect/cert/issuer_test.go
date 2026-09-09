@@ -212,7 +212,6 @@ func TestLocalIssuer_sign_CAKeyFails(t *testing.T) {
 	require.ErrorContains(t, err, "failed to sign leaf certificate")
 }
 
-// signTestCSR signs the PEM CSR against a third-party CA signing endpoint.
 func signTestCSR(t *testing.T, ca tls.Certificate, csrPEM string) string {
 	t.Helper()
 
@@ -242,7 +241,9 @@ func signTestCSR(t *testing.T, ca tls.Certificate, csrPEM string) string {
 	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}))
 }
 
-func csrPEM(csr []byte) string {
+func csrPEM(t *testing.T, csr []byte) string {
+	t.Helper()
+
 	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csr}))
 }
 
@@ -252,8 +253,8 @@ func caPEM(t *testing.T, ca tls.Certificate) string {
 	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ca.Certificate[0]}))
 }
 
-// decodeSignPayload returns the request payload with the dynamic CSR split off.
-func decodeSignPayload(t *testing.T, r *http.Request) (csr string, payload map[string]any) {
+// decodeVaultSignPayload returns the CSR from the request payload and the remaining payload.
+func decodeVaultSignPayload(t *testing.T, r *http.Request) (csr string, payload map[string]any) {
 	t.Helper()
 
 	require.NoError(t, json.NewDecoder(r.Body).Decode(&payload))
@@ -336,7 +337,7 @@ func TestVaultIssuer_sign(t *testing.T) {
 	issuer := newTestVaultIssuer(t, func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "/v1/pki/sign/test-role", r.URL.Path)
 
-		csr, payload := decodeSignPayload(t, r)
+		csr, payload := decodeVaultSignPayload(t, r)
 		assert.Equal(t, map[string]any{"ttl": "24h0m0s"}, payload)
 
 		_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
@@ -355,7 +356,7 @@ func TestVaultIssuer_sign_MissingCAChainFallback(t *testing.T) {
 	ca := generateCA(t)
 
 	issuer := newTestVaultIssuer(t, func(w http.ResponseWriter, r *http.Request) {
-		csr, _ := decodeSignPayload(t, r)
+		csr, _ := decodeVaultSignPayload(t, r)
 
 		_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
 			"certificate": signTestCSR(t, ca, csr),
@@ -539,8 +540,8 @@ func TestParseCertificateChain(t *testing.T) {
 		wantErr error
 	}{
 		{
-			name:    "leaf first, then the CA",
-			pems:    []string{signTestCSR(t, ca, csrPEM(der)), caPEM(t, ca)},
+			name:    "chain with leaf and CA",
+			pems:    []string{signTestCSR(t, ca, csrPEM(t, der)), caPEM(t, ca)},
 			wantLen: 2,
 		},
 		{
@@ -550,7 +551,7 @@ func TestParseCertificateChain(t *testing.T) {
 		},
 		{
 			name:    "PEM block is not a certificate",
-			pems:    []string{csrPEM(der)},
+			pems:    []string{"garbage"},
 			wantErr: errCertChainNotPEM,
 		},
 	}
