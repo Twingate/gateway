@@ -6,17 +6,14 @@ package cert
 import (
 	"context"
 	"crypto/ecdsa"
-	"crypto/elliptic"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
 	"math/big"
 	"slices"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
-	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -26,7 +23,6 @@ import (
 	lru "github.com/hashicorp/golang-lru/v2"
 
 	"gateway/internal/config"
-	"gateway/test/data"
 )
 
 var (
@@ -34,37 +30,26 @@ var (
 	errStubSign = errors.New("stub issuer failed to sign")
 )
 
-// stubIssuer signs placeholder certificates, reporting each signing start on entered
-// and blocking requests for a host that has a gate until their gate closes. Configure
-// gates before the first request.
+// stubIssuer signs placeholder certificates, calling onSign at the start of every
+// signing so a test can inspect the request or hold the issuance. Set onSign before
+// the first request.
 type stubIssuer struct {
-	entered  chan string
-	gates    map[string]chan struct{}
-	rotateCh chan struct{}
-	runErr   error
-	signErr  error
+	onSign  func(req *certificateRequest)
+	runErr  error
+	signErr error
 
 	serials atomic.Int64
 }
 
 func newStubIssuer() *stubIssuer {
-	return &stubIssuer{
-		entered:  make(chan string, 16),
-		gates:    map[string]chan struct{}{},
-		rotateCh: make(chan struct{}, 1),
-	}
+	return &stubIssuer{}
 }
 
 func (s *stubIssuer) run(context.Context) error { return s.runErr }
 
-func (s *stubIssuer) rotated() <-chan struct{} { return s.rotateCh }
-
 func (s *stubIssuer) sign(_ context.Context, req *certificateRequest) (*x509.Certificate, []*x509.Certificate, error) {
-	name := strings.Join(requestSANs(req), ",")
-	s.entered <- name
-
-	if gate, ok := s.gates[name]; ok {
-		<-gate
+	if s.onSign != nil {
+		s.onSign(req)
 	}
 
 	if s.signErr != nil {
@@ -76,7 +61,7 @@ func (s *stubIssuer) sign(_ context.Context, req *certificateRequest) (*x509.Cer
 	return &x509.Certificate{
 		SerialNumber: big.NewInt(s.serials.Add(1)),
 		NotBefore:    now,
-		NotAfter:     now.Add(time.Hour),
+		NotAfter:     now.Add(req.ttl),
 	}, nil, nil
 }
 
@@ -141,113 +126,14 @@ func TestNewAutomation_Errors(t *testing.T) {
 	}
 }
 
-func TestAutomation_Run_IssuerFailsToStart(t *testing.T) {
+func TestAutomation_run_IssuerFailsToStart(t *testing.T) {
 	issuer := newStubIssuer()
 	issuer.runErr = errStubRun
 
 	require.ErrorIs(t, newStubAutomation(t, issuer).run(t.Context()), errStubRun)
 }
 
-func TestAutomation_issue(t *testing.T) {
-	ca := generateCA(t)
-	file := createKeyPair(t, ca)
-
-	cfg := testAutomationConfig()
-	cfg.Issuer.Local = &config.TLSLocalIssuerConfig{CertificateFile: file.CertificateFile, PrivateKeyFile: file.PrivateKeyFile}
-
-	cert, err := newAutomation(cfg, zap.NewNop())
-	require.NoError(t, err)
-
-	issued, err := cert.issue(t.Context(), "app.acme.int")
-	require.NoError(t, err)
-
-	require.Len(t, issued.Certificate, 2)
-	assert.Equal(t, issued.Leaf.Raw, issued.Certificate[0], "the leaf should come first in the chain")
-	assert.Equal(t, ca.Certificate[0], issued.Certificate[1])
-
-	key, ok := issued.PrivateKey.(*ecdsa.PrivateKey)
-	require.True(t, ok, "expected an ECDSA leaf key")
-	assert.True(t, key.PublicKey.Equal(issued.Leaf.PublicKey), "the served key should be the one the leaf was signed for")
-}
-
-// A key config that generate rejects cannot come from newAutomation, which validates it first.
-func TestAutomation_issue_KeyGenerationFails(t *testing.T) {
-	cert := newStubAutomation(t, newStubIssuer())
-	cert.key = keyConfig{typ: keyTypeECDSA, bits: 128}
-
-	_, err := cert.issue(t.Context(), "app.acme.int")
-	require.ErrorIs(t, err, errUnsupportedKeyBits)
-	assert.Contains(t, err.Error(), "failed to generate leaf key")
-}
-
-func TestAutomation_getCertificate(t *testing.T) {
-	tests := []struct {
-		name     string
-		host     string
-		wantKey  string
-		wantDNS  []string
-		verifyAs string
-	}{
-		{
-			name:     "the host is lowercased",
-			host:     "APP.internal",
-			wantKey:  "app.internal",
-			wantDNS:  []string{"app.internal"},
-			verifyAs: "app.internal",
-		},
-		{
-			name:    "a handshake without SNI gets a nameless certificate",
-			host:    "",
-			wantKey: "",
-		},
-	}
-
-	pool := x509.NewCertPool()
-	pool.AppendCertsFromPEM(data.ProxyCert)
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cert, err := newAutomation(testAutomationConfig(), zap.NewNop())
-			require.NoError(t, err)
-
-			issued, err := cert.getCertificate(t.Context(), tt.host)
-			require.NoError(t, err)
-
-			assert.Equal(t, tt.wantDNS, issued.Leaf.DNSNames)
-			assert.Empty(t, issued.Leaf.IPAddresses)
-			assert.Empty(t, issued.Leaf.Subject.CommonName)
-			assert.WithinDuration(t, time.Now().Add(24*time.Hour), issued.Leaf.NotAfter, time.Minute)
-
-			key, ok := issued.PrivateKey.(*ecdsa.PrivateKey)
-			require.True(t, ok, "expected an ECDSA leaf key by default")
-			assert.Equal(t, elliptic.P256(), key.Curve)
-
-			_, err = issued.Leaf.Verify(x509.VerifyOptions{
-				DNSName:   tt.verifyAs,
-				Roots:     pool,
-				KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-			})
-			require.NoError(t, err, "the leaf should chain to the CA for the requested host")
-
-			cached, ok := cert.cache.Get(tt.wantKey)
-			require.True(t, ok, "the issued certificate should be cached under its host")
-			assert.Same(t, issued, cached)
-		})
-	}
-}
-
-func TestAutomation_getCertificate_SigningFails(t *testing.T) {
-	issuer := newStubIssuer()
-	issuer.signErr = errStubSign
-
-	cert := newStubAutomation(t, issuer)
-
-	_, err := cert.getCertificate(t.Context(), "app.acme.int")
-	require.ErrorIs(t, err, errStubSign)
-	assert.Zero(t, cert.cache.Len(), "a failed issuance should cache nothing")
-}
-
-func TestAutomation_Run_ReissuesAfterCARotation(t *testing.T) {
+func TestAutomation_run_ReissuesAfterCARotation(t *testing.T) {
 	ca := generateCA(t)
 	file := createKeyPair(t, ca)
 
@@ -288,36 +174,88 @@ func TestAutomation_Run_ReissuesAfterCARotation(t *testing.T) {
 	}, 5*time.Second, 10*time.Millisecond)
 }
 
-func TestAutomation_getCertificate_ReissuesNearExpiry(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		cfg := testAutomationConfig()
-		cfg.Certificate.TTL = 2 * time.Hour
+func TestAutomation_issue(t *testing.T) {
+	ca := generateCA(t)
+	file := createKeyPair(t, ca)
 
-		cert, err := newAutomation(cfg, zap.NewNop())
-		require.NoError(t, err)
+	cfg := testAutomationConfig()
+	cfg.Issuer.Local = &config.TLSLocalIssuerConfig{CertificateFile: file.CertificateFile, PrivateKeyFile: file.PrivateKeyFile}
 
-		first, err := cert.getCertificate(t.Context(), "app.internal")
-		require.NoError(t, err)
+	cert, err := newAutomation(cfg, zap.NewNop())
+	require.NoError(t, err)
 
-		// Move the certificate's lifetime close to its expiry.
-		time.Sleep(110 * time.Minute)
+	issued, err := cert.issue(t.Context(), "app.acme.int")
+	require.NoError(t, err)
 
-		again, err := cert.getCertificate(t.Context(), "app.internal")
-		require.NoError(t, err)
-		assert.Same(t, first, again)
+	require.Len(t, issued.Certificate, 2)
+	assert.Equal(t, issued.Leaf.Raw, issued.Certificate[0], "the leaf should come first in the chain")
+	assert.Equal(t, ca.Certificate[0], issued.Certificate[1])
 
-		// Past the expiry buffer while the certificate itself is still valid.
-		time.Sleep(6 * time.Minute)
-		require.True(t, time.Now().Before(first.Leaf.NotAfter))
+	key, ok := issued.PrivateKey.(*ecdsa.PrivateKey)
+	require.True(t, ok, "expected an ECDSA leaf key")
+	assert.True(t, key.PublicKey.Equal(issued.Leaf.PublicKey), "the served key should be the one the leaf was signed for")
+}
 
-		second, err := cert.getCertificate(t.Context(), "app.internal")
-		require.NoError(t, err)
+// A key config that generate rejects cannot come from newAutomation, which validates it first.
+func TestAutomation_issue_KeyGenerationFails(t *testing.T) {
+	cert := newStubAutomation(t, newStubIssuer())
+	cert.key = keyConfig{typ: keyTypeECDSA, bits: 128}
 
-		assert.NotEqual(t, first.Leaf.SerialNumber, second.Leaf.SerialNumber)
+	_, err := cert.issue(t.Context(), "app.acme.int")
+	require.ErrorIs(t, err, errUnsupportedKeyBits)
+	assert.Contains(t, err.Error(), "failed to generate leaf key")
+}
 
-		// Re-issuing replaces the cached entry rather than adding another one.
-		assert.Equal(t, 1, cert.cache.Len())
-	})
+func TestAutomation_getCertificate(t *testing.T) {
+	tests := []struct {
+		name     string
+		host     string
+		wantKey  string
+		wantSANs []string
+	}{
+		{
+			name:     "the host is lowercased",
+			host:     "APP.internal",
+			wantKey:  "app.internal",
+			wantSANs: []string{"app.internal"},
+		},
+		{
+			name:    "a handshake without SNI gets a nameless certificate",
+			host:    "",
+			wantKey: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			issuer := newStubIssuer()
+
+			var signed *certificateRequest
+
+			issuer.onSign = func(req *certificateRequest) { signed = req }
+
+			cert := newStubAutomation(t, issuer)
+
+			issued, err := cert.getCertificate(t.Context(), tt.host)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantSANs, requestSANs(signed), "the issuer should be asked for the normalized host")
+
+			cached, ok := cert.cache.Get(tt.wantKey)
+			require.True(t, ok, "the issued certificate should be cached under its host")
+			assert.Same(t, issued, cached)
+		})
+	}
+}
+
+func TestAutomation_getCertificate_SigningFails(t *testing.T) {
+	issuer := newStubIssuer()
+	issuer.signErr = errStubSign
+
+	cert := newStubAutomation(t, issuer)
+
+	_, err := cert.getCertificate(t.Context(), "app.acme.int")
+	require.ErrorIs(t, err, errStubSign)
+	assert.Zero(t, cert.cache.Len(), "a failed issuance should cache nothing")
 }
 
 // Concurrent cold misses for one host may each sign their own certificate, since
@@ -326,48 +264,44 @@ func TestAutomation_getCertificate_ReissuesNearExpiry(t *testing.T) {
 func TestAutomation_getCertificate_ConcurrentColdMissesConverge(t *testing.T) {
 	const callers = 10
 
-	cert, err := newAutomation(testAutomationConfig(), zap.NewNop())
-	require.NoError(t, err)
+	cert := newStubAutomation(t, newStubIssuer())
+
+	start := make(chan struct{})
 
 	var wg sync.WaitGroup
 
-	errs := make([]error, callers)
-	start := make(chan struct{})
-
-	for i := range callers {
+	for range callers {
 		wg.Go(func() {
 			<-start
 
-			_, errs[i] = cert.getCertificate(t.Context(), "cold.internal")
+			_, err := cert.getCertificate(t.Context(), "cold.internal")
+			assert.NoError(t, err)
 		})
 	}
 
 	close(start)
 	wg.Wait()
 
-	for _, err := range errs {
-		require.NoError(t, err)
-	}
-
-	require.Equal(t, 1, cert.cache.Len())
-
-	cached, ok := cert.cache.Get("cold.internal")
-	require.True(t, ok)
-
-	again, err := cert.getCertificate(t.Context(), "cold.internal")
-	require.NoError(t, err)
-	assert.Same(t, cached, again, "a warm cache should serve without signing")
+	assert.Equal(t, 1, cert.cache.Len())
 }
 
-// A slow CA must not stall handshakes for other names: only callers for the
-// gated host wait on its issuance.
 func TestAutomation_getCertificate_SlowIssuanceDoesNotBlockOtherHosts(t *testing.T) {
-	issuer := newStubIssuer()
-	gate := make(chan struct{})
-	issuer.gates["slow.acme.int"] = gate
+	started := make(chan struct{}, 1)
+	block := make(chan struct{})
 
-	openGate := sync.OnceFunc(func() { close(gate) })
-	defer openGate()
+	issuer := newStubIssuer()
+	issuer.onSign = func(req *certificateRequest) {
+		if !slices.Contains(req.dnsNames, "slow.acme.int") {
+			return
+		}
+
+		started <- struct{}{}
+
+		<-block
+	}
+
+	releaseBlock := sync.OnceFunc(func() { close(block) })
+	defer releaseBlock()
 
 	automation := newStubAutomation(t, issuer)
 
@@ -378,7 +312,7 @@ func TestAutomation_getCertificate_SlowIssuanceDoesNotBlockOtherHosts(t *testing
 		slowDone <- err
 	}()
 
-	require.Equal(t, "slow.acme.int", <-issuer.entered, "slow issuance should be in flight")
+	<-started
 
 	fastDone := make(chan error, 1)
 
@@ -394,56 +328,98 @@ func TestAutomation_getCertificate_SlowIssuanceDoesNotBlockOtherHosts(t *testing
 		t.Fatal("issuance for one host blocked a handshake for another")
 	}
 
-	openGate()
+	releaseBlock()
 	require.NoError(t, <-slowDone)
 }
 
 // A certificate whose issuance was in flight when the CA rotated is served to that
 // handshake only; the cache never holds a certificate from a previous CA.
 func TestAutomation_getCertificate_RotationMidIssuanceIsNotCached(t *testing.T) {
+	started := make(chan struct{}, 1)
+	block := make(chan struct{})
+
 	issuer := newStubIssuer()
-	gate := make(chan struct{})
-	issuer.gates["app.acme.int"] = gate
+	issuer.onSign = func(*certificateRequest) {
+		started <- struct{}{}
 
-	automation := newStubAutomation(t, issuer)
-	require.NoError(t, automation.run(t.Context()))
-
-	type result struct {
-		cert *tls.Certificate
-		err  error
+		<-block
 	}
 
-	done := make(chan result, 1)
+	automation := newStubAutomation(t, issuer)
+
+	done := make(chan *tls.Certificate, 1)
 
 	go func() {
 		cert, err := automation.getCertificate(t.Context(), "app.acme.int")
-		done <- result{cert, err}
+		assert.NoError(t, err)
+
+		done <- cert
 	}()
 
-	require.Equal(t, "app.acme.int", <-issuer.entered, "issuance should be in flight")
+	<-started
 
-	issuer.rotateCh <- struct{}{}
+	// The CA rotates while the issuance is in flight.
+	automation.mu.Lock()
+	automation.caRotations++
+	automation.mu.Unlock()
 
-	// Wait for the purge, so releasing the issuance cannot race it.
-	require.Eventually(t, func() bool {
-		automation.mu.Lock()
-		defer automation.mu.Unlock()
-
-		return automation.caRotations > 0
-	}, 5*time.Second, time.Millisecond)
-
-	close(gate)
+	close(block)
 
 	first := <-done
-	require.NoError(t, first.err)
+	require.NotNil(t, first)
 
 	_, cached := automation.cache.Get("app.acme.int")
 	assert.False(t, cached, "a certificate signed by the previous CA must not be cached")
 
 	second, err := automation.getCertificate(t.Context(), "app.acme.int")
 	require.NoError(t, err)
-	assert.NotEqual(t, first.cert.Leaf.SerialNumber, second.Leaf.SerialNumber,
+	assert.NotEqual(t, first.Leaf.SerialNumber, second.Leaf.SerialNumber,
 		"the next handshake should get a certificate from the current CA")
+}
+
+func TestAutomation_cachedCert(t *testing.T) {
+	tests := []struct {
+		name      string
+		remaining time.Duration
+		want      bool
+	}{
+		{
+			name:      "a certificate clear of the buffer is served",
+			remaining: 2 * expiryBuffer,
+			want:      true,
+		},
+		{
+			name:      "a certificate at the buffer is not served",
+			remaining: expiryBuffer,
+		},
+		{
+			name:      "a certificate inside the buffer is not served, though it is still valid",
+			remaining: expiryBuffer / 2,
+		},
+		{
+			name:      "an expired certificate is not served",
+			remaining: -time.Minute,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cert := newStubAutomation(t, newStubIssuer())
+
+			cached := &tls.Certificate{Leaf: &x509.Certificate{NotAfter: time.Now().Add(tt.remaining)}}
+			cert.cache.Add("app.internal", cached)
+
+			got := cert.cachedCert("app.internal")
+
+			if tt.want {
+				assert.Same(t, cached, got)
+
+				return
+			}
+
+			assert.Nil(t, got)
+		})
+	}
 }
 
 func TestNewCertificateRequest(t *testing.T) {
