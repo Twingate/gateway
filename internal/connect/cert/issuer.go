@@ -300,7 +300,7 @@ func certificateSANs(dnsNames []string, ips []net.IP) map[string]struct{} {
 	return names
 }
 
-// parseCertificateChain parses the PEM certificates in a CA's response.
+// parseCertificateChain parses a list of PEM certificates.
 func parseCertificateChain(pems []string) ([]*x509.Certificate, error) {
 	chain := make([]*x509.Certificate, 0, len(pems))
 
