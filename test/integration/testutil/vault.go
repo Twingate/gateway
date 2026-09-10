@@ -17,8 +17,8 @@ import (
 
 const vaultImage = "hashicorp/vault:1.21.4"
 
-// SetupVaultSSHCA starts a Vault server holding the SSH CA that signs host and user
-// certificates.
+// SetupVaultSSHCA starts a Vault server with an SSH secrets engine, a test CA key pair
+// and a role that signs host certificates for any domain and user certificates for admin.
 func SetupVaultSSHCA(t *testing.T) (string, int) {
 	t.Helper()
 
@@ -62,8 +62,8 @@ path "ssh/config/ca" {
 	return containerName, serverPort
 }
 
-// SetupVaultPKI starts a Vault server holding the PKI CA that issues downstream TLS
-// certificates.
+// SetupVaultPKI starts a Vault server with a PKI secrets engine, a self-signed root CA
+// and a role that signs certificate for SANs covering acme.int.
 func SetupVaultPKI(t *testing.T) (string, int) {
 	t.Helper()
 
@@ -90,7 +90,6 @@ func SetupVaultPKI(t *testing.T) (string, int) {
 		"key_type=any",
 		"allowed_domains=acme.int",
 		"allow_subdomains=true",
-		"allow_ip_sans=true",
 		"require_cn=false", // A handshake without SNI asks for no names, so the common name is empty
 		"max_ttl=72h",
 	))

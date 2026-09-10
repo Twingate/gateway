@@ -457,65 +457,84 @@ func TestVerifyIssuedCertificate(t *testing.T) {
 		ipAddresses: []net.IP{net.ParseIP("10.0.0.5")},
 		ttl:         defaultTTL,
 	}
-	leaf := &x509.Certificate{
-		PublicKey:   key.Public(),
-		DNSNames:    []string{"foo.acme.int", "bar.acme.int"},
-		IPAddresses: []net.IP{net.ParseIP("10.0.0.5")},
-		NotAfter:    time.Now().Add(defaultTTL),
-	}
 
 	tests := []struct {
 		name    string
-		mutate  func(leaf *x509.Certificate)
+		leaf    *x509.Certificate
 		wantErr bool
 	}{
 		{
 			name: "certificate covers requested",
+			leaf: &x509.Certificate{
+				PublicKey:   key.Public(),
+				DNSNames:    []string{"foo.acme.int", "bar.acme.int"},
+				IPAddresses: []net.IP{net.ParseIP("10.0.0.5")},
+				NotAfter:    time.Now().Add(defaultTTL),
+			},
 		},
 		{
-			name: "name order and casing does not matter",
-			mutate: func(leaf *x509.Certificate) {
-				leaf.DNSNames = []string{"BAR.ACME.INT", "foo.acme.int"}
+			name: "dns name order and casing does not matter",
+			leaf: &x509.Certificate{
+				PublicKey:   key.Public(),
+				DNSNames:    []string{"BAR.ACME.INT", "foo.acme.int"},
+				IPAddresses: []net.IP{net.ParseIP("10.0.0.5")},
+				NotAfter:    time.Now().Add(defaultTTL),
 			},
 		},
 		{
 			name: "extra granted name",
-			mutate: func(leaf *x509.Certificate) {
-				leaf.DNSNames = append(leaf.DNSNames, "extra.acme.int")
+			leaf: &x509.Certificate{
+				PublicKey:   key.Public(),
+				DNSNames:    []string{"foo.acme.int", "bar.acme.int", "extra.acme.int"},
+				IPAddresses: []net.IP{net.ParseIP("10.0.0.5")},
+				NotAfter:    time.Now().Add(defaultTTL),
 			},
 			wantErr: true,
 		},
 		{
 			name: "extra granted IP",
-			mutate: func(leaf *x509.Certificate) {
-				leaf.IPAddresses = append(leaf.IPAddresses, net.ParseIP("10.0.0.6"))
+			leaf: &x509.Certificate{
+				PublicKey:   key.Public(),
+				DNSNames:    []string{"foo.acme.int", "bar.acme.int"},
+				IPAddresses: []net.IP{net.ParseIP("10.0.0.5"), net.ParseIP("10.0.0.6")},
+				NotAfter:    time.Now().Add(defaultTTL),
 			},
 			wantErr: true,
 		},
 		{
-			name:    "missing requested name",
-			mutate:  func(leaf *x509.Certificate) { leaf.DNSNames = nil },
+			name: "missing requested dns names",
+			leaf: &x509.Certificate{
+				PublicKey:   key.Public(),
+				IPAddresses: []net.IP{net.ParseIP("10.0.0.5")},
+				NotAfter:    time.Now().Add(defaultTTL),
+			},
 			wantErr: true,
 		},
 		{
-			name:    "wrong public key",
-			mutate:  func(leaf *x509.Certificate) { leaf.PublicKey = otherKey.Public() },
+			name: "wrong public key",
+			leaf: &x509.Certificate{
+				PublicKey:   otherKey.Public(),
+				DNSNames:    []string{"foo.acme.int", "bar.acme.int"},
+				IPAddresses: []net.IP{net.ParseIP("10.0.0.5")},
+				NotAfter:    time.Now().Add(defaultTTL),
+			},
 			wantErr: true,
 		},
 		{
-			name:    "validity exceeds requested ttl",
-			mutate:  func(leaf *x509.Certificate) { leaf.NotAfter = time.Now().Add(2 * defaultTTL) },
+			name: "validity exceeds requested ttl",
+			leaf: &x509.Certificate{
+				PublicKey:   key.Public(),
+				DNSNames:    []string{"foo.acme.int", "bar.acme.int"},
+				IPAddresses: []net.IP{net.ParseIP("10.0.0.5")},
+				NotAfter:    time.Now().Add(2 * defaultTTL),
+			},
 			wantErr: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if tt.mutate != nil {
-				tt.mutate(leaf)
-			}
-
-			err := verifyIssuedCertificate(leaf, req)
+			err := verifyIssuedCertificate(tt.leaf, req)
 			if !tt.wantErr {
 				assert.NoError(t, err)
 

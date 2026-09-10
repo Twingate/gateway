@@ -216,9 +216,8 @@ func (v *vaultIssuer) run(ctx context.Context) error {
 	return nil
 }
 
-// sign has Vault sign the request through <mount>/sign/<role>, so the private key
-// never leaves the Gateway. The context is the TLS handshake's, so an abandoned
-// handshake cancels the in-flight request.
+// sign has Vault sign the request through <mount>/sign/<role>.
+// If the context is canceled, the request is aborted and the connection closed.
 func (v *vaultIssuer) sign(ctx context.Context, req *certificateRequest) (*x509.Certificate, []*x509.Certificate, error) {
 	csr, err := req.csr()
 	if err != nil {
@@ -259,8 +258,7 @@ func (v *vaultIssuer) sign(ctx context.Context, req *certificateRequest) (*x509.
 	return leaf, chain[1:], nil
 }
 
-// verifyIssuedCertificate rejects a CA-issued certificate that is signed by a different signer or
-// grants more than the request asked for, in names or in validity.
+// verifyIssuedCertificate rejects a certificate if the public key, SANs, or validity do not match the request.
 func verifyIssuedCertificate(leaf *x509.Certificate, req *certificateRequest) error {
 	type publicKey interface {
 		Equal(other crypto.PublicKey) bool
