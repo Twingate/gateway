@@ -218,7 +218,7 @@ ssh:
     userCertificate:
       ttl: "5m"
   ca:
-    manual:
+    local:
       privateKeyFile: "ca.key"
 `
 
@@ -237,7 +237,7 @@ ssh:
 	assert.Equal(t, "ed25519", cfg.SSH.Gateway.Key.Type)
 	assert.Equal(t, 24*time.Hour, cfg.SSH.Gateway.HostCertificate.TTL)
 	assert.Equal(t, 5*time.Minute, cfg.SSH.Gateway.UserCertificate.TTL)
-	require.NotNil(t, cfg.SSH.CA.Manual)
+	require.NotNil(t, cfg.SSH.CA.Local)
 }
 
 func TestLoad_SSH_Vault(t *testing.T) {
@@ -1026,10 +1026,10 @@ func TestSSHConfig_Validate(t *testing.T) {
 				CA: SSHCAConfig{},
 			},
 			wantErr:     true,
-			errContains: "either 'manual' or 'vault' must be specified",
+			errContains: "either 'local' or 'vault' must be specified",
 		},
 		{
-			name: "valid with manual CA",
+			name: "valid with local CA",
 			ssh: SSHConfig{
 				Gateway: SSHGatewayConfig{
 					Username:        "gateway",
@@ -1038,7 +1038,7 @@ func TestSSHConfig_Validate(t *testing.T) {
 					UserCertificate: SSHCertificateConfig{TTL: 5 * time.Minute},
 				},
 				CA: SSHCAConfig{
-					Manual: &SSHCAManualConfig{
+					Local: &SSHCALocalConfig{
 						PrivateKeyFile: "ca.key",
 					},
 				},
@@ -1072,14 +1072,14 @@ func TestSSHConfig_Validate(t *testing.T) {
 			errContains: "invalid SSH key type",
 		},
 		{
-			name: "conflicting CA config - both manual and Vault",
+			name: "conflicting CA config - both local and Vault",
 			ssh: SSHConfig{
 				Gateway: SSHGatewayConfig{
 					Username: "gateway",
 					Key:      SSHKeyConfig{Type: "ed25519"},
 				},
 				CA: SSHCAConfig{
-					Manual: &SSHCAManualConfig{
+					Local: &SSHCALocalConfig{
 						PrivateKeyFile: "ca.key",
 					},
 					Vault: &SSHCAVaultConfig{
@@ -1089,16 +1089,16 @@ func TestSSHConfig_Validate(t *testing.T) {
 				},
 			},
 			wantErr:     true,
-			errContains: "only one of 'manual' or 'vault'",
+			errContains: "only one of 'local' or 'vault'",
 		},
 		{
-			name: "manual CA missing private key file",
+			name: "local CA missing private key file",
 			ssh: SSHConfig{
 				Gateway: SSHGatewayConfig{
 					Username: "gateway",
 				},
 				CA: SSHCAConfig{
-					Manual: &SSHCAManualConfig{},
+					Local: &SSHCALocalConfig{},
 				},
 			},
 			wantErr:     true,

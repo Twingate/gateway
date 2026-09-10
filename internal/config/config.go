@@ -143,14 +143,14 @@ type SSHCertificateConfig struct {
 	TTL time.Duration `yaml:"ttl"`
 }
 
-// SSHCAConfig represents the CA configuration. Exactly one of Manual or Vault must be set.
+// SSHCAConfig represents the CA configuration. Exactly one of Local or Vault must be set.
 type SSHCAConfig struct {
-	Manual *SSHCAManualConfig `yaml:"manual,omitempty"`
-	Vault  *SSHCAVaultConfig  `yaml:"vault,omitempty"`
+	Local *SSHCALocalConfig `yaml:"local,omitempty"`
+	Vault *SSHCAVaultConfig `yaml:"vault,omitempty"`
 }
 
-// SSHCAManualConfig configures an embedded CA loaded from key files.
-type SSHCAManualConfig struct {
+// SSHCALocalConfig configures a CA that signs locally on the Gateway.
+type SSHCALocalConfig struct {
 	PrivateKeyFile string `yaml:"privateKeyFile"` // Path to the unencrypted CA private key (OpenSSH or PEM encoded)
 }
 
@@ -515,22 +515,22 @@ func (c *SSHCertificateConfig) Validate() error {
 }
 
 var (
-	ErrMissingCAConfig     = errors.New("either 'manual' or 'vault' must be specified for CA config")
-	ErrConflictingCAConfig = errors.New("only one of 'manual' or 'vault' can be specified for CA config")
+	ErrMissingCAConfig     = errors.New("either 'local' or 'vault' must be specified for CA config")
+	ErrConflictingCAConfig = errors.New("only one of 'local' or 'vault' can be specified for CA config")
 )
 
 func (c *SSHCAConfig) Validate() error {
-	if c.Manual == nil && c.Vault == nil {
+	if c.Local == nil && c.Vault == nil {
 		return ErrMissingCAConfig
 	}
 
-	if c.Manual != nil && c.Vault != nil {
+	if c.Local != nil && c.Vault != nil {
 		return ErrConflictingCAConfig
 	}
 
-	if c.Manual != nil {
-		if err := c.Manual.Validate(); err != nil {
-			return fmt.Errorf("manual: %w", err)
+	if c.Local != nil {
+		if err := c.Local.Validate(); err != nil {
+			return fmt.Errorf("local: %w", err)
 		}
 	}
 
@@ -543,7 +543,7 @@ func (c *SSHCAConfig) Validate() error {
 	return nil
 }
 
-func (m *SSHCAManualConfig) Validate() error {
+func (m *SSHCALocalConfig) Validate() error {
 	if m.PrivateKeyFile == "" {
 		return fmt.Errorf("%w: privateKeyFile", ErrRequired)
 	}

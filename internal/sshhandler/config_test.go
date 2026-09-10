@@ -53,7 +53,7 @@ func TestNewConfig(t *testing.T) {
 					UserCertificate: gatewayconfig.SSHCertificateConfig{TTL: 5 * time.Minute},
 				},
 				CA: gatewayconfig.SSHCAConfig{
-					Manual: &gatewayconfig.SSHCAManualConfig{
+					Local: &gatewayconfig.SSHCALocalConfig{
 						PrivateKeyFile: "../../test/data/ssh/ca/ca",
 					},
 				},
@@ -84,7 +84,7 @@ func TestNewConfig(t *testing.T) {
 	}
 }
 
-func TestNewConfig_WithManualCA(t *testing.T) {
+func TestNewConfig_WithLocalCA(t *testing.T) {
 	auditLog := &gatewayconfig.AuditLogConfig{}
 
 	sshConfig := &gatewayconfig.SSHConfig{
@@ -95,7 +95,7 @@ func TestNewConfig_WithManualCA(t *testing.T) {
 			UserCertificate: gatewayconfig.SSHCertificateConfig{TTL: 5 * time.Minute},
 		},
 		CA: gatewayconfig.SSHCAConfig{
-			Manual: &gatewayconfig.SSHCAManualConfig{
+			Local: &gatewayconfig.SSHCALocalConfig{
 				PrivateKeyFile: "../../test/data/ssh/ca/ca",
 			},
 		},
@@ -106,7 +106,7 @@ func TestNewConfig_WithManualCA(t *testing.T) {
 	assert.NotNil(t, config)
 }
 
-func TestNewConfig_InvalidManualCA(t *testing.T) {
+func TestNewConfig_InvalidLocalCA(t *testing.T) {
 	auditLog := &gatewayconfig.AuditLogConfig{}
 
 	sshConfig := &gatewayconfig.SSHConfig{
@@ -117,7 +117,7 @@ func TestNewConfig_InvalidManualCA(t *testing.T) {
 			UserCertificate: gatewayconfig.SSHCertificateConfig{TTL: 5 * time.Minute},
 		},
 		CA: gatewayconfig.SSHCAConfig{
-			Manual: &gatewayconfig.SSHCAManualConfig{
+			Local: &gatewayconfig.SSHCALocalConfig{
 				PrivateKeyFile: "nonexistent.key",
 			},
 		},

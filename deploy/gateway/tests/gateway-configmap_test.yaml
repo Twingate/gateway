@@ -203,11 +203,11 @@ set:
     gateway:
       username: "gateway"
 tests:
-  - it: should include SSH with manual CA
+  - it: should include SSH with local CA
     set:
       ssh:
         ca:
-          manual:
+          local:
             privateKey: "my-private-key"
     asserts:
       - equal:
@@ -241,7 +241,7 @@ tests:
                   ttl: "5m"
 
               ca:
-                manual:
+                local:
                   privateKeyFile: "/etc/gateway/ssh/ca-private-key"
   - it: should include SSH with Vault CA
     set:
@@ -371,7 +371,7 @@ tests:
         gateway:
           username: ""
         ca:
-          manual:
+          local:
             privateKey: "my-private-key"
     asserts:
       - failedTemplate:
@@ -390,11 +390,11 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "at '/ssh/ca': 'oneOf' failed, none matched"
-  - it: should error when both manual and Vault config are provided
+  - it: should error when both local and Vault config are provided
     set:
       ssh:
         ca:
-          manual: {}
+          local: {}
           vault: {}
     asserts:
       - failedTemplate:

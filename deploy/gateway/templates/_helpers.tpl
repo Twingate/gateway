@@ -116,13 +116,13 @@ true
 
 
 {{/*
-Create the name of the SSH manual CA secret to use
+Create the name of the SSH local CA secret to use
 */}}
-{{- define "gateway.sshManualCASecretName" -}}
-{{- if .Values.ssh.ca.manual.existingSecret }}
-{{- .Values.ssh.ca.manual.existingSecret }}
+{{- define "gateway.sshLocalCASecretName" -}}
+{{- if .Values.ssh.ca.local.existingSecret }}
+{{- .Values.ssh.ca.local.existingSecret }}
 {{- else }}
-{{- printf "%s-ssh-manual-ca" (include "gateway.fullname" .) }}
+{{- printf "%s-ssh-local-ca" (include "gateway.fullname" .) }}
 {{- end }}
 {{- end }}
 
