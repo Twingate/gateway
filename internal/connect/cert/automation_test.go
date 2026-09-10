@@ -292,8 +292,8 @@ func TestAutomation_getCertificate_ConcurrentColdMissesConverge(t *testing.T) {
 }
 
 func TestAutomation_getCertificate_SlowIssuanceDoesNotBlockOtherHosts(t *testing.T) {
-	started := make(chan struct{}, 1)
-	block := make(chan struct{})
+	slowSigning := make(chan struct{}, 1)
+	slowRelease := make(chan struct{})
 
 	issuer := newStubIssuer()
 	issuer.onSign = func(req *certificateRequest) {
@@ -301,13 +301,13 @@ func TestAutomation_getCertificate_SlowIssuanceDoesNotBlockOtherHosts(t *testing
 			return
 		}
 
-		started <- struct{}{}
+		slowSigning <- struct{}{}
 
-		<-block
+		<-slowRelease
 	}
 
-	releaseBlock := sync.OnceFunc(func() { close(block) })
-	defer releaseBlock()
+	release := sync.OnceFunc(func() { close(slowRelease) })
+	defer release()
 
 	automation := newStubAutomation(t, issuer)
 
@@ -318,7 +318,7 @@ func TestAutomation_getCertificate_SlowIssuanceDoesNotBlockOtherHosts(t *testing
 		slowDone <- err
 	}()
 
-	<-started
+	<-slowSigning
 
 	fastDone := make(chan error, 1)
 
@@ -334,21 +334,21 @@ func TestAutomation_getCertificate_SlowIssuanceDoesNotBlockOtherHosts(t *testing
 		t.Fatal("issuance for one host blocked a handshake for another")
 	}
 
-	releaseBlock()
+	release()
 	require.NoError(t, <-slowDone)
 }
 
 // A certificate whose issuance was in flight when the CA rotated is served to that
 // handshake only; the cache never holds a certificate from a previous CA.
 func TestAutomation_getCertificate_RotationMidIssuanceIsNotCached(t *testing.T) {
-	started := make(chan struct{}, 1)
-	block := make(chan struct{})
+	slowSigning := make(chan struct{}, 1)
+	rotated := make(chan struct{})
 
 	issuer := newStubIssuer()
 	issuer.onSign = func(*certificateRequest) {
-		started <- struct{}{}
+		slowSigning <- struct{}{}
 
-		<-block
+		<-rotated
 	}
 
 	automation := newStubAutomation(t, issuer)
@@ -362,14 +362,14 @@ func TestAutomation_getCertificate_RotationMidIssuanceIsNotCached(t *testing.T) 
 		done <- cert
 	}()
 
-	<-started
+	<-slowSigning
 
 	// The CA rotates while the issuance is in flight.
 	automation.mu.Lock()
 	automation.caRotations++
 	automation.mu.Unlock()
 
-	close(block)
+	close(rotated)
 
 	first := <-done
 	require.NotNil(t, first)
