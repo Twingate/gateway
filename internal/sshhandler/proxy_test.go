@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hashicorp/vault/api/auth/approle"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -22,11 +23,12 @@ import (
 	"go.uber.org/zap/zaptest/observer"
 	"golang.org/x/crypto/ssh"
 
-	vault "github.com/hashicorp/vault/api"
+	vaultapi "github.com/hashicorp/vault/api"
 
 	gatewayconfig "gateway/internal/config"
 	"gateway/internal/connect"
 	"gateway/internal/token"
+	"gateway/internal/vault"
 )
 
 func TestProxy_ProxiesConnection(t *testing.T) {
@@ -77,18 +79,15 @@ func TestProxy_ProxiesConnection(t *testing.T) {
 
 func TestProxy_StartFailure(t *testing.T) {
 	// Start brings up the CA synchronously and returns any failure before the accept loop.
-	authMethod, err := newAppRoleAuthMethod(&gatewayconfig.SSHCAVaultAppRoleConfig{
-		RoleID:   "role-id",
-		SecretID: "secret-id",
-	})
+	authMethod, err := approle.NewAppRoleAuth("role-id", &approle.SecretID{FromString: "secret-id"})
 	require.NoError(t, err)
 
 	sshProxy := newTestProxy(t)
 	sshProxy.config.caProvider = &vaultCAProvider{
-		vault: &Vault{
-			client:     newDeadVaultCA(t).client,
-			authMethod: authMethod,
-			logger:     zap.NewNop(),
+		vault: &vault.Vault{
+			Client:     newDeadVaultCA(t).client,
+			AuthMethod: authMethod,
+			Logger:     zap.NewNop(),
 		},
 	}
 
@@ -772,7 +771,7 @@ func closedPort(t *testing.T) string {
 func newDeadVaultCA(t *testing.T) *vaultCA {
 	t.Helper()
 
-	client, err := vault.NewClient(vault.DefaultConfig())
+	client, err := vaultapi.NewClient(vaultapi.DefaultConfig())
 	require.NoError(t, err)
 	require.NoError(t, client.SetAddress("http://"+closedPort(t)))
 	client.SetMaxRetries(0)

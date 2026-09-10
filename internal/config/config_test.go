@@ -305,7 +305,7 @@ ssh:
       ttl: "5m"
   ca:
     vault:
-      server: "https://vault:8200"
+      address: "https://vault:8200"
       mount: "ssh-default"
       role: "gateway"
       gatewayHostCA:
@@ -939,6 +939,35 @@ func TestTLSAutomationConfig_Validate(t *testing.T) {
 			wantErr:    false,
 		},
 		{
+			name: "valid with vault issuer",
+			automation: TLSAutomationConfig{
+				Issuer: TLSIssuerConfig{Vault: &TLSVaultIssuerConfig{
+					Address: "https://vault:8200",
+					Role:    "gateway",
+				}},
+			},
+			wantErr: false,
+		},
+		{
+			name: "conflicting local and vault issuers",
+			automation: TLSAutomationConfig{
+				Issuer: TLSIssuerConfig{
+					Local: localIssuer.Local,
+					Vault: &TLSVaultIssuerConfig{Address: "https://vault:8200", Role: "gateway"},
+				},
+			},
+			wantErr:     true,
+			errContains: "issuer: only one of 'local' or 'vault' can be specified",
+		},
+		{
+			name: "vault issuer missing address",
+			automation: TLSAutomationConfig{
+				Issuer: TLSIssuerConfig{Vault: &TLSVaultIssuerConfig{Role: "gateway"}},
+			},
+			wantErr:     true,
+			errContains: "issuer: vault: required field is missing: address",
+		},
+		{
 			name:        "missing issuer",
 			automation:  TLSAutomationConfig{},
 			wantErr:     true,
@@ -991,6 +1020,61 @@ func TestTLSAutomationConfig_Validate(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestTLSVaultIssuerConfig_Validate(t *testing.T) {
+	tests := []struct {
+		name        string
+		cfg         TLSVaultIssuerConfig
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name: "valid",
+			cfg:  TLSVaultIssuerConfig{VaultConfig: VaultConfig{Address: "https://vault:8200"}, Role: "gateway"},
+		},
+		{
+			name:        "missing address",
+			cfg:         TLSVaultIssuerConfig{Role: "gateway"},
+			wantErr:     true,
+			errContains: "required field is missing: address",
+		},
+		{
+			name:        "missing role",
+			cfg:         TLSVaultIssuerConfig{VaultConfig: VaultConfig{Address: "https://vault:8200"}},
+			wantErr:     true,
+			errContains: "required field is missing: role",
+		},
+		{
+			name: "conflicting auth",
+			cfg: TLSVaultIssuerConfig{
+				VaultConfig: VaultConfig{
+					Address: "https://vault:8200",
+					Auth:    VaultAuthConfig{Token: "token", GCP: &VaultGCPConfig{Role: "role", Type: "gce"}},
+				},
+				Role: "gateway",
+			},
+			wantErr:     true,
+			errContains: "auth: only one of 'token', 'appRole', 'gcp', or 'aws' can be specified",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.cfg.Validate()
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errContains)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestTLSVaultIssuerConfig_GetMount(t *testing.T) {
+	assert.Equal(t, "pki", (&TLSVaultIssuerConfig{}).GetMount())
+	assert.Equal(t, "pki-int", (&TLSVaultIssuerConfig{Mount: "pki-int"}).GetMount())
 }
 
 func TestKubernetesConfig_Validate(t *testing.T) {
@@ -1280,7 +1364,7 @@ func TestSSHConfig_Validate(t *testing.T) {
 			errContains: "privateKeyFile",
 		},
 		{
-			name: "Vault CA missing server",
+			name: "Vault CA missing address",
 			ssh: SSHConfig{
 				Gateway: SSHGatewayConfig{
 					Username: "gateway",
@@ -1292,7 +1376,7 @@ func TestSSHConfig_Validate(t *testing.T) {
 				},
 			},
 			wantErr:     true,
-			errContains: "server",
+			errContains: "address",
 		},
 	}
 
@@ -1392,11 +1476,11 @@ func TestSSHCAVaultConfig_EffectiveMountAndRole(t *testing.T) {
 }
 
 func TestSSHCAVaultConfig_Validate(t *testing.T) {
-	t.Run("missing server", func(t *testing.T) {
+	t.Run("missing address", func(t *testing.T) {
 		cfg := &SSHCAVaultConfig{Role: "gateway"}
 		err := cfg.Validate()
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "server")
+		assert.Contains(t, err.Error(), "address")
 	})
 
 	t.Run("missing role (no override roles)", func(t *testing.T) {
@@ -1425,22 +1509,22 @@ func TestSSHCAVaultConfig_Validate(t *testing.T) {
 	})
 }
 
-func TestSSHCAVaultAuthConfig_Validate(t *testing.T) {
+func TestVaultAuthConfig_Validate(t *testing.T) {
 	tests := []struct {
 		name        string
-		cfg         SSHCAVaultAuthConfig
+		cfg         VaultAuthConfig
 		wantErr     bool
 		errContains string
 	}{
 		{
 			name:    "valid token",
-			cfg:     SSHCAVaultAuthConfig{Token: "token"},
+			cfg:     VaultAuthConfig{Token: "token"},
 			wantErr: false,
 		},
 		{
 			name: "valid appRole",
-			cfg: SSHCAVaultAuthConfig{
-				AppRole: &SSHCAVaultAppRoleConfig{
+			cfg: VaultAuthConfig{
+				AppRole: &VaultAppRoleConfig{
 					RoleID:       "role-id",
 					SecretIDFile: "/path/to/secret-id",
 				},
@@ -1449,8 +1533,8 @@ func TestSSHCAVaultAuthConfig_Validate(t *testing.T) {
 		},
 		{
 			name: "valid GCP",
-			cfg: SSHCAVaultAuthConfig{
-				GCP: &SSHCAVaultGCPConfig{
+			cfg: VaultAuthConfig{
+				GCP: &VaultGCPConfig{
 					Role: "my-role",
 					Type: "gce",
 				},
@@ -1459,8 +1543,8 @@ func TestSSHCAVaultAuthConfig_Validate(t *testing.T) {
 		},
 		{
 			name: "valid AWS",
-			cfg: SSHCAVaultAuthConfig{
-				AWS: &SSHCAVaultAWSConfig{
+			cfg: VaultAuthConfig{
+				AWS: &VaultAWSConfig{
 					Role: "my-role",
 					Type: "iam",
 				},
@@ -1469,14 +1553,14 @@ func TestSSHCAVaultAuthConfig_Validate(t *testing.T) {
 		},
 		{
 			name:    "valid with empty token (uses VAULT_TOKEN env)",
-			cfg:     SSHCAVaultAuthConfig{},
+			cfg:     VaultAuthConfig{},
 			wantErr: false,
 		},
 		{
 			name: "conflicting config - both token and appRole",
-			cfg: SSHCAVaultAuthConfig{
+			cfg: VaultAuthConfig{
 				Token: "token",
-				AppRole: &SSHCAVaultAppRoleConfig{
+				AppRole: &VaultAppRoleConfig{
 					RoleID:       "role-id",
 					SecretIDFile: "/path/to/secret-id",
 				},
@@ -1486,9 +1570,9 @@ func TestSSHCAVaultAuthConfig_Validate(t *testing.T) {
 		},
 		{
 			name: "conflicting config - both token and gcp",
-			cfg: SSHCAVaultAuthConfig{
+			cfg: VaultAuthConfig{
 				Token: "token",
-				GCP: &SSHCAVaultGCPConfig{
+				GCP: &VaultGCPConfig{
 					Role: "my-role",
 					Type: "gce",
 				},
@@ -1498,12 +1582,12 @@ func TestSSHCAVaultAuthConfig_Validate(t *testing.T) {
 		},
 		{
 			name: "conflicting config - both aws and gcp",
-			cfg: SSHCAVaultAuthConfig{
-				AWS: &SSHCAVaultAWSConfig{
+			cfg: VaultAuthConfig{
+				AWS: &VaultAWSConfig{
 					Role: "my-role",
 					Type: "iam",
 				},
-				GCP: &SSHCAVaultGCPConfig{
+				GCP: &VaultGCPConfig{
 					Role: "my-role",
 					Type: "gce",
 				},
@@ -1526,9 +1610,9 @@ func TestSSHCAVaultAuthConfig_Validate(t *testing.T) {
 	}
 }
 
-func TestSSHCAVaultAppRoleConfig_GetMount(t *testing.T) {
+func TestVaultAppRoleConfig_GetMount(t *testing.T) {
 	t.Run("default mount", func(t *testing.T) {
-		cfg := &SSHCAVaultAppRoleConfig{
+		cfg := &VaultAppRoleConfig{
 			RoleID:       "role-id",
 			SecretIDFile: "/path/to/secret-id",
 		}
@@ -1536,7 +1620,7 @@ func TestSSHCAVaultAppRoleConfig_GetMount(t *testing.T) {
 	})
 
 	t.Run("custom mount", func(t *testing.T) {
-		cfg := &SSHCAVaultAppRoleConfig{
+		cfg := &VaultAppRoleConfig{
 			Mount:        "custom-approle",
 			RoleID:       "role-id",
 			SecretIDFile: "/path/to/secret-id",
@@ -1545,9 +1629,9 @@ func TestSSHCAVaultAppRoleConfig_GetMount(t *testing.T) {
 	})
 }
 
-func TestSSHCAVaultAppRoleConfig_Validate(t *testing.T) {
+func TestVaultAppRoleConfig_Validate(t *testing.T) {
 	t.Run("missing roleId", func(t *testing.T) {
-		cfg := &SSHCAVaultAppRoleConfig{
+		cfg := &VaultAppRoleConfig{
 			SecretIDFile: "/path/to/secret-id",
 		}
 		err := cfg.Validate()
@@ -1556,7 +1640,7 @@ func TestSSHCAVaultAppRoleConfig_Validate(t *testing.T) {
 	})
 
 	t.Run("missing both secretID and secretIDFile", func(t *testing.T) {
-		cfg := &SSHCAVaultAppRoleConfig{
+		cfg := &VaultAppRoleConfig{
 			RoleID: "role-id",
 		}
 		err := cfg.Validate()
@@ -1565,7 +1649,7 @@ func TestSSHCAVaultAppRoleConfig_Validate(t *testing.T) {
 	})
 
 	t.Run("valid with secretID", func(t *testing.T) {
-		cfg := &SSHCAVaultAppRoleConfig{
+		cfg := &VaultAppRoleConfig{
 			RoleID:   "role-id",
 			SecretID: "my-secret-id",
 		}
@@ -1573,7 +1657,7 @@ func TestSSHCAVaultAppRoleConfig_Validate(t *testing.T) {
 	})
 
 	t.Run("valid with secretIDFile", func(t *testing.T) {
-		cfg := &SSHCAVaultAppRoleConfig{
+		cfg := &VaultAppRoleConfig{
 			RoleID:       "role-id",
 			SecretIDFile: "/path/to/secret-id",
 		}
@@ -1581,7 +1665,7 @@ func TestSSHCAVaultAppRoleConfig_Validate(t *testing.T) {
 	})
 
 	t.Run("conflicting secretID and secretIDFile", func(t *testing.T) {
-		cfg := &SSHCAVaultAppRoleConfig{
+		cfg := &VaultAppRoleConfig{
 			RoleID:       "role-id",
 			SecretID:     "my-secret-id",
 			SecretIDFile: "/path/to/secret-id",
@@ -1591,9 +1675,9 @@ func TestSSHCAVaultAppRoleConfig_Validate(t *testing.T) {
 	})
 }
 
-func TestSSHCAVaultGCPConfig_GetMount(t *testing.T) {
+func TestVaultGCPConfig_GetMount(t *testing.T) {
 	t.Run("default mount", func(t *testing.T) {
-		cfg := &SSHCAVaultGCPConfig{
+		cfg := &VaultGCPConfig{
 			Role: "my-role",
 			Type: "gce",
 		}
@@ -1601,7 +1685,7 @@ func TestSSHCAVaultGCPConfig_GetMount(t *testing.T) {
 	})
 
 	t.Run("custom mount", func(t *testing.T) {
-		cfg := &SSHCAVaultGCPConfig{
+		cfg := &VaultGCPConfig{
 			Mount: "custom-gcp",
 			Role:  "my-role",
 			Type:  "gce",
@@ -1610,49 +1694,49 @@ func TestSSHCAVaultGCPConfig_GetMount(t *testing.T) {
 	})
 }
 
-func TestSSHCAVaultGCPConfig_Validate(t *testing.T) {
+func TestVaultGCPConfig_Validate(t *testing.T) {
 	tests := []struct {
 		name        string
-		cfg         *SSHCAVaultGCPConfig
+		cfg         *VaultGCPConfig
 		wantErr     bool
 		errContains string
 	}{
 		{
 			name:    "valid GCE",
-			cfg:     &SSHCAVaultGCPConfig{Role: "my-role", Type: "gce"},
+			cfg:     &VaultGCPConfig{Role: "my-role", Type: "gce"},
 			wantErr: false,
 		},
 		{
 			name:    "valid IAM",
-			cfg:     &SSHCAVaultGCPConfig{Role: "my-role", Type: "iam", ServiceAccountEmail: "gateway-sa@project.iam.gserviceaccount.com"},
+			cfg:     &VaultGCPConfig{Role: "my-role", Type: "iam", ServiceAccountEmail: "gateway-sa@project.iam.gserviceaccount.com"},
 			wantErr: false,
 		},
 		{
 			name:    "valid GCE type case insensitive",
-			cfg:     &SSHCAVaultGCPConfig{Role: "my-role", Type: "GCE"},
+			cfg:     &VaultGCPConfig{Role: "my-role", Type: "GCE"},
 			wantErr: false,
 		},
 		{
 			name:        "missing role",
-			cfg:         &SSHCAVaultGCPConfig{Type: "gce"},
+			cfg:         &VaultGCPConfig{Type: "gce"},
 			wantErr:     true,
 			errContains: "role",
 		},
 		{
 			name:        "missing type",
-			cfg:         &SSHCAVaultGCPConfig{Role: "my-role"},
+			cfg:         &VaultGCPConfig{Role: "my-role"},
 			wantErr:     true,
 			errContains: "type",
 		},
 		{
 			name:        "invalid type",
-			cfg:         &SSHCAVaultGCPConfig{Role: "my-role", Type: "invalid"},
+			cfg:         &VaultGCPConfig{Role: "my-role", Type: "invalid"},
 			wantErr:     true,
 			errContains: "gcp type must be 'gce' or 'iam'",
 		},
 		{
 			name:        "IAM type missing serviceAccountEmail",
-			cfg:         &SSHCAVaultGCPConfig{Role: "my-role", Type: "iam"},
+			cfg:         &VaultGCPConfig{Role: "my-role", Type: "iam"},
 			wantErr:     true,
 			errContains: "serviceAccountEmail is required for iam type",
 		},
@@ -1671,15 +1755,15 @@ func TestSSHCAVaultGCPConfig_Validate(t *testing.T) {
 	}
 }
 
-func TestSSHCAVaultAWSConfig_GetMount(t *testing.T) {
+func TestVaultAWSConfig_GetMount(t *testing.T) {
 	tests := []struct {
 		name     string
-		cfg      *SSHCAVaultAWSConfig
+		cfg      *VaultAWSConfig
 		expected string
 	}{
 		{
 			name: "default mount",
-			cfg: &SSHCAVaultAWSConfig{
+			cfg: &VaultAWSConfig{
 				Role: "my-role",
 				Type: "iam",
 			},
@@ -1687,7 +1771,7 @@ func TestSSHCAVaultAWSConfig_GetMount(t *testing.T) {
 		},
 		{
 			name: "custom mount",
-			cfg: &SSHCAVaultAWSConfig{
+			cfg: &VaultAWSConfig{
 				Mount: "custom-aws",
 				Role:  "my-role",
 				Type:  "iam",
@@ -1703,20 +1787,20 @@ func TestSSHCAVaultAWSConfig_GetMount(t *testing.T) {
 	}
 }
 
-func TestSSHCAVaultAWSConfig_GetSignatureType(t *testing.T) {
+func TestVaultAWSConfig_GetSignatureType(t *testing.T) {
 	tests := []struct {
 		name     string
-		cfg      *SSHCAVaultAWSConfig
+		cfg      *VaultAWSConfig
 		expected string
 	}{
 		{
 			name:     "default to rsa2048 when unset",
-			cfg:      &SSHCAVaultAWSConfig{Role: "my-role", Type: "ec2"},
+			cfg:      &VaultAWSConfig{Role: "my-role", Type: "ec2"},
 			expected: "rsa2048",
 		},
 		{
 			name:     "explicit value preserved",
-			cfg:      &SSHCAVaultAWSConfig{Role: "my-role", Type: "ec2", SignatureType: "identity"},
+			cfg:      &VaultAWSConfig{Role: "my-role", Type: "ec2", SignatureType: "identity"},
 			expected: "identity",
 		},
 	}
@@ -1728,54 +1812,54 @@ func TestSSHCAVaultAWSConfig_GetSignatureType(t *testing.T) {
 	}
 }
 
-func TestSSHCAVaultAWSConfig_Validate(t *testing.T) {
+func TestVaultAWSConfig_Validate(t *testing.T) {
 	tests := []struct {
 		name        string
-		cfg         *SSHCAVaultAWSConfig
+		cfg         *VaultAWSConfig
 		wantErr     bool
 		errContains string
 	}{
 		{
 			name:    "valid IAM",
-			cfg:     &SSHCAVaultAWSConfig{Role: "my-role", Type: "iam"},
+			cfg:     &VaultAWSConfig{Role: "my-role", Type: "iam"},
 			wantErr: false,
 		},
 		{
 			name:    "valid EC2",
-			cfg:     &SSHCAVaultAWSConfig{Role: "my-role", Type: "ec2"},
+			cfg:     &VaultAWSConfig{Role: "my-role", Type: "ec2"},
 			wantErr: false,
 		},
 		{
 			name:    "valid EC2 with signatureType and nonce",
-			cfg:     &SSHCAVaultAWSConfig{Role: "my-role", Type: "ec2", SignatureType: "identity", Nonce: "my-nonce"},
+			cfg:     &VaultAWSConfig{Role: "my-role", Type: "ec2", SignatureType: "identity", Nonce: "my-nonce"},
 			wantErr: false,
 		},
 		{
 			name:    "Valid IAM case insensitive type",
-			cfg:     &SSHCAVaultAWSConfig{Role: "my-role", Type: "IAM"},
+			cfg:     &VaultAWSConfig{Role: "my-role", Type: "IAM"},
 			wantErr: false,
 		},
 		{
 			name:        "missing role",
-			cfg:         &SSHCAVaultAWSConfig{Type: "iam"},
+			cfg:         &VaultAWSConfig{Type: "iam"},
 			wantErr:     true,
 			errContains: "role",
 		},
 		{
 			name:        "missing type",
-			cfg:         &SSHCAVaultAWSConfig{Role: "my-role"},
+			cfg:         &VaultAWSConfig{Role: "my-role"},
 			wantErr:     true,
 			errContains: "type",
 		},
 		{
 			name:        "invalid type",
-			cfg:         &SSHCAVaultAWSConfig{Role: "my-role", Type: "invalid"},
+			cfg:         &VaultAWSConfig{Role: "my-role", Type: "invalid"},
 			wantErr:     true,
 			errContains: "aws type must be 'iam' or 'ec2'",
 		},
 		{
 			name:        "invalid signatureType",
-			cfg:         &SSHCAVaultAWSConfig{Role: "my-role", Type: "ec2", SignatureType: "invalid"},
+			cfg:         &VaultAWSConfig{Role: "my-role", Type: "ec2", SignatureType: "invalid"},
 			wantErr:     true,
 			errContains: "aws signatureType must be 'identity', 'pkcs7', or 'rsa2048'",
 		},
