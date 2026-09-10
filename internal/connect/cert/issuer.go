@@ -38,6 +38,7 @@ const clockSkewBuffer = 30 * time.Second
 
 var (
 	errNotCACertificate   = errors.New("certificate is not a certificate authority")
+	errCACannotSignCerts  = errors.New("CA certificate cannot sign certificates")
 	errCAKeyNotSigner     = errors.New("CA private key does not implement crypto.Signer")
 	errVaultIssueFailed   = errors.New("failed to issue certificate with Vault")
 	errCertChainNotPEM    = errors.New("certificate chain is not PEM encoded")
@@ -126,8 +127,8 @@ func (l *localIssuer) load() error {
 		return fmt.Errorf("failed to parse CA certificate: %w", err)
 	}
 
-	if !caCert.IsCA {
-		return fmt.Errorf("%w: %q", errNotCACertificate, l.certFile)
+	if err := validateCACertificate(caCert, l.certFile); err != nil {
+		return err
 	}
 
 	caKey, ok := pair.PrivateKey.(crypto.Signer)
@@ -192,6 +193,18 @@ func (l *localIssuer) sign(_ context.Context, req *certificateRequest) (*x509.Ce
 	return leaf, []*x509.Certificate{caCert}, nil
 }
 
+func validateCACertificate(caCert *x509.Certificate, certFile string) error {
+	if (caCert.Version == 3 && !caCert.BasicConstraintsValid) || (caCert.BasicConstraintsValid && !caCert.IsCA) {
+		return fmt.Errorf("%w: %q must have basicConstraints CA:TRUE", errNotCACertificate, certFile)
+	}
+
+	if caCert.KeyUsage != 0 && caCert.KeyUsage&x509.KeyUsageCertSign == 0 {
+		return fmt.Errorf("%w: %q must have keyCertSign usage", errCACannotSignCerts, certFile)
+	}
+
+	return nil
+}
+
 // vaultIssuer issues leaf certificates through Vault's PKI secrets engine.
 type vaultIssuer struct {
 	vault *vault.Vault
@@ -224,9 +237,8 @@ func (v *vaultIssuer) run(ctx context.Context) error {
 	return nil
 }
 
-// sign has Vault sign the request through <mount>/sign/<role>, so the private key
-// never leaves the Gateway. The context is the TLS handshake's, so an abandoned
-// handshake cancels the in-flight request.
+// sign has Vault sign the request through <mount>/sign/<role>.
+// If the context is canceled, the request is aborted and the connection closed.
 func (v *vaultIssuer) sign(ctx context.Context, req *certificateRequest) (*x509.Certificate, []*x509.Certificate, error) {
 	csr, err := req.csr()
 	if err != nil {
@@ -236,6 +248,8 @@ func (v *vaultIssuer) sign(ctx context.Context, req *certificateRequest) (*x509.
 	data := map[string]any{
 		"csr": string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csr})),
 		"ttl": req.ttl.String(),
+		// pem_bundle returns the CA chain concatenated onto the leaf
+		"format": "pem_bundle",
 	}
 
 	secret, err := v.vault.Client.Logical().WriteWithContext(ctx, v.mount+"/sign/"+v.role, data)
@@ -252,7 +266,7 @@ func (v *vaultIssuer) sign(ctx context.Context, req *certificateRequest) (*x509.
 		return nil, nil, fmt.Errorf("%w: no certificate in response", errVaultIssueFailed)
 	}
 
-	chain, err := parseCertificateChain(append([]string{certPEM}, caChain(secret.Data)...))
+	chain, err := parseCertificateChain([]string{certPEM})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -307,9 +321,8 @@ func (g *gcpIssuer) closeOnShutdown(ctx context.Context) {
 	_ = g.client.Close()
 }
 
-// sign has the CA pool sign the request, so the private key never leaves the Gateway.
-// The context is the TLS handshake's, so an abandoned handshake cancels the in-flight
-// request.
+// sign has the CA pool sign the request.
+// If the context is canceled, the request is aborted and the connection closed.
 func (g *gcpIssuer) sign(ctx context.Context, req *certificateRequest) (*x509.Certificate, []*x509.Certificate, error) {
 	csr, err := req.csr()
 	if err != nil {
@@ -345,8 +358,7 @@ func (g *gcpIssuer) sign(ctx context.Context, req *certificateRequest) (*x509.Ce
 	return leaf, chain[1:], nil
 }
 
-// verifyIssuedCertificate rejects a CA-issued certificate that is signed by a different signer or
-// grants more than the request asked for, in names or in validity.
+// verifyIssuedCertificate rejects a certificate if the public key, SANs, or validity do not match the request.
 func verifyIssuedCertificate(leaf *x509.Certificate, req *certificateRequest) error {
 	type publicKey interface {
 		Equal(other crypto.PublicKey) bool
@@ -356,8 +368,8 @@ func verifyIssuedCertificate(leaf *x509.Certificate, req *certificateRequest) er
 		return fmt.Errorf("%w: certificate public key does not match the Gateway's key", errIssuedCertMismatch)
 	}
 
-	granted := certificateNames(leaf.DNSNames, leaf.IPAddresses)
-	requested := certificateNames(req.dnsNames, req.ipAddresses)
+	granted := certificateSANs(leaf.DNSNames, leaf.IPAddresses)
+	requested := certificateSANs(req.dnsNames, req.ipAddresses)
 
 	if !maps.Equal(granted, requested) {
 		return fmt.Errorf("%w: granted names %q do not match requested %q",
@@ -372,9 +384,9 @@ func verifyIssuedCertificate(leaf *x509.Certificate, req *certificateRequest) er
 	return nil
 }
 
-// certificateNames returns the names as a set, lowercased and in canonical IP
+// certificateSANs returns the SANs as a set, lowercased and in canonical IP
 // notation so both sides of a comparison match.
-func certificateNames(dnsNames []string, ips []net.IP) map[string]struct{} {
+func certificateSANs(dnsNames []string, ips []net.IP) map[string]struct{} {
 	names := make(map[string]struct{}, len(dnsNames)+len(ips))
 
 	for _, name := range dnsNames {
@@ -388,47 +400,33 @@ func certificateNames(dnsNames []string, ips []net.IP) map[string]struct{} {
 	return names
 }
 
-// parseCertificateChain parses the PEM certificates in a CA's response, leaf first.
+// parseCertificateChain parses a list of PEM certificates. An entry may
+// hold a single certificate or a whole bundle, so each one is decoded to the end.
 func parseCertificateChain(pems []string) ([]*x509.Certificate, error) {
-	chain := make([]*x509.Certificate, 0, len(pems))
+	var chain []*x509.Certificate
 
 	for _, certPEM := range pems {
-		block, _ := pem.Decode([]byte(certPEM))
-		if block == nil || block.Type != "CERTIFICATE" {
-			return nil, errCertChainNotPEM
-		}
+		// Trim the trailing whitespace of the last block
+		for rest := []byte(certPEM); len(bytes.TrimSpace(rest)) > 0; {
+			var block *pem.Block
 
-		cert, err := x509.ParseCertificate(block.Bytes)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse issued certificate: %w", err)
-		}
+			block, rest = pem.Decode(rest)
+			if block == nil || block.Type != "CERTIFICATE" {
+				return nil, errCertChainNotPEM
+			}
 
-		chain = append(chain, cert)
+			cert, err := x509.ParseCertificate(block.Bytes)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse issued certificate: %w", err)
+			}
+
+			chain = append(chain, cert)
+		}
+	}
+
+	if len(chain) == 0 {
+		return nil, errCertChainNotPEM
 	}
 
 	return chain, nil
-}
-
-// caChain returns the CA chain PEMs from the response, falling back to the
-// issuing CA when the chain is absent.
-func caChain(data map[string]any) []string {
-	if chain, ok := data["ca_chain"].([]any); ok {
-		cas := make([]string, 0, len(chain))
-
-		for _, ca := range chain {
-			if caPEM, ok := ca.(string); ok && caPEM != "" {
-				cas = append(cas, caPEM)
-			}
-		}
-
-		if len(cas) > 0 {
-			return cas
-		}
-	}
-
-	if issuingCA, ok := data["issuing_ca"].(string); ok && issuingCA != "" {
-		return []string{issuingCA}
-	}
-
-	return nil
 }

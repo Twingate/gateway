@@ -61,7 +61,7 @@ func (m *Manager) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, 
 	}
 
 	if m.automation != nil {
-		return m.automation.getCertificateForHost(hello.Context(), hello.ServerName)
+		return m.automation.getCertificate(hello.Context(), hello.ServerName)
 	}
 
 	if cert := m.certs.first(); cert != nil {

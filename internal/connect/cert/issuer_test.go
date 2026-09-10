@@ -122,6 +122,57 @@ func TestLocalIssuer_load_SignalsOnlyOnCAChange(t *testing.T) {
 	assert.Len(t, issuer.rotated(), 1)
 }
 
+func TestValidateCACertificate(t *testing.T) {
+	tests := []struct {
+		name    string
+		caCert  *x509.Certificate
+		wantErr error
+	}{
+		{
+			name:   "CA with keyCertSign",
+			caCert: &x509.Certificate{Version: 3, BasicConstraintsValid: true, IsCA: true, KeyUsage: x509.KeyUsageCertSign},
+		},
+		{
+			name:   "CA without a keyUsage extension",
+			caCert: &x509.Certificate{Version: 3, BasicConstraintsValid: true, IsCA: true},
+		},
+		{
+			name:   "pre-v3 CA without basicConstraints",
+			caCert: &x509.Certificate{Version: 1, KeyUsage: x509.KeyUsageCertSign},
+		},
+		{
+			name:    "basicConstraints CA:FALSE",
+			caCert:  &x509.Certificate{Version: 3, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign},
+			wantErr: errNotCACertificate,
+		},
+		{
+			name:    "v3 without basicConstraints",
+			caCert:  &x509.Certificate{Version: 3, KeyUsage: x509.KeyUsageCertSign},
+			wantErr: errNotCACertificate,
+		},
+		{
+			name:    "keyUsage without keyCertSign",
+			caCert:  &x509.Certificate{Version: 3, BasicConstraintsValid: true, IsCA: true, KeyUsage: x509.KeyUsageDigitalSignature},
+			wantErr: errCACannotSignCerts,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateCACertificate(tt.caCert, "ca.crt")
+
+			if tt.wantErr == nil {
+				assert.NoError(t, err)
+
+				return
+			}
+
+			require.ErrorIs(t, err, tt.wantErr)
+			assert.Contains(t, err.Error(), `"ca.crt"`)
+		})
+	}
+}
+
 func TestLocalIssuer_load_Errors(t *testing.T) {
 	valid := createKeyPair(t, generateCA(t))
 	other := createKeyPair(t, generateCA(t))
@@ -220,7 +271,6 @@ func TestLocalIssuer_sign_CAKeyFails(t *testing.T) {
 	require.ErrorContains(t, err, "failed to sign leaf certificate")
 }
 
-// signTestCSR signs the PEM CSR against a third-party CA signing endpoint.
 func signTestCSR(t *testing.T, ca tls.Certificate, csrPEM string) string {
 	t.Helper()
 
@@ -254,14 +304,12 @@ func csrPEM(csr []byte) string {
 	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csr}))
 }
 
-func caPEM(t *testing.T, ca tls.Certificate) string {
-	t.Helper()
-
+func caPEM(ca tls.Certificate) string {
 	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ca.Certificate[0]}))
 }
 
-// decodeSignPayload returns the request payload with the dynamic CSR split off.
-func decodeSignPayload(t *testing.T, r *http.Request) (csr string, payload map[string]any) {
+// decodeVaultSignPayload returns the CSR from the request payload and the remaining payload.
+func decodeVaultSignPayload(t *testing.T, r *http.Request) (csr string, payload map[string]any) {
 	t.Helper()
 
 	require.NoError(t, json.NewDecoder(r.Body).Decode(&payload))
@@ -344,12 +392,11 @@ func TestVaultIssuer_sign(t *testing.T) {
 	issuer := newTestVaultIssuer(t, func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "/v1/pki/sign/test-role", r.URL.Path)
 
-		csr, payload := decodeSignPayload(t, r)
-		assert.Equal(t, map[string]any{"ttl": "24h0m0s"}, payload)
+		csr, payload := decodeVaultSignPayload(t, r)
+		assert.Equal(t, map[string]any{"ttl": "24h0m0s", "format": "pem_bundle"}, payload)
 
 		_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
-			"certificate": signTestCSR(t, ca, csr),
-			"ca_chain":    []string{caPEM(t, ca)},
+			"certificate": signTestCSR(t, ca, csr) + caPEM(ca),
 		}})
 	})
 
@@ -359,21 +406,21 @@ func TestVaultIssuer_sign(t *testing.T) {
 	assert.Len(t, caChain, 1)
 }
 
-func TestVaultIssuer_sign_MissingCAChainFallback(t *testing.T) {
+func TestVaultIssuer_sign_LeafOnlyBundle(t *testing.T) {
 	ca := generateCA(t)
 
 	issuer := newTestVaultIssuer(t, func(w http.ResponseWriter, r *http.Request) {
-		csr, _ := decodeSignPayload(t, r)
+		csr, _ := decodeVaultSignPayload(t, r)
 
 		_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
 			"certificate": signTestCSR(t, ca, csr),
-			"issuing_ca":  caPEM(t, ca),
 		}})
 	})
 
-	_, caChain, err := issuer.sign(t.Context(), newCertificateRequest(generateKey(t), "app.acme.int", defaultTTL))
+	leaf, caChain, err := issuer.sign(t.Context(), newCertificateRequest(generateKey(t), "app.acme.int", defaultTTL))
 	require.NoError(t, err)
-	assert.Len(t, caChain, 1)
+	assert.Equal(t, []string{"app.acme.int"}, leaf.DNSNames)
+	assert.Empty(t, caChain)
 }
 
 func TestVaultIssuer_sign_Error(t *testing.T) {
@@ -388,9 +435,10 @@ func TestVaultIssuer_sign_Error(t *testing.T) {
 		{name: "missing certificate", responseData: map[string]any{"expiration": 1}, wantErr: errVaultIssueFailed},
 		{name: "empty certificate", responseData: map[string]any{"certificate": ""}, wantErr: errVaultIssueFailed},
 		{name: "unparseable certificate", responseData: map[string]any{"certificate": "garbage"}, wantErr: errCertChainNotPEM},
+		{name: "blank certificate", responseData: map[string]any{"certificate": " \n "}, wantErr: errCertChainNotPEM},
 		{
 			name:         "certificate does not match the request",
-			responseData: map[string]any{"certificate": caPEM(t, ca)},
+			responseData: map[string]any{"certificate": caPEM(ca)},
 			wantErr:      errIssuedCertMismatch,
 		},
 	}
@@ -537,7 +585,7 @@ func TestGCPIssuer_sign(t *testing.T) {
 
 		return &privatecapb.Certificate{
 			PemCertificate:      signTestCSR(t, ca, req.GetCertificate().GetPemCsr()),
-			PemCertificateChain: []string{caPEM(t, ca)},
+			PemCertificateChain: []string{caPEM(ca)},
 		}, nil
 	})
 
@@ -555,7 +603,7 @@ func TestGCPIssuer_sign_PinIssuingCA(t *testing.T) {
 
 		return &privatecapb.Certificate{
 			PemCertificate:      signTestCSR(t, ca, req.GetCertificate().GetPemCsr()),
-			PemCertificateChain: []string{caPEM(t, ca)},
+			PemCertificateChain: []string{caPEM(ca)},
 		}, nil
 	})
 	issuer.issuingCA = "gateway-ca"
@@ -587,7 +635,7 @@ func TestGCPIssuer_sign_Error(t *testing.T) {
 		},
 		{
 			name:    "certificate does not match the request",
-			issued:  &privatecapb.Certificate{PemCertificate: caPEM(t, ca)},
+			issued:  &privatecapb.Certificate{PemCertificate: caPEM(ca)},
 			wantErr: errIssuedCertMismatch,
 		},
 	}
@@ -666,65 +714,84 @@ func TestVerifyIssuedCertificate(t *testing.T) {
 		ipAddresses: []net.IP{net.ParseIP("10.0.0.5")},
 		ttl:         defaultTTL,
 	}
-	leaf := &x509.Certificate{
-		PublicKey:   key.Public(),
-		DNSNames:    []string{"foo.acme.int", "bar.acme.int"},
-		IPAddresses: []net.IP{net.ParseIP("10.0.0.5")},
-		NotAfter:    time.Now().Add(defaultTTL),
-	}
 
 	tests := []struct {
 		name    string
-		mutate  func(leaf *x509.Certificate)
+		leaf    *x509.Certificate
 		wantErr bool
 	}{
 		{
 			name: "certificate covers requested",
+			leaf: &x509.Certificate{
+				PublicKey:   key.Public(),
+				DNSNames:    []string{"foo.acme.int", "bar.acme.int"},
+				IPAddresses: []net.IP{net.ParseIP("10.0.0.5")},
+				NotAfter:    time.Now().Add(defaultTTL),
+			},
 		},
 		{
-			name: "name order and casing does not matter",
-			mutate: func(leaf *x509.Certificate) {
-				leaf.DNSNames = []string{"BAR.ACME.INT", "foo.acme.int"}
+			name: "dns name order and casing does not matter",
+			leaf: &x509.Certificate{
+				PublicKey:   key.Public(),
+				DNSNames:    []string{"BAR.ACME.INT", "foo.acme.int"},
+				IPAddresses: []net.IP{net.ParseIP("10.0.0.5")},
+				NotAfter:    time.Now().Add(defaultTTL),
 			},
 		},
 		{
 			name: "extra granted name",
-			mutate: func(leaf *x509.Certificate) {
-				leaf.DNSNames = append(leaf.DNSNames, "extra.acme.int")
+			leaf: &x509.Certificate{
+				PublicKey:   key.Public(),
+				DNSNames:    []string{"foo.acme.int", "bar.acme.int", "extra.acme.int"},
+				IPAddresses: []net.IP{net.ParseIP("10.0.0.5")},
+				NotAfter:    time.Now().Add(defaultTTL),
 			},
 			wantErr: true,
 		},
 		{
 			name: "extra granted IP",
-			mutate: func(leaf *x509.Certificate) {
-				leaf.IPAddresses = append(leaf.IPAddresses, net.ParseIP("10.0.0.6"))
+			leaf: &x509.Certificate{
+				PublicKey:   key.Public(),
+				DNSNames:    []string{"foo.acme.int", "bar.acme.int"},
+				IPAddresses: []net.IP{net.ParseIP("10.0.0.5"), net.ParseIP("10.0.0.6")},
+				NotAfter:    time.Now().Add(defaultTTL),
 			},
 			wantErr: true,
 		},
 		{
-			name:    "missing requested name",
-			mutate:  func(leaf *x509.Certificate) { leaf.DNSNames = nil },
+			name: "missing requested dns names",
+			leaf: &x509.Certificate{
+				PublicKey:   key.Public(),
+				IPAddresses: []net.IP{net.ParseIP("10.0.0.5")},
+				NotAfter:    time.Now().Add(defaultTTL),
+			},
 			wantErr: true,
 		},
 		{
-			name:    "wrong public key",
-			mutate:  func(leaf *x509.Certificate) { leaf.PublicKey = otherKey.Public() },
+			name: "wrong public key",
+			leaf: &x509.Certificate{
+				PublicKey:   otherKey.Public(),
+				DNSNames:    []string{"foo.acme.int", "bar.acme.int"},
+				IPAddresses: []net.IP{net.ParseIP("10.0.0.5")},
+				NotAfter:    time.Now().Add(defaultTTL),
+			},
 			wantErr: true,
 		},
 		{
-			name:    "validity exceeds requested ttl",
-			mutate:  func(leaf *x509.Certificate) { leaf.NotAfter = time.Now().Add(2 * defaultTTL) },
+			name: "validity exceeds requested ttl",
+			leaf: &x509.Certificate{
+				PublicKey:   key.Public(),
+				DNSNames:    []string{"foo.acme.int", "bar.acme.int"},
+				IPAddresses: []net.IP{net.ParseIP("10.0.0.5")},
+				NotAfter:    time.Now().Add(2 * defaultTTL),
+			},
 			wantErr: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if tt.mutate != nil {
-				tt.mutate(leaf)
-			}
-
-			err := verifyIssuedCertificate(leaf, req)
+			err := verifyIssuedCertificate(tt.leaf, req)
 			if !tt.wantErr {
 				assert.NoError(t, err)
 
@@ -749,9 +816,9 @@ func TestParseCertificateChain(t *testing.T) {
 		wantErr error
 	}{
 		{
-			name:    "leaf first, then the CA",
-			pems:    []string{signTestCSR(t, ca, csrPEM(der)), caPEM(t, ca)},
-			wantLen: 2,
+			name:    "multiple entries, each holding one or more certificate",
+			pems:    []string{signTestCSR(t, ca, csrPEM(der)) + "\n\n" + caPEM(ca), caPEM(ca) + "\n\n"},
+			wantLen: 3,
 		},
 		{
 			name:    "not PEM at all",
@@ -761,6 +828,16 @@ func TestParseCertificateChain(t *testing.T) {
 		{
 			name:    "PEM block is not a certificate",
 			pems:    []string{csrPEM(der)},
+			wantErr: errCertChainNotPEM,
+		},
+		{
+			name:    "whitespace only",
+			pems:    []string{" \n "},
+			wantErr: errCertChainNotPEM,
+		},
+		{
+			name:    "no entries",
+			pems:    nil,
 			wantErr: errCertChainNotPEM,
 		},
 	}

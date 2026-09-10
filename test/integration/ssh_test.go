@@ -189,7 +189,7 @@ func TestSSH(t *testing.T) {
 func TestSSHVault(t *testing.T) {
 	const gatewayPort = 8448
 
-	vaultContainerID, vaultPort := testutil.SetupVaultServer(t)
+	vaultContainerID, vaultPort := testutil.SetupVaultSSHCA(t)
 	vaultAddress := fmt.Sprintf("http://127.0.0.1:%d", vaultPort)
 
 	tests := []struct {

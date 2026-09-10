@@ -17,7 +17,92 @@ import (
 
 const vaultImage = "hashicorp/vault:1.21.4"
 
-func SetupVaultServer(t *testing.T) (string, int) {
+// SetupVaultSSHCA starts a Vault server with an SSH secrets engine, a test CA key pair
+// and a role that signs host certificates for any domain and user certificates for admin.
+func SetupVaultSSHCA(t *testing.T) (string, int) {
+	t.Helper()
+
+	containerName, serverPort := setupVaultServer(t)
+
+	// #nosec G204 -- inputs are from trusted operator configuration
+	_, err := RunCommand(exec.Command("docker", "exec", containerName, "vault", "secrets", "enable", "-path=ssh", "ssh"))
+	require.NoError(t, err, "failed to enable SSH secrets engine in Vault")
+
+	// #nosec G204 -- inputs are from trusted operator configuration
+	_, err = RunCommand(exec.Command("docker", "cp", "../data/ssh/ca", containerName+":/tmp/ca"))
+	require.NoError(t, err, "failed to copy SSH CA keys to Vault container")
+
+	// #nosec G204 -- inputs are from trusted operator configuration
+	_, err = RunCommand(exec.Command("docker", "exec", containerName,
+		"vault", "write", "ssh/config/ca",
+		"private_key=@/tmp/ca/ca",
+		"public_key=@/tmp/ca/ca.pub",
+	))
+	require.NoError(t, err, "failed to configure SSH CA in Vault")
+
+	// #nosec G204 -- inputs are from trusted operator configuration
+	_, err = RunCommand(exec.Command("docker", "exec", containerName,
+		"vault", "write", "ssh/roles/gateway-signer",
+		"key_type=ca",
+		"allow_user_certificates=true",
+		"allow_host_certificates=true",
+		"allowed_extensions=permit-port-forwarding,permit-pty,permit-user-rc",
+		"allowed_domains=*",
+		"allowed_users=admin",
+	))
+	require.NoError(t, err, "failed to create SSH signing role in Vault")
+
+	writeVaultPolicy(t, containerName, `path "ssh/sign/*" {
+  capabilities = ["create", "update"]
+}
+path "ssh/config/ca" {
+  capabilities = ["read"]
+}`)
+
+	return containerName, serverPort
+}
+
+// SetupVaultPKI starts a Vault server with a PKI secrets engine, a self-signed root CA
+// and a role that signs certificate for SANs covering acme.int.
+func SetupVaultPKI(t *testing.T) (string, int) {
+	t.Helper()
+
+	containerName, serverPort := setupVaultServer(t)
+
+	// #nosec G204 -- inputs are from trusted operator configuration
+	_, err := RunCommand(exec.Command("docker", "exec", containerName,
+		"vault", "secrets", "enable", "-max-lease-ttl=87600h", "pki"))
+	require.NoError(t, err, "failed to enable PKI secrets engine in Vault")
+
+	// #nosec G204 -- inputs are from trusted operator configuration
+	_, err = RunCommand(exec.Command("docker", "exec", containerName,
+		"vault", "write", "pki/root/generate/internal",
+		"common_name=gateway integration test CA",
+		"key_type=ec",
+		"key_bits=256",
+		"ttl=87600h",
+	))
+	require.NoError(t, err, "failed to generate PKI root CA in Vault")
+
+	// #nosec G204 -- inputs are from trusted operator configuration
+	_, err = RunCommand(exec.Command("docker", "exec", containerName,
+		"vault", "write", "pki/roles/gateway-tls",
+		"key_type=any",
+		"allowed_domains=acme.int",
+		"allow_subdomains=true",
+		"require_cn=false", // A handshake without SNI asks for no names, so the common name is empty
+		"max_ttl=72h",
+	))
+	require.NoError(t, err, "failed to create PKI signing role in Vault")
+
+	writeVaultPolicy(t, containerName, `path "pki/sign/*" {
+  capabilities = ["create", "update"]
+}`)
+
+	return containerName, serverPort
+}
+
+func setupVaultServer(t *testing.T) (string, int) {
 	t.Helper()
 
 	containerName := "gateway-integration-test-vault-" + strings.ToLower(t.Name())
@@ -68,77 +153,16 @@ func SetupVaultServer(t *testing.T) (string, int) {
 	})
 	require.NoError(t, err, "failed to start Vault server")
 
-	// #nosec G204 -- inputs are from trusted operator configuration
-	_, err = RunCommand(exec.Command("docker", "exec", containerName, "vault", "secrets", "enable", "-path=ssh", "ssh"))
-	require.NoError(t, err, "failed to enable SSH secrets engine in Vault")
-
-	// #nosec G204 -- inputs are from trusted operator configuration
-	_, err = RunCommand(exec.Command("docker", "cp", "../data/ssh/ca", containerName+":/tmp/ca"))
-	require.NoError(t, err, "failed to copy SSH CA keys to Vault container")
-
-	// #nosec G204 -- inputs are from trusted operator configuration
-	_, err = RunCommand(exec.Command("docker", "exec", containerName,
-		"vault", "write", "ssh/config/ca",
-		"private_key=@/tmp/ca/ca",
-		"public_key=@/tmp/ca/ca.pub",
-	))
-	require.NoError(t, err, "failed to configure SSH CA in Vault")
-
-	// #nosec G204 -- inputs are from trusted operator configuration
-	_, err = RunCommand(exec.Command("docker", "exec", containerName,
-		"vault", "write", "ssh/roles/gateway-signer",
-		"key_type=ca",
-		"allow_user_certificates=true",
-		"allow_host_certificates=true",
-		"allowed_extensions=permit-port-forwarding,permit-pty,permit-user-rc",
-		"allowed_domains=*",
-		"allowed_users=admin",
-	))
-	require.NoError(t, err, "failed to create SSH signing role in Vault")
-
-	// #nosec G204 -- inputs are from trusted operator configuration
-	_, err = RunCommand(exec.Command("docker", "exec", containerName,
-		"vault", "secrets", "enable", "-max-lease-ttl=87600h", "pki"))
-	require.NoError(t, err, "failed to enable PKI secrets engine in Vault")
-
-	// #nosec G204 -- inputs are from trusted operator configuration
-	_, err = RunCommand(exec.Command("docker", "exec", containerName,
-		"vault", "write", "pki/root/generate/internal",
-		"common_name=gateway integration test CA",
-		"key_type=ec",
-		"key_bits=256",
-		"ttl=87600h",
-	))
-	require.NoError(t, err, "failed to generate PKI root CA in Vault")
-
-	// #nosec G204 -- inputs are from trusted operator configuration
-	_, err = RunCommand(exec.Command("docker", "exec", containerName,
-		"vault", "write", "pki/roles/gateway-tls",
-		"key_type=any",
-		"allowed_domains=acme.int",
-		"allow_subdomains=true",
-		"allow_ip_sans=true",
-		"require_cn=false", // A handshake without SNI asks for no names, so the common name is empty
-		"max_ttl=72h",
-	))
-	require.NoError(t, err, "failed to create PKI signing role in Vault")
-
-	// #nosec G204 -- inputs are from trusted operator configuration
-	_, err = RunCommand(exec.Command("docker", "exec", containerName,
-		"sh", "-c", `vault policy write integration-test - <<EOF
-path "ssh/sign/*" {
-  capabilities = ["create", "update"]
-}
-path "ssh/config/ca" {
-  capabilities = ["read"]
-}
-path "pki/sign/*" {
-  capabilities = ["create", "update"]
-}
-EOF`))
-	require.NoError(t, err, "failed to create Vault policy")
-
 	return containerName, serverPort
+}
+
+func writeVaultPolicy(t *testing.T, containerName, policy string) {
+	t.Helper()
+
+	// #nosec G204 -- inputs are from trusted operator configuration
+	_, err := RunCommand(exec.Command("docker", "exec", containerName,
+		"sh", "-c", "vault policy write integration-test - <<EOF\n"+policy+"\nEOF"))
+	require.NoError(t, err, "failed to create Vault policy")
 }
 
 func SetupVaultToken(t *testing.T, containerName string) string {

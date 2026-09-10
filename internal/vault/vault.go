@@ -180,28 +180,9 @@ func (v *Vault) RunTokenRenewalLoop(ctx context.Context, secret *vaultapi.Secret
 			v.Logger.Error("Failed to watch Vault token lifecycle, will retry later", zap.Error(err))
 		}
 
-		secret = v.LoginWithRetry(ctx)
+		secret = v.loginWithRetry(ctx)
 		if ctx.Err() != nil {
 			return
-		}
-	}
-}
-
-func (v *Vault) LoginWithRetry(ctx context.Context) *vaultapi.Secret {
-	for {
-		secret, err := v.Client.Auth().Login(ctx, v.AuthMethod)
-		if err == nil {
-			v.Logger.Info("Successfully login to Vault")
-
-			return secret
-		}
-
-		v.Logger.Error("Failed to login to Vault, will retry later", zap.Error(err))
-
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-time.After(loginRetryInterval):
 		}
 	}
 }
@@ -235,6 +216,25 @@ func (v *Vault) watchTokenLifecycle(ctx context.Context, secret *vaultapi.Secret
 			return nil
 		case info := <-watcher.RenewCh():
 			v.Logger.Info("Successfully renewed Vault token", zap.Time("renewed_at", info.RenewedAt))
+		}
+	}
+}
+
+func (v *Vault) loginWithRetry(ctx context.Context) *vaultapi.Secret {
+	for {
+		secret, err := v.Client.Auth().Login(ctx, v.AuthMethod)
+		if err == nil {
+			v.Logger.Info("Successfully login to Vault")
+
+			return secret
+		}
+
+		v.Logger.Error("Failed to login to Vault, will retry later", zap.Error(err))
+
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(loginRetryInterval):
 		}
 	}
 }
