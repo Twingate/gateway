@@ -25,8 +25,9 @@ import (
 const clockSkewBuffer = 30 * time.Second
 
 var (
-	errNotCACertificate = errors.New("certificate is not a certificate authority")
-	errCAKeyNotSigner   = errors.New("CA private key does not implement crypto.Signer")
+	errNotCACertificate  = errors.New("certificate is not a CA certificate")
+	errCACannotSignCerts = errors.New("CA certificate cannot sign certificates")
+	errCAKeyNotSigner    = errors.New("CA private key does not implement crypto.Signer")
 )
 
 var serialNumberLimit = new(big.Int).Lsh(big.NewInt(1), 128)
@@ -107,8 +108,8 @@ func (l *localIssuer) load() error {
 		return fmt.Errorf("failed to parse CA certificate: %w", err)
 	}
 
-	if !caCert.IsCA {
-		return fmt.Errorf("%w: %q", errNotCACertificate, l.certFile)
+	if err := validateCACertificate(caCert, l.certFile); err != nil {
+		return err
 	}
 
 	caKey, ok := pair.PrivateKey.(crypto.Signer)
@@ -171,4 +172,16 @@ func (l *localIssuer) sign(_ context.Context, req *certificateRequest) (*x509.Ce
 	}
 
 	return leaf, []*x509.Certificate{caCert}, nil
+}
+
+func validateCACertificate(caCert *x509.Certificate, certFile string) error {
+	if (caCert.Version == 3 && !caCert.BasicConstraintsValid) || (caCert.BasicConstraintsValid && !caCert.IsCA) {
+		return fmt.Errorf("%w: %q must have basicConstraints CA:TRUE", errNotCACertificate, certFile)
+	}
+
+	if caCert.KeyUsage != 0 && caCert.KeyUsage&x509.KeyUsageCertSign == 0 {
+		return fmt.Errorf("%w: %q must have keyCertSign usage", errCACannotSignCerts, certFile)
+	}
+
+	return nil
 }

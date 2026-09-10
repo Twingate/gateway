@@ -95,6 +95,57 @@ func TestLocalIssuer_load_SignalsOnlyOnCAChange(t *testing.T) {
 	assert.Len(t, issuer.rotated(), 1)
 }
 
+func TestValidateCACertificate(t *testing.T) {
+	tests := []struct {
+		name    string
+		caCert  *x509.Certificate
+		wantErr error
+	}{
+		{
+			name:   "CA with keyCertSign",
+			caCert: &x509.Certificate{Version: 3, BasicConstraintsValid: true, IsCA: true, KeyUsage: x509.KeyUsageCertSign},
+		},
+		{
+			name:   "CA without a keyUsage extension",
+			caCert: &x509.Certificate{Version: 3, BasicConstraintsValid: true, IsCA: true},
+		},
+		{
+			name:   "pre-v3 CA without basicConstraints",
+			caCert: &x509.Certificate{Version: 1, KeyUsage: x509.KeyUsageCertSign},
+		},
+		{
+			name:    "basicConstraints CA:FALSE",
+			caCert:  &x509.Certificate{Version: 3, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign},
+			wantErr: errNotCACertificate,
+		},
+		{
+			name:    "v3 without basicConstraints",
+			caCert:  &x509.Certificate{Version: 3, KeyUsage: x509.KeyUsageCertSign},
+			wantErr: errNotCACertificate,
+		},
+		{
+			name:    "keyUsage without keyCertSign",
+			caCert:  &x509.Certificate{Version: 3, BasicConstraintsValid: true, IsCA: true, KeyUsage: x509.KeyUsageDigitalSignature},
+			wantErr: errCACannotSignCerts,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateCACertificate(tt.caCert, "ca.crt")
+
+			if tt.wantErr == nil {
+				assert.NoError(t, err)
+
+				return
+			}
+
+			require.ErrorIs(t, err, tt.wantErr)
+			assert.Contains(t, err.Error(), `"ca.crt"`)
+		})
+	}
+}
+
 func TestLocalIssuer_load_Errors(t *testing.T) {
 	valid := createKeyPair(t, generateCA(t))
 	other := createKeyPair(t, generateCA(t))
