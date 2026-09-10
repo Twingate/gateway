@@ -241,15 +241,11 @@ func signTestCSR(t *testing.T, ca tls.Certificate, csrPEM string) string {
 	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}))
 }
 
-func csrPEM(t *testing.T, csr []byte) string {
-	t.Helper()
-
+func csrPEM(csr []byte) string {
 	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csr}))
 }
 
-func caPEM(t *testing.T, ca tls.Certificate) string {
-	t.Helper()
-
+func caPEM(ca tls.Certificate) string {
 	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ca.Certificate[0]}))
 }
 
@@ -341,7 +337,7 @@ func TestVaultIssuer_sign(t *testing.T) {
 		assert.Equal(t, map[string]any{"ttl": "24h0m0s", "format": "pem_bundle"}, payload)
 
 		_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
-			"certificate": signTestCSR(t, ca, csr) + caPEM(t, ca),
+			"certificate": signTestCSR(t, ca, csr) + caPEM(ca),
 		}})
 	})
 
@@ -383,7 +379,7 @@ func TestVaultIssuer_sign_Error(t *testing.T) {
 		{name: "blank certificate", responseData: map[string]any{"certificate": " \n "}, wantErr: errCertChainNotPEM},
 		{
 			name:         "certificate does not match the request",
-			responseData: map[string]any{"certificate": caPEM(t, ca)},
+			responseData: map[string]any{"certificate": caPEM(ca)},
 			wantErr:      errIssuedCertMismatch,
 		},
 	}
@@ -560,7 +556,7 @@ func TestParseCertificateChain(t *testing.T) {
 	}{
 		{
 			name:    "multiple entries, each holding one or more certificate",
-			pems:    []string{signTestCSR(t, ca, csrPEM(t, der)) + "\n\n" + caPEM(t, ca), caPEM(t, ca) + "\n\n"},
+			pems:    []string{signTestCSR(t, ca, csrPEM(der)) + "\n\n" + caPEM(ca), caPEM(ca) + "\n\n"},
 			wantLen: 3,
 		},
 		{
@@ -570,7 +566,7 @@ func TestParseCertificateChain(t *testing.T) {
 		},
 		{
 			name:    "PEM block is not a certificate",
-			pems:    []string{csrPEM(t, der)},
+			pems:    []string{csrPEM(der)},
 			wantErr: errCertChainNotPEM,
 		},
 		{
