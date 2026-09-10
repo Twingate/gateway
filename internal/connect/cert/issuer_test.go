@@ -515,9 +515,9 @@ func (f *fakeCAS) CreateCertificate(_ context.Context, req *privatecapb.CreateCe
 	return f.createCertificate(req)
 }
 
-// newTestGCPIssuer returns a gcpIssuer whose client talks to a fake CA Service
+// newTestGCPPrivateIssuer returns a gcpPrivateIssuer whose client talks to a fake CA Service
 // running handler, wired the way run wires the real one.
-func newTestGCPIssuer(t *testing.T, handler func(*privatecapb.CreateCertificateRequest) (*privatecapb.Certificate, error)) *gcpIssuer {
+func newTestGCPPrivateIssuer(t *testing.T, handler func(*privatecapb.CreateCertificateRequest) (*privatecapb.Certificate, error)) *gcpPrivateIssuer {
 	t.Helper()
 
 	listener := bufconn.Listen(1 << 20)
@@ -538,7 +538,7 @@ func newTestGCPIssuer(t *testing.T, handler func(*privatecapb.CreateCertificateR
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = client.Close() })
 
-	issuer := newGCPIssuer(&config.TLSGCPPrivateCAIssuerConfig{
+	issuer := newGCPPrivateIssuer(&config.TLSGCPPrivateCAIssuerConfig{
 		Project:  "acme",
 		Location: "us-east1",
 		CAPoolID: "gateway",
@@ -572,10 +572,10 @@ func writeServiceAccountFile(t *testing.T) string {
 	return path
 }
 
-func TestGCPIssuer_sign(t *testing.T) {
+func TestGCPPrivateIssuer_sign(t *testing.T) {
 	ca := generateCA(t)
 
-	issuer := newTestGCPIssuer(t, func(req *privatecapb.CreateCertificateRequest) (*privatecapb.Certificate, error) {
+	issuer := newTestGCPPrivateIssuer(t, func(req *privatecapb.CreateCertificateRequest) (*privatecapb.Certificate, error) {
 		assert.Equal(t, "projects/acme/locations/us-east1/caPools/gateway", req.GetParent())
 		assert.Equal(t, defaultTTL, req.GetCertificate().GetLifetime().AsDuration())
 		// The certificate ID has to match GCP CA Service's `[a-zA-Z0-9_-]{1,63}` constraint.
@@ -595,10 +595,10 @@ func TestGCPIssuer_sign(t *testing.T) {
 	assert.Len(t, caChain, 1)
 }
 
-func TestGCPIssuer_sign_PinIssuingCA(t *testing.T) {
+func TestGCPPrivateIssuer_sign_PinIssuingCA(t *testing.T) {
 	ca := generateCA(t)
 
-	issuer := newTestGCPIssuer(t, func(req *privatecapb.CreateCertificateRequest) (*privatecapb.Certificate, error) {
+	issuer := newTestGCPPrivateIssuer(t, func(req *privatecapb.CreateCertificateRequest) (*privatecapb.Certificate, error) {
 		assert.Equal(t, "gateway-ca", req.GetIssuingCertificateAuthorityId())
 
 		return &privatecapb.Certificate{
@@ -612,7 +612,7 @@ func TestGCPIssuer_sign_PinIssuingCA(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestGCPIssuer_sign_Error(t *testing.T) {
+func TestGCPPrivateIssuer_sign_Error(t *testing.T) {
 	ca := generateCA(t)
 
 	tests := []struct {
@@ -642,7 +642,7 @@ func TestGCPIssuer_sign_Error(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			issuer := newTestGCPIssuer(t, func(*privatecapb.CreateCertificateRequest) (*privatecapb.Certificate, error) {
+			issuer := newTestGCPPrivateIssuer(t, func(*privatecapb.CreateCertificateRequest) (*privatecapb.Certificate, error) {
 				return tt.issued, tt.issueErr
 			})
 
@@ -660,8 +660,8 @@ func TestGCPIssuer_sign_Error(t *testing.T) {
 	}
 }
 
-func TestGCPIssuer_run(t *testing.T) {
-	issuer := newGCPIssuer(&config.TLSGCPPrivateCAIssuerConfig{
+func TestGCPPrivateIssuer_run(t *testing.T) {
+	issuer := newGCPPrivateIssuer(&config.TLSGCPPrivateCAIssuerConfig{
 		Project:         "acme",
 		Location:        "us-east1",
 		CAPoolID:        "gateway",
@@ -672,8 +672,8 @@ func TestGCPIssuer_run(t *testing.T) {
 	t.Cleanup(func() { _ = issuer.client.Close() })
 }
 
-func TestGCPIssuer_run_ClosesClientOnShutdown(t *testing.T) {
-	issuer := newGCPIssuer(&config.TLSGCPPrivateCAIssuerConfig{
+func TestGCPPrivateIssuer_run_ClosesClientOnShutdown(t *testing.T) {
+	issuer := newGCPPrivateIssuer(&config.TLSGCPPrivateCAIssuerConfig{
 		Project:         "acme",
 		Location:        "us-east1",
 		CAPoolID:        "gateway",
@@ -693,8 +693,8 @@ func TestGCPIssuer_run_ClosesClientOnShutdown(t *testing.T) {
 	}, time.Second, 10*time.Millisecond, "a cancelled context should close the client")
 }
 
-func TestGCPIssuer_run_CredentialsFileMissing(t *testing.T) {
-	issuer := newGCPIssuer(&config.TLSGCPPrivateCAIssuerConfig{
+func TestGCPPrivateIssuer_run_CredentialsFileMissing(t *testing.T) {
+	issuer := newGCPPrivateIssuer(&config.TLSGCPPrivateCAIssuerConfig{
 		Project:         "acme",
 		Location:        "us-east1",
 		CAPoolID:        "gateway",

@@ -67,7 +67,7 @@ func newIssuer(cfg config.TLSIssuerConfig, logger *zap.Logger) (issuer, error) {
 	case cfg.Vault != nil:
 		return newVaultIssuer(cfg.Vault, logger)
 	case cfg.GCPPrivateCA != nil:
-		return newGCPIssuer(cfg.GCPPrivateCA), nil
+		return newGCPPrivateIssuer(cfg.GCPPrivateCA), nil
 	default:
 		return nil, config.ErrMissingTLSIssuerConfig
 	}
@@ -279,8 +279,8 @@ func (v *vaultIssuer) sign(ctx context.Context, req *certificateRequest) (*x509.
 	return leaf, chain[1:], nil
 }
 
-// gcpIssuer issues leaf certificates through Google Cloud Certificate Authority Service.
-type gcpIssuer struct {
+// gcpPrivateIssuer issues leaf certificates through Google Cloud Certificate Authority Service.
+type gcpPrivateIssuer struct {
 	parent          string
 	issuingCA       string
 	credentialsFile string
@@ -288,8 +288,8 @@ type gcpIssuer struct {
 	client *privateca.CertificateAuthorityClient
 }
 
-func newGCPIssuer(cfg *config.TLSGCPPrivateCAIssuerConfig) *gcpIssuer {
-	return &gcpIssuer{
+func newGCPPrivateIssuer(cfg *config.TLSGCPPrivateCAIssuerConfig) *gcpPrivateIssuer {
+	return &gcpPrivateIssuer{
 		parent:          fmt.Sprintf("projects/%s/locations/%s/caPools/%s", cfg.Project, cfg.Location, cfg.CAPoolID),
 		issuingCA:       cfg.IssuingCertificateAuthorityID,
 		credentialsFile: cfg.CredentialsFile,
@@ -297,7 +297,7 @@ func newGCPIssuer(cfg *config.TLSGCPPrivateCAIssuerConfig) *gcpIssuer {
 }
 
 // run creates the certificate authority service client based on gRPC.
-func (g *gcpIssuer) run(ctx context.Context) error {
+func (g *gcpPrivateIssuer) run(ctx context.Context) error {
 	var opts []option.ClientOption
 	if g.credentialsFile != "" {
 		opts = append(opts, option.WithAuthCredentialsFile(option.ServiceAccount, g.credentialsFile))
@@ -315,7 +315,7 @@ func (g *gcpIssuer) run(ctx context.Context) error {
 	return nil
 }
 
-func (g *gcpIssuer) closeOnShutdown(ctx context.Context) {
+func (g *gcpPrivateIssuer) closeOnShutdown(ctx context.Context) {
 	<-ctx.Done()
 
 	_ = g.client.Close()
@@ -323,7 +323,7 @@ func (g *gcpIssuer) closeOnShutdown(ctx context.Context) {
 
 // sign has the CA pool sign the request.
 // If the context is canceled, the request is aborted and the connection closed.
-func (g *gcpIssuer) sign(ctx context.Context, req *certificateRequest) (*x509.Certificate, []*x509.Certificate, error) {
+func (g *gcpPrivateIssuer) sign(ctx context.Context, req *certificateRequest) (*x509.Certificate, []*x509.Certificate, error) {
 	csr, err := req.csr()
 	if err != nil {
 		return nil, nil, err
