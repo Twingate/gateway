@@ -32,7 +32,7 @@ var fullConfig = gatewayconfig.Config{
 	Port:        0,
 	MetricsPort: 0,
 	TLS: gatewayconfig.TLSConfig{
-		Certificates: gatewayconfig.TLSCertificateSources{
+		Certificates: &gatewayconfig.TLSCertificateSources{
 			Files: []gatewayconfig.TLSCertificateFileKeyPair{
 				{
 					CertificateFile: "../../test/data/proxy/tls.crt",

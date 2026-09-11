@@ -159,6 +159,51 @@ func TestResolveTwingateHostname(t *testing.T) {
 	})
 }
 
+func TestLoad_TLSAutomation(t *testing.T) {
+	yaml := `
+twingate:
+  network: "acme"
+port: 8443
+metricsPort: 9090
+tls:
+  certificates:
+    files:
+      - certificateFile: "tls.crt"
+        privateKeyFile: "tls.key"
+  automation:
+    certificate:
+      ttl: "48h"
+      key:
+        type: "ecdsa"
+        bits: 384
+    issuer:
+      local:
+        certificateFile: "ca.crt"
+        privateKeyFile: "ca.key"
+webApp: {}
+`
+
+	tmpFile := filepath.Join(t.TempDir(), "config.yaml")
+	err := os.WriteFile(tmpFile, []byte(yaml), 0600)
+	require.NoError(t, err)
+
+	cfg, err := Load(tmpFile)
+	require.NoError(t, err)
+	require.NotNil(t, cfg.TLS.Automation)
+	require.NotNil(t, cfg.TLS.Certificates)
+
+	assert.Equal(t, []TLSCertificateFileKeyPair{{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"}}, cfg.TLS.Certificates.Files)
+
+	require.NotNil(t, cfg.TLS.Automation.Issuer.Local)
+	assert.Equal(t, "ca.crt", cfg.TLS.Automation.Issuer.Local.CertificateFile)
+	assert.Equal(t, "ca.key", cfg.TLS.Automation.Issuer.Local.PrivateKeyFile)
+	assert.Equal(t, 48*time.Hour, cfg.TLS.Automation.Certificate.TTL)
+	assert.Equal(t, "ecdsa", cfg.TLS.Automation.Certificate.Key.Type)
+	assert.Equal(t, 384, cfg.TLS.Automation.Certificate.Key.Bits)
+
+	assert.NoError(t, cfg.Validate())
+}
+
 func TestLoad_Kubernetes(t *testing.T) {
 	yaml := `
 twingate:
@@ -365,7 +410,7 @@ func TestConfig_Validate(t *testing.T) {
 				Port:        8443,
 				MetricsPort: 9090,
 				TLS: TLSConfig{
-					Certificates: TLSCertificateSources{
+					Certificates: &TLSCertificateSources{
 						Files: []TLSCertificateFileKeyPair{
 							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
 						},
@@ -385,7 +430,7 @@ func TestConfig_Validate(t *testing.T) {
 				Port:        8443,
 				MetricsPort: 9090,
 				TLS: TLSConfig{
-					Certificates: TLSCertificateSources{
+					Certificates: &TLSCertificateSources{
 						Files: []TLSCertificateFileKeyPair{
 							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
 						},
@@ -403,7 +448,7 @@ func TestConfig_Validate(t *testing.T) {
 				Port:        8443,
 				MetricsPort: 9090,
 				TLS: TLSConfig{
-					Certificates: TLSCertificateSources{
+					Certificates: &TLSCertificateSources{
 						Files: []TLSCertificateFileKeyPair{
 							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
 						},
@@ -421,7 +466,7 @@ func TestConfig_Validate(t *testing.T) {
 				Port:        8443,
 				MetricsPort: 9090,
 				TLS: TLSConfig{
-					Certificates: TLSCertificateSources{
+					Certificates: &TLSCertificateSources{
 						Files: []TLSCertificateFileKeyPair{
 							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
 						},
@@ -438,7 +483,7 @@ func TestConfig_Validate(t *testing.T) {
 				Port:        8443,
 				MetricsPort: 9090,
 				TLS: TLSConfig{
-					Certificates: TLSCertificateSources{
+					Certificates: &TLSCertificateSources{
 						Files: []TLSCertificateFileKeyPair{
 							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
 						},
@@ -456,7 +501,7 @@ func TestConfig_Validate(t *testing.T) {
 				Port:        8443,
 				MetricsPort: 9090,
 				TLS: TLSConfig{
-					Certificates: TLSCertificateSources{
+					Certificates: &TLSCertificateSources{
 						Files: []TLSCertificateFileKeyPair{
 							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
 						},
@@ -474,7 +519,7 @@ func TestConfig_Validate(t *testing.T) {
 				Port:        8443,
 				MetricsPort: 9090,
 				TLS: TLSConfig{
-					Certificates: TLSCertificateSources{
+					Certificates: &TLSCertificateSources{
 						Files: []TLSCertificateFileKeyPair{
 							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
 						},
@@ -492,7 +537,7 @@ func TestConfig_Validate(t *testing.T) {
 				Port:        8443,
 				MetricsPort: 9090,
 				TLS: TLSConfig{
-					Certificates: TLSCertificateSources{
+					Certificates: &TLSCertificateSources{
 						Files: []TLSCertificateFileKeyPair{
 							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
 						},
@@ -509,7 +554,7 @@ func TestConfig_Validate(t *testing.T) {
 				Port:        8443,
 				MetricsPort: 9090,
 				TLS: TLSConfig{
-					Certificates: TLSCertificateSources{
+					Certificates: &TLSCertificateSources{
 						Files: []TLSCertificateFileKeyPair{
 							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
 						},
@@ -527,7 +572,7 @@ func TestConfig_Validate(t *testing.T) {
 				Port:        8443,
 				MetricsPort: 9090,
 				TLS: TLSConfig{
-					Certificates: TLSCertificateSources{
+					Certificates: &TLSCertificateSources{
 						Files: []TLSCertificateFileKeyPair{
 							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
 						},
@@ -544,7 +589,7 @@ func TestConfig_Validate(t *testing.T) {
 				Port:        8443,
 				MetricsPort: 9090,
 				TLS: TLSConfig{
-					Certificates: TLSCertificateSources{
+					Certificates: &TLSCertificateSources{
 						Files: []TLSCertificateFileKeyPair{
 							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
 						},
@@ -561,7 +606,7 @@ func TestConfig_Validate(t *testing.T) {
 				Port:        8443,
 				MetricsPort: 9090,
 				TLS: TLSConfig{
-					Certificates: TLSCertificateSources{
+					Certificates: &TLSCertificateSources{
 						Files: []TLSCertificateFileKeyPair{
 							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
 						},
@@ -578,7 +623,7 @@ func TestConfig_Validate(t *testing.T) {
 				Port:        8443,
 				MetricsPort: 9090,
 				TLS: TLSConfig{
-					Certificates: TLSCertificateSources{
+					Certificates: &TLSCertificateSources{
 						Files: []TLSCertificateFileKeyPair{
 							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
 						},
@@ -596,7 +641,7 @@ func TestConfig_Validate(t *testing.T) {
 				Port:        8443,
 				MetricsPort: 9090,
 				TLS: TLSConfig{
-					Certificates: TLSCertificateSources{
+					Certificates: &TLSCertificateSources{
 						Files: []TLSCertificateFileKeyPair{
 							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
 						},
@@ -614,7 +659,7 @@ func TestConfig_Validate(t *testing.T) {
 				Port:        8443,
 				MetricsPort: 9090,
 				TLS: TLSConfig{
-					Certificates: TLSCertificateSources{
+					Certificates: &TLSCertificateSources{
 						Files: []TLSCertificateFileKeyPair{
 							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
 						},
@@ -632,7 +677,7 @@ func TestConfig_Validate(t *testing.T) {
 				Port:        8443,
 				MetricsPort: 9090,
 				TLS: TLSConfig{
-					Certificates: TLSCertificateSources{
+					Certificates: &TLSCertificateSources{
 						Files: []TLSCertificateFileKeyPair{
 							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
 						},
@@ -650,7 +695,7 @@ func TestConfig_Validate(t *testing.T) {
 				Port:        8443,
 				MetricsPort: 9090,
 				TLS: TLSConfig{
-					Certificates: TLSCertificateSources{
+					Certificates: &TLSCertificateSources{
 						Files: []TLSCertificateFileKeyPair{
 							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
 						},
@@ -668,7 +713,7 @@ func TestConfig_Validate(t *testing.T) {
 				Port:        -1,
 				MetricsPort: 9090,
 				TLS: TLSConfig{
-					Certificates: TLSCertificateSources{
+					Certificates: &TLSCertificateSources{
 						Files: []TLSCertificateFileKeyPair{
 							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
 						},
@@ -686,7 +731,7 @@ func TestConfig_Validate(t *testing.T) {
 				Port:        8443,
 				MetricsPort: 70000,
 				TLS: TLSConfig{
-					Certificates: TLSCertificateSources{
+					Certificates: &TLSCertificateSources{
 						Files: []TLSCertificateFileKeyPair{
 							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
 						},
@@ -704,7 +749,7 @@ func TestConfig_Validate(t *testing.T) {
 				Port:        8443,
 				MetricsPort: 9090,
 				TLS: TLSConfig{
-					Certificates: TLSCertificateSources{
+					Certificates: &TLSCertificateSources{
 						Files: []TLSCertificateFileKeyPair{
 							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
 						},
@@ -739,65 +784,113 @@ func TestTLSConfig_Validate(t *testing.T) {
 		{
 			name: "valid",
 			tls: TLSConfig{
-				Certificates: TLSCertificateSources{
+				Certificates: &TLSCertificateSources{
 					Files: []TLSCertificateFileKeyPair{
 						{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+					},
+				},
+				Automation: &TLSAutomationConfig{
+					Issuer: TLSIssuerConfig{
+						Local: &TLSLocalIssuerConfig{CertificateFile: "ca.crt", PrivateKeyFile: "ca.key"},
 					},
 				},
 			},
 			wantErr: false,
 		},
 		{
-			name: "multiple certificates",
+			name: "certificates only",
 			tls: TLSConfig{
-				Certificates: TLSCertificateSources{
+				Certificates: &TLSCertificateSources{
 					Files: []TLSCertificateFileKeyPair{
 						{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
-						{CertificateFile: "other.crt", PrivateKeyFile: "other.key"},
 					},
 				},
 			},
 			wantErr: false,
 		},
 		{
-			name:        "missing certificates",
+			name:        "missing certificates and automation",
 			tls:         TLSConfig{},
 			wantErr:     true,
-			errContains: "required field is missing: certificates.files",
+			errContains: "either 'certificates' or 'automation' must be specified for TLS config",
+		},
+		{
+			name:        "invalid certificates",
+			tls:         TLSConfig{Certificates: &TLSCertificateSources{}},
+			wantErr:     true,
+			errContains: "certificates: required field is missing: files",
+		},
+		{
+			name:        "invalid automation",
+			tls:         TLSConfig{Automation: &TLSAutomationConfig{}},
+			wantErr:     true,
+			errContains: "automation: issuer: at least one TLS issuer must be configured",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.tls.Validate()
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errContains)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestTLSCertificateSources_Validate(t *testing.T) {
+	tests := []struct {
+		name        string
+		sources     TLSCertificateSources
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name: "multiple files",
+			sources: TLSCertificateSources{
+				Files: []TLSCertificateFileKeyPair{
+					{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+					{CertificateFile: "other.crt", PrivateKeyFile: "other.key"},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name:        "no files",
+			sources:     TLSCertificateSources{},
+			wantErr:     true,
+			errContains: "required field is missing: files",
 		},
 		{
 			name: "file missing certificate",
-			tls: TLSConfig{
-				Certificates: TLSCertificateSources{
-					Files: []TLSCertificateFileKeyPair{
-						{PrivateKeyFile: "tls.key"},
-					},
+			sources: TLSCertificateSources{
+				Files: []TLSCertificateFileKeyPair{
+					{PrivateKeyFile: "tls.key"},
 				},
 			},
 			wantErr:     true,
-			errContains: "certificates.files[0]: required field is missing: certificateFile",
+			errContains: "files[0]: required field is missing: certificateFile",
 		},
 		{
 			name: "file missing private key",
-			tls: TLSConfig{
-				Certificates: TLSCertificateSources{
-					Files: []TLSCertificateFileKeyPair{
-						{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
-						{CertificateFile: "other.crt"},
-					},
+			sources: TLSCertificateSources{
+				Files: []TLSCertificateFileKeyPair{
+					{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+					{CertificateFile: "other.crt"},
 				},
 			},
 			wantErr:     true,
-			errContains: "certificates.files[1]: required field is missing: privateKeyFile",
+			errContains: "files[1]: required field is missing: privateKeyFile",
 		},
 		{
 			name: "duplicate certificate file",
-			tls: TLSConfig{
-				Certificates: TLSCertificateSources{
-					Files: []TLSCertificateFileKeyPair{
-						{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
-						{CertificateFile: "tls.crt", PrivateKeyFile: "other.key"},
-					},
+			sources: TLSCertificateSources{
+				Files: []TLSCertificateFileKeyPair{
+					{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+					{CertificateFile: "tls.crt", PrivateKeyFile: "other.key"},
 				},
 			},
 			wantErr:     true,
@@ -807,7 +900,89 @@ func TestTLSConfig_Validate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := tt.tls.Validate()
+			err := tt.sources.Validate()
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errContains)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestTLSAutomationConfig_Validate(t *testing.T) {
+	localIssuer := TLSIssuerConfig{
+		Local: &TLSLocalIssuerConfig{CertificateFile: "ca.crt", PrivateKeyFile: "ca.key"},
+	}
+
+	tests := []struct {
+		name        string
+		automation  TLSAutomationConfig
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name: "valid with full certificate config",
+			automation: TLSAutomationConfig{
+				Issuer: localIssuer,
+				Certificate: TLSAutomationCertificateConfig{
+					TTL: 48 * time.Hour,
+					Key: TLSCertificateKeyConfig{Type: "rsa", Bits: 4096},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name:       "valid with defaults",
+			automation: TLSAutomationConfig{Issuer: localIssuer},
+			wantErr:    false,
+		},
+		{
+			name:        "missing issuer",
+			automation:  TLSAutomationConfig{},
+			wantErr:     true,
+			errContains: "issuer: at least one TLS issuer must be configured",
+		},
+		{
+			name: "local issuer missing certificate",
+			automation: TLSAutomationConfig{
+				Issuer: TLSIssuerConfig{Local: &TLSLocalIssuerConfig{PrivateKeyFile: "ca.key"}},
+			},
+			wantErr:     true,
+			errContains: "issuer: local: required field is missing: certificateFile",
+		},
+		{
+			name: "local issuer missing private key",
+			automation: TLSAutomationConfig{
+				Issuer: TLSIssuerConfig{Local: &TLSLocalIssuerConfig{CertificateFile: "ca.crt"}},
+			},
+			wantErr:     true,
+			errContains: "issuer: local: required field is missing: privateKeyFile",
+		},
+		{
+			name: "negative ttl",
+			automation: TLSAutomationConfig{
+				Issuer:      localIssuer,
+				Certificate: TLSAutomationCertificateConfig{TTL: -time.Hour},
+			},
+			wantErr:     true,
+			errContains: "certificate: TTL must be non-negative: ttl",
+		},
+		{
+			name: "invalid key type",
+			automation: TLSAutomationConfig{
+				Issuer:      localIssuer,
+				Certificate: TLSAutomationCertificateConfig{Key: TLSCertificateKeyConfig{Type: "ed25519"}},
+			},
+			wantErr:     true,
+			errContains: "certificate: key: invalid TLS key type",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.automation.Validate()
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.errContains)
