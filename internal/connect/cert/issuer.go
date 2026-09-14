@@ -322,7 +322,7 @@ func (g *gcpPrivateIssuer) closeOnShutdown(ctx context.Context) {
 }
 
 // sign has the CA pool sign the request.
-// If the context is canceled, the request is aborted and the connection closed.
+// If the context is canceled, the request is aborted.
 func (g *gcpPrivateIssuer) sign(ctx context.Context, req *certificateRequest) (*x509.Certificate, []*x509.Certificate, error) {
 	csr, err := req.csr()
 	if err != nil {
