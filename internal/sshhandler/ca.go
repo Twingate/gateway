@@ -18,9 +18,10 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/crypto/ssh"
 
-	vault "github.com/hashicorp/vault/api"
+	vaultapi "github.com/hashicorp/vault/api"
 
 	gatewayconfig "gateway/internal/config"
+	"gateway/internal/vault"
 )
 
 var (
@@ -177,7 +178,7 @@ func (p *manualCAProvider) upstreamHostKeyCallback(_ context.Context, address st
 // vaultCAProvider is backed by Vault, with independent CAs for Gateway host and
 // user certificates and upstream host verification.
 type vaultCAProvider struct {
-	vault *Vault
+	vault *vault.Vault
 
 	host     *vaultCA
 	user     *vaultCA
@@ -186,7 +187,7 @@ type vaultCAProvider struct {
 
 // newVaultCA creates Vault-backed CAs.
 func newVaultCA(vaultConfig *gatewayconfig.SSHCAVaultConfig, logger *zap.Logger) (*vaultCAProvider, error) {
-	v, err := newVault(vaultConfig, logger)
+	v, err := vault.New(vaultConfig.VaultConfig, logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Vault client: %w", err)
 	}
@@ -194,17 +195,17 @@ func newVaultCA(vaultConfig *gatewayconfig.SSHCAVaultConfig, logger *zap.Logger)
 	return &vaultCAProvider{
 		vault: v,
 		host: &vaultCA{
-			client: v.client,
+			client: v.Client,
 			mount:  vaultConfig.GetGatewayHostCAMount(),
 			role:   vaultConfig.GetGatewayHostCARole(),
 		},
 		user: &vaultCA{
-			client: v.client,
+			client: v.Client,
 			mount:  vaultConfig.GetGatewayUserCAMount(),
 			role:   vaultConfig.GetGatewayUserCARole(),
 		},
 		upstream: &vaultCA{
-			client: v.client,
+			client: v.Client,
 			mount:  vaultConfig.GetUpstreamHostCAMount(),
 			role:   "", // No role needed - only used for publicKey retrieval
 		},
@@ -213,16 +214,16 @@ func newVaultCA(vaultConfig *gatewayconfig.SSHCAVaultConfig, logger *zap.Logger)
 
 // Start performs initial Vault authentication and starts the token renewal loop.
 func (p *vaultCAProvider) Start(ctx context.Context) error {
-	if p.vault.authMethod == nil {
+	if p.vault.AuthMethod == nil {
 		return nil
 	}
 
-	secret, err := p.vault.client.Auth().Login(ctx, p.vault.authMethod)
+	secret, err := p.vault.Client.Auth().Login(ctx, p.vault.AuthMethod)
 	if err != nil {
 		return fmt.Errorf("failed to login to Vault: %w", err)
 	}
 
-	go p.vault.runTokenRenewalLoop(ctx, secret)
+	go p.vault.RunTokenRenewalLoop(ctx, secret)
 
 	return nil
 }
@@ -307,7 +308,7 @@ func mustUint64(t time.Time) uint64 {
 }
 
 type vaultCA struct {
-	client *vault.Client
+	client *vaultapi.Client
 	mount  string
 	role   string
 }

@@ -10,9 +10,14 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"fmt"
+	"maps"
 	"math/big"
+	"net"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,14 +25,18 @@ import (
 
 	"gateway/internal/config"
 	filereloader "gateway/internal/reloader"
+	"gateway/internal/vault"
 )
 
 const clockSkewBuffer = 30 * time.Second
 
 var (
-	errNotCACertificate  = errors.New("certificate is not a CA certificate")
-	errCACannotSignCerts = errors.New("CA certificate cannot sign certificates")
-	errCAKeyNotSigner    = errors.New("CA private key does not implement crypto.Signer")
+	errNotCACertificate   = errors.New("certificate is not a certificate authority")
+	errCACannotSignCerts  = errors.New("CA certificate cannot sign certificates")
+	errCAKeyNotSigner     = errors.New("CA private key does not implement crypto.Signer")
+	errVaultIssueFailed   = errors.New("failed to issue certificate with Vault")
+	errCertChainNotPEM    = errors.New("certificate chain is not PEM encoded")
+	errIssuedCertMismatch = errors.New("issued certificate does not match the request")
 )
 
 var serialNumberLimit = new(big.Int).Lsh(big.NewInt(1), 128)
@@ -49,6 +58,8 @@ func newIssuer(cfg config.TLSIssuerConfig, logger *zap.Logger) (issuer, error) {
 	switch {
 	case cfg.Local != nil:
 		return newLocalIssuer(cfg.Local, logger)
+	case cfg.Vault != nil:
+		return newVaultIssuer(cfg.Vault, logger)
 	default:
 		return nil, config.ErrMissingTLSIssuerConfig
 	}
@@ -184,4 +195,151 @@ func validateCACertificate(caCert *x509.Certificate, certFile string) error {
 	}
 
 	return nil
+}
+
+// vaultIssuer issues leaf certificates through Vault's PKI secrets engine.
+type vaultIssuer struct {
+	vault *vault.Vault
+	mount string
+	role  string
+}
+
+func newVaultIssuer(cfg *config.TLSVaultIssuerConfig, logger *zap.Logger) (*vaultIssuer, error) {
+	v, err := vault.New(cfg.VaultConfig, logger)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Vault client: %w", err)
+	}
+
+	return &vaultIssuer{vault: v, mount: cfg.GetMount(), role: cfg.Role}, nil
+}
+
+// run logs in to Vault and keeps the token renewed in the background.
+func (v *vaultIssuer) run(ctx context.Context) error {
+	if v.vault.AuthMethod == nil {
+		return nil
+	}
+
+	secret, err := v.vault.Client.Auth().Login(ctx, v.vault.AuthMethod)
+	if err != nil {
+		return fmt.Errorf("failed to login to Vault: %w", err)
+	}
+
+	go v.vault.RunTokenRenewalLoop(ctx, secret)
+
+	return nil
+}
+
+// sign has Vault sign the request through <mount>/sign/<role>.
+// If the context is canceled, the request is aborted and the connection closed.
+func (v *vaultIssuer) sign(ctx context.Context, req *certificateRequest) (*x509.Certificate, []*x509.Certificate, error) {
+	csr, err := req.csr()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	data := map[string]any{
+		"csr": string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csr})),
+		"ttl": req.ttl.String(),
+		// pem_bundle returns the CA chain concatenated onto the leaf
+		"format": "pem_bundle",
+	}
+
+	secret, err := v.vault.Client.Logical().WriteWithContext(ctx, v.mount+"/sign/"+v.role, data)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to issue certificate: %w", err)
+	}
+
+	if secret == nil || secret.Data == nil {
+		return nil, nil, fmt.Errorf("%w: empty response", errVaultIssueFailed)
+	}
+
+	certPEM, ok := secret.Data["certificate"].(string)
+	if !ok || certPEM == "" {
+		return nil, nil, fmt.Errorf("%w: no certificate in response", errVaultIssueFailed)
+	}
+
+	chain, err := parseCertificateChain([]string{certPEM})
+	if err != nil {
+		return nil, nil, err
+	}
+
+	leaf := chain[0]
+	if err := verifyIssuedCertificate(leaf, req); err != nil {
+		return nil, nil, err
+	}
+
+	return leaf, chain[1:], nil
+}
+
+// verifyIssuedCertificate rejects a certificate if the public key, SANs, or validity do not match the request.
+func verifyIssuedCertificate(leaf *x509.Certificate, req *certificateRequest) error {
+	type publicKey interface {
+		Equal(other crypto.PublicKey) bool
+	}
+
+	if pub, ok := req.key.Public().(publicKey); !ok || !pub.Equal(leaf.PublicKey) {
+		return fmt.Errorf("%w: certificate public key does not match the Gateway's key", errIssuedCertMismatch)
+	}
+
+	granted := certificateSANs(leaf.DNSNames, leaf.IPAddresses)
+	requested := certificateSANs(req.dnsNames, req.ipAddresses)
+
+	if !maps.Equal(granted, requested) {
+		return fmt.Errorf("%w: granted names %q do not match requested %q",
+			errIssuedCertMismatch, slices.Sorted(maps.Keys(granted)), slices.Sorted(maps.Keys(requested)))
+	}
+
+	maxNotAfter := time.Now().Add(req.ttl).Add(clockSkewBuffer)
+	if leaf.NotAfter.After(maxNotAfter) {
+		return fmt.Errorf("%w: validity %s exceeds requested TTL (max %s)", errIssuedCertMismatch, leaf.NotAfter, maxNotAfter)
+	}
+
+	return nil
+}
+
+// certificateSANs returns the SANs as a set, lowercased and in canonical IP
+// notation so both sides of a comparison match.
+func certificateSANs(dnsNames []string, ips []net.IP) map[string]struct{} {
+	names := make(map[string]struct{}, len(dnsNames)+len(ips))
+
+	for _, name := range dnsNames {
+		names[strings.ToLower(name)] = struct{}{}
+	}
+
+	for _, ip := range ips {
+		names[ip.String()] = struct{}{}
+	}
+
+	return names
+}
+
+// parseCertificateChain parses a list of PEM certificates. An entry may
+// hold a single certificate or a whole bundle, so each one is decoded to the end.
+func parseCertificateChain(pems []string) ([]*x509.Certificate, error) {
+	var chain []*x509.Certificate
+
+	for _, certPEM := range pems {
+		// Trim the trailing whitespace of the last block
+		for rest := []byte(certPEM); len(bytes.TrimSpace(rest)) > 0; {
+			var block *pem.Block
+
+			block, rest = pem.Decode(rest)
+			if block == nil || block.Type != "CERTIFICATE" {
+				return nil, errCertChainNotPEM
+			}
+
+			cert, err := x509.ParseCertificate(block.Bytes)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse issued certificate: %w", err)
+			}
+
+			chain = append(chain, cert)
+		}
+	}
+
+	if len(chain) == 0 {
+		return nil, errCertChainNotPEM
+	}
+
+	return chain, nil
 }
