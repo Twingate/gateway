@@ -16,6 +16,7 @@ import (
 	"go.uber.org/zap"
 
 	"gateway/internal/config"
+	"gateway/internal/connect/cert"
 	"gateway/internal/token"
 )
 
@@ -73,7 +74,7 @@ type Listener struct {
 	channels map[token.ResourceType]chan<- Conn
 
 	tokenParser      *token.Parser
-	certReloader     *CertReloader
+	certManager      *cert.Manager
 	tlsConfig        *tls.Config
 	connectValidator Validator
 	logger           *zap.Logger
@@ -102,12 +103,15 @@ func NewListener(
 		return nil, fmt.Errorf("failed to create token parser: %w", err)
 	}
 
-	certReloader := NewCertReloader(tlsCfg.Certificates.Files, logger)
+	certManager, err := cert.NewManager(tlsCfg, logger)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create TLS certificate manager: %w", err)
+	}
 
 	tlsConfig := &tls.Config{
 		MinVersion:     tls.VersionTLS13,
 		MaxVersion:     tls.VersionTLS13,
-		GetCertificate: certReloader.GetCertificate,
+		GetCertificate: certManager.GetCertificate,
 	}
 
 	connectValidator := &MessageValidator{
@@ -119,7 +123,7 @@ func NewListener(
 	l := &Listener{
 		channels:         channels,
 		tokenParser:      tokenParser,
-		certReloader:     certReloader,
+		certManager:      certManager,
 		tlsConfig:        tlsConfig,
 		connectValidator: connectValidator,
 		logger:           logger,
@@ -136,14 +140,16 @@ func NewListener(
 // The caller owns the listener and is responsible for closing it.
 // Serve closes the channels when it returns.
 func (l *Listener) Serve(ctx context.Context, listener net.Listener) error {
-	l.certReloader.Run(ctx)
-
 	var wg sync.WaitGroup
 
 	defer func() {
 		wg.Wait()
 		l.closeChannels()
 	}()
+
+	if err := l.certManager.Run(ctx); err != nil {
+		return err
+	}
 
 	for {
 		conn, err := listener.Accept()

@@ -50,6 +50,7 @@ linters:
         - Recorder
         - ca
         - caProvider
+        - issuer
         # golang.org/x/crypto/ssh
         - Signer
         - PublicKey
