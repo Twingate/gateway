@@ -45,6 +45,14 @@
                   "type": "string",
                   "description": "Name the CA is registered under in Twingate. Must be unique across the Twingate network and is immutable after install. Defaults to \"<fullname>-ca-<hash of the cluster and namespace>\"; must be set explicitly when rendering without cluster access (helm template, --dry-run=client, Argo CD).",
                   "default": ""
+                },
+                "certificate": {
+                  "type": "string",
+                  "description": "CA certificate content the TwingateCertificateAuthority registers (PEM format). Required when tls.automation is specified, whose issuer signs from a CA the chart never sees."
+                },
+                "certificateConfigMapName": {
+                  "type": "string",
+                  "description": "Name of an existing ConfigMap containing the CA certificate (key name: ca.crt). Takes precedence over certificate."
                 }
               },
               "additionalProperties": false
@@ -492,6 +500,77 @@
                   }
                 ]
               }
+            }
+          },
+          "additionalProperties": false
+        },
+        "automation": {
+          "type": "object",
+          "description": "On-demand TLS certificate issuance.",
+          "required": ["issuer"],
+          "properties": {
+            "certificate": {
+              "type": "object",
+              "description": "TLS configuration of the certificates the Gateway issues.",
+              "properties": {
+                "ttl": {
+                  "type": "string",
+                  "description": "Lifetime of an issued certificate (e.g. `24h`).",
+                  "default": "24h"
+                },
+                "key": {
+                  "type": "object",
+                  "description": "Private key generated for each issued certificate.",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "enum": ["ecdsa", "rsa"],
+                      "description": "Key type: ecdsa or rsa.",
+                      "default": "ecdsa"
+                    },
+                    "bits": {
+                      "type": "integer",
+                      "description": "Key size. ECDSA: 256/384/521, RSA: 2048/3072/4096. 0 defers to the Gateway, which uses 256 for ECDSA and 2048 for RSA.",
+                      "default": 0
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "additionalProperties": false
+            },
+            "issuer": {
+              "type": "object",
+              "description": "The certificate authority that signs issued certificates. Exactly one must be specified.",
+              "minProperties": 1,
+              "maxProperties": 1,
+              "properties": {
+                "gcpPrivateCA": {
+                  "type": "object",
+                  "description": "Google Cloud Certificate Authority Service. Authenticates through Application Default Credentials, such as GKE Workload Identity.",
+                  "required": ["project", "location", "caPoolId"],
+                  "properties": {
+                    "project": {
+                      "type": "string",
+                      "description": "Google Cloud project holding the CA pool."
+                    },
+                    "location": {
+                      "type": "string",
+                      "description": "Google Cloud location of the CA pool (e.g. `us-east1`)."
+                    },
+                    "caPoolId": {
+                      "type": "string",
+                      "description": "CA pool that signs the certificates."
+                    },
+                    "issuingCertificateAuthorityId": {
+                      "type": "string",
+                      "description": "Pins issuance to one CA in the pool, bypassing the pool's load balancing."
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "additionalProperties": false
             }
           },
           "additionalProperties": false

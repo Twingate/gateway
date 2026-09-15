@@ -23,6 +23,13 @@ twingateOperator:
       # namespace>"; set it explicitly when rendering without cluster access (helm
       # template, --dry-run=client, Argo CD), where the hash cannot be computed.
       name: ""
+      # CA certificate the TwingateCertificateAuthority registers.
+      # Required when `tls.automation` is specified.
+      # Fetch a GCP CA pool's certificate with
+      # `gcloud privateca pools get-ca-certs <caPoolId> --project <project> --location <location>`.
+      certificate: ""
+      # Existing ConfigMap containing the CA certificate (key name: ca.crt)
+      certificateConfigMapName: ""
   kubernetesResource:
     # Render a Kubernetes TwingateResource for the in-cluster API server,
     # bound to this gateway via gatewayRef. Requires gateway.enabled=true.
@@ -237,6 +244,23 @@ tls:
       # - cert: ""
       #   key: ""
       #   ca: ""
+
+  # On-demand TLS certificate issuance. Exactly one issuer must be specified.
+  # automation:
+  #   certificate:
+  #     ttl: "24h"
+  #     key:
+  #       # Key type: ecdsa, rsa
+  #       type: "ecdsa"
+  #       # Key bits: ECDSA: 256/384/521, RSA: 2048/3072/4096
+  #       bits: 256
+  #   issuer:
+  #     gcpPrivateCA:
+  #       project: "twingate-prod"
+  #       location: "us-east1"
+  #       caPoolId: "gateway-ca"
+  #       # Pins issuance to one CA in the pool, bypassing the pool's load balancing
+  #       issuingCertificateAuthorityId: ""
 
 # Gateway Service properties
 service:

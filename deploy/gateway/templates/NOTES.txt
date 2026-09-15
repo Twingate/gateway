@@ -1,7 +1,5 @@
 {{- $secretName := include "gateway.tlsSecretNames" . | fromJsonArray | first }}
-{{- $secretData := (lookup "v1" "Secret" .Release.Namespace $secretName).data }}
-{{- $existingAlternativeNamesHash := include "gateway.existingAlternativeNamesHash" . }}
-{{- $alternativeNamesHash := include "gateway.alternativeNamesHash" . }}
+{{- $certificateAuthority := .Values.twingateOperator.gateway.certificateAuthority | default dict }}
 
 Admin Console URL - {{ printf "https://%s.%s" .Values.twingate.network (include "gateway.twingate.host" .) }}
 
@@ -19,7 +17,15 @@ Watch the LoadBalancer address with: 'kubectl get svc --namespace {{ .Release.Na
 
 {{- end }}
 
-{{- if include "gateway.tlsEngineIsCertManager" . }}
+{{- if and .Values.twingateOperator.gateway.enabled (or $certificateAuthority.certificate $certificateAuthority.certificateConfigMapName) }}
+{{- $caConfigMapName := include "gateway.certificateAuthorityConfigMapName" . }}
+{{- $caData := (lookup "v1" "ConfigMap" .Release.Namespace $caConfigMapName).data }}
+{{- $caCertificate := $certificateAuthority.certificate | default (get $caData "ca.crt") }}
+
+2. Twingate registers the CA certificate from the {{ $caConfigMapName | quote }} ConfigMap. The CA certificate is
+
+{{ $caCertificate | trim }}
+{{- else if include "gateway.tlsEngineIsCertManager" . }}
 
 2. The Gateway uses TLS certificates from the {{ $secretName | quote }} Secret.
 
@@ -29,7 +35,10 @@ kubectl get secret --namespace {{ .Release.Namespace }} {{ $secretName }} -o jso
 
 Note: cert-manager does not delete this Secret on `helm uninstall`. Either delete it
 manually or run cert-manager with `--enable-certificate-owner-ref`.
-{{- else }}
+{{- else if $secretName }}
+{{- $secretData := (lookup "v1" "Secret" .Release.Namespace $secretName).data }}
+{{- $existingAlternativeNamesHash := include "gateway.existingAlternativeNamesHash" . }}
+{{- $alternativeNamesHash := include "gateway.alternativeNamesHash" . }}
 
 2. The Gateway uses TLS certificates from the {{ $secretName | quote }} Secret. The CA certificate is
 
@@ -42,5 +51,12 @@ manually or run cert-manager with `--enable-certificate-owner-ref`.
 {{- end }}
 {{- else }}
 {{- default (get $secretData "ca.crt" | b64dec) (index .Values.tls.certificates.secrets 0).ca }}
+{{- end }}
+{{- else }}
+
+2. The Gateway issues its TLS certificates on demand. Register the issuer's CA certificate with Twingate.
+{{- with .Values.tls.automation.issuer.gcpPrivateCA }} Fetch it from Google Cloud Certificate Authority Service with:
+
+gcloud privateca pools get-ca-certs {{ .caPoolId }} --project {{ .project }} --location {{ .location }}
 {{- end }}
 {{- end }}
