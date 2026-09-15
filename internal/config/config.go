@@ -126,8 +126,9 @@ type TLSCertificateKeyConfig struct {
 }
 
 type TLSIssuerConfig struct {
-	Local *TLSLocalIssuerConfig `yaml:"local,omitempty"`
-	Vault *TLSVaultIssuerConfig `yaml:"vault,omitempty"`
+	Local        *TLSLocalIssuerConfig        `yaml:"local,omitempty"`
+	Vault        *TLSVaultIssuerConfig        `yaml:"vault,omitempty"`
+	GCPPrivateCA *TLSGCPPrivateCAIssuerConfig `yaml:"gcpPrivateCA,omitempty"`
 }
 
 type TLSLocalIssuerConfig struct {
@@ -140,6 +141,16 @@ type TLSVaultIssuerConfig struct {
 
 	Mount string `yaml:"mount,omitempty"`
 	Role  string `yaml:"role"`
+}
+
+type TLSGCPPrivateCAIssuerConfig struct {
+	Project  string `yaml:"project"`
+	Location string `yaml:"location"`
+	CAPoolID string `yaml:"caPoolID"`
+	// Pins issuance to one CA in the pool, bypassing the pool's load balancing.
+	IssuingCertificateAuthorityID string `yaml:"issuingCertificateAuthorityID,omitempty"`
+
+	CredentialsFile string `yaml:"credentialsFile,omitempty"` // Defaults to Application Default Credentials
 }
 
 type KubernetesConfig struct {
@@ -404,7 +415,7 @@ func (c *Config) Validate() error {
 var (
 	ErrMissingTLSCertificateSource = errors.New("either 'certificates' or 'automation' must be specified for TLS config")
 	ErrMissingTLSIssuerConfig      = errors.New("at least one TLS issuer must be configured")
-	ErrConflictingTLSIssuerConfig  = errors.New("only one of 'local' or 'vault' can be specified for TLS issuer config")
+	ErrConflictingTLSIssuerConfig  = errors.New("only one of 'local', 'vault' or 'gcpPrivateCA' can be specified for TLS issuer config")
 	ErrInvalidTLSKeyType           = errors.New("invalid TLS key type")
 	errShortTTL                    = errors.New("TTL is too short")
 )
@@ -505,11 +516,18 @@ func (k *TLSCertificateKeyConfig) Validate() error {
 }
 
 func (i *TLSIssuerConfig) Validate() error {
-	if i.Local == nil && i.Vault == nil {
-		return ErrMissingTLSIssuerConfig
+	configured := 0
+
+	for _, set := range []bool{i.Local != nil, i.Vault != nil, i.GCPPrivateCA != nil} {
+		if set {
+			configured++
+		}
 	}
 
-	if i.Local != nil && i.Vault != nil {
+	switch {
+	case configured == 0:
+		return ErrMissingTLSIssuerConfig
+	case configured > 1:
 		return ErrConflictingTLSIssuerConfig
 	}
 
@@ -522,6 +540,12 @@ func (i *TLSIssuerConfig) Validate() error {
 	if i.Vault != nil {
 		if err := i.Vault.Validate(); err != nil {
 			return fmt.Errorf("vault: %w", err)
+		}
+	}
+
+	if i.GCPPrivateCA != nil {
+		if err := i.GCPPrivateCA.Validate(); err != nil {
+			return fmt.Errorf("gcpPrivateCA: %w", err)
 		}
 	}
 
@@ -559,6 +583,22 @@ func (v *TLSVaultIssuerConfig) Validate() error {
 
 	if v.Role == "" {
 		return fmt.Errorf("%w: role", ErrRequired)
+	}
+
+	return nil
+}
+
+func (g *TLSGCPPrivateCAIssuerConfig) Validate() error {
+	if g.Project == "" {
+		return fmt.Errorf("%w: project", ErrRequired)
+	}
+
+	if g.Location == "" {
+		return fmt.Errorf("%w: location", ErrRequired)
+	}
+
+	if g.CAPoolID == "" {
+		return fmt.Errorf("%w: caPoolID", ErrRequired)
 	}
 
 	return nil
