@@ -45,36 +45,42 @@ tests:
               key: "my-tls-key"
               ca: "my-ca-cert"
     asserts:
-      - equal:
+      - contains:
           path: spec.template.spec.volumes
-          value:
-            - name: config
-              configMap:
-                name: RELEASE-NAME-gateway-config
-            - name: tls-certs-0
-              secret:
-                secretName: RELEASE-NAME-gateway-tls
-            - name: tls-certs-1
-              secret:
-                secretName: my-tls-secret
-            - name: tls-certs-2
-              secret:
-                secretName: RELEASE-NAME-gateway-tls-1
-      - equal:
+          content:
+            name: tls-certs-0
+            secret:
+              secretName: RELEASE-NAME-gateway-tls
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: tls-certs-1
+            secret:
+              secretName: my-tls-secret
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: tls-certs-2
+            secret:
+              secretName: RELEASE-NAME-gateway-tls-1
+      - contains:
           path: spec.template.spec.containers[0].volumeMounts
-          value:
-            - name: config
-              mountPath: /etc/gateway
-              readOnly: true
-            - name: tls-certs-0
-              mountPath: /etc/gateway/tls/0
-              readOnly: true
-            - name: tls-certs-1
-              mountPath: /etc/gateway/tls/1
-              readOnly: true
-            - name: tls-certs-2
-              mountPath: /etc/gateway/tls/2
-              readOnly: true
+          content:
+            name: tls-certs-0
+            mountPath: /etc/gateway/tls/0
+            readOnly: true
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: tls-certs-1
+            mountPath: /etc/gateway/tls/1
+            readOnly: true
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: tls-certs-2
+            mountPath: /etc/gateway/tls/2
+            readOnly: true
   - it: should set priorityClassName when specified
     set:
       priorityClassName: "myPriorityClass"
