@@ -19,7 +19,7 @@ spec:
   name: {{ include "gateway.certificateAuthorityName" . | quote }}
   type: X509
   secretRef:
-    name: {{ include "gateway.tlsSecretName" . }}
+    name: {{ include "gateway.tlsSecretNames" . | fromJsonArray | first }}
     namespace: {{ .Release.Namespace }}
 ---
 apiVersion: twingate.com/v1beta
