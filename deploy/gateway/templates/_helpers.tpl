@@ -204,11 +204,41 @@ Get the alias of the in-cluster Kubernetes resource
 {{- end }}
 
 {{/*
+DNS names for the Gateway's TLS certificate, as a JSON array since include returns a string.
+Callers decode it with fromJsonArray.
+
+When the Gateway's Kubernetes proxy is enabled (`twingateOperator.kubernetesResource.enabled`
+or `kubernetes.enabled`), the DNS names of the built-in `kubernetes` Service are added
+automatically.
+*/}}
+{{- define "gateway.tlsDnsNames" -}}
+{{- $dnsNames := .Values.tls.dnsNames | default list }}
+{{- $k8sResourceEnabled := and .Values.twingateOperator.kubernetesResource .Values.twingateOperator.kubernetesResource.enabled }}
+{{- $k8sEnabled := and .Values.kubernetes .Values.kubernetes.enabled }}
+{{- if or $k8sResourceEnabled $k8sEnabled }}
+{{- $dnsNames = concat $dnsNames (list "kubernetes" "kubernetes.default" "kubernetes.default.svc" (printf "kubernetes.default.svc.%s" .Values.clusterDomain)) }}
+{{- end }}
+{{- $resourceAlias := include "gateway.resourceAlias" . }}
+{{- if $resourceAlias }}
+{{- $dnsNames = append $dnsNames $resourceAlias }}
+{{- end }}
+{{- $dnsNames | toJson }}
+{{- end }}
+
+{{/*
+Fail when the certificate the chart would issue covers no name.
+*/}}
+{{- define "gateway.requireTlsNames" -}}
+{{- if and (not (include "gateway.tlsDnsNames" . | fromJsonArray)) (not .Values.tls.ipAddresses) }}
+{{- fail "The Gateway's certificate would cover no Resource address. Set tls.dnsNames or tls.ipAddresses to the addresses of the Twingate Resources this Gateway serves." }}
+{{- end }}
+{{- end }}
+
+{{/*
 Create the alternative names hash of the TLS secret
 */}}
 {{- define "gateway.alternativeNamesHash" -}}
-{{- $resourceAlias := include "gateway.resourceAlias" . }}
-{{- printf "%s-%s-%s" .Values.tls.ipAddresses .Values.tls.dnsNames $resourceAlias | sha256sum }}
+{{- printf "%s-%s" .Values.tls.ipAddresses (include "gateway.tlsDnsNames" .) | sha256sum }}
 {{- end }}
 
 {{/*

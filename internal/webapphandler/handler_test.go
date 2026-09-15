@@ -93,6 +93,7 @@ func TestRewrite(t *testing.T) {
 		claims       *token.GATClaims
 		headers      map[string]string
 		wantHeaders  map[string]string
+		wantHost     string
 	}{
 		{
 			name:     "resolves all header templates",
@@ -195,6 +196,38 @@ func TestRewrite(t *testing.T) {
 				"Existing": "old-value",
 			},
 		},
+		{
+			name:     "config Host rewrite sets the outbound Host and not the header map",
+			jwtToken: "test-token",
+			claims:   baseClaims,
+			headers: map[string]string{
+				"Host": "kibana.corp.internal",
+			},
+			wantHeaders: map[string]string{
+				"Host": "",
+			},
+			wantHost: "kibana.corp.internal",
+		},
+		{
+			name:     "GAT Host rewrite overrides config Host",
+			jwtToken: "test-token",
+			claims: withRequestHeaderRewrites(baseClaims, map[string]string{
+				"Host": "kibana.corp.internal",
+			}),
+			headers: map[string]string{
+				"Host": "config.corp.internal",
+			},
+			wantHost: "kibana.corp.internal",
+		},
+		{
+			name:     "lowercase host rewrite is treated as Host",
+			jwtToken: "test-token",
+			claims: withRequestHeaderRewrites(baseClaims, map[string]string{
+				"host": "kibana.corp.internal",
+			}),
+			headers:  map[string]string{},
+			wantHost: "kibana.corp.internal",
+		},
 	}
 
 	for _, tt := range tests {
@@ -214,11 +247,14 @@ func TestRewrite(t *testing.T) {
 			}
 			parsedHeaders := mustParse(t, tt.headers)
 
-			err := rewrite(proxyReq, conn, parsedHeaders)
-			require.NoError(t, err)
+			require.NoError(t, rewrite(proxyReq, conn, parsedHeaders))
 
 			for name, wantValue := range tt.wantHeaders {
 				assert.Equal(t, wantValue, proxyReq.Out.Header.Get(name))
+			}
+
+			if tt.wantHost != "" {
+				assert.Equal(t, tt.wantHost, proxyReq.Out.Host)
 			}
 		})
 	}

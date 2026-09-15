@@ -52,6 +52,7 @@ const (
 	defaultMetricsPort                = 9090
 	defaultAuditLogFlushInterval      = time.Minute * 10
 	defaultAuditLogFlushSizeThreshold = 1_000_000 // 1MB in bytes
+	minTLSCertificateTTL              = time.Minute * 10
 )
 
 type Config struct {
@@ -64,10 +65,6 @@ type Config struct {
 	Kubernetes  *KubernetesConfig `yaml:"kubernetes,omitempty"`
 	SSH         *SSHConfig        `yaml:"ssh,omitempty"`
 	WebApp      *WebAppConfig     `yaml:"webApp,omitempty"`
-}
-
-type WebAppConfig struct {
-	RequestHeaders map[string]string `yaml:"requestHeaders,omitempty"`
 }
 
 type TwingateConfig struct {
@@ -276,6 +273,10 @@ type VaultAWSConfig struct {
 	Nonce         string `yaml:"nonce,omitempty"`
 }
 
+type WebAppConfig struct {
+	RequestHeaders map[string]string `yaml:"requestHeaders,omitempty"`
+}
+
 func newDefaultConfig() *Config {
 	return &Config{
 		Port:        defaultPort,
@@ -416,6 +417,7 @@ var (
 	ErrMissingTLSIssuerConfig      = errors.New("at least one TLS issuer must be configured")
 	ErrConflictingTLSIssuerConfig  = errors.New("only one of 'local', 'vault' or 'gcpPrivateCA' can be specified for TLS issuer config")
 	ErrInvalidTLSKeyType           = errors.New("invalid TLS key type")
+	errShortTTL                    = errors.New("TTL is too short")
 )
 
 func (t *TLSConfig) Validate() error {
@@ -487,6 +489,10 @@ func (a *TLSAutomationConfig) Validate() error {
 func (c *TLSAutomationCertificateConfig) Validate() error {
 	if c.TTL < 0 {
 		return fmt.Errorf("%w: ttl", ErrNegativeTTL)
+	}
+
+	if c.TTL != 0 && c.TTL < minTLSCertificateTTL {
+		return fmt.Errorf("%w: TTL must be at least %s", errShortTTL, minTLSCertificateTTL)
 	}
 
 	if err := c.Key.Validate(); err != nil {

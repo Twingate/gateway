@@ -1010,6 +1010,14 @@ func TestTLSAutomationConfig_Validate(t *testing.T) {
 			errContains: "issuer: local: required field is missing: privateKeyFile",
 		},
 		{
+			name: "ttl at the minimum",
+			automation: TLSAutomationConfig{
+				Issuer:      localIssuer,
+				Certificate: TLSAutomationCertificateConfig{TTL: minTLSCertificateTTL},
+			},
+			wantErr: false,
+		},
+		{
 			name: "negative ttl",
 			automation: TLSAutomationConfig{
 				Issuer:      localIssuer,
@@ -1017,6 +1025,15 @@ func TestTLSAutomationConfig_Validate(t *testing.T) {
 			},
 			wantErr:     true,
 			errContains: "certificate: TTL must be non-negative: ttl",
+		},
+		{
+			name: "ttl below the minimum",
+			automation: TLSAutomationConfig{
+				Issuer:      localIssuer,
+				Certificate: TLSAutomationCertificateConfig{TTL: minTLSCertificateTTL - time.Second},
+			},
+			wantErr:     true,
+			errContains: "certificate: TTL is too short: TTL must be at least 10m0s",
 		},
 		{
 			name: "invalid key type",
