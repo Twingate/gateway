@@ -11,12 +11,8 @@ should render the leaf Certificate referencing the configured issuer:
         helm.sh/chart: gateway-0.1.0
       name: RELEASE-NAME-gateway-crt
     spec:
-      commonName: RELEASE-NAME-gateway
       dnsNames:
-        - kubernetes
-        - kubernetes.default
-        - kubernetes.default.svc
-        - kubernetes.default.svc.cluster.local
+        - resource.corp.internal
       issuerRef:
         group: cert-manager.io
         kind: ClusterIssuer

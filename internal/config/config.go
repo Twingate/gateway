@@ -67,10 +67,6 @@ type Config struct {
 	WebApp      *WebAppConfig     `yaml:"webApp,omitempty"`
 }
 
-type WebAppConfig struct {
-	RequestHeaders map[string]string `yaml:"requestHeaders,omitempty"`
-}
-
 type TwingateConfig struct {
 	Network string `yaml:"network"`
 	Host    string `yaml:"host"`
@@ -251,6 +247,10 @@ type SSHCAVaultAWSConfig struct {
 	// Fields for type "ec2".
 	SignatureType string `yaml:"signatureType,omitempty"` // "rsa2048" (default), "identity", or "pkcs7"
 	Nonce         string `yaml:"nonce,omitempty"`
+}
+
+type WebAppConfig struct {
+	RequestHeaders map[string]string `yaml:"requestHeaders,omitempty"`
 }
 
 func newDefaultConfig() *Config {
