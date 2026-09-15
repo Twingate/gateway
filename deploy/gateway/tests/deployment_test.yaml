@@ -59,7 +59,7 @@ tests:
                 secretName: my-tls-secret
             - name: tls-certs-2
               secret:
-                secretName: RELEASE-NAME-gateway-tls-2
+                secretName: RELEASE-NAME-gateway-tls-1
       - equal:
           path: spec.template.spec.containers[0].volumeMounts
           value:

@@ -76,19 +76,30 @@ Create the name of the TLS secret to use
 {{- end }}
 
 {{/*
-Secret names holding the certificates the Gateway serves, as a JSON array since include
+Secret names holding the `tls.certificates.secrets` certificates, as a JSON array since include
+returns a string. Callers decode it with fromJsonArray.
+*/}}
+{{- define "gateway.tlsExtraSecretNames" -}}
+{{- $fullname := include "gateway.fullname" . }}
+{{- $names := list }}
+{{- range $i, $secret := .Values.tls.certificates.secrets }}
+{{- $names = append $names ($secret.name | default (printf "%s-tls-%d" $fullname $i)) }}
+{{- end }}
+{{- $names | toJson }}
+{{- end }}
+
+{{/*
+Secret names holding every certificate the Gateway serves, as a JSON array since include
 returns a string. Callers decode it with fromJsonArray.
 
-The auto-generated certificate is always first, then follow by the `tls.certificates.secrets` entry.
+The auto-generated certificate is always first when enabled, followed by the `tls.certificates.secrets` entries.
 */}}
 {{- define "gateway.tlsSecretNames" -}}
 {{- $names := list }}
 {{- if include "gateway.tlsEngine" . }}
 {{- $names = append $names (include "gateway.tlsSecretName" .) }}
 {{- end }}
-{{- range .Values.tls.certificates.secrets }}
-{{- $names = append $names (.name | default (printf "%s-tls-%d" (include "gateway.fullname" $) (len $names))) }}
-{{- end }}
+{{- $names = concat $names (include "gateway.tlsExtraSecretNames" . | fromJsonArray) }}
 {{- $names | toJson }}
 {{- end }}
 

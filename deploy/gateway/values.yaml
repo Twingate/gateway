@@ -228,8 +228,8 @@ tls:
         # Leave empty to use cert-manager defaults.
         duration: ""
         renewBefore: ""
-    # Certificates the Gateway serves alongside the auto-generated certificate. Each entry is
-    # either the name of an existing `kubernetes.io/tls` Secret including the `ca.crt` key or an inline content in PEM format.
+    # TLS certificates the Gateway serves. Each entry is either the name of an existing
+    # `kubernetes.io/tls` Secret including the `ca.crt` key or an inline content in PEM format.
     secrets: []
       # Name of an existing secret containing the certificate.
       # - name: "my-tls-secret"

@@ -457,7 +457,7 @@
             },
           "secrets": {
             "type": "array",
-            "description": "TLS certificates the Gateway serves alongside the auto-generated certificate. Each entry is either the name of an existing kubernetes.io/tls Secret including the ca.crt key or an inline content in PEM format",
+            "description": "TLS certificates the Gateway serves. Each entry is either the name of an existing kubernetes.io/tls Secret including the ca.crt key or an inline content in PEM format",
             "items": {
               "type": "object",
               "oneOf": [
