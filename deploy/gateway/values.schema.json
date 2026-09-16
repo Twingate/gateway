@@ -455,44 +455,44 @@
               },
               "additionalProperties": false
             },
-          "secrets": {
-            "type": "array",
-            "description": "TLS certificates the Gateway serves. Each entry is either the name of an existing kubernetes.io/tls Secret including the ca.crt key or an inline content in PEM format",
-            "items": {
-              "type": "object",
-              "oneOf": [
-                {
-                  "required": ["name"],
-                  "properties": {
-                    "name": {
-                      "type": "string",
-                      "minLength": 1,
-                      "description": "Name of an existing kubernetes.io/tls Secret holding the certificate and its CA in ca.crt key."
-                    }
-                  },
-                  "additionalProperties": false
-                },
-                {
-                  "required": ["cert", "key", "ca"],
-                  "properties": {
-                    "cert": {
-                      "type": "string",
-                      "description": "TLS certificate content (PEM format)."
+            "secrets": {
+              "type": "array",
+              "description": "TLS certificates the Gateway serves. Each entry is either the name of an existing kubernetes.io/tls Secret including the ca.crt key or an inline content in PEM format",
+              "items": {
+                "type": "object",
+                "oneOf": [
+                  {
+                    "required": ["name"],
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Name of an existing kubernetes.io/tls Secret holding the certificate and its CA in ca.crt key."
+                      }
                     },
-                    "key": {
-                      "type": "string",
-                      "description": "TLS private key content (PEM format)."
-                    },
-                    "ca": {
-                      "type": "string",
-                      "description": "TLS CA certificate (PEM format)."
-                    }
+                    "additionalProperties": false
                   },
-                  "additionalProperties": false
-                }
-              ]
+                  {
+                    "required": ["cert", "key", "ca"],
+                    "properties": {
+                      "cert": {
+                        "type": "string",
+                        "description": "TLS certificate content (PEM format)."
+                      },
+                      "key": {
+                        "type": "string",
+                        "description": "TLS private key content (PEM format)."
+                      },
+                      "ca": {
+                        "type": "string",
+                        "description": "TLS CA certificate (PEM format)."
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                ]
+              }
             }
-          }
           },
           "additionalProperties": false
         }
