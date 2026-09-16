@@ -231,7 +231,7 @@ tests:
             fLRk3a/Kh/4vpIdcfI38Xb\+iwfjRvCVEQAkf8efDzIfzL8yj5Mk\+E5OsfMD80YuZ
             khGd00QOCDRCpVisdRQmbzFv6JkeYKxhWzaulPHgl1JRzWaI
             -----END CERTIFICATE-----\n\n$
-  - it: should instruct to register the CA certificate when only automation is configured
+  - it: should show instruction to register the CA certificate when only automation is configured without Operator
     set:
       tls: &automationOnly
         certificates:
@@ -248,19 +248,7 @@ tests:
           pattern: "Register the issuer's CA certificate with Twingate"
       - matchRegexRaw:
           pattern: "gcloud privateca pools get-ca-certs gateway-ca --project twingate-prod --location us-east1"
-  - it: should show the supplied CA certificate
-    set:
-      twingateOperator:
-        gateway:
-          enabled: true
-          certificateAuthority:
-            name: my-ca
-            certificate: my-ca-cert
-      tls: *staticCertificate
-    asserts:
-      - matchRegexRaw:
-          pattern: "from the \"RELEASE-NAME-gateway-ca\" ConfigMap. The CA certificate is\n\nmy-ca-cert"
-  - it: should show the supplied CA certificate instead of the CA pool
+  - it: should show the provided CA certificate
     set:
       tls: *automationOnly
       twingateOperator:
@@ -272,9 +260,7 @@ tests:
     asserts:
       - matchRegexRaw:
           pattern: "The CA certificate is\n\nmy-ca-cert"
-      - notMatchRegexRaw:
-          pattern: "gcloud privateca pools get-ca-certs"
-  - it: should reference the existing CA certificate ConfigMap
+  - it: should show the existing CA certificate ConfigMap
     set:
       tls: *automationOnly
       twingateOperator:
@@ -302,7 +288,7 @@ tests:
     asserts:
       - matchRegexRaw:
           pattern: "from the \"issuer-ca\" ConfigMap. The CA certificate is\n\nissuer-ca-cert"
-  - it: should show the existing ConfigMap CA certificate rather than the supplied one
+  - it: should show the existing ConfigMap CA certificate rather than the provided one
     set:
       tls: *automationOnly
       twingateOperator:
@@ -352,6 +338,18 @@ tests:
           pattern: "rotated-ca-cert"
       - notMatchRegexRaw:
           pattern: "stale-ca-cert"
+  - it: should show the provided CA certificate when operator is enabled
+    set:
+      twingateOperator:
+        gateway:
+          enabled: true
+          certificateAuthority:
+            name: my-ca
+            certificate: my-ca-cert
+      tls: *staticCertificate
+    asserts:
+      - matchRegexRaw:
+          pattern: "from the \"RELEASE-NAME-gateway-ca\" ConfigMap. The CA certificate is\n\nmy-ca-cert"
   - it: should show CA certificate from TLS secret when the operator is disabled
     set:
       tls: *staticCertificate

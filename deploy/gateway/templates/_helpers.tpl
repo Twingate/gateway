@@ -240,7 +240,7 @@ Fail when TLS automation issuer CA certificate is not specified.
 {{- define "gateway.requireCertificateAuthorityCertificate" -}}
 {{- $certificateAuthority := .Values.twingateOperator.gateway.certificateAuthority | default dict }}
 {{- if and (include "gateway.tlsAutomationEnabled" .) (not $certificateAuthority.certificate) (not $certificateAuthority.certificateConfigMapName) }}
-{{- fail "tls.automation is enabled. The issuer CA certificate needs to be specified explicitly. Set twingateOperator.gateway.certificateAuthority.certificate to the issuer's CA, or point twingateOperator.gateway.certificateAuthority.certificateConfigMapName at a ConfigMap holding it under ca.crt." }}
+{{- fail "tls.automation is enabled. The issuer CA certificate must be provided. Set twingateOperator.gateway.certificateAuthority.certificate to the issuer's CA, or point twingateOperator.gateway.certificateAuthority.certificateConfigMapName at a ConfigMap holding it under ca.crt." }}
 {{- end }}
 {{- end }}
 

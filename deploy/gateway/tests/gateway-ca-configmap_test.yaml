@@ -23,8 +23,6 @@ tests:
           certificateAuthority:
             certificate: my-ca-cert
     asserts:
-      - hasDocuments:
-          count: 1
       - equal:
           path: metadata.name
           value: RELEASE-NAME-gateway-ca

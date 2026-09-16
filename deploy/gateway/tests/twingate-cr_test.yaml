@@ -284,4 +284,4 @@ tests:
       tls: *automation
     asserts:
       - failedTemplate:
-          errorPattern: "tls.automation is enabled. The issuer CA certificate needs to be specified explicitly."
+          errorPattern: "tls.automation is enabled. The issuer CA certificate must be provided."

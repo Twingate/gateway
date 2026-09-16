@@ -48,11 +48,11 @@
                 },
                 "certificate": {
                   "type": "string",
-                  "description": "CA certificate content the TwingateCertificateAuthority registers (PEM format). Required when tls.automation is specified, whose issuer signs from a CA the chart never sees."
+                  "description": "CA certificate content the TwingateCertificateAuthority registers (PEM format). Required when operator and tls.automation is enabled."
                 },
                 "certificateConfigMapName": {
                   "type": "string",
-                  "description": "Name of an existing ConfigMap containing the CA certificate (key name: ca.crt). Takes precedence over certificate."
+                  "description": "Name of an existing ConfigMap containing the CA certificate (key name: ca.crt)."
                 }
               },
               "additionalProperties": false
@@ -530,7 +530,7 @@
                     },
                     "bits": {
                       "type": "integer",
-                      "description": "Key size. ECDSA: 256/384/521, RSA: 2048/3072/4096. 0 defers to the Gateway, which uses 256 for ECDSA and 2048 for RSA.",
+                      "description": "Key size. ECDSA: 256/384/521, RSA: 2048/3072/4096.",
                       "default": 0
                     }
                   },
