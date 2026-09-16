@@ -19,7 +19,7 @@ Watch the LoadBalancer address with: 'kubectl get svc --namespace {{ .Release.Na
 
 {{- end }}
 
-{{- if include "gateway.createCertificate" . }}
+{{- if include "gateway.tlsEngineIsCertManager" . }}
 
 2. The Gateway uses TLS certificates from the {{ $secretName | quote }} Secret.
 
@@ -33,7 +33,7 @@ manually or run cert-manager with `--enable-certificate-owner-ref`.
 
 2. The Gateway uses TLS certificates from the {{ $secretName | quote }} Secret. The CA certificate is
 
-{{ if include "gateway.createTlsSecret" . }}
+{{ if include "gateway.tlsEngineIsHelm" . }}
 {{- if eq $existingAlternativeNamesHash $alternativeNamesHash }}
 {{- get $secretData "ca.crt" | b64dec }}
 {{- else }}
