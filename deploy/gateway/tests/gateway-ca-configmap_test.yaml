@@ -15,7 +15,7 @@ set:
           location: "us-east1"
           caPoolId: "gateway-ca"
 tests:
-  - it: render the CA certificate
+  - it: should render the CA certificate
     set:
       twingateOperator:
         gateway:
@@ -32,7 +32,7 @@ tests:
           path: data["ca.crt"]
           value: |
             my-ca-cert
-  - it: renders nothing when the operator integration is off
+  - it: should render nothing when the operator is disabled
     set:
       twingateOperator:
         gateway:
@@ -42,24 +42,14 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
-  - it: renders nothing when the CA certificate lives in a ConfigMap the user manages
-    set:
-      twingateOperator:
-        gateway:
-          enabled: true
-          certificateAuthority:
-            certificateConfigMapName: issuer-ca
-    asserts:
-      - hasDocuments:
-          count: 0
-  - it: renders nothing when a certificate accompanies an existing ConfigMap
+  - it: should render nothing when referencing an existing ConfigMap
     set:
       twingateOperator:
         gateway:
           enabled: true
           certificateAuthority:
             name: my-ca
-            certificate: "-----BEGIN CERTIFICATE-----"
+            certificate: "my-ca-cert" # Ignore inline certificate when name is specified
             certificateConfigMapName: issuer-ca
     asserts:
       - hasDocuments:

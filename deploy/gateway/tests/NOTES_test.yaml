@@ -231,7 +231,7 @@ tests:
             fLRk3a/Kh/4vpIdcfI38Xb\+iwfjRvCVEQAkf8efDzIfzL8yj5Mk\+E5OsfMD80YuZ
             khGd00QOCDRCpVisdRQmbzFv6JkeYKxhWzaulPHgl1JRzWaI
             -----END CERTIFICATE-----\n\n$
-  - it: should instruction to register the CA certificate when only automation is configured
+  - it: should instruct to register the CA certificate when only automation is configured
     set:
       tls: &automationOnly
         certificates:
@@ -290,7 +290,7 @@ tests:
             version: "v1"
             resource: "configmaps"
           namespaced: true
-      # Mock the ConfigMap the user manages, holding the issuer's CA
+      # Mock the existing ConfigMap
       objects:
         - kind: ConfigMap
           apiVersion: v1
@@ -302,6 +302,31 @@ tests:
     asserts:
       - matchRegexRaw:
           pattern: "from the \"issuer-ca\" ConfigMap. The CA certificate is\n\nissuer-ca-cert"
+  - it: should show the existing ConfigMap CA certificate rather than the supplied one
+    set:
+      tls: *automationOnly
+      twingateOperator:
+        gateway:
+          enabled: true
+          certificateAuthority:
+            name: my-ca
+            certificate: supplied-ca-cert # Ignore inline certificate when name is specified
+            certificateConfigMapName: issuer-ca
+    kubernetesProvider:
+      <<: *configMapProvider
+      objects:
+        - kind: ConfigMap
+          apiVersion: v1
+          metadata:
+            name: issuer-ca
+            namespace: NAMESPACE
+          data:
+            ca.crt: "issuer-ca-cert"
+    asserts:
+      - matchRegexRaw:
+          pattern: "from the \"issuer-ca\" ConfigMap. The CA certificate is\n\nissuer-ca-cert"
+      - notMatchRegexRaw:
+          pattern: "supplied-ca-cert"
   - it: should show the rotated CA certificate rather than the one already in the cluster
     set:
       tls: *staticCertificate
@@ -313,7 +338,7 @@ tests:
             certificate: rotated-ca-cert
     kubernetesProvider:
       <<: *configMapProvider
-      # Mock the ConfigMap a previous release applied, holding the superseded CA
+      # Mock the ConfigMap a previous release applied
       objects:
         - kind: ConfigMap
           apiVersion: v1

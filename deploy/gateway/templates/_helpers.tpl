@@ -137,11 +137,10 @@ true
 {{- end -}}
 
 {{/*
-Return "true" when `tls.automation` has an issuer.
+Return "true" when `tls.automation` is configured with an issuer.
 */}}
 {{- define "gateway.tlsAutomationEnabled" -}}
-{{- $issuer := (.Values.tls.automation | default dict).issuer -}}
-{{- if $issuer.gcpPrivateCA -}}
+{{- if (.Values.tls.automation | default dict).issuer -}}
 true
 {{- end -}}
 {{- end -}}
