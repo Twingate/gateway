@@ -339,7 +339,7 @@ tests:
           pattern: "rotated-ca-cert"
       - notMatchRegexRaw:
           pattern: "stale-ca-cert"
-  - it: should show the provided CA certificate when operator is enabled
+  - it: should show the provided CA certificate instead of the one from TLS secret when operator is enabled
     set:
       twingateOperator:
         gateway:
