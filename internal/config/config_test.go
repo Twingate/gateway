@@ -424,7 +424,7 @@ func TestConfig_Validate(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "invalid cas entry",
+			name: "invalid upstreamCABundles entry",
 			config: &Config{
 				Twingate:    TwingateConfig{Network: "test", Host: "twingate.com"},
 				Port:        8443,
@@ -436,11 +436,11 @@ func TestConfig_Validate(t *testing.T) {
 						},
 					},
 				},
-				CAs:        []CA{{Name: "web-app"}},
-				Kubernetes: &KubernetesConfig{},
+				UpstreamCABundles: []CA{{Name: "web-app"}},
+				Kubernetes:        &KubernetesConfig{},
 			},
 			wantErr:     true,
-			errContains: "cas config",
+			errContains: "upstreamCABundles config",
 		},
 		{
 			name: "missing Twingate network",
@@ -1207,7 +1207,7 @@ func TestKubernetesConfig_Validate(t *testing.T) {
 	}
 }
 
-func TestValidateCAs(t *testing.T) {
+func TestValidateUpstreamCABundles(t *testing.T) {
 	tests := []struct {
 		name        string
 		cas         []CA
@@ -1252,7 +1252,7 @@ func TestValidateCAs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateCAs(tt.cas)
+			err := validateUpstreamCABundles(tt.cas)
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.errContains)
@@ -1263,7 +1263,7 @@ func TestValidateCAs(t *testing.T) {
 	}
 }
 
-func TestLoad_CAs(t *testing.T) {
+func TestLoad_UpstreamCABundles(t *testing.T) {
 	yaml := `
 twingate:
   network: "acme"
@@ -1272,7 +1272,7 @@ tls:
     files:
       - certificateFile: "tls.crt"
         privateKeyFile: "tls.key"
-cas:
+upstreamCABundles:
   - name: "gcp-database"
     certFile: "/etc/gateway/ca1.crt"
   - name: "web-app"
@@ -1292,7 +1292,7 @@ webApp: {}
 		{Name: "gcp-database", CertFile: "/etc/gateway/ca1.crt"},
 		{Name: "web-app", CertFile: "/etc/gateway/ca2.crt"},
 	}
-	assert.Equal(t, want, cfg.CAs)
+	assert.Equal(t, want, cfg.UpstreamCABundles)
 	require.NoError(t, cfg.Validate())
 }
 

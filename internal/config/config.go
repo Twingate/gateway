@@ -56,15 +56,15 @@ const (
 )
 
 type Config struct {
-	Twingate    TwingateConfig    `yaml:"twingate"`
-	Port        int               `yaml:"port"`
-	MetricsPort int               `yaml:"metricsPort"`
-	AuditLog    AuditLogConfig    `yaml:"auditLog"`
-	TLS         TLSConfig         `yaml:"tls"`
-	CAs         []CA              `yaml:"cas,omitempty"`
-	Kubernetes  *KubernetesConfig `yaml:"kubernetes,omitempty"`
-	SSH         *SSHConfig        `yaml:"ssh,omitempty"`
-	WebApp      *WebAppConfig     `yaml:"webApp,omitempty"`
+	Twingate          TwingateConfig    `yaml:"twingate"`
+	Port              int               `yaml:"port"`
+	MetricsPort       int               `yaml:"metricsPort"`
+	AuditLog          AuditLogConfig    `yaml:"auditLog"`
+	TLS               TLSConfig         `yaml:"tls"`
+	UpstreamCABundles []CA              `yaml:"upstreamCABundles,omitempty"`
+	Kubernetes        *KubernetesConfig `yaml:"kubernetes,omitempty"`
+	SSH               *SSHConfig        `yaml:"ssh,omitempty"`
+	WebApp            *WebAppConfig     `yaml:"webApp,omitempty"`
 }
 
 type TwingateConfig struct {
@@ -388,8 +388,8 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("tls config: %w", err)
 	}
 
-	if err := validateCAs(c.CAs); err != nil {
-		return fmt.Errorf("cas config: %w", err)
+	if err := validateUpstreamCABundles(c.UpstreamCABundles); err != nil {
+		return fmt.Errorf("upstreamCABundles config: %w", err)
 	}
 
 	if c.Kubernetes != nil {
@@ -645,12 +645,12 @@ func (k *KubernetesUpstream) Validate() error {
 	return nil
 }
 
-func validateCAs(cas []CA) error {
+func validateUpstreamCABundles(cas []CA) error {
 	caNames := make(map[string]struct{})
 
 	for i, ca := range cas {
 		if err := ca.Validate(); err != nil {
-			return fmt.Errorf("cas[%d] (name: %q): %w", i, ca.Name, err)
+			return fmt.Errorf("upstreamCABundles[%d] (name: %q): %w", i, ca.Name, err)
 		}
 
 		if _, exists := caNames[ca.Name]; exists {
