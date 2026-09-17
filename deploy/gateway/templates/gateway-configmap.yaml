@@ -30,7 +30,7 @@ data:
             privateKeyFile: "/etc/gateway/tls/{{ $i }}/tls.key"
           {{- end }}
       {{- end }}
-      {{- if include "gateway.tlsAutomationEnabled" . }}
+      {{- if .Values.tls.automation.enabled }}
       automation:
         {{- with .Values.tls.automation.certificate }}
         certificate:

@@ -48,7 +48,7 @@
                 },
                 "certificate": {
                   "type": "string",
-                  "description": "CA certificate content the TwingateCertificateAuthority registers (PEM format). Required when operator and tls.automation is enabled."
+                  "description": "CA certificate content the TwingateCertificateAuthority registers (PEM format). Defaults to the ca.crt of the first TLS certificate Secret. Required when the Gateway serves certificates only through tls.automation, so ConfigMap holds the CA."
                 },
                 "certificateConfigMapName": {
                   "type": "string",
@@ -507,8 +507,12 @@
         "automation": {
           "type": "object",
           "description": "On-demand TLS certificate issuance.",
-          "required": ["issuer"],
           "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Issue TLS certificates on demand. Requires exactly one `issuer`.",
+              "default": false
+            },
             "certificate": {
               "type": "object",
               "description": "TLS configuration of the certificates the Gateway issues.",
@@ -530,7 +534,7 @@
                     },
                     "bits": {
                       "type": "integer",
-                      "description": "Key size. ECDSA: 256/384/521, RSA: 2048/3072/4096.",
+                      "description": "Key size. ECDSA: 256/384/521, RSA: 2048/3072/4096. 0 uses the default for the type (256 for ECDSA, 2048 for RSA).",
                       "default": 0
                     }
                   },
@@ -541,9 +545,7 @@
             },
             "issuer": {
               "type": "object",
-              "description": "The certificate authority that signs issued certificates. Exactly one must be specified.",
-              "minProperties": 1,
-              "maxProperties": 1,
+              "description": "The certificate authority that signs issued certificates. Exactly one must be specified when `enabled` is true.",
               "properties": {
                 "gcpPrivateCA": {
                   "type": "object",
@@ -571,6 +573,20 @@
                 }
               },
               "additionalProperties": false
+            }
+          },
+          "if": {
+            "properties": {"enabled": {"const": true}},
+            "required": ["enabled"]
+          },
+          "then": {
+            "required": ["issuer"],
+            "properties": {
+              "issuer": {
+                "oneOf": [
+                  {"required": ["gcpPrivateCA"]}
+                ]
+              }
             }
           },
           "additionalProperties": false
