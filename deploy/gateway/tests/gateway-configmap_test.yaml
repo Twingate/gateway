@@ -600,6 +600,14 @@ tests:
       - notMatchRegex:
           path: data["config.yaml"]
           pattern: "automation:"
+  - it: should fail when enabled is omitted
+    set:
+      tls:
+        automation:
+          enabled: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/tls/automation': missing property 'enabled'"
   - it: should fail when enabled without an issuer
     set:
       tls:

@@ -507,6 +507,7 @@
         "automation": {
           "type": "object",
           "description": "On-demand TLS certificate issuance.",
+          "required": ["enabled"],
           "properties": {
             "enabled": {
               "type": "boolean",
