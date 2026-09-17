@@ -26,7 +26,7 @@ type Config struct {
 	logger              *zap.Logger
 }
 
-func NewConfig(configRequestHeaders map[string]string, cas []config.CA, roundTripperMetrics *metrics.RoundTripperMetrics, logger *zap.Logger) (*Config, error) {
+func NewConfig(configRequestHeaders map[string]string, cas []config.UpstreamCABundle, roundTripperMetrics *metrics.RoundTripperMetrics, logger *zap.Logger) (*Config, error) {
 	headers := make(map[string]*template.Template, len(configRequestHeaders))
 
 	for name, value := range configRequestHeaders {
@@ -52,7 +52,7 @@ func NewConfig(configRequestHeaders map[string]string, cas []config.CA, roundTri
 
 // newCAPool merges the configured CAs on top of the system cert pool to verify
 // upstream TLS connections, so publicly-signed upstreams work without configuration.
-func newCAPool(cas []config.CA) (*x509.CertPool, error) {
+func newCAPool(cas []config.UpstreamCABundle) (*x509.CertPool, error) {
 	pool, err := x509.SystemCertPool()
 	if err != nil {
 		return nil, fmt.Errorf("load system cert pool: %w", err)

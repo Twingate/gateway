@@ -436,7 +436,7 @@ func TestConfig_Validate(t *testing.T) {
 						},
 					},
 				},
-				UpstreamCABundles: []CA{{Name: "web-app"}},
+				UpstreamCABundles: []UpstreamCABundle{{Name: "web-app"}},
 				Kubernetes:        &KubernetesConfig{},
 			},
 			wantErr:     true,
@@ -1210,13 +1210,13 @@ func TestKubernetesConfig_Validate(t *testing.T) {
 func TestValidateUpstreamCABundles(t *testing.T) {
 	tests := []struct {
 		name        string
-		cas         []CA
+		cas         []UpstreamCABundle
 		wantErr     bool
 		errContains string
 	}{
 		{
 			name: "valid list",
-			cas: []CA{
+			cas: []UpstreamCABundle{
 				{Name: "gcp-database", CertFile: "/etc/gateway/ca1.crt"},
 				{Name: "web-app", CertFile: "/etc/gateway/ca2.crt"},
 			},
@@ -1224,24 +1224,24 @@ func TestValidateUpstreamCABundles(t *testing.T) {
 		},
 		{
 			name:    "empty list is allowed",
-			cas:     []CA{},
+			cas:     []UpstreamCABundle{},
 			wantErr: false,
 		},
 		{
 			name:        "missing name",
-			cas:         []CA{{CertFile: "/etc/gateway/ca.crt"}},
+			cas:         []UpstreamCABundle{{CertFile: "/etc/gateway/ca.crt"}},
 			wantErr:     true,
 			errContains: "name",
 		},
 		{
 			name:        "missing certFile",
-			cas:         []CA{{Name: "web-app"}},
+			cas:         []UpstreamCABundle{{Name: "web-app"}},
 			wantErr:     true,
 			errContains: "certFile",
 		},
 		{
 			name: "duplicate CA names",
-			cas: []CA{
+			cas: []UpstreamCABundle{
 				{Name: "web-app", CertFile: "/etc/gateway/ca1.crt"},
 				{Name: "web-app", CertFile: "/etc/gateway/ca2.crt"},
 			},
@@ -1288,7 +1288,7 @@ webApp: {}
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
 
-	want := []CA{
+	want := []UpstreamCABundle{
 		{Name: "gcp-database", CertFile: "/etc/gateway/ca1.crt"},
 		{Name: "web-app", CertFile: "/etc/gateway/ca2.crt"},
 	}

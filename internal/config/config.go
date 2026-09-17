@@ -56,15 +56,15 @@ const (
 )
 
 type Config struct {
-	Twingate          TwingateConfig    `yaml:"twingate"`
-	Port              int               `yaml:"port"`
-	MetricsPort       int               `yaml:"metricsPort"`
-	AuditLog          AuditLogConfig    `yaml:"auditLog"`
-	TLS               TLSConfig         `yaml:"tls"`
-	UpstreamCABundles []CA              `yaml:"upstreamCABundles,omitempty"`
-	Kubernetes        *KubernetesConfig `yaml:"kubernetes,omitempty"`
-	SSH               *SSHConfig        `yaml:"ssh,omitempty"`
-	WebApp            *WebAppConfig     `yaml:"webApp,omitempty"`
+	Twingate          TwingateConfig     `yaml:"twingate"`
+	Port              int                `yaml:"port"`
+	MetricsPort       int                `yaml:"metricsPort"`
+	AuditLog          AuditLogConfig     `yaml:"auditLog"`
+	TLS               TLSConfig          `yaml:"tls"`
+	UpstreamCABundles []UpstreamCABundle `yaml:"upstreamCABundles,omitempty"`
+	Kubernetes        *KubernetesConfig  `yaml:"kubernetes,omitempty"`
+	SSH               *SSHConfig         `yaml:"ssh,omitempty"`
+	WebApp            *WebAppConfig      `yaml:"webApp,omitempty"`
 }
 
 type TwingateConfig struct {
@@ -103,8 +103,8 @@ type TLSCertificateFileKeyPair struct {
 	PrivateKeyFile  string `yaml:"privateKeyFile"`
 }
 
-// CA is a certificate authority the Gateway trusts when verifying upstream TLS connections.
-type CA struct {
+// UpstreamCABundle is a certificate authority the Gateway trusts when verifying upstream TLS connections.
+type UpstreamCABundle struct {
 	Name     string `yaml:"name"`
 	CertFile string `yaml:"certFile"`
 }
@@ -645,7 +645,7 @@ func (k *KubernetesUpstream) Validate() error {
 	return nil
 }
 
-func validateUpstreamCABundles(cas []CA) error {
+func validateUpstreamCABundles(cas []UpstreamCABundle) error {
 	caNames := make(map[string]struct{})
 
 	for i, ca := range cas {
@@ -663,7 +663,7 @@ func validateUpstreamCABundles(cas []CA) error {
 	return nil
 }
 
-func (c *CA) Validate() error {
+func (c *UpstreamCABundle) Validate() error {
 	if c.Name == "" {
 		return fmt.Errorf("%w: name", ErrRequired)
 	}
