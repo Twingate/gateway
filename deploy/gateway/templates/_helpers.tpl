@@ -134,9 +134,7 @@ An inline `pem` entry resolves to the chart-owned ConfigMap, keyed by its positi
 {{- if $bundle.configMapName }}
 {{- $sources = append $sources (dict "configMapName" $bundle.configMapName "key" ($bundle.configMapKey | default "ca.crt")) }}
 {{- else if $bundle.pem }}
-{{- $sources = append $sources (dict "configMapName" (include "gateway.upstreamCABundlesConfigMapName" $) "key" (printf "%d.crt" $i)) }}
-{{- else }}
-{{- fail (printf "upstreamCABundles[%d] holds no CA bundle. Set configMapName to a ConfigMap holding one, or pem to its PEM content." $i) }}
+{{- $sources = append $sources (dict "configMapName" (include "gateway.upstreamCABundlesConfigMapName" $) "key" (printf "ca%d.crt" $i)) }}
 {{- end }}
 {{- end }}
 {{- $sources | toJson }}

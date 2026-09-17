@@ -1,7 +1,7 @@
 {{- $inlineBundles := dict }}
 {{- range $i, $bundle := .Values.upstreamCABundles }}
 {{- if and (not $bundle.configMapName) $bundle.pem }}
-{{- $_ := set $inlineBundles (printf "%d.crt" $i) $bundle.pem }}
+{{- $_ := set $inlineBundles (printf "ca%d.crt" $i) $bundle.pem }}
 {{- end }}
 {{- end }}
 {{- if $inlineBundles }}

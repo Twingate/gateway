@@ -529,19 +529,19 @@ tests:
                     privateKeyFile: "/etc/gateway/tls/tls.key"
 
             upstreamCABundles:
-              - name: "0"
+              - name: "upstreamCA0"
                 certFile: "/etc/gateway/upstream-ca-bundles/0/ca.crt"
-              - name: "1"
+              - name: "upstreamCA1"
                 certFile: "/etc/gateway/upstream-ca-bundles/1/ca.crt"
-              - name: "2"
+              - name: "upstreamCA2"
                 certFile: "/etc/gateway/upstream-ca-bundles/2/ca.crt"
-  - it: should error when an entry holds neither a ConfigMap nor a PEM bundle
+  - it: should error when an inline PEM bundle is empty
     set:
       upstreamCABundles:
         - pem: ""
     asserts:
       - failedTemplate:
-          errorMessage: "upstreamCABundles[0] holds no CA bundle. Set configMapName to a ConfigMap holding one, or pem to its PEM content."
+          errorPattern: "at '/upstreamCABundles/0/pem': minLength: got 0, want 1"
   - it: should error when an entry sets both a ConfigMap and a PEM bundle
     set:
       upstreamCABundles:
@@ -550,3 +550,26 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "at '/upstreamCABundles/0': 'oneOf' failed, subschemas 0, 1 matched"
+  - it: should error when an ConfigMap key is set without a name
+    set:
+      upstreamCABundles:
+        - configMapKey: "bundle.pem"
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/upstreamCABundles/0': properties 'configMapName' required, if 'configMapKey' exists"
+  - it: should error when an inline PEM bundle sets an unknown key
+    set:
+      upstreamCABundles:
+        - pem: "my-upstream-ca"
+          invalid: "garbage"
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/upstreamCABundles/0': additional properties 'invalid' not allowed"
+  - it: should error when a ConfigMap bundle sets an unknown key
+    set:
+      upstreamCABundles:
+        - configMapName: "corp-root-ca"
+          invalid: "garbage"
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/upstreamCABundles/0': additional properties 'invalid' not allowed"

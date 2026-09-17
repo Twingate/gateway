@@ -377,6 +377,7 @@
         "properties": {
           "configMapName": {
             "type": "string",
+            "minLength": 1,
             "description": "Name of an existing ConfigMap holding the PEM bundle."
           },
           "configMapKey": {
@@ -386,7 +387,8 @@
           },
           "pem": {
             "type": "string",
-            "description": "Inline PEM bundle, rendered into a chart-owned ConfigMap."
+            "minLength": 1,
+            "description": "Inline PEM bundle."
           }
         },
         "oneOf": [
@@ -401,6 +403,7 @@
             ]
           }
         ],
+        "dependentRequired": {"configMapKey": ["configMapName"]},
         "additionalProperties": false
       }
     },

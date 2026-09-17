@@ -5,7 +5,9 @@ set:
   twingate:
     network: "acme"
 tests:
-  - it: should not render by default
+  - it: should not render when empty
+    set:
+      upstreamCABundles: []
     asserts:
       - hasDocuments:
           count: 0
@@ -16,7 +18,7 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
-  - it: should hold one key per inline bundle, named after its position
+  - it: should hold one key per inline bundle
     set:
       upstreamCABundles:
         - configMapName: "corp-root-ca"
@@ -29,7 +31,7 @@ tests:
       - equal:
           path: data
           value:
-            1.crt: |
+            ca1.crt: |
               my-upstream-ca
-            2.crt: |
+            ca2.crt: |
               my-other-upstream-ca

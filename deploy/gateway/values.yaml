@@ -124,7 +124,7 @@ webApp:
 # system trust store. Each entry is either an existing ConfigMap or an inline PEM bundle.
 upstreamCABundles: []
   # - configMapName: "corp-root-ca"
-  #   # Key holding the PEM bundle. Optional, defaults to `ca.crt`.
+  #   # Optional, defaults to `ca.crt`.
   #   configMapKey: ca.crt
   # - pem: |
   #     -----BEGIN CERTIFICATE-----

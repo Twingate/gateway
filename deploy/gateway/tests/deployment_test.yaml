@@ -299,7 +299,9 @@ set:
   twingate:
     network: "acme"
 tests:
-  - it: should not add any upstream CA bundle volume by default
+  - it: should not add any upstream CA bundle volume when empty
+    set:
+      upstreamCABundles: []
     asserts:
       - notContains:
           path: spec.template.spec.volumes
@@ -334,7 +336,7 @@ tests:
   - it: should mount an existing ConfigMap under the configured key
     set:
       upstreamCABundles:
-        - configMapName: "partner-ca"
+        - configMapName: "corp-root-ca"
           configMapKey: "bundle.pem"
     asserts:
       - contains:
@@ -342,11 +344,11 @@ tests:
           content:
             name: upstream-ca-bundle-0
             configMap:
-              name: partner-ca
+              name: corp-root-ca
               items:
                 - key: bundle.pem
                   path: ca.crt
-  - it: should mount inline PEM bundles from the chart-owned ConfigMap
+  - it: should mount inline PEM bundles
     set:
       upstreamCABundles:
         - configMapName: "corp-root-ca"
@@ -359,7 +361,7 @@ tests:
             configMap:
               name: RELEASE-NAME-gateway-upstream-ca-bundles
               items:
-                - key: 1.crt
+                - key: ca1.crt
                   path: ca.crt
       - contains:
           path: spec.template.spec.containers[0].volumeMounts
@@ -367,10 +369,10 @@ tests:
             name: upstream-ca-bundle-1
             mountPath: /etc/gateway/upstream-ca-bundles/1
             readOnly: true
-  - it: should error when an entry holds neither a ConfigMap nor a PEM bundle
+  - it: should error when a ConfigMap bundle has an empty name
     set:
       upstreamCABundles:
         - configMapName: ""
     asserts:
       - failedTemplate:
-          errorMessage: "upstreamCABundles[0] holds no CA bundle. Set configMapName to a ConfigMap holding one, or pem to its PEM content."
+          errorPattern: "at '/upstreamCABundles/0/configMapName': minLength: got 0, want 1"

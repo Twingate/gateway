@@ -110,9 +110,9 @@ spec:
         {{- range $i, $source := $upstreamCABundles }}
         - name: upstream-ca-bundle-{{ $i }}
           configMap:
-            name: {{ $source.configMapName }}
+            name: {{ $source.configMapName | quote }}
             items:
-              - key: {{ $source.key }}
+              - key: {{ $source.key | quote }}
                 path: ca.crt
         {{- end }}
         {{- if .Values.ssh.enabled }}
