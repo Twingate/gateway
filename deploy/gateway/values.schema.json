@@ -368,6 +368,42 @@
       },
       "additionalProperties": false
     },
+    "upstreamCABundles": {
+      "type": "array",
+      "description": "CA bundles the Gateway trusts when verifying upstream TLS connections, on top of the system trust store.",
+      "default": [],
+      "items": {
+        "type": "object",
+        "properties": {
+          "configMapName": {
+            "type": "string",
+            "description": "Name of an existing ConfigMap holding the PEM bundle."
+          },
+          "configMapKey": {
+            "type": "string",
+            "description": "Key in the ConfigMap holding the PEM bundle.",
+            "default": "ca.crt"
+          },
+          "pem": {
+            "type": "string",
+            "description": "Inline PEM bundle, rendered into a chart-owned ConfigMap."
+          }
+        },
+        "oneOf": [
+          {
+            "required": [
+              "configMapName"
+            ]
+          },
+          {
+            "required": [
+              "pem"
+            ]
+          }
+        ],
+        "additionalProperties": false
+      }
+    },
     "tls": {
       "type": "object",
       "properties": {

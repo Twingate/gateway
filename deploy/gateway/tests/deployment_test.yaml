@@ -291,3 +291,86 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "at '/ssh/ca/vault/auth': 'oneOf' failed, subschemas 1, 2 matched"
+---
+suite: Deployment with upstream CA bundles
+templates:
+  - deployment.yaml
+set:
+  twingate:
+    network: "acme"
+tests:
+  - it: should not add any upstream CA bundle volume by default
+    asserts:
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: upstream-ca-bundle-0
+          any: true
+      - notContains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: upstream-ca-bundle-0
+          any: true
+  - it: should mount an existing ConfigMap under its default key
+    set:
+      upstreamCABundles:
+        - configMapName: "corp-root-ca"
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: upstream-ca-bundle-0
+            configMap:
+              name: corp-root-ca
+              items:
+                - key: ca.crt
+                  path: ca.crt
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: upstream-ca-bundle-0
+            mountPath: /etc/gateway/upstream-ca-bundles/0
+            readOnly: true
+  - it: should mount an existing ConfigMap under the configured key
+    set:
+      upstreamCABundles:
+        - configMapName: "partner-ca"
+          configMapKey: "bundle.pem"
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: upstream-ca-bundle-0
+            configMap:
+              name: partner-ca
+              items:
+                - key: bundle.pem
+                  path: ca.crt
+  - it: should mount inline PEM bundles from the chart-owned ConfigMap
+    set:
+      upstreamCABundles:
+        - configMapName: "corp-root-ca"
+        - pem: "my-upstream-ca"
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: upstream-ca-bundle-1
+            configMap:
+              name: RELEASE-NAME-gateway-upstream-ca-bundles
+              items:
+                - key: 1.crt
+                  path: ca.crt
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: upstream-ca-bundle-1
+            mountPath: /etc/gateway/upstream-ca-bundles/1
+            readOnly: true
+  - it: should error when an entry holds neither a ConfigMap nor a PEM bundle
+    set:
+      upstreamCABundles:
+        - configMapName: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: "upstreamCABundles[0] holds no CA bundle. Set configMapName to a ConfigMap holding one, or pem to its PEM content."

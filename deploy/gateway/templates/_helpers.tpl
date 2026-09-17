@@ -116,6 +116,33 @@ true
 
 
 {{/*
+Create the name of the ConfigMap holding the inline `upstreamCABundles` PEM bundles
+*/}}
+{{- define "gateway.upstreamCABundlesConfigMapName" -}}
+{{- printf "%s-upstream-ca-bundles" (include "gateway.fullname" .) }}
+{{- end }}
+
+{{/*
+Source ConfigMap and key of every `upstreamCABundles` entry, as a JSON array since include
+returns a string. Callers decode it with fromJsonArray.
+
+An inline `pem` entry resolves to the chart-owned ConfigMap, keyed by its position in the list.
+*/}}
+{{- define "gateway.upstreamCABundleSources" -}}
+{{- $sources := list }}
+{{- range $i, $bundle := .Values.upstreamCABundles }}
+{{- if $bundle.configMapName }}
+{{- $sources = append $sources (dict "configMapName" $bundle.configMapName "key" ($bundle.configMapKey | default "ca.crt")) }}
+{{- else if $bundle.pem }}
+{{- $sources = append $sources (dict "configMapName" (include "gateway.upstreamCABundlesConfigMapName" $) "key" (printf "%d.crt" $i)) }}
+{{- else }}
+{{- fail (printf "upstreamCABundles[%d] holds no CA bundle. Set configMapName to a ConfigMap holding one, or pem to its PEM content." $i) }}
+{{- end }}
+{{- end }}
+{{- $sources | toJson }}
+{{- end }}
+
+{{/*
 Create the name of the SSH manual CA secret to use
 */}}
 {{- define "gateway.sshManualCASecretName" -}}

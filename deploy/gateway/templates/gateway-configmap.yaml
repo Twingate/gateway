@@ -27,6 +27,15 @@ data:
           - certificateFile: "/etc/gateway/tls/tls.crt"
             privateKeyFile: "/etc/gateway/tls/tls.key"
 
+    {{- with include "gateway.upstreamCABundleSources" . | fromJsonArray }}
+
+    upstreamCABundles:
+      {{- range $i, $source := . }}
+      - name: "{{ $i }}"
+        certFile: "/etc/gateway/upstream-ca-bundles/{{ $i }}/ca.crt"
+      {{- end }}
+    {{- end }}
+
     {{- $resourceEnabled := and .Values.twingateOperator.kubernetesResource .Values.twingateOperator.kubernetesResource.enabled -}}
     {{- $k8sEnabled := and .Values.kubernetes .Values.kubernetes.enabled }}
 

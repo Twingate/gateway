@@ -487,3 +487,66 @@ tests:
                 files:
                   - certificateFile: "/etc/gateway/tls/tls.crt"
                     privateKeyFile: "/etc/gateway/tls/tls.key"
+---
+suite: Gateway configmap with upstream CA bundles
+templates:
+  - gateway-configmap.yaml
+set:
+  twingate:
+    network: "acme"
+tests:
+  - it: should not render upstreamCABundles by default
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: upstreamCABundles
+  - it: should render a certFile per bundle
+    set:
+      upstreamCABundles:
+        - configMapName: "corp-root-ca"
+        - configMapName: "partner-ca"
+          configMapKey: "bundle.pem"
+        - pem: "my-upstream-ca"
+    asserts:
+      - equal:
+          path: data["config.yaml"]
+          value: |-
+            twingate:
+              network: "acme"
+              host: "twingate.com"
+
+            port: 8443
+            metricsPort: 9090
+
+            auditLog:
+              flushInterval: 5m
+              flushSizeThreshold: 1e+06
+
+            tls:
+              certificates:
+                files:
+                  - certificateFile: "/etc/gateway/tls/tls.crt"
+                    privateKeyFile: "/etc/gateway/tls/tls.key"
+
+            upstreamCABundles:
+              - name: "0"
+                certFile: "/etc/gateway/upstream-ca-bundles/0/ca.crt"
+              - name: "1"
+                certFile: "/etc/gateway/upstream-ca-bundles/1/ca.crt"
+              - name: "2"
+                certFile: "/etc/gateway/upstream-ca-bundles/2/ca.crt"
+  - it: should error when an entry holds neither a ConfigMap nor a PEM bundle
+    set:
+      upstreamCABundles:
+        - pem: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: "upstreamCABundles[0] holds no CA bundle. Set configMapName to a ConfigMap holding one, or pem to its PEM content."
+  - it: should error when an entry sets both a ConfigMap and a PEM bundle
+    set:
+      upstreamCABundles:
+        - configMapName: "corp-root-ca"
+          pem: "my-upstream-ca"
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/upstreamCABundles/0': 'oneOf' failed, subschemas 0, 1 matched"
