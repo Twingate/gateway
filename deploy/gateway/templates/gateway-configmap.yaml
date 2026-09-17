@@ -39,9 +39,7 @@ data:
           {{- end }}
           {{- with .key }}
           key:
-            {{- with .type }}
-            type: {{ . | quote }}
-            {{- end }}
+            type: {{ .type | quote }}
             {{- with .bits }}
             bits: {{ . }}
             {{- end }}
