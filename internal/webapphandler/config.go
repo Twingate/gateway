@@ -61,11 +61,11 @@ func newCAPool(cas []config.UpstreamCABundle) (*x509.CertPool, error) {
 	for _, ca := range cas {
 		caCert, err := os.ReadFile(ca.CertFile) //nolint:gosec // The CA file is provided by the operator
 		if err != nil {
-			return nil, fmt.Errorf("ca %q: %w", ca.Name, err)
+			return nil, fmt.Errorf("ca %q: %w", ca.CertFile, err)
 		}
 
 		if ok := pool.AppendCertsFromPEM(caCert); !ok {
-			return nil, fmt.Errorf("ca %q: %w", ca.Name, errInvalidCACert)
+			return nil, fmt.Errorf("ca %q: %w", ca.CertFile, errInvalidCACert)
 		}
 	}
 

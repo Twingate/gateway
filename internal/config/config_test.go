@@ -436,7 +436,7 @@ func TestConfig_Validate(t *testing.T) {
 						},
 					},
 				},
-				UpstreamCABundles: []UpstreamCABundle{{Name: "web-app"}},
+				UpstreamCABundles: []UpstreamCABundle{{}},
 				Kubernetes:        &KubernetesConfig{},
 			},
 			wantErr:     true,
@@ -1217,8 +1217,8 @@ func TestValidateUpstreamCABundles(t *testing.T) {
 		{
 			name: "valid list",
 			cas: []UpstreamCABundle{
-				{Name: "gcp-database", CertFile: "/etc/gateway/ca1.crt"},
-				{Name: "web-app", CertFile: "/etc/gateway/ca2.crt"},
+				{CertFile: "/etc/gateway/ca1.crt"},
+				{CertFile: "/etc/gateway/ca2.crt"},
 			},
 			wantErr: false,
 		},
@@ -1228,25 +1228,19 @@ func TestValidateUpstreamCABundles(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:        "missing name",
-			cas:         []UpstreamCABundle{{CertFile: "/etc/gateway/ca.crt"}},
-			wantErr:     true,
-			errContains: "name",
-		},
-		{
 			name:        "missing certFile",
-			cas:         []UpstreamCABundle{{Name: "web-app"}},
+			cas:         []UpstreamCABundle{{}},
 			wantErr:     true,
 			errContains: "certFile",
 		},
 		{
-			name: "duplicate CA names",
+			name: "duplicate certFile",
 			cas: []UpstreamCABundle{
-				{Name: "web-app", CertFile: "/etc/gateway/ca1.crt"},
-				{Name: "web-app", CertFile: "/etc/gateway/ca2.crt"},
+				{CertFile: "/etc/gateway/ca.crt"},
+				{CertFile: "/etc/gateway/ca.crt"},
 			},
 			wantErr:     true,
-			errContains: "\"web-app\"",
+			errContains: "\"/etc/gateway/ca.crt\"",
 		},
 	}
 
@@ -1273,10 +1267,8 @@ tls:
       - certificateFile: "tls.crt"
         privateKeyFile: "tls.key"
 upstreamCABundles:
-  - name: "gcp-database"
-    certFile: "/etc/gateway/ca1.crt"
-  - name: "web-app"
-    certFile: "/etc/gateway/ca2.crt"
+  - certFile: "/etc/gateway/ca1.crt"
+  - certFile: "/etc/gateway/ca2.crt"
 webApp: {}
 `
 
@@ -1289,8 +1281,8 @@ webApp: {}
 	require.NotNil(t, cfg)
 
 	want := []UpstreamCABundle{
-		{Name: "gcp-database", CertFile: "/etc/gateway/ca1.crt"},
-		{Name: "web-app", CertFile: "/etc/gateway/ca2.crt"},
+		{CertFile: "/etc/gateway/ca1.crt"},
+		{CertFile: "/etc/gateway/ca2.crt"},
 	}
 	assert.Equal(t, want, cfg.UpstreamCABundles)
 	require.NoError(t, cfg.Validate())

@@ -21,15 +21,15 @@ import (
 )
 
 var (
-	ErrRequired          = errors.New("required field is missing")
-	ErrInvalidNetwork    = errors.New("invalid twingate.network")
-	ErrInvalidHost       = errors.New("invalid twingate.host")
-	ErrInvalidPort       = errors.New("invalid port number")
-	ErrDuplicateUpstream = errors.New("duplicate upstream name")
-	ErrDuplicateTLSCA    = errors.New("duplicate TLS CA name")
-	ErrDuplicateTLSCert  = errors.New("duplicate certificateFile")
-	ErrInvalidSSHKeyType = errors.New("invalid SSH key type")
-	ErrNegativeTTL       = errors.New("TTL must be non-negative")
+	ErrRequired                  = errors.New("required field is missing")
+	ErrInvalidNetwork            = errors.New("invalid twingate.network")
+	ErrInvalidHost               = errors.New("invalid twingate.host")
+	ErrInvalidPort               = errors.New("invalid port number")
+	ErrDuplicateUpstream         = errors.New("duplicate upstream name")
+	ErrDuplicateUpstreamCABundle = errors.New("duplicate upstream CA bundle certFile")
+	ErrDuplicateTLSCert          = errors.New("duplicate certificateFile")
+	ErrInvalidSSHKeyType         = errors.New("invalid SSH key type")
+	ErrNegativeTTL               = errors.New("TTL must be non-negative")
 )
 
 // networkRegexp matches a twingate.network slug: 1-63 lowercase alphanumeric characters.
@@ -105,7 +105,6 @@ type TLSCertificateFileKeyPair struct {
 
 // UpstreamCABundle is a certificate authority the Gateway trusts when verifying upstream TLS connections.
 type UpstreamCABundle struct {
-	Name     string `yaml:"name"`
 	CertFile string `yaml:"certFile"`
 }
 
@@ -646,28 +645,24 @@ func (k *KubernetesUpstream) Validate() error {
 }
 
 func validateUpstreamCABundles(cas []UpstreamCABundle) error {
-	caNames := make(map[string]struct{})
+	certFiles := make(map[string]struct{})
 
 	for i, ca := range cas {
 		if err := ca.Validate(); err != nil {
-			return fmt.Errorf("upstreamCABundles[%d] (name: %q): %w", i, ca.Name, err)
+			return fmt.Errorf("upstreamCABundles[%d]: %w", i, err)
 		}
 
-		if _, exists := caNames[ca.Name]; exists {
-			return fmt.Errorf("%w: %q", ErrDuplicateTLSCA, ca.Name)
+		if _, exists := certFiles[ca.CertFile]; exists {
+			return fmt.Errorf("%w: %q", ErrDuplicateUpstreamCABundle, ca.CertFile)
 		}
 
-		caNames[ca.Name] = struct{}{}
+		certFiles[ca.CertFile] = struct{}{}
 	}
 
 	return nil
 }
 
 func (c *UpstreamCABundle) Validate() error {
-	if c.Name == "" {
-		return fmt.Errorf("%w: name", ErrRequired)
-	}
-
 	if c.CertFile == "" {
 		return fmt.Errorf("%w: certFile", ErrRequired)
 	}
