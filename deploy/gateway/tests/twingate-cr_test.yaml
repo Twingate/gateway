@@ -308,4 +308,4 @@ tests:
       tls: *automation
     asserts:
       - failedTemplate:
-          errorPattern: "The Gateway serves no TLS certificate Secret for Twingate to read the CA from."
+          errorPattern: "The TwingateCertificateAuthority has no CA certificate to register."
