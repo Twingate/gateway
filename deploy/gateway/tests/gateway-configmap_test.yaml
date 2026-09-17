@@ -529,12 +529,9 @@ tests:
                     privateKeyFile: "/etc/gateway/tls/tls.key"
 
             upstreamCABundles:
-              - name: "upstreamCA0"
-                certFile: "/etc/gateway/upstream-ca-bundles/0/ca.crt"
-              - name: "upstreamCA1"
-                certFile: "/etc/gateway/upstream-ca-bundles/1/ca.crt"
-              - name: "upstreamCA2"
-                certFile: "/etc/gateway/upstream-ca-bundles/2/ca.crt"
+              - certFile: "/etc/gateway/upstream-ca-bundles/0/ca.crt"
+              - certFile: "/etc/gateway/upstream-ca-bundles/1/ca.crt"
+              - certFile: "/etc/gateway/upstream-ca-bundles/2/ca.crt"
   - it: should error when an inline PEM bundle is empty
     set:
       upstreamCABundles:

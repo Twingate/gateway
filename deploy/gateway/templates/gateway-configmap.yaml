@@ -31,8 +31,7 @@ data:
 
     upstreamCABundles:
       {{- range $i, $source := . }}
-      - name: "upstreamCA{{ $i }}"
-        certFile: "/etc/gateway/upstream-ca-bundles/{{ $i }}/ca.crt"
+      - certFile: "/etc/gateway/upstream-ca-bundles/{{ $i }}/ca.crt"
       {{- end }}
     {{- end }}
 
