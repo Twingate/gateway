@@ -26,7 +26,7 @@ var (
 	ErrInvalidHost               = errors.New("invalid twingate.host")
 	ErrInvalidPort               = errors.New("invalid port number")
 	ErrDuplicateUpstream         = errors.New("duplicate upstream name")
-	ErrDuplicateUpstreamCABundle = errors.New("duplicate upstream CA bundle certFile")
+	ErrDuplicateUpstreamCABundle = errors.New("duplicate upstream CA bundle file")
 	ErrDuplicateTLSCert          = errors.New("duplicate certificateFile")
 	ErrInvalidSSHKeyType         = errors.New("invalid SSH key type")
 	ErrNegativeTTL               = errors.New("TTL must be non-negative")
@@ -103,9 +103,9 @@ type TLSCertificateFileKeyPair struct {
 	PrivateKeyFile  string `yaml:"privateKeyFile"`
 }
 
-// UpstreamCABundle is a certificate authority the Gateway trusts when verifying upstream TLS connections.
+// UpstreamCABundle is a PEM file of certificate authorities the Gateway trusts when verifying upstream TLS connections.
 type UpstreamCABundle struct {
-	CertFile string `yaml:"certFile"`
+	File string `yaml:"file"`
 }
 
 // TLSAutomationConfig configures on-demand issuing of downstream certificates.
@@ -644,27 +644,27 @@ func (k *KubernetesUpstream) Validate() error {
 	return nil
 }
 
-func validateUpstreamCABundles(cas []UpstreamCABundle) error {
-	certFiles := make(map[string]struct{})
+func validateUpstreamCABundles(caBundles []UpstreamCABundle) error {
+	bundleFiles := make(map[string]struct{})
 
-	for i, ca := range cas {
-		if err := ca.Validate(); err != nil {
+	for i, caBundle := range caBundles {
+		if err := caBundle.Validate(); err != nil {
 			return fmt.Errorf("upstreamCABundles[%d]: %w", i, err)
 		}
 
-		if _, exists := certFiles[ca.CertFile]; exists {
-			return fmt.Errorf("%w: %q", ErrDuplicateUpstreamCABundle, ca.CertFile)
+		if _, exists := bundleFiles[caBundle.File]; exists {
+			return fmt.Errorf("%w: %q", ErrDuplicateUpstreamCABundle, caBundle.File)
 		}
 
-		certFiles[ca.CertFile] = struct{}{}
+		bundleFiles[caBundle.File] = struct{}{}
 	}
 
 	return nil
 }
 
 func (c *UpstreamCABundle) Validate() error {
-	if c.CertFile == "" {
-		return fmt.Errorf("%w: certFile", ErrRequired)
+	if c.File == "" {
+		return fmt.Errorf("%w: file", ErrRequired)
 	}
 
 	return nil

@@ -1210,34 +1210,34 @@ func TestKubernetesConfig_Validate(t *testing.T) {
 func TestValidateUpstreamCABundles(t *testing.T) {
 	tests := []struct {
 		name        string
-		cas         []UpstreamCABundle
+		caBundles   []UpstreamCABundle
 		wantErr     bool
 		errContains string
 	}{
 		{
 			name: "valid list",
-			cas: []UpstreamCABundle{
-				{CertFile: "/etc/gateway/ca1.crt"},
-				{CertFile: "/etc/gateway/ca2.crt"},
+			caBundles: []UpstreamCABundle{
+				{File: "/etc/gateway/ca1.crt"},
+				{File: "/etc/gateway/ca2.crt"},
 			},
 			wantErr: false,
 		},
 		{
-			name:    "empty list is allowed",
-			cas:     []UpstreamCABundle{},
-			wantErr: false,
+			name:      "empty list is allowed",
+			caBundles: []UpstreamCABundle{},
+			wantErr:   false,
 		},
 		{
-			name:        "missing certFile",
-			cas:         []UpstreamCABundle{{}},
+			name:        "missing file",
+			caBundles:   []UpstreamCABundle{{}},
 			wantErr:     true,
-			errContains: "certFile",
+			errContains: "upstreamCABundles[0]: required field is missing: file",
 		},
 		{
-			name: "duplicate certFile",
-			cas: []UpstreamCABundle{
-				{CertFile: "/etc/gateway/ca.crt"},
-				{CertFile: "/etc/gateway/ca.crt"},
+			name: "duplicate file",
+			caBundles: []UpstreamCABundle{
+				{File: "/etc/gateway/ca.crt"},
+				{File: "/etc/gateway/ca.crt"},
 			},
 			wantErr:     true,
 			errContains: "\"/etc/gateway/ca.crt\"",
@@ -1246,7 +1246,7 @@ func TestValidateUpstreamCABundles(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateUpstreamCABundles(tt.cas)
+			err := validateUpstreamCABundles(tt.caBundles)
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.errContains)
@@ -1267,8 +1267,8 @@ tls:
       - certificateFile: "tls.crt"
         privateKeyFile: "tls.key"
 upstreamCABundles:
-  - certFile: "/etc/gateway/ca1.crt"
-  - certFile: "/etc/gateway/ca2.crt"
+  - file: "/etc/gateway/ca1.crt"
+  - file: "/etc/gateway/ca2.crt"
 webApp: {}
 `
 
@@ -1281,8 +1281,8 @@ webApp: {}
 	require.NotNil(t, cfg)
 
 	want := []UpstreamCABundle{
-		{CertFile: "/etc/gateway/ca1.crt"},
-		{CertFile: "/etc/gateway/ca2.crt"},
+		{File: "/etc/gateway/ca1.crt"},
+		{File: "/etc/gateway/ca2.crt"},
 	}
 	assert.Equal(t, want, cfg.UpstreamCABundles)
 	require.NoError(t, cfg.Validate())
