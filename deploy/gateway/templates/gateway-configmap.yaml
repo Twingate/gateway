@@ -24,8 +24,10 @@ data:
     tls:
       certificates:
         files:
-          - certificateFile: "/etc/gateway/tls/tls.crt"
-            privateKeyFile: "/etc/gateway/tls/tls.key"
+          {{- range $i, $name := (include "gateway.tlsSecretNames" . | fromJsonArray) }}
+          - certificateFile: "/etc/gateway/tls/{{ $i }}/tls.crt"
+            privateKeyFile: "/etc/gateway/tls/{{ $i }}/tls.key"
+          {{- end }}
 
     {{- $resourceEnabled := and .Values.twingateOperator.kubernetesResource .Values.twingateOperator.kubernetesResource.enabled -}}
     {{- $k8sEnabled := and .Values.kubernetes .Values.kubernetes.enabled }}
