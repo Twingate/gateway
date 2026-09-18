@@ -145,10 +145,20 @@ Create the name of the ConfigMap holding the inline `upstreamCABundles` PEM bund
 {{- end }}
 
 {{/*
-Source ConfigMap and key of every `upstreamCABundles` entry, as a JSON array since include
-returns a string. Callers decode it with fromJsonArray.
+Key an inline `pem` bundle is stored under in the chart-owned ConfigMap, from its position
+in `upstreamCABundles`.
+*/}}
+{{- define "gateway.upstreamCABundleInlineKey" -}}
+{{- printf "ca%d.crt" . }}
+{{- end }}
 
-An inline `pem` entry resolves to the chart-owned ConfigMap, keyed by its position in the list.
+{{/*
+Resolve each `upstreamCABundles` entry to the ConfigMap name and key holding its PEM.
+Entries with `configMapName` are returned as given, defaulting the key to `ca.crt`.
+Inline `pem` entries point at the chart-owned ConfigMap, keyed `ca<index>.crt`.
+
+Returns a JSON array of {configMapName, key} objects, because include can only
+return a string; callers decode it with fromJsonArray.
 */}}
 {{- define "gateway.upstreamCABundleSources" -}}
 {{- $sources := list }}
@@ -156,7 +166,7 @@ An inline `pem` entry resolves to the chart-owned ConfigMap, keyed by its positi
 {{- if $bundle.configMapName }}
 {{- $sources = append $sources (dict "configMapName" $bundle.configMapName "key" ($bundle.configMapKey | default "ca.crt")) }}
 {{- else if $bundle.pem }}
-{{- $sources = append $sources (dict "configMapName" (include "gateway.upstreamCABundlesConfigMapName" $) "key" (printf "ca%d.crt" $i)) }}
+{{- $sources = append $sources (dict "configMapName" (include "gateway.upstreamCABundlesConfigMapName" $) "key" (include "gateway.upstreamCABundleInlineKey" $i)) }}
 {{- end }}
 {{- end }}
 {{- $sources | toJson }}

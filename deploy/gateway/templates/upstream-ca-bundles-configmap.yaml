@@ -1,10 +1,8 @@
-{{- $inlineBundles := dict }}
-{{- range $i, $bundle := .Values.upstreamCABundles }}
-{{- if and (not $bundle.configMapName) $bundle.pem }}
-{{- $_ := set $inlineBundles (printf "ca%d.crt" $i) $bundle.pem }}
+{{- $hasInline := false }}
+{{- range .Values.upstreamCABundles }}
+{{- if and (not .configMapName) .pem }}{{- $hasInline = true }}{{- end }}
 {{- end }}
-{{- end }}
-{{- if $inlineBundles }}
+{{- if $hasInline }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -12,8 +10,10 @@ metadata:
   labels:
     {{- include "gateway.labels" . | nindent 4 }}
 data:
-  {{- range $key, $pem := $inlineBundles }}
-  {{ $key }}: |
-    {{- $pem | trim | nindent 4 }}
+  {{- range $i, $bundle := .Values.upstreamCABundles }}
+  {{- if and (not $bundle.configMapName) $bundle.pem }}
+  {{ include "gateway.upstreamCABundleInlineKey" $i }}: |
+    {{- $bundle.pem | trim | nindent 4 }}
+  {{- end }}
   {{- end }}
 {{- end }}

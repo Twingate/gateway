@@ -803,7 +803,7 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "at '/upstreamCABundles/0': 'oneOf' failed, subschemas 0, 1 matched"
-  - it: should error when an ConfigMap key is set without a name
+  - it: should error when a ConfigMap key is set without a name
     set:
       upstreamCABundles:
         - configMapKey: "bundle.pem"
