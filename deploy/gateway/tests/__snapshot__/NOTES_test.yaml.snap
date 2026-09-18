@@ -1,128 +1,28 @@
 should show ClusterIP instructions when service type is ClusterIP:
-  1: |+
-    raw: |+
+  1: |
+    raw: |
       Admin Console URL - https://.twingate.com
 
       1. The Gateway is accessible via its ClusterIP DNS at
 
       RELEASE-NAME-gateway.NAMESPACE.svc.cluster.local
 
-      2. The Gateway uses TLS certificates from the "RELEASE-NAME-gateway-tls" Secret. The CA certificate is
+      2. The Gateway uses TLS certificates from the "RELEASE-NAME-gateway-tls-0" Secret. The CA certificate is
 
-      -----BEGIN CERTIFICATE-----
-      MIIDIDCCAgigAwIBAgIRANR3YBydhgMaFH4HzGiKyOEwDQYJKoZIhvcNAQELBQAw
-      GjEYMBYGA1UEAxMPcHAtcGFtLXByb3h5LWNhMB4XDTI1MDQyMTE2NDY1NFoXDTI2
-      MDQyMTE2NDY1NFowGjEYMBYGA1UEAxMPcHAtcGFtLXByb3h5LWNhMIIBIjANBgkq
-      hkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA96wp/MyDujuM/bNLChJ06F5irGUBKfBY
-      yR17uGnpYW6PqiAB6gbn1O1pb5p4ey6w6HfSY6YzVnkq4JzWH3y5KnHsL3EuAh3m
-      heqX2nRk0HPQM3oCnS4AUxz2DEaug2u45tcmoDVnRx45VfeVEvDz9gT0Tr9qJNUO
-      p1Tb0+bKFVdoOTXTiJKcpMBLXKzslkr1R6+dEhpgb0RtEBfb7E6530Bx4oBbYj31
-      sfTlLiHrGvwpOFiv5rjBzOjeyF4XU4yFAwvHKPpJ+VBq9iECVyOCKUv4HQV1x6xS
-      twKG+bRWlsxPgS/5esu2SD3p6yNKL/vIod6gV2u8DTiR25gHyCEDYQIDAQABo2Ew
-      XzAOBgNVHQ8BAf8EBAMCAqQwHQYDVR0lBBYwFAYIKwYBBQUHAwEGCCsGAQUFBwMC
-      MA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFMu6hvsUoH9UmB5q4qbC46q3LdLu
-      MA0GCSqGSIb3DQEBCwUAA4IBAQAgv32hCwyOHS9veQlV7/z7SwhIKCtNbpgVAnmR
-      CP7iDlmMOf379KqxWey+/utxaAT6sjIhiNmrFwHNoUWjj9Bv6U0oWC1XDxzpfABT
-      IfHtpLuH3xLa98S6F8Ez2TZp6Hyd7/pxQImBIwIgenOrAy6cuRSRjQtXYq3o/0Wx
-      M8C/gZSvCg5622coUWHnuaVdn/3bJ/P/IkmYmX2sN66BR3i70BO/kxeGlQMlqiqI
-      fLRk3a/Kh/4vpIdcfI38Xb+iwfjRvCVEQAkf8efDzIfzL8yj5Mk+E5OsfMD80YuZ
-      khGd00QOCDRCpVisdRQmbzFv6JkeYKxhWzaulPHgl1JRzWaI
-      -----END CERTIFICATE-----
-
+      my-ca-cert
 should show LoadBalancer instructions when service type is LoadBalancer:
-  1: |+
-    raw: |+
+  1: |
+    raw: |
       Admin Console URL - https://.twingate.com
 
       1. The Gateway is accessible via its LoadBalancer IP or hostname. It may take a few minutes for the address to be available.
 
       Watch the LoadBalancer address with: 'kubectl get svc --namespace NAMESPACE -w RELEASE-NAME-gateway -o jsonpath='{.status.loadBalancer.ingress[0]}''
 
-      2. The Gateway uses TLS certificates from the "RELEASE-NAME-gateway-tls" Secret. The CA certificate is
+      2. The Gateway uses TLS certificates from the "RELEASE-NAME-gateway-tls-0" Secret. The CA certificate is
 
-      -----BEGIN CERTIFICATE-----
-      MIIDIDCCAgigAwIBAgIRANR3YBydhgMaFH4HzGiKyOEwDQYJKoZIhvcNAQELBQAw
-      GjEYMBYGA1UEAxMPcHAtcGFtLXByb3h5LWNhMB4XDTI1MDQyMTE2NDY1NFoXDTI2
-      MDQyMTE2NDY1NFowGjEYMBYGA1UEAxMPcHAtcGFtLXByb3h5LWNhMIIBIjANBgkq
-      hkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA96wp/MyDujuM/bNLChJ06F5irGUBKfBY
-      yR17uGnpYW6PqiAB6gbn1O1pb5p4ey6w6HfSY6YzVnkq4JzWH3y5KnHsL3EuAh3m
-      heqX2nRk0HPQM3oCnS4AUxz2DEaug2u45tcmoDVnRx45VfeVEvDz9gT0Tr9qJNUO
-      p1Tb0+bKFVdoOTXTiJKcpMBLXKzslkr1R6+dEhpgb0RtEBfb7E6530Bx4oBbYj31
-      sfTlLiHrGvwpOFiv5rjBzOjeyF4XU4yFAwvHKPpJ+VBq9iECVyOCKUv4HQV1x6xS
-      twKG+bRWlsxPgS/5esu2SD3p6yNKL/vIod6gV2u8DTiR25gHyCEDYQIDAQABo2Ew
-      XzAOBgNVHQ8BAf8EBAMCAqQwHQYDVR0lBBYwFAYIKwYBBQUHAwEGCCsGAQUFBwMC
-      MA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFMu6hvsUoH9UmB5q4qbC46q3LdLu
-      MA0GCSqGSIb3DQEBCwUAA4IBAQAgv32hCwyOHS9veQlV7/z7SwhIKCtNbpgVAnmR
-      CP7iDlmMOf379KqxWey+/utxaAT6sjIhiNmrFwHNoUWjj9Bv6U0oWC1XDxzpfABT
-      IfHtpLuH3xLa98S6F8Ez2TZp6Hyd7/pxQImBIwIgenOrAy6cuRSRjQtXYq3o/0Wx
-      M8C/gZSvCg5622coUWHnuaVdn/3bJ/P/IkmYmX2sN66BR3i70BO/kxeGlQMlqiqI
-      fLRk3a/Kh/4vpIdcfI38Xb+iwfjRvCVEQAkf8efDzIfzL8yj5Mk+E5OsfMD80YuZ
-      khGd00QOCDRCpVisdRQmbzFv6JkeYKxhWzaulPHgl1JRzWaI
-      -----END CERTIFICATE-----
-
+      my-ca-cert
 should show previously generated CA when the alternative names have not changed:
-  1: |+
-    raw: |+
-      Admin Console URL - https://.twingate.com
-
-      1. The Gateway is accessible via its ClusterIP DNS at
-
-      RELEASE-NAME-gateway.NAMESPACE.svc.cluster.local
-
-      2. The Gateway uses TLS certificates from the "RELEASE-NAME-gateway-tls" Secret. The CA certificate is
-
-      -----BEGIN CERTIFICATE-----
-      MIIDIDCCAgigAwIBAgIRANR3YBydhgMaFH4HzGiKyOEwDQYJKoZIhvcNAQELBQAw
-      GjEYMBYGA1UEAxMPcHAtcGFtLXByb3h5LWNhMB4XDTI1MDQyMTE2NDY1NFoXDTI2
-      MDQyMTE2NDY1NFowGjEYMBYGA1UEAxMPcHAtcGFtLXByb3h5LWNhMIIBIjANBgkq
-      hkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA96wp/MyDujuM/bNLChJ06F5irGUBKfBY
-      yR17uGnpYW6PqiAB6gbn1O1pb5p4ey6w6HfSY6YzVnkq4JzWH3y5KnHsL3EuAh3m
-      heqX2nRk0HPQM3oCnS4AUxz2DEaug2u45tcmoDVnRx45VfeVEvDz9gT0Tr9qJNUO
-      p1Tb0+bKFVdoOTXTiJKcpMBLXKzslkr1R6+dEhpgb0RtEBfb7E6530Bx4oBbYj31
-      sfTlLiHrGvwpOFiv5rjBzOjeyF4XU4yFAwvHKPpJ+VBq9iECVyOCKUv4HQV1x6xS
-      twKG+bRWlsxPgS/5esu2SD3p6yNKL/vIod6gV2u8DTiR25gHyCEDYQIDAQABo2Ew
-      XzAOBgNVHQ8BAf8EBAMCAqQwHQYDVR0lBBYwFAYIKwYBBQUHAwEGCCsGAQUFBwMC
-      MA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFMu6hvsUoH9UmB5q4qbC46q3LdLu
-      MA0GCSqGSIb3DQEBCwUAA4IBAQAgv32hCwyOHS9veQlV7/z7SwhIKCtNbpgVAnmR
-      CP7iDlmMOf379KqxWey+/utxaAT6sjIhiNmrFwHNoUWjj9Bv6U0oWC1XDxzpfABT
-      IfHtpLuH3xLa98S6F8Ez2TZp6Hyd7/pxQImBIwIgenOrAy6cuRSRjQtXYq3o/0Wx
-      M8C/gZSvCg5622coUWHnuaVdn/3bJ/P/IkmYmX2sN66BR3i70BO/kxeGlQMlqiqI
-      fLRk3a/Kh/4vpIdcfI38Xb+iwfjRvCVEQAkf8efDzIfzL8yj5Mk+E5OsfMD80YuZ
-      khGd00QOCDRCpVisdRQmbzFv6JkeYKxhWzaulPHgl1JRzWaI
-      -----END CERTIFICATE-----
-
-should use `existingSecret` Secret object when provided:
-  1: |+
-    raw: |+
-      Admin Console URL - https://.twingate.com
-
-      1. The Gateway is accessible via its ClusterIP DNS at
-
-      RELEASE-NAME-gateway.NAMESPACE.svc.cluster.local
-
-      2. The Gateway uses TLS certificates from the "my-custom-secret" Secret. The CA certificate is
-
-      -----BEGIN CERTIFICATE-----
-      MIIDIDCCAgigAwIBAgIRANR3YBydhgMaFH4HzGiKyOEwDQYJKoZIhvcNAQELBQAw
-      GjEYMBYGA1UEAxMPcHAtcGFtLXByb3h5LWNhMB4XDTI1MDQyMTE2NDY1NFoXDTI2
-      MDQyMTE2NDY1NFowGjEYMBYGA1UEAxMPcHAtcGFtLXByb3h5LWNhMIIBIjANBgkq
-      hkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA96wp/MyDujuM/bNLChJ06F5irGUBKfBY
-      yR17uGnpYW6PqiAB6gbn1O1pb5p4ey6w6HfSY6YzVnkq4JzWH3y5KnHsL3EuAh3m
-      heqX2nRk0HPQM3oCnS4AUxz2DEaug2u45tcmoDVnRx45VfeVEvDz9gT0Tr9qJNUO
-      p1Tb0+bKFVdoOTXTiJKcpMBLXKzslkr1R6+dEhpgb0RtEBfb7E6530Bx4oBbYj31
-      sfTlLiHrGvwpOFiv5rjBzOjeyF4XU4yFAwvHKPpJ+VBq9iECVyOCKUv4HQV1x6xS
-      twKG+bRWlsxPgS/5esu2SD3p6yNKL/vIod6gV2u8DTiR25gHyCEDYQIDAQABo2Ew
-      XzAOBgNVHQ8BAf8EBAMCAqQwHQYDVR0lBBYwFAYIKwYBBQUHAwEGCCsGAQUFBwMC
-      MA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFMu6hvsUoH9UmB5q4qbC46q3LdLu
-      MA0GCSqGSIb3DQEBCwUAA4IBAQAgv32hCwyOHS9veQlV7/z7SwhIKCtNbpgVAnmR
-      CP7iDlmMOf379KqxWey+/utxaAT6sjIhiNmrFwHNoUWjj9Bv6U0oWC1XDxzpfABT
-      IfHtpLuH3xLa98S6F8Ez2TZp6Hyd7/pxQImBIwIgenOrAy6cuRSRjQtXYq3o/0Wx
-      M8C/gZSvCg5622coUWHnuaVdn/3bJ/P/IkmYmX2sN66BR3i70BO/kxeGlQMlqiqI
-      fLRk3a/Kh/4vpIdcfI38Xb+iwfjRvCVEQAkf8efDzIfzL8yj5Mk+E5OsfMD80YuZ
-      khGd00QOCDRCpVisdRQmbzFv6JkeYKxhWzaulPHgl1JRzWaI
-      -----END CERTIFICATE-----
-
-should use `tls.ca` value when provided:
   1: |+
     raw: |+
       Admin Console URL - https://.twingate.com

@@ -1,0 +1,12 @@
+{{- $certificateAuthority := .Values.twingateOperator.gateway.certificateAuthority | default dict }}
+{{- if and .Values.twingateOperator.gateway.enabled $certificateAuthority.certificate (not $certificateAuthority.certificateConfigMapName) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "gateway.certificateAuthorityConfigMapName" . }}
+  labels:
+    {{- include "gateway.labels" . | nindent 4 }}
+data:
+  ca.crt: |
+    {{- $certificateAuthority.certificate | trim | nindent 4 }}
+{{- end }}
