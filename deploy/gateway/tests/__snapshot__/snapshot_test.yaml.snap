@@ -93,8 +93,8 @@ should render with Kubernetes enabled:
                 - mountPath: /etc/gateway
                   name: config
                   readOnly: true
-                - mountPath: /etc/gateway/tls
-                  name: tls-certs
+                - mountPath: /etc/gateway/tls/0
+                  name: tls-certs-0
                   readOnly: true
           securityContext:
             seccompProfile:
@@ -104,7 +104,7 @@ should render with Kubernetes enabled:
             - configMap:
                 name: RELEASE-NAME-gateway-config
               name: config
-            - name: tls-certs
+            - name: tls-certs-0
               secret:
                 secretName: RELEASE-NAME-gateway-tls
   4: |
@@ -125,8 +125,8 @@ should render with Kubernetes enabled:
         tls:
           certificates:
             files:
-              - certificateFile: "/etc/gateway/tls/tls.crt"
-                privateKeyFile: "/etc/gateway/tls/tls.key"
+              - certificateFile: "/etc/gateway/tls/0/tls.crt"
+                privateKeyFile: "/etc/gateway/tls/0/tls.key"
 
         kubernetes: {}
     kind: ConfigMap
@@ -266,8 +266,8 @@ should render with SSH enabled:
                 - mountPath: /etc/gateway
                   name: config
                   readOnly: true
-                - mountPath: /etc/gateway/tls
-                  name: tls-certs
+                - mountPath: /etc/gateway/tls/0
+                  name: tls-certs-0
                   readOnly: true
                 - mountPath: /etc/gateway/ssh
                   name: ssh-manual-ca
@@ -280,7 +280,7 @@ should render with SSH enabled:
             - configMap:
                 name: RELEASE-NAME-gateway-config
               name: config
-            - name: tls-certs
+            - name: tls-certs-0
               secret:
                 secretName: RELEASE-NAME-gateway-tls
             - name: ssh-manual-ca
@@ -304,8 +304,8 @@ should render with SSH enabled:
         tls:
           certificates:
             files:
-              - certificateFile: "/etc/gateway/tls/tls.crt"
-                privateKeyFile: "/etc/gateway/tls/tls.key"
+              - certificateFile: "/etc/gateway/tls/0/tls.crt"
+                privateKeyFile: "/etc/gateway/tls/0/tls.key"
 
         ssh:
           gateway:
