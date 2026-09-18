@@ -9,7 +9,7 @@ CRDs in the cluster, so rendering is gated behind twingateOperator.gateway.enabl
 {{- fail "twingateOperator.kubernetesResource.remoteNetworkId is not supported, set twingateOperator.remoteNetworkId instead" }}
 {{- end }}
 {{- if .Values.twingateOperator.gateway.enabled }}
-{{- include "gateway.requireCACertificateRef" . }}
+{{- include "gateway.requireCASecretOrConfigRef" . }}
 {{- $certificateAuthority := .Values.twingateOperator.gateway.certificateAuthority | default dict }}
 apiVersion: twingate.com/v1beta
 kind: TwingateCertificateAuthority

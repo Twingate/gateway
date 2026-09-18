@@ -229,7 +229,7 @@ Create the name of the ConfigMap holding the CA certificate the TwingateCertific
 Fail when the TwingateCertificateAuthority would have neither a secretRef nor a configMapRef: the Gateway
 serves no certificate Secret and no CA is provided under twingateOperator.gateway.certificateAuthority.
 */}}
-{{- define "gateway.requireCACertificateRef" -}}
+{{- define "gateway.requireCASecretOrConfigRef" -}}
 {{- $certificateAuthority := .Values.twingateOperator.gateway.certificateAuthority | default dict }}
 {{- if and (not (include "gateway.tlsSecretNames" . | fromJsonArray)) (not $certificateAuthority.certificate) (not $certificateAuthority.certificateConfigMapName) }}
 {{- fail "The TwingateCertificateAuthority has no CA certificate to register. Set twingateOperator.gateway.certificateAuthority.certificate to the tls.automation issuer's CA certificate, or point twingateOperator.gateway.certificateAuthority.certificateConfigMapName at a ConfigMap holding it under ca.crt." }}
