@@ -22,12 +22,40 @@ data:
     {{- end }}
 
     tls:
+      {{- with (include "gateway.tlsSecretNames" . | fromJsonArray) }}
       certificates:
         files:
-          {{- range $i, $name := (include "gateway.tlsSecretNames" . | fromJsonArray) }}
+          {{- range $i, $name := . }}
           - certificateFile: "/etc/gateway/tls/{{ $i }}/tls.crt"
             privateKeyFile: "/etc/gateway/tls/{{ $i }}/tls.key"
           {{- end }}
+      {{- end }}
+      {{- if .Values.tls.automation.enabled }}
+      automation:
+        {{- with .Values.tls.automation.certificate }}
+        certificate:
+          {{- with .ttl }}
+          ttl: {{ . | quote }}
+          {{- end }}
+          {{- with .key }}
+          key:
+            type: {{ .type | quote }}
+            {{- with .bits }}
+            bits: {{ . }}
+            {{- end }}
+          {{- end }}
+        {{- end }}
+        issuer:
+          {{- with .Values.tls.automation.issuer.gcpPrivateCA }}
+          gcpPrivateCA:
+            project: {{ required "tls.automation.issuer.gcpPrivateCA.project is required" .project | quote }}
+            location: {{ required "tls.automation.issuer.gcpPrivateCA.location is required" .location | quote }}
+            caPoolID: {{ required "tls.automation.issuer.gcpPrivateCA.caPoolId is required" .caPoolId | quote }}
+            {{- with .issuingCertificateAuthorityId }}
+            issuingCertificateAuthorityID: {{ . | quote }}
+            {{- end }}
+          {{- end }}
+      {{- end }}
 
     {{- $resourceEnabled := and .Values.twingateOperator.kubernetesResource .Values.twingateOperator.kubernetesResource.enabled -}}
     {{- $k8sEnabled := and .Values.kubernetes .Values.kubernetes.enabled }}
