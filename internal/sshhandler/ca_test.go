@@ -86,17 +86,17 @@ func TestEmbeddedCA_Sign(t *testing.T) {
 	}
 }
 
-func TestNewManualCA_Success(t *testing.T) {
+func TestNewLocalCA_Success(t *testing.T) {
 	core, logs := observer.New(zapcore.InfoLevel)
 	logger := zap.New(core)
 
-	provider, err := newManualCA("../../test/data/ssh/ca/ca", logger)
+	provider, err := newLocalCA("../../test/data/ssh/ca/ca", logger)
 	require.NoError(t, err)
 
 	require.NotNil(t, provider.gatewayHostCA())
 	require.NotNil(t, provider.gatewayUserCA())
 	require.NotNil(t, provider.tofuHostKeys, "tofuHostKeys should be initialized for TOFU mode")
-	require.NotNil(t, provider.keyReloader, "keyReloader should watch the manual CA key file")
+	require.NotNil(t, provider.keyReloader, "keyReloader should watch the local CA key file")
 
 	require.Same(t, provider.gatewayHostCA(), provider.gatewayUserCA(), "gatewayHostCA and gatewayUserCA should be the same instance")
 
@@ -111,17 +111,17 @@ func TestNewManualCA_Success(t *testing.T) {
 	require.Len(t, allLogs, 1, "Expected exactly one log message")
 
 	log := allLogs[0]
-	require.Equal(t, "Using manual CA for SSH authentication", log.Message)
+	require.Equal(t, "Using local CA for SSH authentication", log.Message)
 	require.Equal(t, strings.TrimSpace(string(ssh.MarshalAuthorizedKey(pubKey))), log.ContextMap()["ca_public_key"])
 }
 
-func TestNewManualCA_ReloadsPrivateKey(t *testing.T) {
+func TestNewLocalCA_ReloadsPrivateKey(t *testing.T) {
 	keyPEM, publicKey := generateCAKey(t)
 	keyFile := createCAKeyFile(t, keyPEM)
 
 	core, logs := observer.New(zapcore.InfoLevel)
 
-	provider, err := newManualCA(keyFile, zap.New(core))
+	provider, err := newLocalCA(keyFile, zap.New(core))
 	require.NoError(t, err)
 	require.NoError(t, provider.Start(t.Context()))
 
@@ -203,8 +203,8 @@ func TestRotationNotifier(t *testing.T) {
 	assert.True(t, isClosed(rotated))
 }
 
-func TestNewManualCA_PrivateKeyFileNotFound(t *testing.T) {
-	_, err := newManualCA("/nonexistent/ca", zap.NewNop())
+func TestNewLocalCA_PrivateKeyFileNotFound(t *testing.T) {
+	_, err := newLocalCA("/nonexistent/ca", zap.NewNop())
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "failed to read private key file")
 }
@@ -214,9 +214,9 @@ func TestNewCAFromConfig_EmptyConfig(t *testing.T) {
 	require.ErrorIs(t, err, gatewayconfig.ErrMissingCAConfig)
 }
 
-func TestNewCAFromConfig_ManualConfig(t *testing.T) {
+func TestNewCAFromConfig_LocalConfig(t *testing.T) {
 	config := gatewayconfig.SSHCAConfig{
-		Manual: &gatewayconfig.SSHCAManualConfig{
+		Local: &gatewayconfig.SSHCALocalConfig{
 			PrivateKeyFile: "../../test/data/ssh/ca/ca",
 		},
 	}
@@ -230,8 +230,8 @@ func TestNewCAFromConfig_ManualConfig(t *testing.T) {
 
 // A key pinned by TOFU persists across separate callbacks for the same address, and each
 // address pins independently.
-func TestManualCAProvider_UpstreamHostKeyCallback_PinPersistsAcrossCallbacks(t *testing.T) {
-	provider := &manualCAProvider{tofuHostKeys: make(map[string]*tofuHostKey)}
+func TestLocalCAProvider_UpstreamHostKeyCallback_PinPersistsAcrossCallbacks(t *testing.T) {
+	provider := &localCAProvider{tofuHostKeys: make(map[string]*tofuHostKey)}
 
 	key1, err := parsePublicKey(data.SSHHostPublicKey)
 	require.NoError(t, err)

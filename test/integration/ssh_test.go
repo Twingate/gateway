@@ -120,7 +120,7 @@ func TestSSH(t *testing.T) {
 		Username: "alex@acme.com",
 		Groups:   []string{"OnCall", "Engineering"},
 	}, gatewayconfig.SSHCAConfig{
-		Manual: &gatewayconfig.SSHCAManualConfig{
+		Local: &gatewayconfig.SSHCALocalConfig{
 			PrivateKeyFile: "../data/ssh/ca/ca",
 		},
 	}, gatewayPort)
@@ -262,7 +262,7 @@ func TestSSHLocalPortForwarding(t *testing.T) {
 		Username: "alex@acme.com",
 		Groups:   []string{"Engineering"},
 	}, gatewayconfig.SSHCAConfig{
-		Manual: &gatewayconfig.SSHCAManualConfig{
+		Local: &gatewayconfig.SSHCALocalConfig{
 			PrivateKeyFile: "../data/ssh/ca/ca",
 		},
 	}, gatewayPort)
@@ -347,7 +347,7 @@ func TestSSHRemotePortForwarding(t *testing.T) {
 		Username: "alex@acme.com",
 		Groups:   []string{"Engineering"},
 	}, gatewayconfig.SSHCAConfig{
-		Manual: &gatewayconfig.SSHCAManualConfig{
+		Local: &gatewayconfig.SSHCALocalConfig{
 			PrivateKeyFile: "../data/ssh/ca/ca",
 		},
 	}, gatewayPort)
