@@ -1,0 +1,37 @@
+suite: Upstream CA bundles configmap
+templates:
+  - upstream-ca-bundles-configmap.yaml
+set:
+  twingate:
+    network: "acme"
+tests:
+  - it: should not render when empty
+    set:
+      upstreamCABundles: []
+    asserts:
+      - hasDocuments:
+          count: 0
+  - it: should not render when every bundle comes from an existing ConfigMap
+    set:
+      upstreamCABundles:
+        - configMapName: "corp-root-ca"
+    asserts:
+      - hasDocuments:
+          count: 0
+  - it: should hold one key per inline bundle
+    set:
+      upstreamCABundles:
+        - configMapName: "corp-root-ca"
+        - pem: "my-upstream-ca"
+        - pem: "my-other-upstream-ca"
+    asserts:
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-gateway-upstream-ca-bundles
+      - equal:
+          path: data
+          value:
+            ca1.crt: |
+              my-upstream-ca
+            ca2.crt: |
+              my-other-upstream-ca

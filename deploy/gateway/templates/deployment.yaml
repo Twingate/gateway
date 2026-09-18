@@ -2,6 +2,7 @@
 {{- $vaultCABundleEnabled := and .Values.ssh.enabled .Values.ssh.ca .Values.ssh.ca.vault (or .Values.ssh.ca.vault.caBundle .Values.ssh.ca.vault.existingCABundleSecret) -}}
 {{- $vaultAppRoleEnabled := and .Values.ssh.enabled .Values.ssh.ca .Values.ssh.ca.vault .Values.ssh.ca.vault.auth .Values.ssh.ca.vault.auth.appRole -}}
 {{- $tlsSecretNames := include "gateway.tlsSecretNames" . | fromJsonArray -}}
+{{- $upstreamCABundles := include "gateway.upstreamCABundleSources" . | fromJsonArray -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -77,6 +78,11 @@ spec:
               mountPath: /etc/gateway/tls/{{ $i }}
               readOnly: true
             {{- end }}
+            {{- range $i, $source := $upstreamCABundles }}
+            - name: upstream-ca-bundle-{{ $i }}
+              mountPath: /etc/gateway/upstream-ca-bundles/{{ $i }}
+              readOnly: true
+            {{- end }}
             {{- if .Values.ssh.enabled }}
             {{- if $manualCAEnabled }}
             - name: ssh-manual-ca
@@ -105,6 +111,14 @@ spec:
         - name: tls-certs-{{ $i }}
           secret:
             secretName: {{ $name }}
+        {{- end }}
+        {{- range $i, $source := $upstreamCABundles }}
+        - name: upstream-ca-bundle-{{ $i }}
+          configMap:
+            name: {{ $source.configMapName | quote }}
+            items:
+              - key: {{ $source.key | quote }}
+                path: ca.crt
         {{- end }}
         {{- if .Values.ssh.enabled }}
         {{- if $manualCAEnabled }}

@@ -743,3 +743,86 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "at '/tls/automation/issuer/gcpPrivateCA': missing properties 'project', 'location', 'caPoolId'"
+---
+suite: Gateway configmap with upstream CA bundles
+templates:
+  - gateway-configmap.yaml
+set:
+  twingate:
+    network: "acme"
+tests:
+  - it: should not render upstreamCABundles by default
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: upstreamCABundles
+  - it: should render a file per bundle
+    set:
+      upstreamCABundles:
+        - configMapName: "corp-root-ca"
+        - configMapName: "partner-ca"
+          configMapKey: "bundle.pem"
+        - pem: "my-upstream-ca"
+    asserts:
+      - equal:
+          path: data["config.yaml"]
+          value: |-
+            twingate:
+              network: "acme"
+              host: "twingate.com"
+
+            port: 8443
+            metricsPort: 9090
+
+            auditLog:
+              flushInterval: 5m
+              flushSizeThreshold: 1e+06
+
+            tls:
+              certificates:
+                files:
+                  - certificateFile: "/etc/gateway/tls/0/tls.crt"
+                    privateKeyFile: "/etc/gateway/tls/0/tls.key"
+
+            upstreamCABundles:
+              - file: "/etc/gateway/upstream-ca-bundles/0/ca.crt"
+              - file: "/etc/gateway/upstream-ca-bundles/1/ca.crt"
+              - file: "/etc/gateway/upstream-ca-bundles/2/ca.crt"
+  - it: should error when an inline PEM bundle is empty
+    set:
+      upstreamCABundles:
+        - pem: ""
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/upstreamCABundles/0/pem': minLength: got 0, want 1"
+  - it: should error when an entry sets both a ConfigMap and a PEM bundle
+    set:
+      upstreamCABundles:
+        - configMapName: "corp-root-ca"
+          pem: "my-upstream-ca"
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/upstreamCABundles/0': 'oneOf' failed, subschemas 0, 1 matched"
+  - it: should error when a ConfigMap key is set without a name
+    set:
+      upstreamCABundles:
+        - configMapKey: "bundle.pem"
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/upstreamCABundles/0': properties 'configMapName' required, if 'configMapKey' exists"
+  - it: should error when an inline PEM bundle sets an unknown key
+    set:
+      upstreamCABundles:
+        - pem: "my-upstream-ca"
+          invalid: "garbage"
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/upstreamCABundles/0': additional properties 'invalid' not allowed"
+  - it: should error when a ConfigMap bundle sets an unknown key
+    set:
+      upstreamCABundles:
+        - configMapName: "corp-root-ca"
+          invalid: "garbage"
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/upstreamCABundles/0': additional properties 'invalid' not allowed"

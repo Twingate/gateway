@@ -129,6 +129,17 @@ webApp:
   # Custom HTTP headers to inject into proxied requests.
   requestHeaders: {}
 
+# CA bundles the Gateway trusts when verifying upstream TLS connections, on top of the
+# system trust store. Each entry is either an existing ConfigMap or an inline PEM bundle.
+upstreamCABundles: []
+  # - configMapName: "corp-root-ca"
+  #   # Optional, defaults to `ca.crt`.
+  #   configMapKey: ca.crt
+  # - pem: |
+  #     -----BEGIN CERTIFICATE-----
+  #     ...
+  #     -----END CERTIFICATE-----
+
 clusterDomain: cluster.local
 
 # Gateway deployment
