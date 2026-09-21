@@ -605,6 +605,10 @@
                       "description": "Name of an existing Secret holding the CA certificate under ca.crt and its private key under ca.key."
                     }
                   },
+                  "anyOf": [
+                    {"required": ["secretName"]},
+                    {"required": ["certificate", "privateKey"]}
+                  ],
                   "additionalProperties": false
                 },
                 "gcpPrivateCA": {
