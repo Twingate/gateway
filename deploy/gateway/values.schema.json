@@ -93,6 +93,45 @@
       },
       "additionalProperties": false
     },
+    "upstreamCABundles": {
+      "type": "array",
+      "description": "CA bundles the Gateway trusts when verifying upstream TLS connections, on top of the system trust store.",
+      "default": [],
+      "items": {
+        "type": "object",
+        "properties": {
+          "configMapName": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Name of an existing ConfigMap holding the PEM bundle."
+          },
+          "configMapKey": {
+            "type": "string",
+            "description": "Key in the ConfigMap holding the PEM bundle.",
+            "default": "ca.crt"
+          },
+          "pem": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Inline PEM bundle."
+          }
+        },
+        "oneOf": [
+          {
+            "required": [
+              "configMapName"
+            ]
+          },
+          {
+            "required": [
+              "pem"
+            ]
+          }
+        ],
+        "dependentRequired": {"configMapKey": ["configMapName"]},
+        "additionalProperties": false
+      }
+    },
     "kubernetes": {
       "type": "object",
       "properties": {
@@ -376,45 +415,6 @@
         }
       },
       "additionalProperties": false
-    },
-    "upstreamCABundles": {
-      "type": "array",
-      "description": "CA bundles the Gateway trusts when verifying upstream TLS connections, on top of the system trust store.",
-      "default": [],
-      "items": {
-        "type": "object",
-        "properties": {
-          "configMapName": {
-            "type": "string",
-            "minLength": 1,
-            "description": "Name of an existing ConfigMap holding the PEM bundle."
-          },
-          "configMapKey": {
-            "type": "string",
-            "description": "Key in the ConfigMap holding the PEM bundle.",
-            "default": "ca.crt"
-          },
-          "pem": {
-            "type": "string",
-            "minLength": 1,
-            "description": "Inline PEM bundle."
-          }
-        },
-        "oneOf": [
-          {
-            "required": [
-              "configMapName"
-            ]
-          },
-          {
-            "required": [
-              "pem"
-            ]
-          }
-        ],
-        "dependentRequired": {"configMapKey": ["configMapName"]},
-        "additionalProperties": false
-      }
     },
     "tls": {
       "type": "object",

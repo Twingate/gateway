@@ -788,6 +788,13 @@ tests:
               - file: "/etc/gateway/upstream-ca-bundles/0/ca.crt"
               - file: "/etc/gateway/upstream-ca-bundles/1/ca.crt"
               - file: "/etc/gateway/upstream-ca-bundles/2/ca.crt"
+  - it: should error when a ConfigMap bundle has an empty name
+    set:
+      upstreamCABundles:
+        - configMapName: ""
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/upstreamCABundles/0/configMapName': minLength: got 0, want 1"
   - it: should error when an inline PEM bundle is empty
     set:
       upstreamCABundles:

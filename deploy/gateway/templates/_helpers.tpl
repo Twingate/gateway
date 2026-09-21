@@ -145,8 +145,7 @@ Create the name of the ConfigMap holding the inline `upstreamCABundles` PEM bund
 {{- end }}
 
 {{/*
-Key an inline `pem` bundle is stored under in the chart-owned ConfigMap, from its position
-in `upstreamCABundles`.
+ConfigMap key for an inline `pem` bundle, derived from its position in `upstreamCABundles`.
 */}}
 {{- define "gateway.upstreamCABundleInlineKey" -}}
 {{- printf "ca%d.crt" . }}

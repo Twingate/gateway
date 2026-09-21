@@ -400,10 +400,3 @@ tests:
             name: upstream-ca-bundle-1
             mountPath: /etc/gateway/upstream-ca-bundles/1
             readOnly: true
-  - it: should error when a ConfigMap bundle has an empty name
-    set:
-      upstreamCABundles:
-        - configMapName: ""
-    asserts:
-      - failedTemplate:
-          errorPattern: "at '/upstreamCABundles/0/configMapName': minLength: got 0, want 1"
