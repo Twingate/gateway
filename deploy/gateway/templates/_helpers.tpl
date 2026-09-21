@@ -248,13 +248,24 @@ namespace, so the release namespace's own UID is not always readable.
 {{- end }}
 
 {{/*
+Return "true" when a CA certificate is provided under twingateOperator.gateway.certificateAuthority,
+either inline or as an existing Secret.
+*/}}
+{{- define "gateway.certificateAuthorityHasCertificate" -}}
+{{- $certificateAuthority := .Values.twingateOperator.gateway.certificateAuthority | default dict }}
+{{- if or $certificateAuthority.certificate $certificateAuthority.certificateSecretName -}}
+true
+{{- end -}}
+{{- end -}}
+
+{{/*
 Create the name of the Secret holding the CA certificate the TwingateCertificateAuthority registers.
 */}}
 {{- define "gateway.certificateAuthoritySecretName" -}}
 {{- $certificateAuthority := .Values.twingateOperator.gateway.certificateAuthority | default dict }}
 {{- if $certificateAuthority.certificateSecretName }}
 {{- $certificateAuthority.certificateSecretName }}
-{{- else if $certificateAuthority.certificate }}
+{{- else }}
 {{- printf "%s-ca" (include "gateway.fullname" .) }}
 {{- end }}
 {{- end }}
@@ -264,7 +275,7 @@ Fail when the TwingateCertificateAuthority would have no secretRef: the Gateway 
 certificate Secret and no CA is provided under twingateOperator.gateway.certificateAuthority.
 */}}
 {{- define "gateway.requireCASecret" -}}
-{{- if and (not (include "gateway.certificateAuthoritySecretName" .)) (not (include "gateway.tlsSecretNames" . | fromJsonArray)) }}
+{{- if and (not (include "gateway.tlsSecretNames" . | fromJsonArray)) (not (include "gateway.certificateAuthorityHasCertificate" .)) }}
 {{- fail "The TwingateCertificateAuthority has no CA certificate to register. Set twingateOperator.gateway.certificateAuthority.certificate to the tls.automation issuer's CA certificate, or point twingateOperator.gateway.certificateAuthority.certificateSecretName at a Secret holding it under ca.crt." }}
 {{- end }}
 {{- end }}

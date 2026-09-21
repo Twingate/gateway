@@ -17,7 +17,7 @@ Watch the LoadBalancer address with: 'kubectl get svc --namespace {{ .Release.Na
 
 {{- end }}
 
-{{- if and .Values.twingateOperator.gateway.enabled (or $certificateAuthority.certificate $certificateAuthority.certificateSecretName) }}
+{{- if and .Values.twingateOperator.gateway.enabled (include "gateway.certificateAuthorityHasCertificate" .) }}
 {{- $certificateAuthoritySecretName := include "gateway.certificateAuthoritySecretName" . }}
 {{- $caCertificate := $certificateAuthority.certificate }}
 {{- if $certificateAuthority.certificateSecretName }}
