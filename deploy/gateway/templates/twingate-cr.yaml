@@ -9,8 +9,8 @@ CRDs in the cluster, so rendering is gated behind twingateOperator.gateway.enabl
 {{- fail "twingateOperator.kubernetesResource.remoteNetworkId is not supported, set twingateOperator.remoteNetworkId instead" }}
 {{- end }}
 {{- if .Values.twingateOperator.gateway.enabled }}
-{{- include "gateway.requireCASecretOrConfigRef" . }}
-{{- $certificateAuthority := .Values.twingateOperator.gateway.certificateAuthority | default dict }}
+{{- include "gateway.requireCASecret" . }}
+{{- $certificateAuthoritySecretName := include "gateway.certificateAuthoritySecretName" . | default (include "gateway.tlsSecretNames" . | fromJsonArray | first) }}
 apiVersion: twingate.com/v1beta
 kind: TwingateCertificateAuthority
 metadata:
@@ -20,15 +20,9 @@ metadata:
 spec:
   name: {{ include "gateway.certificateAuthorityName" . | quote }}
   type: X509
-  {{- if or $certificateAuthority.certificate $certificateAuthority.certificateConfigMapName }}
-  configMapRef:
-    name: {{ include "gateway.certificateAuthorityConfigMapName" . }}
-    namespace: {{ .Release.Namespace }}
-  {{- else }}
   secretRef:
-    name: {{ include "gateway.tlsSecretNames" . | fromJsonArray | first }}
+    name: {{ $certificateAuthoritySecretName }}
     namespace: {{ .Release.Namespace }}
-  {{- end }}
 ---
 apiVersion: twingate.com/v1beta
 kind: TwingateGateway

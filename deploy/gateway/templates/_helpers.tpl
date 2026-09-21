@@ -248,25 +248,24 @@ namespace, so the release namespace's own UID is not always readable.
 {{- end }}
 
 {{/*
-Create the name of the ConfigMap holding the CA certificate the TwingateCertificateAuthority registers.
+Create the name of the Secret holding the CA certificate the TwingateCertificateAuthority registers.
 */}}
-{{- define "gateway.certificateAuthorityConfigMapName" -}}
+{{- define "gateway.certificateAuthoritySecretName" -}}
 {{- $certificateAuthority := .Values.twingateOperator.gateway.certificateAuthority | default dict }}
-{{- if $certificateAuthority.certificateConfigMapName }}
-{{- $certificateAuthority.certificateConfigMapName }}
-{{- else }}
+{{- if $certificateAuthority.certificateSecretName }}
+{{- $certificateAuthority.certificateSecretName }}
+{{- else if $certificateAuthority.certificate }}
 {{- printf "%s-ca" (include "gateway.fullname" .) }}
 {{- end }}
 {{- end }}
 
 {{/*
-Fail when the TwingateCertificateAuthority would have neither a secretRef nor a configMapRef: the Gateway
-serves no certificate Secret and no CA is provided under twingateOperator.gateway.certificateAuthority.
+Fail when the TwingateCertificateAuthority would have no secretRef: the Gateway serves no
+certificate Secret and no CA is provided under twingateOperator.gateway.certificateAuthority.
 */}}
-{{- define "gateway.requireCASecretOrConfigRef" -}}
-{{- $certificateAuthority := .Values.twingateOperator.gateway.certificateAuthority | default dict }}
-{{- if and (not (include "gateway.tlsSecretNames" . | fromJsonArray)) (not $certificateAuthority.certificate) (not $certificateAuthority.certificateConfigMapName) }}
-{{- fail "The TwingateCertificateAuthority has no CA certificate to register. Set twingateOperator.gateway.certificateAuthority.certificate to the tls.automation issuer's CA certificate, or point twingateOperator.gateway.certificateAuthority.certificateConfigMapName at a ConfigMap holding it under ca.crt." }}
+{{- define "gateway.requireCASecret" -}}
+{{- if and (not (include "gateway.certificateAuthoritySecretName" .)) (not (include "gateway.tlsSecretNames" . | fromJsonArray)) }}
+{{- fail "The TwingateCertificateAuthority has no CA certificate to register. Set twingateOperator.gateway.certificateAuthority.certificate to the tls.automation issuer's CA certificate, or point twingateOperator.gateway.certificateAuthority.certificateSecretName at a Secret holding it under ca.crt." }}
 {{- end }}
 {{- end }}
 
