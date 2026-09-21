@@ -649,7 +649,7 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "at '/tls/automation/issuer': 'oneOf' failed, subschemas 0, 1 matched"
-  - it: should fail when the local issuer has neither a Secret nor an inline keypair
+  - it: should fail when the local issuer is empty
     set:
       tls:
         certificates:
