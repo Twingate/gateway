@@ -424,7 +424,7 @@ func TestConfig_Validate(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "invalid cas entry",
+			name: "invalid upstreamCABundles entry",
 			config: &Config{
 				Twingate:    TwingateConfig{Network: "test", Host: "twingate.com"},
 				Port:        8443,
@@ -436,11 +436,11 @@ func TestConfig_Validate(t *testing.T) {
 						},
 					},
 				},
-				CAs:        []CA{{Name: "web-app"}},
-				Kubernetes: &KubernetesConfig{},
+				UpstreamCABundles: []UpstreamCABundle{{}},
+				Kubernetes:        &KubernetesConfig{},
 			},
 			wantErr:     true,
-			errContains: "cas config",
+			errContains: "upstreamCABundles config",
 		},
 		{
 			name: "missing Twingate network",
@@ -1207,52 +1207,46 @@ func TestKubernetesConfig_Validate(t *testing.T) {
 	}
 }
 
-func TestValidateCAs(t *testing.T) {
+func TestValidateUpstreamCABundles(t *testing.T) {
 	tests := []struct {
 		name        string
-		cas         []CA
+		caBundles   []UpstreamCABundle
 		wantErr     bool
 		errContains string
 	}{
 		{
 			name: "valid list",
-			cas: []CA{
-				{Name: "gcp-database", CertFile: "/etc/gateway/ca1.crt"},
-				{Name: "web-app", CertFile: "/etc/gateway/ca2.crt"},
+			caBundles: []UpstreamCABundle{
+				{File: "/etc/gateway/ca1.crt"},
+				{File: "/etc/gateway/ca2.crt"},
 			},
 			wantErr: false,
 		},
 		{
-			name:    "empty list is allowed",
-			cas:     []CA{},
-			wantErr: false,
+			name:      "empty list is allowed",
+			caBundles: []UpstreamCABundle{},
+			wantErr:   false,
 		},
 		{
-			name:        "missing name",
-			cas:         []CA{{CertFile: "/etc/gateway/ca.crt"}},
+			name:        "missing file",
+			caBundles:   []UpstreamCABundle{{}},
 			wantErr:     true,
-			errContains: "name",
+			errContains: "upstreamCABundles[0]: required field is missing: file",
 		},
 		{
-			name:        "missing certFile",
-			cas:         []CA{{Name: "web-app"}},
-			wantErr:     true,
-			errContains: "certFile",
-		},
-		{
-			name: "duplicate CA names",
-			cas: []CA{
-				{Name: "web-app", CertFile: "/etc/gateway/ca1.crt"},
-				{Name: "web-app", CertFile: "/etc/gateway/ca2.crt"},
+			name: "duplicate file",
+			caBundles: []UpstreamCABundle{
+				{File: "/etc/gateway/ca.crt"},
+				{File: "/etc/gateway/ca.crt"},
 			},
 			wantErr:     true,
-			errContains: "\"web-app\"",
+			errContains: "\"/etc/gateway/ca.crt\"",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateCAs(tt.cas)
+			err := validateUpstreamCABundles(tt.caBundles)
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.errContains)
@@ -1263,7 +1257,7 @@ func TestValidateCAs(t *testing.T) {
 	}
 }
 
-func TestLoad_CAs(t *testing.T) {
+func TestLoad_UpstreamCABundles(t *testing.T) {
 	yaml := `
 twingate:
   network: "acme"
@@ -1272,11 +1266,9 @@ tls:
     files:
       - certificateFile: "tls.crt"
         privateKeyFile: "tls.key"
-cas:
-  - name: "gcp-database"
-    certFile: "/etc/gateway/ca1.crt"
-  - name: "web-app"
-    certFile: "/etc/gateway/ca2.crt"
+upstreamCABundles:
+  - file: "/etc/gateway/ca1.crt"
+  - file: "/etc/gateway/ca2.crt"
 webApp: {}
 `
 
@@ -1288,11 +1280,11 @@ webApp: {}
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
 
-	want := []CA{
-		{Name: "gcp-database", CertFile: "/etc/gateway/ca1.crt"},
-		{Name: "web-app", CertFile: "/etc/gateway/ca2.crt"},
+	want := []UpstreamCABundle{
+		{File: "/etc/gateway/ca1.crt"},
+		{File: "/etc/gateway/ca2.crt"},
 	}
-	assert.Equal(t, want, cfg.CAs)
+	assert.Equal(t, want, cfg.UpstreamCABundles)
 	require.NoError(t, cfg.Validate())
 }
 
