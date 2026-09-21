@@ -14,8 +14,8 @@ import (
 	"gateway/internal/reloader"
 )
 
-// keyReloader loads the manual CA private key and swaps the signer when the key
-// file changes, so the CA key can be rotated without a restart.
+// keyReloader swaps its ssh.Signer when the key file changes and signals
+// reloadCh when the new key differs from the previous one.
 type keyReloader struct {
 	keyFile string
 	logger  *zap.Logger
@@ -63,7 +63,7 @@ func (kr *keyReloader) load() error {
 
 	if previous != nil && !keysEqual(previous.PublicKey(), signer.PublicKey()) {
 		publicKeyStr := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(signer.PublicKey())))
-		kr.logger.Info("reloaded CA private key file", zap.String("ca_public_key", publicKeyStr))
+		kr.logger.Info("reloaded private key file", zap.String("public_key", publicKeyStr))
 
 		// Non-blocking send: a pending notification already re-signs with the latest key.
 		select {
