@@ -138,6 +138,18 @@ true
 
 
 {{/*
+Create the name of the local TLS issuer CA secret to use
+*/}}
+{{- define "gateway.tlsLocalCASecretName" -}}
+{{- if .Values.tls.automation.issuer.local.secretName }}
+{{- .Values.tls.automation.issuer.local.secretName }}
+{{- else }}
+{{- printf "%s-tls-local-ca" (include "gateway.fullname" .) }}
+{{- end }}
+{{- end }}
+
+
+{{/*
 Create the name of the ConfigMap holding the inline `upstreamCABundles` PEM bundles
 */}}
 {{- define "gateway.upstreamCABundlesConfigMapName" -}}
@@ -271,11 +283,25 @@ Create the name of the Secret holding the CA certificate the TwingateCertificate
 {{- end }}
 
 {{/*
+Return the name the TwingateCertificateAuthority points its secretRef at.
+*/}}
+{{- define "gateway.certificateAuthoritySecretRefName" -}}
+{{- $names := include "gateway.tlsSecretNames" . | fromJsonArray }}
+{{- if include "gateway.certificateAuthorityHasCertificate" . }}
+{{- include "gateway.certificateAuthoritySecretName" . }}
+{{- else if $names }}
+{{- first $names }}
+{{- else if and .Values.tls.automation.enabled .Values.tls.automation.issuer.local }}
+{{- include "gateway.tlsLocalCASecretName" . }}
+{{- end }}
+{{- end }}
+
+{{/*
 Fail when the TwingateCertificateAuthority would have no secretRef: the Gateway serves no
 certificate Secret and no CA is provided under twingateOperator.gateway.certificateAuthority.
 */}}
 {{- define "gateway.requireCASecret" -}}
-{{- if and (not (include "gateway.tlsSecretNames" . | fromJsonArray)) (not (include "gateway.certificateAuthorityHasCertificate" .)) }}
+{{- if not (include "gateway.certificateAuthoritySecretRefName" .) }}
 {{- fail "The TwingateCertificateAuthority has no CA certificate to register. Set twingateOperator.gateway.certificateAuthority.certificate to the tls.automation issuer's CA certificate, or point twingateOperator.gateway.certificateAuthority.certificateSecretName at a Secret holding it under ca.crt." }}
 {{- end }}
 {{- end }}

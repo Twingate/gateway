@@ -588,6 +588,25 @@
               "type": "object",
               "description": "The certificate authority that signs issued certificates. Exactly one must be specified when `enabled` is true.",
               "properties": {
+                "local": {
+                  "type": "object",
+                  "description": "CA keypair the Gateway signs with itself, either provided inline or read from an existing Secret.",
+                  "properties": {
+                    "certificate": {
+                      "type": "string",
+                      "description": "CA certificate content (PEM format)."
+                    },
+                    "privateKey": {
+                      "type": "string",
+                      "description": "CA private key content (PEM format)."
+                    },
+                    "secretName": {
+                      "type": "string",
+                      "description": "Name of an existing Secret holding the CA certificate under ca.crt and its private key under ca.key."
+                    }
+                  },
+                  "additionalProperties": false
+                },
                 "gcpPrivateCA": {
                   "type": "object",
                   "description": "Google Cloud Certificate Authority Service. Authenticates through Application Default Credentials, such as GKE Workload Identity.",
@@ -625,6 +644,7 @@
             "properties": {
               "issuer": {
                 "oneOf": [
+                  {"required": ["local"]},
                   {"required": ["gcpPrivateCA"]}
                 ]
               }
