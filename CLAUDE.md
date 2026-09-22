@@ -21,40 +21,55 @@ Zero-trust access gateway bridging Twingate with L7 resources such as Kubernetes
 
 ```text
 main.go → cmd/start.go → proxy.NewProxy() → proxy.Start()
-  ├─> connect.NewListener() (TLS + protocol multiplexing)
-  ├─> httphandler.NewProxy().Start() (K8s API proxy)
-  ├─> sshhandler.NewProxy().Start() (SSH proxy)
+  ├─> frontend.NewListener() (TLS + CONNECT auth, then dispatch by GAT resource type)
+  ├─> one frontend.ProtocolListener per enabled backend, served by that backend
+  │     e.g. kubernetes.NewHandler() wrapped in httpproxy.NewProxy(), ssh.NewProxy()
   └─> metrics.Start() (Prometheus)
 ```
+
+`proxy.NewProxy()` constructs only the backends enabled in config; `proxy.Start()` runs them under one errgroup.
 
 ### Core Components
 
 **`internal/proxy/proxy.go`** - Central orchestrator using errgroup for lifecycle management
 
-**`internal/connect/`** - Connection handling:
+**`internal/frontend/`** - Accepts client connections and hands authenticated connections to backends:
 
-- `listener.go`: Protocol multiplexer (HTTP/SSH based on handshake)
-- `connect.go`: Validates CONNECT + JWT + Proof-of-Possession (EKM signature)
-- `cert_reloader.go`: Hot-reloads TLS certs without restart
+- `listener.go`: TLS termination; routes each authenticated connection to a backend by the GAT resource type
+- `connect.go`: Validates CONNECT + JWT + Proof-of-Possession (client signs the TLS EKM; verified against the public key in the GAT)
+- `conn.go`: `ProxyConn`, the authenticated connection (claims, upstream host) that backends receive
+- `cert/`: Server certificate sourcing (files, local issuer, Vault, GCP Private CA) with hot reload
 
-**`internal/httphandler/`** - Kubernetes proxy:
+**`internal/token/`** - GAT (Gateway Access Token) parsing:
+
+- Parses and verifies the JWT against Twingate's JWKS
+- Defines and validates GAT claims (user, resource, upstream, client public key)
+
+**`internal/backend/`** - One package per application protocol, each proxying an authenticated connection to its upstream:
+
+- `httpproxy/`: Shared reverse-proxy core and audit middleware for the HTTP backends
+- `kubernetes/`: Kubernetes API proxy
+- `webapp/`: HTTP web app proxy with templated header rewriting
+- `ssh/`: SSH proxy
+
+**`internal/backend/kubernetes/`** - Kubernetes proxy:
 
 - Reverse proxy to K8s API with user impersonation headers
 - Multiple upstreams (in-cluster or external with custom tokens)
 - WebSocket support for kubectl exec/logs
 
-**`internal/sshhandler/`** - SSH proxy:
+**`internal/backend/webapp/`** - Web app proxy:
+
+- Reverse proxy to an HTTP upstream; scheme and address come from the GAT's upstream metadata
+- Request headers rewritten from templates with GAT variables (JWT, username, groups, client geo)
+- Strips client identity headers (`X-Real-IP`, `X-Forwarded-*`) so the client cannot spoof them
+
+**`internal/backend/ssh/`** - SSH proxy:
 
 - SSH server with CA-signed certificates (manual/Vault)
 - Manual CA private key hot-reloads on file change (`key_reloader.go`)
 - Bidirectional channel forwarding to upstreams
 - Host certs (gateway→client) + User certs (gateway→upstream)
-
-**`internal/token/`** - JWT validation:
-
-- Fetches JWKS from Twingate
-- Validates GAT claims (user, resource, client public key)
-- Proof-of-Possession: client signs TLS EKM with private key
 
 ### Security Model
 
@@ -79,14 +94,19 @@ main.go → cmd/start.go → proxy.NewProxy() → proxy.Start()
 ├── cmd/                    # CLI (Cobra)
 ├── internal/
 │   ├── config/             # YAML config + validation
-│   ├── connect/            # TLS + protocol multiplexing
-│   ├── httphandler/        # K8s API proxy
-│   ├── sshhandler/         # SSH proxy
-│   ├── token/              # JWT validation
-│   ├── sessionrecorder/    # Audit logs
+│   ├── proxy/              # Orchestrator wiring frontend to backends
+│   ├── frontend/           # TLS termination, CONNECT auth, dispatch to backends
+│   │   └── cert/           # Server certificate sourcing
+│   ├── backend/            # One package per application protocol
+│   │   ├── httpproxy/      # Shared HTTP reverse-proxy core
+│   │   ├── kubernetes/     # K8s API proxy
+│   │   ├── webapp/         # Web app proxy
+│   │   └── ssh/            # SSH proxy
+│   ├── token/              # GAT (JWT) parsing and claims
+│   ├── sessionrecorder/    # Asciicast terminal session recording
 │   ├── metrics/            # Prometheus
-│   ├── log/                # Logging
-│   └── version/
+│   ├── vault/              # Vault client
+│   └── util/               # Helpers that import nothing else under internal/ (enforced by depguard)
 ├── deploy/gateway/         # Helm chart
 ├── test/
 │   ├── integration/        # Kind cluster tests
@@ -176,6 +196,7 @@ On tag: goreleaser builds multi-arch images (amd64/arm64) → Docker Hub
 - Package names: lowercase singular (`proxy`, not `proxies`)
 - Interfaces in consumer packages
 - Dependency injection via constructors (`NewXxx()`)
+- util/ packages import nothing else under internal/ (enforced by depguard)
 
 ### Error Handling
 
@@ -225,11 +246,13 @@ Conventional commits: `feat:`, `fix:`, `chore:`, `docs:`, `test:`, `refactor:`, 
 | Start Command | `cmd/start.go` |
 | Orchestrator | `internal/proxy/proxy.go` |
 | Config | `internal/config/config.go` |
-| Auth | `internal/connect/connect.go` |
+| Auth | `internal/frontend/connect.go` |
+| Listener | `internal/frontend/listener.go` |
 | JWT | `internal/token/parser.go` |
-| K8s Proxy | `internal/httphandler/http_proxy.go` |
-| SSH Proxy | `internal/sshhandler/proxy.go` |
-| Listener | `internal/connect/listener.go` |
+| HTTP Proxy Core | `internal/backend/httpproxy/proxy.go` |
+| K8s Proxy | `internal/backend/kubernetes/handler.go` |
+| Web App Proxy | `internal/backend/webapp/handler.go` |
+| SSH Proxy | `internal/backend/ssh/proxy.go` |
 | Helm | `deploy/gateway/` |
 
 All paths relative to project root.
@@ -295,7 +318,7 @@ go test -race ./...                                        # Race detector
 5. **Document config changes**: Update Helm values and this guide
 6. **Backwards compatibility**: Avoid breaking config schema or API changes
 7. **Conventional commits**: Required for automated versioning
-8. **Multi-protocol**: Changes may affect both HTTP and SSH handlers
+8. **Multi-protocol**: Changes may affect multiple backends
 9. **Security review**: Auth/authz changes require careful review
 10. **Follow patterns**: Table-driven tests, sentinel errors, struct validation
 11. **PR Creation**: Titles must follow conventional commits (feat:, fix:, chore:, etc.). Descriptions should follow `.github/pull_request_template.md` structure (Related Tickets, Changes, Notes)

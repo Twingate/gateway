@@ -6,7 +6,7 @@ package useragent
 import (
 	"net/http"
 
-	"gateway/internal/version"
+	"gateway/internal/util/version"
 )
 
 // String returns the User-Agent identifying this build in outbound HTTP requests.

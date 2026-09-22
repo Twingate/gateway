@@ -24,7 +24,7 @@ import (
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 
-	"gateway/internal/connect"
+	"gateway/internal/frontend"
 	"gateway/internal/token"
 	"gateway/test/data"
 )
@@ -227,10 +227,10 @@ func (c *Client) handleConnection(ctx context.Context, clientConn net.Conn, gat 
 	}
 
 	connectReq.Header.Set("Proxy-Authorization", "Bearer "+gat)
-	connectReq.Header.Set(connect.ConnIDHeaderKey, uuid.New().String())
+	connectReq.Header.Set(frontend.ConnIDHeaderKey, uuid.New().String())
 
 	clientKey, _ := ReadECKey(data.ClientKey)
-	ekm, _ := connect.ExportKeyingMaterial(proxyTLSConn)
+	ekm, _ := frontend.ExportKeyingMaterial(proxyTLSConn)
 	ekmHash := sha256.Sum256(ekm)
 	signature, _ := ecdsa.SignASN1(rand.Reader, clientKey, ekmHash[:])
 	b64Signature := base64.StdEncoding.EncodeToString(signature)
