@@ -271,17 +271,6 @@ Create the name of the Secret holding the CA certificate the TwingateCertificate
 {{- end }}
 
 {{/*
-Fail when the TwingateCertificateAuthority would have no secretRef: the Gateway serves no
-certificate Secret and no CA is provided under twingateOperator.gateway.certificateAuthority.
-*/}}
-{{- define "gateway.requireCASecret" -}}
-{{- if and (not (include "gateway.tlsSecretNames" . | fromJsonArray)) (not (include "gateway.certificateAuthorityHasCertificate" .)) }}
-{{- fail "The TwingateCertificateAuthority has no CA certificate to register. Set twingateOperator.gateway.certificateAuthority.certificate to the tls.automation issuer's CA certificate, or point twingateOperator.gateway.certificateAuthority.certificateSecretName at a Secret holding it under ca.crt." }}
-{{- end }}
-{{- end }}
-
-
-{{/*
 Get the alias of the in-cluster Kubernetes resource
 */}}
 {{- define "gateway.resourceAlias" -}}
