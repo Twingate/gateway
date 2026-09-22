@@ -11,7 +11,7 @@ CRDs in the cluster, so rendering is gated behind twingateOperator.gateway.enabl
 {{- if .Values.twingateOperator.gateway.enabled }}
 {{- include "gateway.requireCASecret" . }}
 {{- $certificateAuthoritySecretName := include "gateway.tlsSecretNames" . | fromJsonArray | first }}
-{{- if include "gateway.certificateAuthorityHasCertificate" . }}
+{{- if include "gateway.certificateAuthorityCertificateProvided" . }}
 {{- $certificateAuthoritySecretName = include "gateway.certificateAuthoritySecretName" . }}
 {{- end }}
 apiVersion: twingate.com/v1beta

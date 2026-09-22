@@ -251,7 +251,7 @@ namespace, so the release namespace's own UID is not always readable.
 Return "true" when a CA certificate is provided under twingateOperator.gateway.certificateAuthority,
 either inline or as an existing Secret.
 */}}
-{{- define "gateway.certificateAuthorityHasCertificate" -}}
+{{- define "gateway.certificateAuthorityCertificateProvided" -}}
 {{- $certificateAuthority := .Values.twingateOperator.gateway.certificateAuthority | default dict }}
 {{- if or $certificateAuthority.certificate $certificateAuthority.certificateSecretName -}}
 true
