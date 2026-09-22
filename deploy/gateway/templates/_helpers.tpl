@@ -263,7 +263,7 @@ namespace, so the release namespace's own UID is not always readable.
 Return "true" when a CA certificate is provided under twingateOperator.gateway.certificateAuthority,
 either inline or as an existing Secret.
 */}}
-{{- define "gateway.certificateAuthorityHasCertificate" -}}
+{{- define "gateway.certificateAuthorityCertificateProvided" -}}
 {{- $certificateAuthority := .Values.twingateOperator.gateway.certificateAuthority | default dict }}
 {{- if or $certificateAuthority.certificate $certificateAuthority.certificateSecretName -}}
 true
@@ -287,7 +287,7 @@ Return the name the TwingateCertificateAuthority points its secretRef at.
 */}}
 {{- define "gateway.certificateAuthoritySecretRefName" -}}
 {{- $names := include "gateway.tlsSecretNames" . | fromJsonArray }}
-{{- if include "gateway.certificateAuthorityHasCertificate" . }}
+{{- if include "gateway.certificateAuthorityCertificateProvided" . }}
 {{- include "gateway.certificateAuthoritySecretName" . }}
 {{- else if $names }}
 {{- first $names }}
@@ -295,17 +295,6 @@ Return the name the TwingateCertificateAuthority points its secretRef at.
 {{- include "gateway.tlsLocalIssuerSecretName" . }}
 {{- end }}
 {{- end }}
-
-{{/*
-Fail when the TwingateCertificateAuthority would have no secretRef: the Gateway serves no
-certificate Secret and no CA is provided under twingateOperator.gateway.certificateAuthority.
-*/}}
-{{- define "gateway.requireCASecret" -}}
-{{- if not (include "gateway.certificateAuthoritySecretRefName" .) }}
-{{- fail "The TwingateCertificateAuthority has no CA certificate to register. Set twingateOperator.gateway.certificateAuthority.certificate to the tls.automation issuer's CA certificate, or point twingateOperator.gateway.certificateAuthority.certificateSecretName at a Secret holding it under ca.crt." }}
-{{- end }}
-{{- end }}
-
 
 {{/*
 Get the alias of the in-cluster Kubernetes resource
