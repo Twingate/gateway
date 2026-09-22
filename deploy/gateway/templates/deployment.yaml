@@ -2,7 +2,7 @@
 {{- $vaultCABundleEnabled := and .Values.ssh.enabled .Values.ssh.ca .Values.ssh.ca.vault (or .Values.ssh.ca.vault.caBundle .Values.ssh.ca.vault.existingCABundleSecret) -}}
 {{- $vaultAppRoleEnabled := and .Values.ssh.enabled .Values.ssh.ca .Values.ssh.ca.vault .Values.ssh.ca.vault.auth .Values.ssh.ca.vault.auth.appRole -}}
 {{- $tlsSecretNames := include "gateway.tlsSecretNames" . | fromJsonArray -}}
-{{- $tlsLocalCAEnabled := and .Values.tls.automation.enabled .Values.tls.automation.issuer.local -}}
+{{- $tlsLocalIssuerEnabled := and .Values.tls.automation.enabled .Values.tls.automation.issuer.local -}}
 {{- $upstreamCABundles := include "gateway.upstreamCABundleSources" . | fromJsonArray -}}
 apiVersion: apps/v1
 kind: Deployment
@@ -79,8 +79,8 @@ spec:
               mountPath: /etc/gateway/tls/{{ $i }}
               readOnly: true
             {{- end }}
-            {{- if $tlsLocalCAEnabled }}
-            - name: tls-local-ca
+            {{- if $tlsLocalIssuerEnabled }}
+            - name: tls-local-issuer
               mountPath: /etc/gateway/tls/ca
               readOnly: true
             {{- end }}
@@ -118,10 +118,10 @@ spec:
           secret:
             secretName: {{ $name }}
         {{- end }}
-        {{- if $tlsLocalCAEnabled }}
-        - name: tls-local-ca
+        {{- if $tlsLocalIssuerEnabled }}
+        - name: tls-local-issuer
           secret:
-            secretName: {{ include "gateway.tlsLocalCASecretName" . }}
+            secretName: {{ include "gateway.tlsLocalIssuerSecretName" . }}
         {{- end }}
         {{- range $i, $source := $upstreamCABundles }}
         - name: upstream-ca-bundle-{{ $i }}

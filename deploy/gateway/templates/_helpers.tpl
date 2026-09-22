@@ -138,13 +138,13 @@ true
 
 
 {{/*
-Create the name of the local TLS issuer CA secret to use
+Create the name of the TLS local issuer secret to use
 */}}
-{{- define "gateway.tlsLocalCASecretName" -}}
+{{- define "gateway.tlsLocalIssuerSecretName" -}}
 {{- if .Values.tls.automation.issuer.local.secretName }}
 {{- .Values.tls.automation.issuer.local.secretName }}
 {{- else }}
-{{- printf "%s-tls-local-ca" (include "gateway.fullname" .) }}
+{{- printf "%s-tls-local-issuer" (include "gateway.fullname" .) }}
 {{- end }}
 {{- end }}
 
@@ -292,7 +292,7 @@ Return the name the TwingateCertificateAuthority points its secretRef at.
 {{- else if $names }}
 {{- first $names }}
 {{- else if and .Values.tls.automation.enabled .Values.tls.automation.issuer.local }}
-{{- include "gateway.tlsLocalCASecretName" . }}
+{{- include "gateway.tlsLocalIssuerSecretName" . }}
 {{- end }}
 {{- end }}
 

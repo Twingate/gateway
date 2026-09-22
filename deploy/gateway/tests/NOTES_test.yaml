@@ -263,7 +263,7 @@ tests:
               privateKey: "my-ca-key"
     asserts:
       - matchRegexRaw:
-          pattern: 'from the "RELEASE-NAME-gateway-tls-local-ca" Secret. The CA certificate is\n\nmy-ca-cert'
+          pattern: 'from the "RELEASE-NAME-gateway-tls-local-issuer" Secret. The CA certificate is\n\nmy-ca-cert'
   - it: should show the CA certificate from an existing local issuer Secret
     set:
       tls:
@@ -323,7 +323,7 @@ tests:
         - kind: Secret
           apiVersion: v1
           metadata:
-            name: RELEASE-NAME-gateway-tls-local-ca
+            name: RELEASE-NAME-gateway-tls-local-issuer
             namespace: NAMESPACE
           data:
             # base64 of "stale-ca-cert"
