@@ -261,7 +261,7 @@ tests:
     asserts:
       - matchRegexRaw:
           pattern: "The CA certificate is\n\nmy-ca-cert"
-  - it: should show the existing CA certificate ConfigMap
+  - it: should show the existing CA certificate Secret
     set:
       tls: *automationOnly
       twingateOperator:
@@ -269,27 +269,27 @@ tests:
           enabled: true
           certificateAuthority:
             name: my-ca
-            certificateConfigMapName: issuer-ca
-    kubernetesProvider: &configMapProvider
+            certificateSecretName: issuer-ca
+    kubernetesProvider: &caSecretProvider
       scheme:
-        "v1/ConfigMap":
+        "v1/Secret":
           gvr:
             version: "v1"
-            resource: "configmaps"
+            resource: "secrets"
           namespaced: true
-      # Mock the existing ConfigMap
+      # Mock the existing Secret
       objects:
-        - kind: ConfigMap
+        - kind: Secret
           apiVersion: v1
           metadata:
             name: issuer-ca
             namespace: NAMESPACE
           data:
-            ca.crt: "issuer-ca-cert"
+            ca.crt: "aXNzdWVyLWNhLWNlcnQ="
     asserts:
       - matchRegexRaw:
-          pattern: "from the \"issuer-ca\" ConfigMap. The CA certificate is\n\nissuer-ca-cert"
-  - it: should show the existing ConfigMap CA certificate rather than the provided one
+          pattern: "from the \"issuer-ca\" Secret. The CA certificate is\n\nissuer-ca-cert"
+  - it: should show the existing Secret CA certificate rather than the provided one
     set:
       tls: *automationOnly
       twingateOperator:
@@ -298,20 +298,20 @@ tests:
           certificateAuthority:
             name: my-ca
             certificate: supplied-ca-cert # Ignore inline certificate when name is specified
-            certificateConfigMapName: issuer-ca
+            certificateSecretName: issuer-ca
     kubernetesProvider:
-      <<: *configMapProvider
+      <<: *caSecretProvider
       objects:
-        - kind: ConfigMap
+        - kind: Secret
           apiVersion: v1
           metadata:
             name: issuer-ca
             namespace: NAMESPACE
           data:
-            ca.crt: "issuer-ca-cert"
+            ca.crt: "aXNzdWVyLWNhLWNlcnQ="
     asserts:
       - matchRegexRaw:
-          pattern: "from the \"issuer-ca\" ConfigMap. The CA certificate is\n\nissuer-ca-cert"
+          pattern: "from the \"issuer-ca\" Secret. The CA certificate is\n\nissuer-ca-cert"
       - notMatchRegexRaw:
           pattern: "supplied-ca-cert"
   - it: should show the rotated CA certificate rather than the one already in the cluster
@@ -324,16 +324,16 @@ tests:
             name: my-ca
             certificate: rotated-ca-cert
     kubernetesProvider:
-      <<: *configMapProvider
-      # Mock the ConfigMap a previous release applied
+      <<: *caSecretProvider
+      # Mock the Secret a previous release applied
       objects:
-        - kind: ConfigMap
+        - kind: Secret
           apiVersion: v1
           metadata:
             name: RELEASE-NAME-gateway-ca
             namespace: NAMESPACE
           data:
-            ca.crt: "stale-ca-cert"
+            ca.crt: "c3RhbGUtY2EtY2VydA=="
     asserts:
       - matchRegexRaw:
           pattern: "rotated-ca-cert"
@@ -350,7 +350,7 @@ tests:
       tls: *staticCertificate
     asserts:
       - matchRegexRaw:
-          pattern: "from the \"RELEASE-NAME-gateway-ca\" ConfigMap. The CA certificate is\n\nmy-ca-cert"
+          pattern: "from the \"RELEASE-NAME-gateway-ca\" Secret. The CA certificate is\n\nmy-ca-cert"
   - it: should show CA certificate from TLS secret when the operator is disabled
     set:
       tls: *staticCertificate
@@ -363,4 +363,4 @@ tests:
       - matchRegexRaw:
           pattern: 'from the "RELEASE-NAME-gateway-tls-0" Secret'
       - notMatchRegexRaw:
-          pattern: "ConfigMap"
+          pattern: "RELEASE-NAME-gateway-ca"
