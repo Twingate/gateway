@@ -275,8 +275,6 @@ tests:
           issuer:
             local:
               secretName: my-existing-secret
-              certificate: "supplied-ca-cert" # Ignore inline keypair when a Secret is specified
-              privateKey: "supplied-ca-key"
     kubernetesProvider:
       scheme:
         "v1/Secret":
@@ -297,8 +295,6 @@ tests:
     asserts:
       - matchRegexRaw:
           pattern: 'from the "my-existing-secret" Secret. The CA certificate is\n\nissuer-ca-cert'
-      - notMatchRegexRaw:
-          pattern: "supplied-ca-cert"
   - it: should show the rotated local issuer certificate rather than the one already in the cluster
     set:
       tls:

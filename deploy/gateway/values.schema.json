@@ -590,7 +590,7 @@
               "properties": {
                 "local": {
                   "type": "object",
-                  "description": "CA keypair the Gateway uses to sign the certificates it issues. Provide the PEM content inline, or the name of an existing Secret holding it.",
+                  "description": "CA keypair the Gateway uses to sign the certificates it issues. Provide either the PEM content inline or the name of an existing Secret holding it.",
                   "properties": {
                     "certificate": {
                       "type": "string",
@@ -602,10 +602,10 @@
                     },
                     "secretName": {
                       "type": "string",
-                      "description": "Name of an existing Secret holding the CA certificate under ca.crt and its private key under ca.key."
+                      "description": "Name of an existing Secret containing the CA certificate under ca.crt and its private key under ca.key."
                     }
                   },
-                  "anyOf": [
+                  "oneOf": [
                     {"required": ["secretName"]},
                     {"required": ["certificate", "privateKey"]}
                   ],

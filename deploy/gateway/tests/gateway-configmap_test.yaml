@@ -704,7 +704,7 @@ tests:
             local: {}
     asserts:
       - failedTemplate:
-          errorPattern: "at '/tls/automation/issuer/local': 'anyOf' failed"
+          errorPattern: "at '/tls/automation/issuer/local': 'oneOf' failed"
   - it: should fail when the local issuer supplies a certificate without its private key
     set:
       tls:
@@ -715,7 +715,20 @@ tests:
               certificate: "my-ca-cert"
     asserts:
       - failedTemplate:
-          errorPattern: "at '/tls/automation/issuer/local': 'anyOf' failed"
+          errorPattern: "at '/tls/automation/issuer/local': 'oneOf' failed"
+  - it: should fail when the local issuer supplies a certificate and an existing Secret
+    set:
+      tls:
+        automation:
+          enabled: true
+          issuer:
+            local:
+              certificate: "my-ca-cert"
+              privateKey: "my-ca-key"
+              secretName: "my-existing-secret"
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/tls/automation/issuer/local': 'oneOf' failed, subschemas 0, 1 matched"
   - it: should fail on an unknown key
     set:
       tls:

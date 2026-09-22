@@ -274,8 +274,8 @@ tls:
 
     # Issuer configuration - exactly one issuer must be specified when automation is enabled
     issuer: {}
-      # CA keypair the Gateway uses to sign the certificates it issues. Provide the PEM
-      # content inline, or the name of an existing Secret holding the certificate under
+      # CA keypair the Gateway uses to sign the certificates it issues. Provide either the
+      # PEM content inline or the name of an existing Secret holding the certificate under
       # `ca.crt` and the private key under `ca.key`.
       # The operator registers this CA with Twingate unless the Gateway also serves a static
       # certificate or `twingateOperator.gateway.certificateAuthority` provides one.
