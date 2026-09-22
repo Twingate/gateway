@@ -249,7 +249,7 @@ tests:
           pattern: "Register the issuer's CA certificate with Twingate"
       - matchRegexRaw:
           pattern: "gcloud privateca pools get-ca-certs gateway-ca --project twingate-prod --location us-east1"
-  - it: should show the local issuer CA certificate
+  - it: should show the local issuer certificate
     set:
       tls:
         certificates:
@@ -264,7 +264,7 @@ tests:
     asserts:
       - matchRegexRaw:
           pattern: 'from the "RELEASE-NAME-gateway-tls-local-issuer" Secret. The CA certificate is\n\nmy-ca-cert'
-  - it: should show the CA certificate from an existing local issuer Secret
+  - it: should show the certificate from an existing local issuer Secret
     set:
       tls:
         certificates:
@@ -284,7 +284,7 @@ tests:
             version: "v1"
             resource: "secrets"
           namespaced: true
-      # Mock the existing Secret holding the issuer CA
+      # Mock the existing Secret holding the issuer's certificate
       objects:
         - kind: Secret
           apiVersion: v1
@@ -299,7 +299,7 @@ tests:
           pattern: 'from the "my-existing-secret" Secret. The CA certificate is\n\nissuer-ca-cert'
       - notMatchRegexRaw:
           pattern: "supplied-ca-cert"
-  - it: should show the rotated local issuer CA certificate rather than the one already in the cluster
+  - it: should show the rotated local issuer certificate rather than the one already in the cluster
     set:
       tls:
         certificates:

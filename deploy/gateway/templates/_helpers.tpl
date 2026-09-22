@@ -138,7 +138,7 @@ true
 
 
 {{/*
-Create the name of the TLS local issuer secret to use
+Create the name of the TLS local issuer Secret to use
 */}}
 {{- define "gateway.tlsLocalIssuerSecretName" -}}
 {{- if .Values.tls.automation.issuer.local.secretName }}
@@ -283,7 +283,7 @@ Create the name of the Secret holding the CA certificate the TwingateCertificate
 {{- end }}
 
 {{/*
-Return the name the TwingateCertificateAuthority points its secretRef at.
+Return the name of the secretRef used by the TwingateCertificateAuthority.
 */}}
 {{- define "gateway.certificateAuthoritySecretRefName" -}}
 {{- $names := include "gateway.tlsSecretNames" . | fromJsonArray }}

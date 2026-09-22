@@ -61,8 +61,8 @@ manually or run cert-manager with `--enable-certificate-owner-ref`.
 {{- $localIssuerSecretName := include "gateway.tlsLocalIssuerSecretName" . }}
 {{- $caCertificate := $local.certificate }}
 {{- if $local.secretName }}
-{{- $caData := (lookup "v1" "Secret" .Release.Namespace $localIssuerSecretName).data }}
-{{- $caCertificate = get $caData "ca.crt" | b64dec }}
+{{- $issuerData := (lookup "v1" "Secret" .Release.Namespace $localIssuerSecretName).data }}
+{{- $caCertificate = get $issuerData "ca.crt" | b64dec }}
 {{- end }}
 
 2. The Gateway uses the CA certificate from the {{ $localIssuerSecretName | quote }} Secret.

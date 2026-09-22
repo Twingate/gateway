@@ -300,7 +300,7 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "The TwingateCertificateAuthority has no CA certificate to register."
-  - it: references the local issuer CA Secret when automation is the only certificate source
+  - it: references the local issuer Secret when automation is the only certificate source
     set:
       twingateOperator:
         gateway:
@@ -324,7 +324,7 @@ tests:
             name: RELEASE-NAME-gateway-tls-local-issuer
             namespace: NAMESPACE
         documentIndex: 0
-  - it: references an existing local issuer CA Secret
+  - it: references an existing local issuer Secret
     set:
       twingateOperator:
         gateway:
@@ -345,7 +345,7 @@ tests:
           path: spec.secretRef.name
           value: my-existing-secret
         documentIndex: 0
-  - it: references the auto-generated Secret over the local issuer CA
+  - it: references the auto-generated Secret over the local issuer Secret
     set:
       twingateOperator:
         gateway:
@@ -364,7 +364,7 @@ tests:
           path: spec.secretRef.name
           value: RELEASE-NAME-gateway-tls
         documentIndex: 0
-  - it: references the inline CA certificate over the local issuer CA
+  - it: references the inline CA certificate over the local issuer Secret
     set:
       twingateOperator:
         gateway:

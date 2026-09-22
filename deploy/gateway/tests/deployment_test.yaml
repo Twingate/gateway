@@ -438,7 +438,7 @@ tests:
             - name: tls-local-issuer
               mountPath: /etc/gateway/tls/ca
               readOnly: true
-  - it: should mount an existing local issuer secret
+  - it: should mount an existing local issuer Secret
     set:
       tls:
         automation:
