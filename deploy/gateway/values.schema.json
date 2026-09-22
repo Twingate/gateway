@@ -590,7 +590,7 @@
               "properties": {
                 "local": {
                   "type": "object",
-                  "description": "CA keypair the Gateway signs with itself, either provided inline or read from an existing Secret.",
+                  "description": "CA keypair the Gateway uses to sign the certificates it issues. Provide the PEM content inline, or the name of an existing Secret holding it.",
                   "properties": {
                     "certificate": {
                       "type": "string",
