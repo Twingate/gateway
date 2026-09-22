@@ -453,3 +453,9 @@ tests:
             name: tls-local-issuer
             secret:
               secretName: my-existing-secret
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: tls-local-issuer
+            mountPath: /etc/gateway/tls/ca
+            readOnly: true
