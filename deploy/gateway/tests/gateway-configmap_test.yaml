@@ -670,7 +670,7 @@ tests:
               caPoolId: "gateway-ca"
     asserts:
       - failedTemplate:
-          errorPattern: "at '/tls/automation/issuer': 'oneOf' failed, subschemas 0, 1 matched"
+          errorPattern: "at '/tls/automation/issuer': 'oneOf' failed, subschemas 0, 2 matched"
 ---
 suite: Gateway configmap with local issuer TLS automation
 templates:
@@ -915,7 +915,7 @@ tests:
             gcpPrivateCA: {}
     asserts:
       - failedTemplate:
-          errorPattern: "at '/tls/automation/issuer': 'oneOf' failed, subschemas 0, 1 matched"
+          errorPattern: "at '/tls/automation/issuer': 'oneOf' failed, subschemas 1, 2 matched"
 ---
 suite: Gateway configmap with GCP Private CA TLS automation
 templates:
