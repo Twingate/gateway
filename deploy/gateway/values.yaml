@@ -280,6 +280,32 @@ tls:
       #   privateKey: ""
       #   secretName: ""
 
+      # Vault PKI secrets engine. Fetch that mount's own CA certificate for
+      # `twingateOperator.gateway.certificateAuthority.certificate` with
+      # `vault read -namespace=<namespace> -field=certificate <mount>/cert/ca`.
+      # vault:
+      #   address: "https://vault.example.com:8200"
+      #   namespace: "" # Optional
+
+      #   # CA bundle for verifying Vault's TLS certificate
+      #   caBundle: ""  # CA bundle content (PEM format)
+      #   caBundleConfigMapName: ""  # Name of existing ConfigMap containing CA bundle (key name: `ca.crt`)
+      #
+      #   # Auth configuration. AppRole is the only method configured here.
+      #   # To authenticate with a Vault token, set the VAULT_TOKEN environment variable through `extraEnvVars` instead.
+      #   #
+      #   # An inline secretId is for dev/testing only; in production use
+      #   # secretIdSecretName so the raw credential never appears in Helm values.
+      #   auth:
+      #     appRole:
+      #       mount: "approle"
+      #       roleId: ""
+      #       secretIdSecretName: ""  # Name of existing Secret containing the AppRole SecretID (key name: `secretId`)
+      #       secretId: ""  # SecretID value (dev/testing only)
+      #
+      #   mount: "pki"
+      #   role: "gateway"
+
       # Google Cloud Certificate Authority Service. Authenticates through Application Default
       # Credentials, such as GKE Workload Identity. Fetch the pool's CA certificate for
       # `twingateOperator.gateway.certificateAuthority.certificate` with

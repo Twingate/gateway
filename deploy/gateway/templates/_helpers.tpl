@@ -136,6 +136,28 @@ true
 {{- end -}}
 {{- end -}}
 
+{{/*
+Create the name of the TLS Vault issuer CA bundle ConfigMap to use
+*/}}
+{{- define "gateway.tlsVaultCABundleConfigMapName" -}}
+{{- if and .Values.tls.automation.issuer.vault .Values.tls.automation.issuer.vault.caBundleConfigMapName }}
+{{- .Values.tls.automation.issuer.vault.caBundleConfigMapName }}
+{{- else }}
+{{- printf "%s-tls-vault-ca-bundle" (include "gateway.fullname" .) }}
+{{- end }}
+{{- end }}
+
+{{/*
+Create the name of the TLS Vault issuer AppRole secret ID Secret to use
+*/}}
+{{- define "gateway.tlsVaultAppRoleSecretIdSecretName" -}}
+{{- if and .Values.tls.automation.issuer.vault .Values.tls.automation.issuer.vault.auth.appRole .Values.tls.automation.issuer.vault.auth.appRole.secretIdSecretName }}
+{{- .Values.tls.automation.issuer.vault.auth.appRole.secretIdSecretName }}
+{{- else }}
+{{- printf "%s-tls-vault-approle-secret-id" (include "gateway.fullname" .) }}
+{{- end }}
+{{- end }}
+
 
 {{/*
 Create the name of the TLS local issuer Secret to use

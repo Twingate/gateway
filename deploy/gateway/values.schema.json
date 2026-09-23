@@ -599,6 +599,76 @@
                   ],
                   "additionalProperties": false
                 },
+                "vault": {
+                  "type": "object",
+                  "description": "Vault PKI secrets engine.",
+                  "required": ["address", "role"],
+                  "properties": {
+                    "address": {
+                      "type": "string",
+                      "description": "Vault server address (e.g., https://vault.example.com:8200)."
+                    },
+                    "namespace": {
+                      "type": "string",
+                      "description": "Vault namespace (optional, for Vault Enterprise)."
+                    },
+                    "caBundle": {
+                      "type": "string",
+                      "description": "CA bundle content for verifying Vault's TLS certificate (PEM format). Optional if Vault uses a certificate from the system trust store."
+                    },
+                    "caBundleConfigMapName": {
+                      "type": "string",
+                      "description": "Name of an existing ConfigMap holding the CA bundle (key name: `ca.crt`). Optional if Vault uses a certificate from the system trust store."
+                    },
+                    "auth": {
+                      "type": "object",
+                      "description": "Vault authentication configuration.",
+                      "required": ["appRole"],
+                      "properties": {
+                        "appRole": {
+                          "type": "object",
+                          "description": "AppRole authentication configuration.",
+                          "required": ["roleId"],
+                          "properties": {
+                            "mount": {
+                              "type": "string",
+                              "description": "AppRole auth mount path (defaults to 'approle').",
+                              "default": "approle"
+                            },
+                            "roleId": {
+                              "type": "string",
+                              "description": "AppRole Role ID."
+                            },
+                            "secretId": {
+                              "type": "string",
+                              "description": "AppRole secret ID in plain text. Dev and testing only; use `secretIdSecretName` in production."
+                            },
+                            "secretIdSecretName": {
+                              "type": "string",
+                              "description": "Name of an existing Secret containing the AppRole secret ID under (key name: `secretId`)."
+                            }
+                          },
+                          "oneOf": [
+                            {"required": ["secretId"]},
+                            {"required": ["secretIdSecretName"]}
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "mount": {
+                      "type": "string",
+                      "description": "Vault PKI mount point (defaults to 'pki').",
+                      "default": "pki"
+                    },
+                    "role": {
+                      "type": "string",
+                      "description": "Vault PKI role that signs the TLS certificates."
+                    }
+                  },
+                  "additionalProperties": false
+                },
                 "gcpPrivateCA": {
                   "type": "object",
                   "description": "Google Cloud Certificate Authority Service. Authenticates through Application Default Credentials, such as GKE Workload Identity.",
@@ -637,6 +707,7 @@
               "issuer": {
                 "oneOf": [
                   {"required": ["local"]},
+                  {"required": ["vault"]},
                   {"required": ["gcpPrivateCA"]}
                 ]
               }
