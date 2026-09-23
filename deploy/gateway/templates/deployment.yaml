@@ -1,6 +1,6 @@
 {{- $manualCAEnabled := and .Values.ssh.enabled .Values.ssh.ca .Values.ssh.ca.manual -}}
-{{- $vaultCABundleEnabled := and .Values.ssh.enabled .Values.ssh.ca .Values.ssh.ca.vault (or .Values.ssh.ca.vault.caBundle .Values.ssh.ca.vault.existingCABundleSecret) -}}
-{{- $vaultAppRoleEnabled := and .Values.ssh.enabled .Values.ssh.ca .Values.ssh.ca.vault .Values.ssh.ca.vault.auth .Values.ssh.ca.vault.auth.appRole -}}
+{{- $sshVaultCABundleEnabled := and .Values.ssh.enabled .Values.ssh.ca .Values.ssh.ca.vault (or .Values.ssh.ca.vault.caBundle .Values.ssh.ca.vault.caBundleConfigMapName) -}}
+{{- $sshVaultAppRoleEnabled := and .Values.ssh.enabled .Values.ssh.ca .Values.ssh.ca.vault .Values.ssh.ca.vault.auth .Values.ssh.ca.vault.auth.appRole -}}
 {{- $tlsSecretNames := include "gateway.tlsSecretNames" . | fromJsonArray -}}
 {{- $tlsLocalIssuerEnabled := and .Values.tls.automation.enabled .Values.tls.automation.issuer.local -}}
 {{- $upstreamCABundles := include "gateway.upstreamCABundleSources" . | fromJsonArray -}}
@@ -50,7 +50,7 @@ spec:
                   name: {{ include "gateway.sshVaultTokenSecretName" . }}
                   key: token
             {{- end }}
-            {{- if $vaultCABundleEnabled }}
+            {{- if $sshVaultCABundleEnabled }}
             - name: VAULT_CACERT
               value: /etc/gateway/vault/ca.crt
             {{- end }}
@@ -95,13 +95,13 @@ spec:
               mountPath: /etc/gateway/ssh
               readOnly: true
             {{- end }}
-            {{- if $vaultCABundleEnabled }}
-            - name: vault-ca-bundle
+            {{- if $sshVaultCABundleEnabled }}
+            - name: ssh-vault-ca-bundle
               mountPath: /etc/gateway/vault
               readOnly: true
             {{- end }}
-            {{- if $vaultAppRoleEnabled }}
-            - name: vault-approle-secret-id
+            {{- if $sshVaultAppRoleEnabled }}
+            - name: ssh-vault-approle-secret-id
               mountPath: /etc/gateway/vault/approle
               readOnly: true
             {{- end }}
@@ -137,13 +137,13 @@ spec:
           secret:
             secretName: {{ include "gateway.sshManualCASecretName" . }}
         {{- end }}
-        {{- if $vaultCABundleEnabled }}
-        - name: vault-ca-bundle
-          secret:
-            secretName: {{ include "gateway.sshVaultCABundleSecretName" . }}
+        {{- if $sshVaultCABundleEnabled }}
+        - name: ssh-vault-ca-bundle
+          configMap:
+            name: {{ include "gateway.sshVaultCABundleConfigMapName" . }}
         {{- end }}
-        {{- if $vaultAppRoleEnabled }}
-        - name: vault-approle-secret-id
+        {{- if $sshVaultAppRoleEnabled }}
+        - name: ssh-vault-approle-secret-id
           secret:
             secretName: {{ include "gateway.sshVaultAppRoleSecretIdSecretName" . }}
         {{- end }}

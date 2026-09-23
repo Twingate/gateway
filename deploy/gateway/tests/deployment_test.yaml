@@ -209,21 +209,21 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
-            name: vault-ca-bundle
+            name: ssh-vault-ca-bundle
             mountPath: /etc/gateway/vault
             readOnly: true
       - contains:
           path: spec.template.spec.volumes
           content:
-            name: vault-ca-bundle
-            secret:
-              secretName: RELEASE-NAME-gateway-ssh-vault-ca-bundle
-  - it: should support Vault CA bundle when existing CA bundle secret is specified
+            name: ssh-vault-ca-bundle
+            configMap:
+              name: RELEASE-NAME-gateway-ssh-vault-ca-bundle
+  - it: should support Vault CA bundle when an existing CA bundle ConfigMap is specified
     set:
       ssh:
         ca:
           vault:
-            existingCABundleSecret: "my-ca-bundle-secret"
+            caBundleConfigMapName: "my-ca-bundle-configmap"
             auth:
               token: "my-token"
     asserts:
@@ -235,22 +235,22 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
-            name: vault-ca-bundle
+            name: ssh-vault-ca-bundle
             mountPath: /etc/gateway/vault
             readOnly: true
       - contains:
           path: spec.template.spec.volumes
           content:
-            name: vault-ca-bundle
-            secret:
-              secretName: my-ca-bundle-secret
+            name: ssh-vault-ca-bundle
+            configMap:
+              name: my-ca-bundle-configmap
   - it: should not add Vault CA bundle when CA bundle is not specified
     set:
       ssh:
         ca:
           vault:
             caBundle: ""
-            existingCABundleSecret: ""
+            caBundleConfigMapName: ""
             auth:
               token: "my-token"
     asserts:
@@ -262,15 +262,15 @@ tests:
       - notContains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
-            name: vault-ca-bundle
+            name: ssh-vault-ca-bundle
             mountPath: /etc/gateway/vault
             readOnly: true
       - notContains:
           path: spec.template.spec.volumes
           content:
-            name: vault-ca-bundle
-            secret:
-              secretName: RELEASE-NAME-gateway-ssh-vault-ca-bundle
+            name: ssh-vault-ca-bundle
+            configMap:
+              name: RELEASE-NAME-gateway-ssh-vault-ca-bundle
   - it: should include Vault AppRole Secret ID volume and volumeMount
     set:
       ssh:
@@ -284,16 +284,16 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
-            name: vault-approle-secret-id
+            name: ssh-vault-approle-secret-id
             mountPath: /etc/gateway/vault/approle
             readOnly: true
       - contains:
           path: spec.template.spec.volumes
           content:
-            name: vault-approle-secret-id
+            name: ssh-vault-approle-secret-id
             secret:
               secretName: RELEASE-NAME-gateway-ssh-vault-approle-secret-id
-  - it: should use existing Vault AppRole Secret ID secret name when specified
+  - it: should use an existing Vault AppRole secret ID Secret when specified
     set:
       ssh:
         ca:
@@ -301,12 +301,12 @@ tests:
             auth:
               appRole:
                 roleId: "my-role-id"
-                existingSecretIdSecret: "my-existing-approle-secret"
+                secretIdSecretName: "my-existing-approle-secret"
     asserts:
       - contains:
           path: spec.template.spec.volumes
           content:
-            name: vault-approle-secret-id
+            name: ssh-vault-approle-secret-id
             secret:
               secretName: my-existing-approle-secret
   - it: should error when both token and appRole are specified
