@@ -1,9 +1,9 @@
 {{- $manualCAEnabled := and .Values.ssh.enabled .Values.ssh.ca .Values.ssh.ca.manual -}}
 {{- $vaultCABundleEnabled := and .Values.ssh.enabled .Values.ssh.ca .Values.ssh.ca.vault (or .Values.ssh.ca.vault.caBundle .Values.ssh.ca.vault.existingCABundleSecret) -}}
 {{- $vaultAppRoleEnabled := and .Values.ssh.enabled .Values.ssh.ca .Values.ssh.ca.vault .Values.ssh.ca.vault.auth .Values.ssh.ca.vault.auth.appRole -}}
-{{- $tlsVaultEnabled := and .Values.tls.automation.enabled .Values.tls.automation.issuer.vault -}}
-{{- $tlsVaultCABundleEnabled := and $tlsVaultEnabled (or .Values.tls.automation.issuer.vault.caBundle .Values.tls.automation.issuer.vault.caBundleConfigMapName) -}}
-{{- $tlsVaultAppRoleEnabled := and $tlsVaultEnabled .Values.tls.automation.issuer.vault.auth .Values.tls.automation.issuer.vault.auth.appRole -}}
+{{- $tlsVaultIssuerEnabled := and .Values.tls.automation.enabled .Values.tls.automation.issuer.vault -}}
+{{- $tlsVaultIssuerCABundleEnabled := and $tlsVaultIssuerEnabled (or .Values.tls.automation.issuer.vault.caBundle .Values.tls.automation.issuer.vault.caBundleConfigMapName) -}}
+{{- $tlsVaultIssuerAppRoleEnabled := and $tlsVaultIssuerEnabled .Values.tls.automation.issuer.vault.auth .Values.tls.automation.issuer.vault.auth.appRole -}}
 {{- $tlsSecretNames := include "gateway.tlsSecretNames" . | fromJsonArray -}}
 {{- $tlsLocalIssuerEnabled := and .Values.tls.automation.enabled .Values.tls.automation.issuer.local -}}
 {{- $upstreamCABundles := include "gateway.upstreamCABundleSources" . | fromJsonArray -}}
@@ -81,13 +81,13 @@ spec:
               mountPath: /etc/gateway/upstream-ca-bundles/{{ $i }}
               readOnly: true
             {{- end }}
-            {{- if $tlsVaultCABundleEnabled }}
-            - name: tls-vault-ca-bundle
+            {{- if $tlsVaultIssuerCABundleEnabled }}
+            - name: tls-vault-issuer-ca-bundle
               mountPath: /etc/gateway/tls/vault
               readOnly: true
             {{- end }}
-            {{- if $tlsVaultAppRoleEnabled }}
-            - name: tls-vault-approle-secret-id
+            {{- if $tlsVaultIssuerAppRoleEnabled }}
+            - name: tls-vault-issuer-approle-secret-id
               mountPath: /etc/gateway/tls/vault/approle
               readOnly: true
             {{- end }}
@@ -133,15 +133,15 @@ spec:
               - key: {{ $source.key | quote }}
                 path: ca.crt
         {{- end }}
-        {{- if $tlsVaultCABundleEnabled }}
-        - name: tls-vault-ca-bundle
+        {{- if $tlsVaultIssuerCABundleEnabled }}
+        - name: tls-vault-issuer-ca-bundle
           configMap:
-            name: {{ include "gateway.tlsVaultCABundleConfigMapName" . }}
+            name: {{ include "gateway.tlsVaultIssuerCABundleConfigMapName" . }}
         {{- end }}
-        {{- if $tlsVaultAppRoleEnabled }}
-        - name: tls-vault-approle-secret-id
+        {{- if $tlsVaultIssuerAppRoleEnabled }}
+        - name: tls-vault-issuer-approle-secret-id
           secret:
-            secretName: {{ include "gateway.tlsVaultAppRoleSecretIdSecretName" . }}
+            secretName: {{ include "gateway.tlsVaultIssuerAppRoleSecretIdSecretName" . }}
         {{- end }}
         {{- if .Values.ssh.enabled }}
         {{- if $manualCAEnabled }}

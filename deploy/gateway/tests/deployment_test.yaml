@@ -105,7 +105,7 @@ tests:
           path: spec.template.spec.volumes
           any: true
           content:
-            name: tls-vault-ca-bundle
+            name: tls-vault-issuer-ca-bundle
 ---
 suite: Deployment with SSH
 templates:
@@ -298,25 +298,25 @@ tests:
       - contains:
           path: spec.template.spec.volumes
           content:
-            name: tls-vault-approle-secret-id
+            name: tls-vault-issuer-approle-secret-id
             secret:
-              secretName: RELEASE-NAME-gateway-tls-vault-approle-secret-id
+              secretName: RELEASE-NAME-gateway-tls-vault-issuer-approle-secret-id
       - contains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
-            name: tls-vault-approle-secret-id
+            name: tls-vault-issuer-approle-secret-id
             mountPath: /etc/gateway/tls/vault/approle
             readOnly: true
       - contains:
           path: spec.template.spec.volumes
           content:
-            name: tls-vault-ca-bundle
+            name: tls-vault-issuer-ca-bundle
             configMap:
-              name: RELEASE-NAME-gateway-tls-vault-ca-bundle
+              name: RELEASE-NAME-gateway-tls-vault-issuer-ca-bundle
       - contains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
-            name: tls-vault-ca-bundle
+            name: tls-vault-issuer-ca-bundle
             mountPath: /etc/gateway/tls/vault
             readOnly: true
   - it: should mount an existing AppRole secret ID secret
@@ -333,7 +333,7 @@ tests:
       - contains:
           path: spec.template.spec.volumes
           content:
-            name: tls-vault-approle-secret-id
+            name: tls-vault-issuer-approle-secret-id
             secret:
               secretName: my-existing-approle-secret
   - it: should mount an existing CA bundle ConfigMap
@@ -347,13 +347,13 @@ tests:
       - contains:
           path: spec.template.spec.volumes
           content:
-            name: tls-vault-ca-bundle
+            name: tls-vault-issuer-ca-bundle
             configMap:
               name: my-existing-configmap
       - contains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
-            name: tls-vault-ca-bundle
+            name: tls-vault-issuer-ca-bundle
             mountPath: /etc/gateway/tls/vault
             readOnly: true
 ---
