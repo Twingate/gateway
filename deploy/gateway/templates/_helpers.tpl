@@ -206,17 +206,6 @@ Create the name of the SSH Vault CA bundle secret to use
 {{- end }}
 
 {{/*
-Create the name of the SSH Vault token secret to use
-*/}}
-{{- define "gateway.sshVaultTokenSecretName" -}}
-{{- if and .Values.ssh.ca.vault .Values.ssh.ca.vault.auth.existingTokenSecret }}
-{{- .Values.ssh.ca.vault.auth.existingTokenSecret }}
-{{- else }}
-{{- printf "%s-ssh-vault-token" (include "gateway.fullname" .) }}
-{{- end }}
-{{- end }}
-
-{{/*
 Create the name of the SSH Vault AppRole secret ID secret to use
 */}}
 {{- define "gateway.sshVaultAppRoleSecretIdSecretName" -}}

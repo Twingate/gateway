@@ -257,7 +257,7 @@
             "vault": {
               "type": "object",
               "description": "Vault CA configuration.",
-              "required": ["address", "auth", "role"],
+              "required": ["address", "role"],
               "properties": {
                 "address": {
                   "type": "string",
@@ -278,15 +278,8 @@
                 "auth": {
                   "type": "object",
                   "description": "Vault authentication configuration.",
+                  "required": ["appRole"],
                   "properties": {
-                    "existingTokenSecret": {
-                      "type": "string",
-                      "description": "Name of existing secret containing the Vault token (key name: token)."
-                    },
-                    "token": {
-                      "type": "string",
-                      "description": "Vault token in plaintext (dev/testing only; use existingTokenSecret in production)."
-                    },
                     "appRole": {
                       "type": "object",
                       "description": "AppRole authentication configuration.",
@@ -317,11 +310,6 @@
                       "additionalProperties": false
                     }
                   },
-                  "oneOf": [
-                    { "required": ["existingTokenSecret"] },
-                    { "required": ["token"] },
-                    { "required": ["appRole"] }
-                  ],
                   "additionalProperties": false
                 },
                 "mount": {

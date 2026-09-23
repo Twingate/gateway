@@ -43,13 +43,6 @@ spec:
           env:
             - name: TWINGATE_CONFIG
               value: /etc/gateway/config.yaml
-            {{- if and .Values.ssh.enabled .Values.ssh.ca .Values.ssh.ca.vault (or .Values.ssh.ca.vault.auth.token .Values.ssh.ca.vault.auth.existingTokenSecret) }}
-            - name: VAULT_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "gateway.sshVaultTokenSecretName" . }}
-                  key: token
-            {{- end }}
             {{- if $vaultCABundleEnabled }}
             - name: VAULT_CACERT
               value: /etc/gateway/vault/ca.crt

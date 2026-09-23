@@ -278,8 +278,6 @@ tests:
             address: "https://vault.example.com:8200"
             caBundle: "ca-cert"
             namespace: "test-namespace"
-            auth:
-              token: "test-token"
 
             mount: "ssh-gateway"
             role: "gateway"
@@ -426,6 +424,29 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "at '/ssh/ca': 'oneOf' failed, subschemas 0, 1 matched"
+  - it: should error when Vault auth is empty
+    set:
+      ssh:
+        ca:
+          vault:
+            address: "https://vault.example.com:8200"
+            role: "gateway"
+            auth: {}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/ssh/ca/vault/auth': missing property 'appRole'"
+  - it: should error when a Vault token is set under auth
+    set:
+      ssh:
+        ca:
+          vault:
+            address: "https://vault.example.com:8200"
+            role: "gateway"
+            auth:
+              token: "my-token"
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/ssh/ca/vault/auth': additional properties 'token' not allowed"
 ---
 suite: Gateway configmap with WebApp
 templates:

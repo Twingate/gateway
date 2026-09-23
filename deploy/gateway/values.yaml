@@ -106,16 +106,12 @@ ssh:
     #   caBundle: ""  # CA bundle content (PEM format)
     #   existingCABundleSecret: ""  # Name of existing secret containing CA bundle (key name: ca.crt)
     #
-    #   # Auth configuration
-    #   # Inline credentials (token, secretId) are for dev/testing only; in
-    #   # production use existingTokenSecret / existingSecretIdSecret so raw
-    #   # credentials never appear in Helm values.
-    #   auth:
-    #     # Option 1: Token auth
-    #     existingTokenSecret: ""  # Name of existing secret containing the token (key name: token)
-    #     token: ""  # Token value (dev/testing only)
+    #   # Auth configuration. AppRole is the only method configured here.
+    #   # To authenticate with a Vault token, set the VAULT_TOKEN environment variable through `extraEnvVars` instead.
     #
-    #     # Option 2: AppRole auth
+    #   # An inline secretId is for dev/testing only; in production use
+    #   # existingSecretIdSecret so the raw credential never appears in Helm values.
+    #   auth:
     #     appRole:
     #       mount: "approle"
     #       roleId: ""
