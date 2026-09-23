@@ -56,11 +56,11 @@ manually or run cert-manager with `--enable-certificate-owner-ref`.
 {{- default (get $secretData "ca.crt" | b64dec) (index .Values.tls.certificates.secrets 0).ca }}
 {{- end }}
 {{- else }}
-{{- $local := .Values.tls.automation.issuer.local }}
-{{- if $local }}
+{{- $localIssuer := .Values.tls.automation.issuer.local }}
+{{- if $localIssuer }}
 {{- $localIssuerSecretName := include "gateway.tlsLocalIssuerSecretName" . }}
-{{- $caCertificate := $local.certificate }}
-{{- if $local.secretName }}
+{{- $caCertificate := $localIssuer.certificate }}
+{{- if $localIssuer.secretName }}
 {{- $issuerData := (lookup "v1" "Secret" .Release.Namespace $localIssuerSecretName).data }}
 {{- $caCertificate = get $issuerData "ca.crt" | b64dec }}
 {{- end }}
