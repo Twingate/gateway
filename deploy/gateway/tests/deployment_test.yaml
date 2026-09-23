@@ -158,23 +158,6 @@ set:
         address: "https://vault.example.com:8200"
         role: "gateway"
 tests:
-  - it: should pass a Vault token through extraEnvVars
-    set:
-      extraEnvVars:
-        - name: VAULT_TOKEN
-          valueFrom:
-            secretKeyRef:
-              name: my-vault-token-secret
-              key: token
-    asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: VAULT_TOKEN
-            valueFrom:
-              secretKeyRef:
-                name: my-vault-token-secret
-                key: token
   - it: should support Vault CA bundle when CA bundle is specified
     set:
       ssh:

@@ -106,7 +106,7 @@ ssh:
     #   caBundle: ""  # CA bundle content (PEM format)
     #   existingCABundleSecret: ""  # Name of existing secret containing CA bundle (key name: ca.crt)
     #
-    #   # Auth configuration. AppRole is the only method configured here.
+    #   # Auth configuration.
     #   # To authenticate with a Vault token, set the VAULT_TOKEN environment variable through `extraEnvVars` instead.
     #
     #   # An inline secretId is for dev/testing only; in production use
