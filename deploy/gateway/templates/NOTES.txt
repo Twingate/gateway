@@ -56,10 +56,26 @@ manually or run cert-manager with `--enable-certificate-owner-ref`.
 {{- default (get $secretData "ca.crt" | b64dec) (index .Values.tls.certificates.secrets 0).ca }}
 {{- end }}
 {{- else }}
+{{- $localIssuer := .Values.tls.automation.issuer.local }}
+{{- if $localIssuer }}
+{{- $localIssuerSecretName := include "gateway.tlsLocalIssuerSecretName" . }}
+{{- $caCertificate := $localIssuer.certificate }}
+{{- if $localIssuer.secretName }}
+{{- $issuerData := (lookup "v1" "Secret" .Release.Namespace $localIssuerSecretName).data }}
+{{- $caCertificate = get $issuerData "ca.crt" | b64dec }}
+{{- end }}
+
+2. The Gateway uses the CA certificate from the {{ $localIssuerSecretName | quote }} Secret.
+{{- with $caCertificate }} The CA certificate is
+
+{{ . | trim }}
+{{- end }}
+{{- else }}
 
 2. The Gateway issues its TLS certificates on demand. Register the issuer's CA certificate with Twingate.
 {{- with .Values.tls.automation.issuer.gcpPrivateCA }} Fetch it from Google Cloud Certificate Authority Service with:
 
 gcloud privateca pools get-ca-certs {{ .caPoolId }} --project {{ .project }} --location {{ .location }}
+{{- end }}
 {{- end }}
 {{- end }}

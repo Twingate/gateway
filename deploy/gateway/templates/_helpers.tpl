@@ -138,6 +138,18 @@ true
 
 
 {{/*
+Create the name of the TLS local issuer Secret to use
+*/}}
+{{- define "gateway.tlsLocalIssuerSecretName" -}}
+{{- if .Values.tls.automation.issuer.local.secretName }}
+{{- .Values.tls.automation.issuer.local.secretName }}
+{{- else }}
+{{- printf "%s-tls-local-issuer" (include "gateway.fullname" .) }}
+{{- end }}
+{{- end }}
+
+
+{{/*
 Create the name of the ConfigMap holding the inline `upstreamCABundles` PEM bundles
 */}}
 {{- define "gateway.upstreamCABundlesConfigMapName" -}}
@@ -267,6 +279,20 @@ Create the name of the Secret holding the CA certificate the TwingateCertificate
 {{- $certificateAuthority.certificateSecretName }}
 {{- else }}
 {{- printf "%s-ca" (include "gateway.fullname" .) }}
+{{- end }}
+{{- end }}
+
+{{/*
+Return the name of the secretRef used by the TwingateCertificateAuthority.
+*/}}
+{{- define "gateway.certificateAuthoritySecretRefName" -}}
+{{- $names := include "gateway.tlsSecretNames" . | fromJsonArray }}
+{{- if include "gateway.certificateAuthorityCertificateProvided" . }}
+{{- include "gateway.certificateAuthoritySecretName" . }}
+{{- else if $names }}
+{{- first $names }}
+{{- else if and .Values.tls.automation.enabled .Values.tls.automation.issuer.local }}
+{{- include "gateway.tlsLocalIssuerSecretName" . }}
 {{- end }}
 {{- end }}
 

@@ -46,6 +46,11 @@ data:
           {{- end }}
         {{- end }}
         issuer:
+          {{- with .Values.tls.automation.issuer.local }}
+          local:
+            certificateFile: "/etc/gateway/tls/ca/ca.crt"
+            privateKeyFile: "/etc/gateway/tls/ca/ca.key"
+          {{- end }}
           {{- with .Values.tls.automation.issuer.gcpPrivateCA }}
           gcpPrivateCA:
             project: {{ required "tls.automation.issuer.gcpPrivateCA.project is required" .project | quote }}
