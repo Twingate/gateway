@@ -329,7 +329,7 @@ tests:
           pattern: "rotated-ca-cert"
       - notMatchRegexRaw:
           pattern: "stale-ca-cert"
-  - it: should show the Vault instruction to register the CA certificate
+  - it: should show the Vault issuer instruction to register the CA certificate
     set:
       tls:
         certificates:
@@ -348,7 +348,7 @@ tests:
           pattern: "Register the issuer's CA certificate with Twingate"
       - matchRegexRaw:
           pattern: "vault read -namespace=twingate -field=certificate pki-test/cert/ca"
-  - it: should show the default Vault mount in the register instruction
+  - it: should show the default Vault issuer mount in the register instruction
     set:
       tls:
         certificates:
