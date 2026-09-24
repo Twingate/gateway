@@ -16,6 +16,7 @@ import (
 	"go.uber.org/zap"
 	"go.yaml.in/yaml/v4"
 	"golang.org/x/crypto/ssh"
+	"k8s.io/apimachinery/pkg/api/resource"
 
 	"gateway/internal/util/useragent"
 )
@@ -47,24 +48,24 @@ var issuerByDomain = map[string]string{
 }
 
 const (
-	defaultTwingateHost               = "twingate.com"
-	defaultPort                       = 8443
-	defaultMetricsPort                = 9090
-	defaultAuditLogFlushInterval      = time.Minute * 10
-	defaultAuditLogFlushSizeThreshold = 1_000_000 // 1MB in bytes
-	minTLSCertificateTTL              = time.Minute * 10
+	defaultTwingateHost                       = "twingate.com"
+	defaultPort                               = 8443
+	defaultMetricsPort                        = 9090
+	defaultSessionRecordingSegmentMaxDuration = time.Minute * 10
+	defaultSessionRecordingSegmentMaxSize     = 1_000_000 // 1MB in bytes
+	minTLSCertificateTTL                      = time.Minute * 10
 )
 
 type Config struct {
-	Twingate          TwingateConfig     `yaml:"twingate"`
-	Port              int                `yaml:"port"`
-	MetricsPort       int                `yaml:"metricsPort"`
-	AuditLog          AuditLogConfig     `yaml:"auditLog"`
-	TLS               TLSConfig          `yaml:"tls"`
-	UpstreamCABundles []UpstreamCABundle `yaml:"upstreamCABundles,omitempty"`
-	Kubernetes        *KubernetesConfig  `yaml:"kubernetes,omitempty"`
-	SSH               *SSHConfig         `yaml:"ssh,omitempty"`
-	WebApp            *WebAppConfig      `yaml:"webApp,omitempty"`
+	Twingate          TwingateConfig         `yaml:"twingate"`
+	Port              int                    `yaml:"port"`
+	MetricsPort       int                    `yaml:"metricsPort"`
+	SessionRecording  SessionRecordingConfig `yaml:"sessionRecording"`
+	TLS               TLSConfig              `yaml:"tls"`
+	UpstreamCABundles []UpstreamCABundle     `yaml:"upstreamCABundles,omitempty"`
+	Kubernetes        *KubernetesConfig      `yaml:"kubernetes,omitempty"`
+	SSH               *SSHConfig             `yaml:"ssh,omitempty"`
+	WebApp            *WebAppConfig          `yaml:"webApp,omitempty"`
 }
 
 type TwingateConfig struct {
@@ -82,9 +83,32 @@ func (t TwingateConfig) Issuer() string {
 	return issuerByDomain[trustedDomainFor(t.Host)]
 }
 
-type AuditLogConfig struct {
-	FlushInterval      time.Duration `yaml:"flushInterval"`
-	FlushSizeThreshold int           `yaml:"flushSizeThreshold"` // bytes
+// SessionRecordingConfig represents the recording configuration for interactive sessions.
+type SessionRecordingConfig struct {
+	Segment SessionRecordingSegmentConfig `yaml:"segment"`
+}
+
+// SessionRecordingSegmentConfig sets the limits at which a recording is split into a new segment.
+type SessionRecordingSegmentConfig struct {
+	MaxDuration time.Duration `yaml:"maxDuration"`
+	MaxSize     byteSize      `yaml:"maxSize"`
+}
+
+type byteSize int
+
+func (b *byteSize) UnmarshalText(text []byte) error {
+	size, err := resource.ParseQuantity(string(text))
+	if err != nil {
+		return fmt.Errorf("invalid size %q: %w", text, err)
+	}
+
+	*b = byteSize(size.Value())
+
+	return nil
+}
+
+func (b byteSize) Bytes() int {
+	return int(b)
 }
 
 // TLSConfig represents the downstream TLS configuration.
@@ -283,9 +307,11 @@ func newDefaultConfig() *Config {
 		Twingate: TwingateConfig{
 			Host: defaultTwingateHost,
 		},
-		AuditLog: AuditLogConfig{
-			FlushInterval:      defaultAuditLogFlushInterval,
-			FlushSizeThreshold: defaultAuditLogFlushSizeThreshold,
+		SessionRecording: SessionRecordingConfig{
+			Segment: SessionRecordingSegmentConfig{
+				MaxDuration: defaultSessionRecordingSegmentMaxDuration,
+				MaxSize:     defaultSessionRecordingSegmentMaxSize,
+			},
 		},
 	}
 }

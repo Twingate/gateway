@@ -15,10 +15,11 @@ data:
     metricsPort: {{ .metrics }}
     {{- end }}
 
-    {{ with .Values.auditLog -}}
-    auditLog:
-      flushInterval: {{ .flushInterval }}
-      flushSizeThreshold: {{ .flushSizeThreshold }}
+    {{ with .Values.sessionRecording.segment -}}
+    sessionRecording:
+      segment:
+        maxDuration: {{ .maxDuration | quote }}
+        maxSize: {{ .maxSize | quote }}
     {{- end }}
 
     tls:

@@ -210,9 +210,10 @@ twingate:
   network: "acme"
 port: 8443
 metricsPort: 9090
-auditLog:
-  flushInterval: "10m"
-  flushSizeThreshold: 1000000
+sessionRecording:
+  segment:
+    maxDuration: "30s"
+    maxSize: "2Mi"
 tls:
   certificates:
     files:
@@ -233,6 +234,8 @@ kubernetes: {}
 	assert.Equal(t, "acme", cfg.Twingate.Network)
 	assert.Equal(t, 8443, cfg.Port)
 	assert.Equal(t, 9090, cfg.MetricsPort)
+	assert.Equal(t, time.Second*30, cfg.SessionRecording.Segment.MaxDuration)
+	assert.Equal(t, 2_097_152, cfg.SessionRecording.Segment.MaxSize.Bytes())
 
 	require.NotNil(t, cfg.Kubernetes)
 	assert.Empty(t, cfg.Kubernetes.Upstreams)
@@ -245,9 +248,10 @@ twingate:
   network: "acme"
 port: 8443
 metricsPort: 9090
-auditLog:
-  flushInterval: "10m"
-  flushSizeThreshold: 1000000
+sessionRecording:
+  segment:
+    maxDuration: "10m"
+    maxSize: "1Mi"
 tls:
   certificates:
     files:
@@ -359,9 +363,41 @@ kubernetes: {}
 	// Check defaults
 	assert.Equal(t, 8443, cfg.Port)
 	assert.Equal(t, 9090, cfg.MetricsPort)
-	assert.Equal(t, time.Minute*10, cfg.AuditLog.FlushInterval)
-	assert.Equal(t, 1_000_000, cfg.AuditLog.FlushSizeThreshold)
+	assert.Equal(t, time.Minute*10, cfg.SessionRecording.Segment.MaxDuration)
+	assert.Equal(t, 1_000_000, cfg.SessionRecording.Segment.MaxSize.Bytes())
 	assert.Equal(t, "twingate.com", cfg.Twingate.Host)
+}
+
+func TestByteSize_UnmarshalText(t *testing.T) {
+	tests := []struct {
+		name        string
+		text        string
+		want        int
+		errContains string
+	}{
+		{name: "binary unit", text: "1Mi", want: 1_048_576},
+		{name: "decimal unit", text: "1M", want: 1_000_000},
+		{name: "no unit", text: "1000000", want: 1_000_000},
+		{name: "unsupported unit", text: "1MB", errContains: "invalid size"},
+		{name: "not a number", text: "large", errContains: "invalid size"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var size byteSize
+
+			err := size.UnmarshalText([]byte(tt.text))
+			if tt.errContains != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errContains)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, size.Bytes())
+		})
+	}
 }
 
 func TestLoad_Errors(t *testing.T) {

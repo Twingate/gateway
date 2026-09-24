@@ -77,18 +77,24 @@
       },
       "additionalProperties": false
     },
-    "auditLog": {
+    "sessionRecording": {
       "type": "object",
       "properties": {
-        "flushInterval": {
-          "type": "string",
-          "description": "Interval at which audit logs are flushed (e.g., 5m, 30s).",
-          "default": "5m"
-        },
-        "flushSizeThreshold": {
-          "type": "integer",
-          "description": "Size threshold (in bytes) at which audit logs are flushed.",
-          "default": 1000000
+        "segment": {
+          "type": "object",
+          "properties": {
+            "maxDuration": {
+              "type": "string",
+              "description": "Duration limit at which the session recording is flushed (e.g., 5m, 30s).",
+              "default": "5m"
+            },
+            "maxSize": {
+              "type": "string",
+              "description": "Size limit (in bytes) at which the session recording is flushed (e.g., 1M, 1Mi).",
+              "default": "1M"
+            }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false

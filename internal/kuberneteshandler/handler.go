@@ -29,8 +29,8 @@ import (
 var errUpstreamTLSConfigFailed = errors.New("failed to create upstream TLS config")
 
 type Handler struct {
-	proxy    http.Handler
-	auditLog *config.AuditLogConfig
+	proxy            http.Handler
+	sessionRecording *config.SessionRecordingConfig
 }
 
 func NewHandler(cfg Config) (*Handler, error) {
@@ -48,8 +48,8 @@ func NewHandler(cfg Config) (*Handler, error) {
 	}
 
 	handler := &Handler{
-		proxy:    proxy,
-		auditLog: cfg.auditLog,
+		proxy:            proxy,
+		sessionRecording: cfg.sessionRecording,
 	}
 
 	return handler, nil
@@ -66,8 +66,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		recorderFactory := func() sessionrecorder.Recorder {
 			return sessionrecorder.NewRecorder(
 				auditLogger,
-				sessionrecorder.WithFlushSizeThreshold(h.auditLog.FlushSizeThreshold),
-				sessionrecorder.WithFlushInterval(h.auditLog.FlushInterval),
+				sessionrecorder.WithFlushSizeThreshold(h.sessionRecording.Segment.MaxSize.Bytes()),
+				sessionrecorder.WithFlushInterval(h.sessionRecording.Segment.MaxDuration),
 			)
 		}
 		wsHijacker := wshijacker.NewHijacker(r, w, conn.Claims.User.Username, recorderFactory, wshijacker.NewConn)

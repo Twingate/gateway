@@ -58,7 +58,7 @@ func NewProxy(config *gatewayconfig.Config, registry *prometheus.Registry, logge
 	}
 
 	if config.Kubernetes != nil {
-		k8sConfig, err := kuberneteshandler.NewConfig(&config.AuditLog, config.Kubernetes, roundTripperMetrics, logger)
+		k8sConfig, err := kuberneteshandler.NewConfig(&config.SessionRecording, config.Kubernetes, roundTripperMetrics, logger)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create Kubernetes config: %w", err)
 		}
@@ -95,7 +95,7 @@ func NewProxy(config *gatewayconfig.Config, registry *prometheus.Registry, logge
 	var sshProxy *sshhandler.SSHProxy
 
 	if config.SSH != nil {
-		sshConfig, err := sshhandler.NewConfig(&config.AuditLog, config.SSH, logger)
+		sshConfig, err := sshhandler.NewConfig(&config.SessionRecording, config.SSH, logger)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create SSH config: %w", err)
 		}

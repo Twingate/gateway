@@ -7,9 +7,10 @@ tests:
       twingate:
         network: "acme"
         host: "test"
-      auditLog:
-        flushInterval: "10s"
-        flushSizeThreshold: 200
+      sessionRecording:
+        segment:
+          maxDuration: "10s"
+          maxSize: "200Ki"
       containerPorts:
         https: 8000
         metrics: 9000
@@ -24,9 +25,10 @@ tests:
             port: 8000
             metricsPort: 9000
 
-            auditLog:
-              flushInterval: 10s
-              flushSizeThreshold: 200
+            sessionRecording:
+              segment:
+                maxDuration: "10s"
+                maxSize: "200Ki"
 
             tls:
               certificates:
@@ -89,9 +91,10 @@ tests:
             port: 8443
             metricsPort: 9090
 
-            auditLog:
-              flushInterval: 5m
-              flushSizeThreshold: 1e+06
+            sessionRecording:
+              segment:
+                maxDuration: "5m"
+                maxSize: "1M"
 
             tls:
               certificates:
@@ -119,9 +122,10 @@ tests:
             port: 8443
             metricsPort: 9090
 
-            auditLog:
-              flushInterval: 5m
-              flushSizeThreshold: 1e+06
+            sessionRecording:
+              segment:
+                maxDuration: "5m"
+                maxSize: "1M"
 
             tls:
               certificates:
@@ -178,9 +182,10 @@ tests:
             port: 8443
             metricsPort: 9090
 
-            auditLog:
-              flushInterval: 5m
-              flushSizeThreshold: 1e+06
+            sessionRecording:
+              segment:
+                maxDuration: "5m"
+                maxSize: "1M"
 
             tls:
               certificates:
@@ -207,9 +212,10 @@ tests:
             port: 8443
             metricsPort: 9090
 
-            auditLog:
-              flushInterval: 5m
-              flushSizeThreshold: 1e+06
+            sessionRecording:
+              segment:
+                maxDuration: "5m"
+                maxSize: "1M"
 
             tls:
               certificates:
@@ -247,9 +253,10 @@ tests:
             port: 8443
             metricsPort: 9090
 
-            auditLog:
-              flushInterval: 5m
-              flushSizeThreshold: 1e+06
+            sessionRecording:
+              segment:
+                maxDuration: "5m"
+                maxSize: "1M"
 
             tls:
               certificates:
@@ -303,9 +310,10 @@ tests:
             port: 8443
             metricsPort: 9090
 
-            auditLog:
-              flushInterval: 5m
-              flushSizeThreshold: 1e+06
+            sessionRecording:
+              segment:
+                maxDuration: "5m"
+                maxSize: "1M"
 
             tls:
               certificates:
@@ -361,9 +369,10 @@ tests:
             port: 8443
             metricsPort: 9090
 
-            auditLog:
-              flushInterval: 5m
-              flushSizeThreshold: 1e+06
+            sessionRecording:
+              segment:
+                maxDuration: "5m"
+                maxSize: "1M"
 
             tls:
               certificates:
@@ -470,9 +479,10 @@ tests:
             port: 8443
             metricsPort: 9090
 
-            auditLog:
-              flushInterval: 5m
-              flushSizeThreshold: 1e+06
+            sessionRecording:
+              segment:
+                maxDuration: "5m"
+                maxSize: "1M"
 
             tls:
               certificates:
@@ -498,9 +508,10 @@ tests:
             port: 8443
             metricsPort: 9090
 
-            auditLog:
-              flushInterval: 5m
-              flushSizeThreshold: 1e+06
+            sessionRecording:
+              segment:
+                maxDuration: "5m"
+                maxSize: "1M"
 
             tls:
               certificates:
@@ -527,9 +538,10 @@ tests:
             port: 8443
             metricsPort: 9090
 
-            auditLog:
-              flushInterval: 5m
-              flushSizeThreshold: 1e+06
+            sessionRecording:
+              segment:
+                maxDuration: "5m"
+                maxSize: "1M"
 
             tls:
               certificates:
@@ -573,9 +585,10 @@ tests:
             port: 8443
             metricsPort: 9090
 
-            auditLog:
-              flushInterval: 5m
-              flushSizeThreshold: 1e+06
+            sessionRecording:
+              segment:
+                maxDuration: "5m"
+                maxSize: "1M"
 
             tls:
               automation:
@@ -703,9 +716,10 @@ tests:
             port: 8443
             metricsPort: 9090
 
-            auditLog:
-              flushInterval: 5m
-              flushSizeThreshold: 1e+06
+            sessionRecording:
+              segment:
+                maxDuration: "5m"
+                maxSize: "1M"
 
             tls:
               automation:
@@ -792,9 +806,10 @@ tests:
             port: 8443
             metricsPort: 9090
 
-            auditLog:
-              flushInterval: 5m
-              flushSizeThreshold: 1e+06
+            sessionRecording:
+              segment:
+                maxDuration: "5m"
+                maxSize: "1M"
 
             tls:
               automation:
@@ -832,9 +847,10 @@ tests:
             port: 8443
             metricsPort: 9090
 
-            auditLog:
-              flushInterval: 5m
-              flushSizeThreshold: 1e+06
+            sessionRecording:
+              segment:
+                maxDuration: "5m"
+                maxSize: "1M"
 
             tls:
               automation:
@@ -949,9 +965,10 @@ tests:
             port: 8443
             metricsPort: 9090
 
-            auditLog:
-              flushInterval: 5m
-              flushSizeThreshold: 1e+06
+            sessionRecording:
+              segment:
+                maxDuration: "5m"
+                maxSize: "1M"
 
             tls:
               automation:
@@ -1057,9 +1074,10 @@ tests:
             port: 8443
             metricsPort: 9090
 
-            auditLog:
-              flushInterval: 5m
-              flushSizeThreshold: 1e+06
+            sessionRecording:
+              segment:
+                maxDuration: "5m"
+                maxSize: "1M"
 
             tls:
               certificates:
