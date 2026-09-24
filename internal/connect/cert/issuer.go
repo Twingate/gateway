@@ -10,6 +10,7 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -172,6 +173,7 @@ func (l *localIssuer) sign(_ context.Context, req *certificateRequest) (*x509.Ce
 	now := time.Now()
 	template := &x509.Certificate{
 		SerialNumber: serial,
+		Subject:      pkix.Name{CommonName: subjectCommonName},
 		NotBefore:    now.Add(-clockSkewBuffer),
 		NotAfter:     now.Add(req.ttl),
 		KeyUsage:     x509.KeyUsageDigitalSignature,

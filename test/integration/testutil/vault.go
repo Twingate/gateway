@@ -88,9 +88,10 @@ func SetupVaultPKI(t *testing.T) (string, int) {
 	_, err = RunCommand(exec.Command("docker", "exec", containerName,
 		"vault", "write", "pki/roles/gateway-tls",
 		"key_type=any",
-		"allowed_domains=acme.int",
+		"allowed_domains=Twingate Gateway,acme.int",
 		"allow_subdomains=true",
-		"require_cn=false", // A handshake without SNI asks for no names, so the common name is empty
+		"allow_bare_domains=true",
+		"enforce_hostnames=false", // The Gateway's subject common name is not a host name
 		"max_ttl=72h",
 	))
 	require.NoError(t, err, "failed to create PKI signing role in Vault")

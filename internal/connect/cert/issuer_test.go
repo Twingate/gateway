@@ -243,7 +243,7 @@ func TestLocalIssuer_sign(t *testing.T) {
 	leaf, caChain, err := issuer.sign(t.Context(), req)
 	require.NoError(t, err)
 
-	assert.Empty(t, leaf.Subject.CommonName)
+	assert.Equal(t, subjectCommonName, leaf.Subject.CommonName)
 	assert.Equal(t, []string{"app.acme.int"}, leaf.DNSNames)
 	assert.Empty(t, leaf.IPAddresses)
 
@@ -402,6 +402,7 @@ func TestVaultIssuer_sign(t *testing.T) {
 
 	leaf, caChain, err := issuer.sign(t.Context(), newCertificateRequest(generateKey(t), "app.acme.int", defaultTTL))
 	require.NoError(t, err)
+	assert.Equal(t, subjectCommonName, leaf.Subject.CommonName)
 	assert.Equal(t, []string{"app.acme.int"}, leaf.DNSNames)
 	assert.Len(t, caChain, 1)
 }
@@ -591,6 +592,7 @@ func TestGCPPrivateIssuer_sign(t *testing.T) {
 
 	leaf, caChain, err := issuer.sign(t.Context(), newCertificateRequest(generateKey(t), "app.acme.int", defaultTTL))
 	require.NoError(t, err)
+	assert.Equal(t, subjectCommonName, leaf.Subject.CommonName)
 	assert.Equal(t, []string{"app.acme.int"}, leaf.DNSNames)
 	assert.Len(t, caChain, 1)
 }

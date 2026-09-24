@@ -116,7 +116,7 @@ func TestTLSVault(t *testing.T) {
 
 			leaf := conn.ConnectionState().PeerCertificates[0]
 			assert.Equal(t, []string{"app.acme.int"}, leaf.DNSNames)
-			assert.Empty(t, leaf.Subject.CommonName, "all names live in the SANs")
+			assert.Equal(t, "Twingate Gateway", leaf.Subject.CommonName)
 		})
 	}
 }

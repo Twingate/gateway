@@ -505,7 +505,7 @@ func TestNewCertificateRequest(t *testing.T) {
 			// A backend reads the names off the request but forwards the CSR, so the two
 			// have to agree, and the CSR has to prove possession of the key it asks for.
 			assert.Equal(t, requestSANs(req), csrSANs(csr))
-			assert.Empty(t, csr.Subject.CommonName)
+			assert.Equal(t, subjectCommonName, csr.Subject.CommonName)
 			assert.NoError(t, csr.CheckSignature())
 		})
 	}

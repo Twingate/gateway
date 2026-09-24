@@ -9,6 +9,7 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"fmt"
 	"net"
 	"strings"
@@ -23,9 +24,10 @@ import (
 )
 
 const (
-	defaultTTL     = 24 * time.Hour
-	maxCachedCerts = 1024
-	expiryBuffer   = 5 * time.Minute
+	defaultTTL        = 24 * time.Hour
+	maxCachedCerts    = 1024
+	expiryBuffer      = 5 * time.Minute
+	subjectCommonName = "Twingate Gateway"
 )
 
 // automation issues short-lived certificates through the configured issuer.
@@ -201,7 +203,11 @@ func newCertificateRequest(key crypto.Signer, name string, ttl time.Duration) *c
 
 // csr builds the DER-encoded certificate request.
 func (c *certificateRequest) csr() ([]byte, error) {
-	template := &x509.CertificateRequest{DNSNames: c.dnsNames, IPAddresses: c.ipAddresses}
+	template := &x509.CertificateRequest{
+		Subject:     pkix.Name{CommonName: subjectCommonName},
+		DNSNames:    c.dnsNames,
+		IPAddresses: c.ipAddresses,
+	}
 
 	csr, err := x509.CreateCertificateRequest(rand.Reader, template, c.key)
 	if err != nil {
