@@ -108,8 +108,6 @@ tests:
           vault:
             address: "https://vault.example.com:8200"
             role: "gateway"
-            auth:
-              token: "vault-token"
     asserts:
       - equal:
           path: spec.template.spec.volumes
@@ -160,46 +158,12 @@ set:
         address: "https://vault.example.com:8200"
         role: "gateway"
 tests:
-  - it: should include Vault token env var
-    set:
-      ssh:
-        ca:
-          vault:
-            auth:
-              token: "vault-token"
-    asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: VAULT_TOKEN
-            valueFrom:
-              secretKeyRef:
-                name: RELEASE-NAME-gateway-ssh-vault-token
-                key: token
-  - it: should use existing token secret when specified
-    set:
-      ssh:
-        ca:
-          vault:
-            auth:
-              existingTokenSecret: "my-vault-token-secret"
-    asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: VAULT_TOKEN
-            valueFrom:
-              secretKeyRef:
-                name: my-vault-token-secret
-                key: token
   - it: should support Vault CA bundle when CA bundle is specified
     set:
       ssh:
         ca:
           vault:
             caBundle: "my-ca-bundle"
-            auth:
-              token: "my-token"
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
@@ -224,8 +188,6 @@ tests:
         ca:
           vault:
             existingCABundleSecret: "my-ca-bundle-secret"
-            auth:
-              token: "my-token"
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
@@ -251,8 +213,6 @@ tests:
           vault:
             caBundle: ""
             existingCABundleSecret: ""
-            auth:
-              token: "my-token"
     asserts:
       - notContains:
           path: spec.template.spec.containers[0].env
@@ -309,19 +269,6 @@ tests:
             name: vault-approle-secret-id
             secret:
               secretName: my-existing-approle-secret
-  - it: should error when both token and appRole are specified
-    set:
-      ssh:
-        ca:
-          vault:
-            auth:
-              token: "my-token"
-              appRole:
-                roleId: "my-role-id"
-                secretId: "my-secret-id"
-    asserts:
-      - failedTemplate:
-          errorPattern: "at '/ssh/ca/vault/auth': 'oneOf' failed, subschemas 1, 2 matched"
 ---
 suite: Deployment with upstream CA bundles
 templates:
