@@ -286,7 +286,7 @@ tls:
       # vault:
       #   address: "https://vault.example.com:8200"
       #   namespace: "" # Optional
-
+      #
       #   # CA bundle for verifying Vault's TLS certificate
       #   caBundle: ""  # CA bundle content (PEM format)
       #   caBundleConfigMapName: ""  # Name of existing ConfigMap containing CA bundle (key name: `ca.crt`)
