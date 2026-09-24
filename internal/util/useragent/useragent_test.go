@@ -8,7 +8,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"gateway/internal/version"
+	"gateway/internal/util/version"
 )
 
 func TestString(t *testing.T) {

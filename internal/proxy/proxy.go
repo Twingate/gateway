@@ -18,15 +18,15 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 
+	"gateway/internal/backend/httpproxy"
+	"gateway/internal/backend/kubernetes"
+	"gateway/internal/backend/ssh"
+	"gateway/internal/backend/webapp"
 	gatewayconfig "gateway/internal/config"
-	"gateway/internal/connect"
-	"gateway/internal/httpproxy"
-	"gateway/internal/kuberneteshandler"
+	"gateway/internal/frontend"
 	"gateway/internal/metrics"
 	"gateway/internal/sessionrecorder"
-	"gateway/internal/sshhandler"
 	"gateway/internal/token"
-	"gateway/internal/webapphandler"
 )
 
 const shutdownTimeout = 30 * time.Second
@@ -37,7 +37,7 @@ type Proxy struct {
 	logger   *zap.Logger
 
 	httpProxies   map[token.ResourceType]*httpproxy.Proxy
-	sshProxy      *sshhandler.SSHProxy
+	sshProxy      *ssh.Proxy
 	metricsServer *metrics.Server
 
 	listener     net.Listener
@@ -58,12 +58,12 @@ func NewProxy(config *gatewayconfig.Config, registry *prometheus.Registry, logge
 	}
 
 	if config.Kubernetes != nil {
-		k8sConfig, err := kuberneteshandler.NewConfig(&config.AuditLog, config.Kubernetes, roundTripperMetrics, logger)
+		k8sConfig, err := kubernetes.NewConfig(&config.AuditLog, config.Kubernetes, roundTripperMetrics, logger)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create Kubernetes config: %w", err)
 		}
 
-		k8sHandler, err := kuberneteshandler.NewHandler(*k8sConfig)
+		k8sHandler, err := kubernetes.NewHandler(*k8sConfig)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create Kubernetes handler: %w", err)
 		}
@@ -77,12 +77,12 @@ func NewProxy(config *gatewayconfig.Config, registry *prometheus.Registry, logge
 	}
 
 	if config.WebApp != nil {
-		webAppCfg, err := webapphandler.NewConfig(config.WebApp.RequestHeaders, config.UpstreamCABundles, roundTripperMetrics, logger)
+		webAppCfg, err := webapp.NewConfig(config.WebApp.RequestHeaders, config.UpstreamCABundles, roundTripperMetrics, logger)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create web app config: %w", err)
 		}
 
-		webAppHandler := webapphandler.NewHandler(*webAppCfg)
+		webAppHandler := webapp.NewHandler(*webAppCfg)
 
 		httpProxies[token.ResourceTypeWebApp] = httpproxy.NewProxy(httpproxy.Config{
 			Handler:      webAppHandler,
@@ -92,15 +92,15 @@ func NewProxy(config *gatewayconfig.Config, registry *prometheus.Registry, logge
 		})
 	}
 
-	var sshProxy *sshhandler.SSHProxy
+	var sshProxy *ssh.Proxy
 
 	if config.SSH != nil {
-		sshConfig, err := sshhandler.NewConfig(&config.AuditLog, config.SSH, logger)
+		sshConfig, err := ssh.NewConfig(&config.AuditLog, config.SSH, logger)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create SSH config: %w", err)
 		}
 
-		sshProxy = sshhandler.NewProxy(*sshConfig)
+		sshProxy = ssh.NewProxy(*sshConfig)
 	}
 
 	sessionrecorder.RegisterRecordedSessionMetrics(metrics.Namespace, registry)
@@ -131,25 +131,25 @@ func (p *Proxy) Start() error {
 
 	p.listener = listener
 
-	channels := make(map[token.ResourceType]chan<- connect.Conn)
+	channels := make(map[token.ResourceType]chan<- frontend.Conn)
 
-	var sshListener *connect.ProtocolListener
+	var sshListener *frontend.ProtocolListener
 
 	if p.sshProxy != nil {
-		sshChannel := make(chan connect.Conn)
+		sshChannel := make(chan frontend.Conn)
 		channels[token.ResourceTypeSSH] = sshChannel
-		sshListener = connect.NewProtocolListener(sshChannel, listener.Addr())
+		sshListener = frontend.NewProtocolListener(sshChannel, listener.Addr())
 	}
 
-	httpListeners := make(map[token.ResourceType]*connect.ProtocolListener)
+	httpListeners := make(map[token.ResourceType]*frontend.ProtocolListener)
 
 	for resourceType := range p.httpProxies {
-		ch := make(chan connect.Conn)
+		ch := make(chan frontend.Conn)
 		channels[resourceType] = ch
-		httpListeners[resourceType] = connect.NewProtocolListener(ch, listener.Addr())
+		httpListeners[resourceType] = frontend.NewProtocolListener(ch, listener.Addr())
 	}
 
-	connectListener, err := connect.NewListener(
+	connectListener, err := frontend.NewListener(
 		ctx,
 		p.config.Twingate,
 		p.config.TLS,

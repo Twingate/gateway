@@ -15,12 +15,12 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
+	"gateway/internal/backend/httpproxy"
+	"gateway/internal/backend/kubernetes"
+	"gateway/internal/backend/ssh"
 	gatewayconfig "gateway/internal/config"
-	"gateway/internal/connect"
-	"gateway/internal/httpproxy"
-	"gateway/internal/kuberneteshandler"
+	"gateway/internal/frontend"
 	"gateway/internal/metrics"
-	"gateway/internal/sshhandler"
 	"gateway/internal/token"
 )
 
@@ -147,10 +147,10 @@ func TestShutdown_ClosesAllComponents(t *testing.T) {
 	// Create and attach a real HTTP proxy
 	registry := prometheus.NewRegistry()
 
-	k8sConfig, err := kuberneteshandler.NewConfig(&gatewayconfig.AuditLogConfig{}, fullConfig.Kubernetes, metrics.RegisterRoundTripperMetrics(registry), zap.NewNop())
+	k8sConfig, err := kubernetes.NewConfig(&gatewayconfig.AuditLogConfig{}, fullConfig.Kubernetes, metrics.RegisterRoundTripperMetrics(registry), zap.NewNop())
 	require.NoError(t, err)
 
-	k8sHandler, err := kuberneteshandler.NewHandler(*k8sConfig)
+	k8sHandler, err := kubernetes.NewHandler(*k8sConfig)
 	require.NoError(t, err)
 
 	httpProxy := httpproxy.NewProxy(httpproxy.Config{
@@ -165,8 +165,8 @@ func TestShutdown_ClosesAllComponents(t *testing.T) {
 	}
 
 	// Start HTTP proxy on a protocol listener
-	httpChannel := make(chan connect.Conn)
-	httpListener := connect.NewProtocolListener(httpChannel, p.listener.Addr())
+	httpChannel := make(chan frontend.Conn)
+	httpListener := frontend.NewProtocolListener(httpChannel, p.listener.Addr())
 
 	httpDone := make(chan error, 1)
 
@@ -175,14 +175,14 @@ func TestShutdown_ClosesAllComponents(t *testing.T) {
 	}()
 
 	// Create and attach a real SSH proxy
-	sshConfig, err := sshhandler.NewConfig(
+	sshConfig, err := ssh.NewConfig(
 		&gatewayconfig.AuditLogConfig{},
 		fullConfig.SSH,
 		zap.NewNop(),
 	)
 	require.NoError(t, err)
 
-	p.sshProxy = sshhandler.NewProxy(*sshConfig)
+	p.sshProxy = ssh.NewProxy(*sshConfig)
 
 	// Start metrics server
 	go func() {
