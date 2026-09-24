@@ -664,7 +664,7 @@ func TestConnPair_CloseErrors(t *testing.T) {
 	}
 }
 
-// proxyConns is the connection-layer fixture: an ConnPair serving between two real SSH
+// proxyConns is the connection-layer fixture: a ConnPair serving between two real SSH
 // connections, with the proxy holding the same ends it does in production (the SSH server end
 // toward the downstream client, the SSH client end toward the upstream server):
 //
