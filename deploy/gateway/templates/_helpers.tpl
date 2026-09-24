@@ -136,6 +136,28 @@ true
 {{- end -}}
 {{- end -}}
 
+{{/*
+Create the name of the TLS Vault issuer CA bundle ConfigMap to use
+*/}}
+{{- define "gateway.tlsVaultIssuerCABundleConfigMapName" -}}
+{{- if and .Values.tls.automation.issuer.vault .Values.tls.automation.issuer.vault.caBundleConfigMapName }}
+{{- .Values.tls.automation.issuer.vault.caBundleConfigMapName }}
+{{- else }}
+{{- printf "%s-tls-vault-issuer-ca-bundle" (include "gateway.fullname" .) }}
+{{- end }}
+{{- end }}
+
+{{/*
+Create the name of the TLS Vault issuer AppRole secret ID Secret to use
+*/}}
+{{- define "gateway.tlsVaultIssuerAppRoleSecretIdSecretName" -}}
+{{- if and .Values.tls.automation.issuer.vault .Values.tls.automation.issuer.vault.auth.appRole .Values.tls.automation.issuer.vault.auth.appRole.secretIdSecretName }}
+{{- .Values.tls.automation.issuer.vault.auth.appRole.secretIdSecretName }}
+{{- else }}
+{{- printf "%s-tls-vault-issuer-approle-secret-id" (include "gateway.fullname" .) }}
+{{- end }}
+{{- end }}
+
 
 {{/*
 Create the name of the TLS local issuer Secret to use
@@ -202,17 +224,6 @@ Create the name of the SSH Vault CA bundle ConfigMap to use
 {{- .Values.ssh.ca.vault.caBundleConfigMapName }}
 {{- else }}
 {{- printf "%s-ssh-vault-ca-bundle" (include "gateway.fullname" .) }}
-{{- end }}
-{{- end }}
-
-{{/*
-Create the name of the SSH Vault token secret to use
-*/}}
-{{- define "gateway.sshVaultTokenSecretName" -}}
-{{- if and .Values.ssh.ca.vault .Values.ssh.ca.vault.auth.existingTokenSecret }}
-{{- .Values.ssh.ca.vault.auth.existingTokenSecret }}
-{{- else }}
-{{- printf "%s-ssh-vault-token" (include "gateway.fullname" .) }}
 {{- end }}
 {{- end }}
 

@@ -8,8 +8,6 @@ set:
     ca:
       vault:
         address: "https://vault.example.com:8200"
-        auth:
-          token: "my-token"
         role: "my-role"
 tests:
   - it: should not render when `enabled` is false

@@ -249,7 +249,7 @@ Resources: Deployment, Service, ServiceAccount, ClusterRole/Binding, Secret (TLS
 - `gateway_http_request_duration_seconds`: Request latency
 - `gateway_session_recordings_total`: Recording counts
 
-**Secrets**: TLS cert/key, SSH CA key (manual mode), Vault token, upstream K8s tokens
+**Secrets**: TLS cert/key, SSH CA key (manual mode), Vault AppRole SecretID, upstream K8s tokens
 
 ## Troubleshooting
 
