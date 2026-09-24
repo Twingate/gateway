@@ -73,6 +73,10 @@ manually or run cert-manager with `--enable-certificate-owner-ref`.
 {{- else }}
 
 2. The Gateway issues its TLS certificates on demand. Register the issuer's CA certificate with Twingate.
+{{- with .Values.tls.automation.issuer.vault }} Fetch it from Vault with:
+
+vault read {{ with .namespace }}-namespace={{ . }} {{ end }}-field=certificate {{ default "pki" .mount }}/cert/ca
+{{- end }}
 {{- with .Values.tls.automation.issuer.gcpPrivateCA }} Fetch it from Google Cloud Certificate Authority Service with:
 
 gcloud privateca pools get-ca-certs {{ .caPoolId }} --project {{ .project }} --location {{ .location }}
