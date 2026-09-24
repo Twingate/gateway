@@ -209,8 +209,8 @@ return a string; callers decode it with fromJsonArray.
 Create the name of the SSH manual CA secret to use
 */}}
 {{- define "gateway.sshManualCASecretName" -}}
-{{- if .Values.ssh.ca.manual.existingSecret }}
-{{- .Values.ssh.ca.manual.existingSecret }}
+{{- if .Values.ssh.ca.manual.secretName }}
+{{- .Values.ssh.ca.manual.secretName }}
 {{- else }}
 {{- printf "%s-ssh-manual-ca" (include "gateway.fullname" .) }}
 {{- end }}

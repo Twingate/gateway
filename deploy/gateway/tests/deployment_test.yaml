@@ -182,7 +182,7 @@ tests:
           path: spec.template.spec.containers[0].volumeMounts
           content:
             name: ssh-vault-ca-bundle
-            mountPath: /etc/gateway/vault
+            mountPath: /etc/gateway/ssh/vault
             readOnly: true
       - contains:
           path: spec.template.spec.volumes
@@ -195,13 +195,13 @@ tests:
       ssh:
         ca:
           vault:
-            existingCABundleSecret: "my-ca-bundle-secret"
+            caBundleConfigMapName: "my-ca-bundle-configmap"
     asserts:
       - contains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
             name: ssh-vault-ca-bundle
-            mountPath: /etc/gateway/vault
+            mountPath: /etc/gateway/ssh/vault
             readOnly: true
       - contains:
           path: spec.template.spec.volumes
@@ -215,13 +215,13 @@ tests:
         ca:
           vault:
             caBundle: ""
-            existingCABundleSecret: ""
+            caBundleConfigMapName: ""
     asserts:
       - notContains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
             name: ssh-vault-ca-bundle
-            mountPath: /etc/gateway/vault
+            mountPath: /etc/gateway/ssh/vault
             readOnly: true
       - notContains:
           path: spec.template.spec.volumes
@@ -243,7 +243,7 @@ tests:
           path: spec.template.spec.containers[0].volumeMounts
           content:
             name: ssh-vault-approle-secret-id
-            mountPath: /etc/gateway/vault/approle
+            mountPath: /etc/gateway/ssh/vault/approle
             readOnly: true
       - contains:
           path: spec.template.spec.volumes
