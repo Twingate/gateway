@@ -99,12 +99,12 @@ spec:
             {{- end }}
             {{- if $sshVaultCABundleEnabled }}
             - name: ssh-vault-ca-bundle
-              mountPath: /etc/gateway/vault
+              mountPath: /etc/gateway/ssh/vault
               readOnly: true
             {{- end }}
             {{- if $sshVaultAppRoleEnabled }}
             - name: ssh-vault-approle-secret-id
-              mountPath: /etc/gateway/vault/approle
+              mountPath: /etc/gateway/ssh/vault/approle
               readOnly: true
             {{- end }}
             {{- end }}
