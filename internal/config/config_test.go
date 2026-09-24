@@ -460,6 +460,27 @@ func TestConfig_Validate(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "negative session recording segment limit",
+			config: &Config{
+				Twingate:    TwingateConfig{Network: "test", Host: "twingate.com"},
+				Port:        8443,
+				MetricsPort: 9090,
+				SessionRecording: SessionRecordingConfig{
+					Segment: SessionRecordingSegmentConfig{MaxSize: -1},
+				},
+				TLS: TLSConfig{
+					Certificates: &TLSCertificateSources{
+						Files: []TLSCertificateFileKeyPair{
+							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+						},
+					},
+				},
+				Kubernetes: &KubernetesConfig{},
+			},
+			wantErr:     true,
+			errContains: "sessionRecording config",
+		},
+		{
 			name: "invalid upstreamCABundles entry",
 			config: &Config{
 				Twingate:    TwingateConfig{Network: "test", Host: "twingate.com"},
@@ -806,6 +827,47 @@ func TestConfig_Validate(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 			}
+		})
+	}
+}
+
+func TestSessionRecordingSegmentConfig_Validate(t *testing.T) {
+	tests := []struct {
+		name        string
+		segment     SessionRecordingSegmentConfig
+		errContains string
+	}{
+		{
+			name:    "valid",
+			segment: SessionRecordingSegmentConfig{MaxDuration: 5 * time.Minute, MaxSize: 1_000_000},
+		},
+		{
+			name:    "zero is valid",
+			segment: SessionRecordingSegmentConfig{},
+		},
+		{
+			name:        "negative maxDuration",
+			segment:     SessionRecordingSegmentConfig{MaxDuration: -1 * time.Minute, MaxSize: 1_000_000},
+			errContains: "maxDuration",
+		},
+		{
+			name:        "negative maxSize",
+			segment:     SessionRecordingSegmentConfig{MaxDuration: 5 * time.Minute, MaxSize: -1},
+			errContains: "maxSize",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.segment.Validate()
+			if tt.errContains == "" {
+				assert.NoError(t, err)
+
+				return
+			}
+
+			require.ErrorIs(t, err, ErrNegativeLimit)
+			assert.Contains(t, err.Error(), tt.errContains)
 		})
 	}
 }

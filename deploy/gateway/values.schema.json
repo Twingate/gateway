@@ -85,12 +85,12 @@
           "properties": {
             "maxDuration": {
               "type": "string",
-              "description": "Duration limit at which the session recording is flushed (e.g., 5m, 30s).",
+              "description": "Duration limit at which the session recording is flushed (e.g., 5m, 30s). Set to 0 for no duration limit.",
               "default": "5m"
             },
             "maxSize": {
               "type": "string",
-              "description": "Size limit (in bytes) at which the session recording is flushed (e.g., 1M, 1Mi).",
+              "description": "Size limit (in bytes) at which the session recording is flushed (e.g., 1M, 1Mi). Set to 0 for no size limit.",
               "default": "1M"
             }
           },

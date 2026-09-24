@@ -31,6 +31,7 @@ var (
 	ErrDuplicateTLSCert          = errors.New("duplicate certificateFile")
 	ErrInvalidSSHKeyType         = errors.New("invalid SSH key type")
 	ErrNegativeTTL               = errors.New("TTL must be non-negative")
+	ErrNegativeLimit             = errors.New("limit must be non-negative")
 )
 
 // networkRegexp matches a twingate.network slug: 1-63 lowercase alphanumeric characters.
@@ -409,6 +410,10 @@ func (c *Config) Validate() error {
 		return err
 	}
 
+	if err := c.SessionRecording.Validate(); err != nil {
+		return fmt.Errorf("sessionRecording config: %w", err)
+	}
+
 	if err := c.TLS.Validate(); err != nil {
 		return fmt.Errorf("tls config: %w", err)
 	}
@@ -444,6 +449,26 @@ var (
 	ErrInvalidTLSKeyType           = errors.New("invalid TLS key type")
 	errShortTTL                    = errors.New("TTL is too short")
 )
+
+func (s *SessionRecordingConfig) Validate() error {
+	if err := s.Segment.Validate(); err != nil {
+		return fmt.Errorf("segment: %w", err)
+	}
+
+	return nil
+}
+
+func (s *SessionRecordingSegmentConfig) Validate() error {
+	if s.MaxDuration < 0 {
+		return fmt.Errorf("%w: maxDuration", ErrNegativeLimit)
+	}
+
+	if s.MaxSize < 0 {
+		return fmt.Errorf("%w: maxSize", ErrNegativeLimit)
+	}
+
+	return nil
+}
 
 func (t *TLSConfig) Validate() error {
 	if t.Certificates == nil && t.Automation == nil {
