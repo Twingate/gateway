@@ -104,7 +104,7 @@ ssh:
     #
     #   # CA bundle for verifying Vault's TLS certificate
     #   caBundle: ""  # CA bundle content (PEM format)
-    #   caBundleConfigMapName: ""  # Name of an existing ConfigMap holding the CA bundle (key name: `ca.crt`)
+    #   caBundleConfigMapName: ""  # Name of existing ConfigMap containing the CA bundle (key name: `ca.crt`)
     #
     #   # Auth configuration.
     #   # To authenticate with a Vault token, set the VAULT_TOKEN environment variable through `extraEnvVars` instead.
@@ -115,7 +115,7 @@ ssh:
     #     appRole:
     #       mount: "approle"
     #       roleId: ""
-    #       secretIdSecretName: ""  # Name of an existing Secret containing the AppRole secret ID (key name: `secretId`)
+    #       secretIdSecretName: ""  # Name of existing Secret containing the AppRole SecretID (key name: `secretId`)
     #       secretId: ""  # SecretID value (dev/testing only)
     #
     #   # Default mount/role (can be overridden per-CA)
@@ -289,7 +289,7 @@ tls:
       #
       #   # CA bundle for verifying Vault's TLS certificate
       #   caBundle: ""  # CA bundle content (PEM format)
-      #   caBundleConfigMapName: ""  # Name of an existing ConfigMap holding the CA bundle (key name: `ca.crt`)
+      #   caBundleConfigMapName: ""  # Name of existing ConfigMap containing the CA bundle (key name: `ca.crt`)
       #
       #   # Auth configuration.
       #   # To authenticate with a Vault token, set the VAULT_TOKEN environment variable through `extraEnvVars` instead.
@@ -300,7 +300,7 @@ tls:
       #     appRole:
       #       mount: "approle"
       #       roleId: ""
-      #       secretIdSecretName: ""  # Name of an existing Secret containing the AppRole secret ID (key name: `secretId`)
+      #       secretIdSecretName: ""  # Name of existing Secret containing the AppRole SecretID (key name: `secretId`)
       #       secretId: ""  # SecretID value (dev/testing only)
       #
       #   mount: "pki"

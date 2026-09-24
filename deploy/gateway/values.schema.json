@@ -300,7 +300,7 @@
                         },
                         "secretIdSecretName": {
                           "type": "string",
-                          "description": "Name of an existing Secret containing the AppRole secret ID (key name: `secretId`)."
+                          "description": "Name of an existing Secret containing the AppRole secret ID under (key name: `secretId`)."
                         }
                       },
                       "oneOf": [
@@ -645,7 +645,7 @@
                             },
                             "secretIdSecretName": {
                               "type": "string",
-                              "description": "Name of an existing Secret containing the AppRole secret ID (key name: `secretId`)."
+                              "description": "Name of an existing Secret containing the AppRole secret ID under (key name: `secretId`)."
                             }
                           },
                           "oneOf": [
