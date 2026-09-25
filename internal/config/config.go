@@ -83,7 +83,6 @@ func (t TwingateConfig) Issuer() string {
 	return issuerByDomain[trustedDomainFor(t.Host)]
 }
 
-// LogConfig groups everything the Gateway writes out as logs.
 type LogConfig struct {
 	SessionRecording SessionRecordingConfig `yaml:"sessionRecording"`
 }
