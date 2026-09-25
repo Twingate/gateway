@@ -118,10 +118,11 @@ should render with Kubernetes enabled:
         port: 8443
         metricsPort: 9090
 
-        sessionRecording:
-          segment:
-            maxDuration: "5m"
-            maxSize: "1M"
+        log:
+          sessionRecording:
+            segment:
+              maxDuration: "5m"
+              maxSize: "1M"
 
         tls:
           certificates:
@@ -298,10 +299,11 @@ should render with SSH enabled:
         port: 8443
         metricsPort: 9090
 
-        sessionRecording:
-          segment:
-            maxDuration: "5m"
-            maxSize: "1M"
+        log:
+          sessionRecording:
+            segment:
+              maxDuration: "5m"
+              maxSize: "1M"
 
         tls:
           certificates:

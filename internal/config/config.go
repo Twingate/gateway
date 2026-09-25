@@ -58,15 +58,15 @@ const (
 )
 
 type Config struct {
-	Twingate          TwingateConfig         `yaml:"twingate"`
-	Port              int                    `yaml:"port"`
-	MetricsPort       int                    `yaml:"metricsPort"`
-	SessionRecording  SessionRecordingConfig `yaml:"sessionRecording"`
-	TLS               TLSConfig              `yaml:"tls"`
-	UpstreamCABundles []UpstreamCABundle     `yaml:"upstreamCABundles,omitempty"`
-	Kubernetes        *KubernetesConfig      `yaml:"kubernetes,omitempty"`
-	SSH               *SSHConfig             `yaml:"ssh,omitempty"`
-	WebApp            *WebAppConfig          `yaml:"webApp,omitempty"`
+	Twingate          TwingateConfig     `yaml:"twingate"`
+	Port              int                `yaml:"port"`
+	MetricsPort       int                `yaml:"metricsPort"`
+	Log               LogConfig          `yaml:"log"`
+	TLS               TLSConfig          `yaml:"tls"`
+	UpstreamCABundles []UpstreamCABundle `yaml:"upstreamCABundles,omitempty"`
+	Kubernetes        *KubernetesConfig  `yaml:"kubernetes,omitempty"`
+	SSH               *SSHConfig         `yaml:"ssh,omitempty"`
+	WebApp            *WebAppConfig      `yaml:"webApp,omitempty"`
 }
 
 type TwingateConfig struct {
@@ -82,6 +82,11 @@ func (t TwingateConfig) JWKSURL() string {
 // Issuer returns the expected JWT issuer for the configured controller host.
 func (t TwingateConfig) Issuer() string {
 	return issuerByDomain[trustedDomainFor(t.Host)]
+}
+
+// LogConfig groups everything the Gateway writes out as logs.
+type LogConfig struct {
+	SessionRecording SessionRecordingConfig `yaml:"sessionRecording"`
 }
 
 // SessionRecordingConfig represents the recording configuration for interactive sessions.
@@ -308,10 +313,12 @@ func newDefaultConfig() *Config {
 		Twingate: TwingateConfig{
 			Host: defaultTwingateHost,
 		},
-		SessionRecording: SessionRecordingConfig{
-			Segment: SessionRecordingSegmentConfig{
-				MaxDuration: defaultSessionRecordingSegmentMaxDuration,
-				MaxSize:     defaultSessionRecordingSegmentMaxSize,
+		Log: LogConfig{
+			SessionRecording: SessionRecordingConfig{
+				Segment: SessionRecordingSegmentConfig{
+					MaxDuration: defaultSessionRecordingSegmentMaxDuration,
+					MaxSize:     defaultSessionRecordingSegmentMaxSize,
+				},
 			},
 		},
 	}
@@ -410,8 +417,8 @@ func (c *Config) Validate() error {
 		return err
 	}
 
-	if err := c.SessionRecording.Validate(); err != nil {
-		return fmt.Errorf("sessionRecording config: %w", err)
+	if err := c.Log.Validate(); err != nil {
+		return fmt.Errorf("log config: %w", err)
 	}
 
 	if err := c.TLS.Validate(); err != nil {
@@ -449,6 +456,14 @@ var (
 	ErrInvalidTLSKeyType           = errors.New("invalid TLS key type")
 	errShortTTL                    = errors.New("TTL is too short")
 )
+
+func (l *LogConfig) Validate() error {
+	if err := l.SessionRecording.Validate(); err != nil {
+		return fmt.Errorf("sessionRecording: %w", err)
+	}
+
+	return nil
+}
 
 func (s *SessionRecordingConfig) Validate() error {
 	if err := s.Segment.Validate(); err != nil {

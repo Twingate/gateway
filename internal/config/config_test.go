@@ -210,10 +210,11 @@ twingate:
   network: "acme"
 port: 8443
 metricsPort: 9090
-sessionRecording:
-  segment:
-    maxDuration: "30s"
-    maxSize: "2Mi"
+log:
+  sessionRecording:
+    segment:
+      maxDuration: "30s"
+      maxSize: "2Mi"
 tls:
   certificates:
     files:
@@ -234,8 +235,8 @@ kubernetes: {}
 	assert.Equal(t, "acme", cfg.Twingate.Network)
 	assert.Equal(t, 8443, cfg.Port)
 	assert.Equal(t, 9090, cfg.MetricsPort)
-	assert.Equal(t, time.Second*30, cfg.SessionRecording.Segment.MaxDuration)
-	assert.Equal(t, 2_097_152, cfg.SessionRecording.Segment.MaxSize.Bytes())
+	assert.Equal(t, time.Second*30, cfg.Log.SessionRecording.Segment.MaxDuration)
+	assert.Equal(t, 2_097_152, cfg.Log.SessionRecording.Segment.MaxSize.Bytes())
 
 	require.NotNil(t, cfg.Kubernetes)
 	assert.Empty(t, cfg.Kubernetes.Upstreams)
@@ -248,10 +249,11 @@ twingate:
   network: "acme"
 port: 8443
 metricsPort: 9090
-sessionRecording:
-  segment:
-    maxDuration: "10m"
-    maxSize: "1Mi"
+log:
+  sessionRecording:
+    segment:
+      maxDuration: "10m"
+      maxSize: "1Mi"
 tls:
   certificates:
     files:
@@ -363,8 +365,8 @@ kubernetes: {}
 	// Check defaults
 	assert.Equal(t, 8443, cfg.Port)
 	assert.Equal(t, 9090, cfg.MetricsPort)
-	assert.Equal(t, time.Minute*10, cfg.SessionRecording.Segment.MaxDuration)
-	assert.Equal(t, 1_000_000, cfg.SessionRecording.Segment.MaxSize.Bytes())
+	assert.Equal(t, time.Minute*10, cfg.Log.SessionRecording.Segment.MaxDuration)
+	assert.Equal(t, 1_000_000, cfg.Log.SessionRecording.Segment.MaxSize.Bytes())
 	assert.Equal(t, "twingate.com", cfg.Twingate.Host)
 }
 
@@ -465,8 +467,10 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: "test", Host: "twingate.com"},
 				Port:        8443,
 				MetricsPort: 9090,
-				SessionRecording: SessionRecordingConfig{
-					Segment: SessionRecordingSegmentConfig{MaxSize: -1},
+				Log: LogConfig{
+					SessionRecording: SessionRecordingConfig{
+						Segment: SessionRecordingSegmentConfig{MaxSize: -1},
+					},
 				},
 				TLS: TLSConfig{
 					Certificates: &TLSCertificateSources{
@@ -478,7 +482,7 @@ func TestConfig_Validate(t *testing.T) {
 				Kubernetes: &KubernetesConfig{},
 			},
 			wantErr:     true,
-			errContains: "sessionRecording config",
+			errContains: "log config",
 		},
 		{
 			name: "invalid upstreamCABundles entry",

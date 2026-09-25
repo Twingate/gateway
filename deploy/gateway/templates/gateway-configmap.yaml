@@ -15,11 +15,12 @@ data:
     metricsPort: {{ .metrics }}
     {{- end }}
 
-    {{ with .Values.sessionRecording.segment -}}
-    sessionRecording:
-      segment:
-        maxDuration: {{ .maxDuration | quote }}
-        maxSize: {{ .maxSize | quote }}
+    {{ with .Values.log.sessionRecording.segment -}}
+    log:
+      sessionRecording:
+        segment:
+          maxDuration: {{ .maxDuration | quote }}
+          maxSize: {{ .maxSize | quote }}
     {{- end }}
 
     tls:

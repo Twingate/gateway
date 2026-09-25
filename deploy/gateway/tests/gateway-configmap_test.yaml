@@ -7,10 +7,11 @@ tests:
       twingate:
         network: "acme"
         host: "test"
-      sessionRecording:
-        segment:
-          maxDuration: "10s"
-          maxSize: "200Ki"
+      log:
+        sessionRecording:
+          segment:
+            maxDuration: "10s"
+            maxSize: "200Ki"
       containerPorts:
         https: 8000
         metrics: 9000
@@ -25,10 +26,11 @@ tests:
             port: 8000
             metricsPort: 9000
 
-            sessionRecording:
-              segment:
-                maxDuration: "10s"
-                maxSize: "200Ki"
+            log:
+              sessionRecording:
+                segment:
+                  maxDuration: "10s"
+                  maxSize: "200Ki"
 
             tls:
               certificates:
@@ -91,10 +93,11 @@ tests:
             port: 8443
             metricsPort: 9090
 
-            sessionRecording:
-              segment:
-                maxDuration: "5m"
-                maxSize: "1M"
+            log:
+              sessionRecording:
+                segment:
+                  maxDuration: "5m"
+                  maxSize: "1M"
 
             tls:
               certificates:
@@ -122,10 +125,11 @@ tests:
             port: 8443
             metricsPort: 9090
 
-            sessionRecording:
-              segment:
-                maxDuration: "5m"
-                maxSize: "1M"
+            log:
+              sessionRecording:
+                segment:
+                  maxDuration: "5m"
+                  maxSize: "1M"
 
             tls:
               certificates:
@@ -182,10 +186,11 @@ tests:
             port: 8443
             metricsPort: 9090
 
-            sessionRecording:
-              segment:
-                maxDuration: "5m"
-                maxSize: "1M"
+            log:
+              sessionRecording:
+                segment:
+                  maxDuration: "5m"
+                  maxSize: "1M"
 
             tls:
               certificates:
@@ -212,10 +217,11 @@ tests:
             port: 8443
             metricsPort: 9090
 
-            sessionRecording:
-              segment:
-                maxDuration: "5m"
-                maxSize: "1M"
+            log:
+              sessionRecording:
+                segment:
+                  maxDuration: "5m"
+                  maxSize: "1M"
 
             tls:
               certificates:
@@ -253,10 +259,11 @@ tests:
             port: 8443
             metricsPort: 9090
 
-            sessionRecording:
-              segment:
-                maxDuration: "5m"
-                maxSize: "1M"
+            log:
+              sessionRecording:
+                segment:
+                  maxDuration: "5m"
+                  maxSize: "1M"
 
             tls:
               certificates:
@@ -310,10 +317,11 @@ tests:
             port: 8443
             metricsPort: 9090
 
-            sessionRecording:
-              segment:
-                maxDuration: "5m"
-                maxSize: "1M"
+            log:
+              sessionRecording:
+                segment:
+                  maxDuration: "5m"
+                  maxSize: "1M"
 
             tls:
               certificates:
@@ -369,10 +377,11 @@ tests:
             port: 8443
             metricsPort: 9090
 
-            sessionRecording:
-              segment:
-                maxDuration: "5m"
-                maxSize: "1M"
+            log:
+              sessionRecording:
+                segment:
+                  maxDuration: "5m"
+                  maxSize: "1M"
 
             tls:
               certificates:
@@ -479,10 +488,11 @@ tests:
             port: 8443
             metricsPort: 9090
 
-            sessionRecording:
-              segment:
-                maxDuration: "5m"
-                maxSize: "1M"
+            log:
+              sessionRecording:
+                segment:
+                  maxDuration: "5m"
+                  maxSize: "1M"
 
             tls:
               certificates:
@@ -508,10 +518,11 @@ tests:
             port: 8443
             metricsPort: 9090
 
-            sessionRecording:
-              segment:
-                maxDuration: "5m"
-                maxSize: "1M"
+            log:
+              sessionRecording:
+                segment:
+                  maxDuration: "5m"
+                  maxSize: "1M"
 
             tls:
               certificates:
@@ -538,10 +549,11 @@ tests:
             port: 8443
             metricsPort: 9090
 
-            sessionRecording:
-              segment:
-                maxDuration: "5m"
-                maxSize: "1M"
+            log:
+              sessionRecording:
+                segment:
+                  maxDuration: "5m"
+                  maxSize: "1M"
 
             tls:
               certificates:
@@ -585,10 +597,11 @@ tests:
             port: 8443
             metricsPort: 9090
 
-            sessionRecording:
-              segment:
-                maxDuration: "5m"
-                maxSize: "1M"
+            log:
+              sessionRecording:
+                segment:
+                  maxDuration: "5m"
+                  maxSize: "1M"
 
             tls:
               automation:
@@ -716,10 +729,11 @@ tests:
             port: 8443
             metricsPort: 9090
 
-            sessionRecording:
-              segment:
-                maxDuration: "5m"
-                maxSize: "1M"
+            log:
+              sessionRecording:
+                segment:
+                  maxDuration: "5m"
+                  maxSize: "1M"
 
             tls:
               automation:
@@ -806,10 +820,11 @@ tests:
             port: 8443
             metricsPort: 9090
 
-            sessionRecording:
-              segment:
-                maxDuration: "5m"
-                maxSize: "1M"
+            log:
+              sessionRecording:
+                segment:
+                  maxDuration: "5m"
+                  maxSize: "1M"
 
             tls:
               automation:
@@ -847,10 +862,11 @@ tests:
             port: 8443
             metricsPort: 9090
 
-            sessionRecording:
-              segment:
-                maxDuration: "5m"
-                maxSize: "1M"
+            log:
+              sessionRecording:
+                segment:
+                  maxDuration: "5m"
+                  maxSize: "1M"
 
             tls:
               automation:
@@ -965,10 +981,11 @@ tests:
             port: 8443
             metricsPort: 9090
 
-            sessionRecording:
-              segment:
-                maxDuration: "5m"
-                maxSize: "1M"
+            log:
+              sessionRecording:
+                segment:
+                  maxDuration: "5m"
+                  maxSize: "1M"
 
             tls:
               automation:
@@ -1074,10 +1091,11 @@ tests:
             port: 8443
             metricsPort: 9090
 
-            sessionRecording:
-              segment:
-                maxDuration: "5m"
-                maxSize: "1M"
+            log:
+              sessionRecording:
+                segment:
+                  maxDuration: "5m"
+                  maxSize: "1M"
 
             tls:
               certificates:
