@@ -580,6 +580,7 @@ tests:
             tls:
               automation:
                 certificate:
+                  commonName: "twingate-gateway"
                   ttl: "24h"
                   key:
                     type: "ecdsa"
@@ -710,6 +711,7 @@ tests:
             tls:
               automation:
                 certificate:
+                  commonName: "twingate-gateway"
                   ttl: "24h"
                   key:
                     type: "ecdsa"
@@ -799,6 +801,7 @@ tests:
             tls:
               automation:
                 certificate:
+                  commonName: "twingate-gateway"
                   ttl: "24h"
                   key:
                     type: "ecdsa"
@@ -839,6 +842,7 @@ tests:
             tls:
               automation:
                 certificate:
+                  commonName: "twingate-gateway"
                   ttl: "24h"
                   key:
                     type: "ecdsa"
@@ -956,6 +960,7 @@ tests:
             tls:
               automation:
                 certificate:
+                  commonName: "twingate-gateway"
                   ttl: "24h"
                   key:
                     type: "ecdsa"

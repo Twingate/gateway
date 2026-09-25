@@ -238,12 +238,12 @@ func TestLocalIssuer_sign(t *testing.T) {
 
 	key := generateKey(t)
 
-	req := newCertificateRequest(key, "app.acme.int", defaultTTL)
+	req := newCertificateRequest(key, "app.acme.int", defaultCommonName, defaultTTL)
 
 	leaf, caChain, err := issuer.sign(t.Context(), req)
 	require.NoError(t, err)
 
-	assert.Equal(t, subjectCommonName, leaf.Subject.CommonName)
+	assert.Equal(t, defaultCommonName, leaf.Subject.CommonName)
 	assert.Equal(t, []string{"app.acme.int"}, leaf.DNSNames)
 	assert.Empty(t, leaf.IPAddresses)
 
@@ -265,7 +265,7 @@ func TestLocalIssuer_sign_CAKeyFails(t *testing.T) {
 
 	issuer := &localIssuer{caCert: caCert, caKey: failingSigner{pub: caCert.PublicKey}}
 
-	req := newCertificateRequest(generateKey(t), "app.acme.int", defaultTTL)
+	req := newCertificateRequest(generateKey(t), "app.acme.int", defaultCommonName, defaultTTL)
 
 	_, _, err = issuer.sign(t.Context(), req)
 	require.ErrorContains(t, err, "failed to sign leaf certificate")
@@ -393,16 +393,16 @@ func TestVaultIssuer_sign(t *testing.T) {
 		assert.Equal(t, "/v1/pki/sign/test-role", r.URL.Path)
 
 		csr, payload := decodeVaultSignPayload(t, r)
-		assert.Equal(t, map[string]any{"ttl": "24h0m0s", "format": "pem_bundle"}, payload)
+		assert.Equal(t, map[string]any{"ttl": "24h0m0s", "format": "pem_bundle", "exclude_cn_from_sans": true}, payload)
 
 		_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
 			"certificate": signTestCSR(t, ca, csr) + caPEM(ca),
 		}})
 	})
 
-	leaf, caChain, err := issuer.sign(t.Context(), newCertificateRequest(generateKey(t), "app.acme.int", defaultTTL))
+	leaf, caChain, err := issuer.sign(t.Context(), newCertificateRequest(generateKey(t), "app.acme.int", defaultCommonName, defaultTTL))
 	require.NoError(t, err)
-	assert.Equal(t, subjectCommonName, leaf.Subject.CommonName)
+	assert.Equal(t, defaultCommonName, leaf.Subject.CommonName)
 	assert.Equal(t, []string{"app.acme.int"}, leaf.DNSNames)
 	assert.Len(t, caChain, 1)
 }
@@ -418,7 +418,7 @@ func TestVaultIssuer_sign_LeafOnlyBundle(t *testing.T) {
 		}})
 	})
 
-	leaf, caChain, err := issuer.sign(t.Context(), newCertificateRequest(generateKey(t), "app.acme.int", defaultTTL))
+	leaf, caChain, err := issuer.sign(t.Context(), newCertificateRequest(generateKey(t), "app.acme.int", defaultCommonName, defaultTTL))
 	require.NoError(t, err)
 	assert.Equal(t, []string{"app.acme.int"}, leaf.DNSNames)
 	assert.Empty(t, caChain)
@@ -456,7 +456,7 @@ func TestVaultIssuer_sign_Error(t *testing.T) {
 				_ = json.NewEncoder(w).Encode(map[string]any{"data": tt.responseData})
 			})
 
-			_, _, err := issuer.sign(t.Context(), newCertificateRequest(generateKey(t), "app.acme.int", defaultTTL))
+			_, _, err := issuer.sign(t.Context(), newCertificateRequest(generateKey(t), "app.acme.int", defaultCommonName, defaultTTL))
 			require.Error(t, err)
 			assert.ErrorIs(t, err, tt.wantErr)
 		})
@@ -468,7 +468,7 @@ func TestVaultIssuer_sign_RequestFails(t *testing.T) {
 		w.WriteHeader(http.StatusInternalServerError)
 	})
 
-	_, _, err := issuer.sign(t.Context(), newCertificateRequest(generateKey(t), "app.acme.int", defaultTTL))
+	_, _, err := issuer.sign(t.Context(), newCertificateRequest(generateKey(t), "app.acme.int", defaultCommonName, defaultTTL))
 	require.Error(t, err)
 	assert.NotErrorIs(t, err, errVaultIssueFailed)
 }
@@ -590,9 +590,9 @@ func TestGCPPrivateIssuer_sign(t *testing.T) {
 		}, nil
 	})
 
-	leaf, caChain, err := issuer.sign(t.Context(), newCertificateRequest(generateKey(t), "app.acme.int", defaultTTL))
+	leaf, caChain, err := issuer.sign(t.Context(), newCertificateRequest(generateKey(t), "app.acme.int", defaultCommonName, defaultTTL))
 	require.NoError(t, err)
-	assert.Equal(t, subjectCommonName, leaf.Subject.CommonName)
+	assert.Equal(t, defaultCommonName, leaf.Subject.CommonName)
 	assert.Equal(t, []string{"app.acme.int"}, leaf.DNSNames)
 	assert.Len(t, caChain, 1)
 }
@@ -610,7 +610,7 @@ func TestGCPPrivateIssuer_sign_PinIssuingCA(t *testing.T) {
 	})
 	issuer.issuingCA = "gateway-ca"
 
-	_, _, err := issuer.sign(t.Context(), newCertificateRequest(generateKey(t), "app.acme.int", defaultTTL))
+	_, _, err := issuer.sign(t.Context(), newCertificateRequest(generateKey(t), "app.acme.int", defaultCommonName, defaultTTL))
 	require.NoError(t, err)
 }
 
@@ -648,7 +648,7 @@ func TestGCPPrivateIssuer_sign_Error(t *testing.T) {
 				return tt.issued, tt.issueErr
 			})
 
-			_, _, err := issuer.sign(t.Context(), newCertificateRequest(generateKey(t), "app.acme.int", defaultTTL))
+			_, _, err := issuer.sign(t.Context(), newCertificateRequest(generateKey(t), "app.acme.int", defaultCommonName, defaultTTL))
 			require.Error(t, err)
 
 			if tt.wantErr != nil {
@@ -685,7 +685,7 @@ func TestGCPPrivateIssuer_run_ClosesClientOnShutdown(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	require.NoError(t, issuer.run(ctx))
 
-	req := newCertificateRequest(generateKey(t), "app.acme.int", defaultTTL)
+	req := newCertificateRequest(generateKey(t), "app.acme.int", defaultCommonName, defaultTTL)
 
 	cancel()
 
@@ -808,7 +808,7 @@ func TestVerifyIssuedCertificate(t *testing.T) {
 func TestParseCertificateChain(t *testing.T) {
 	ca := generateCA(t)
 
-	der, err := newCertificateRequest(generateKey(t), "app.acme.int", defaultTTL).csr()
+	der, err := newCertificateRequest(generateKey(t), "app.acme.int", defaultCommonName, defaultTTL).csr()
 	require.NoError(t, err)
 
 	tests := []struct {

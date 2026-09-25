@@ -25,19 +25,20 @@ import (
 
 const (
 	defaultTTL        = 24 * time.Hour
+	defaultCommonName = "twingate-gateway"
 	maxCachedCerts    = 1024
 	expiryBuffer      = 5 * time.Minute
-	subjectCommonName = "Twingate Gateway"
 )
 
 // automation issues short-lived certificates through the configured issuer.
 // It caches one certificate per requested name and issues a fresh one once the
 // cached certificate nears its expiry.
 type automation struct {
-	issuer issuer
-	key    keyConfig
-	ttl    time.Duration
-	logger *zap.Logger
+	issuer     issuer
+	key        keyConfig
+	ttl        time.Duration
+	commonName string
+	logger     *zap.Logger
 
 	mu sync.Mutex
 	// counts CA rotations, so a certificate signed before one is not cached
@@ -56,6 +57,11 @@ func newAutomation(cfg *config.TLSAutomationConfig, logger *zap.Logger) (*automa
 		certTTL = defaultTTL
 	}
 
+	commonName := cfg.Certificate.CommonName
+	if commonName == "" {
+		commonName = defaultCommonName
+	}
+
 	issuer, err := newIssuer(cfg.Issuer, logger)
 	if err != nil {
 		return nil, err
@@ -67,11 +73,12 @@ func newAutomation(cfg *config.TLSAutomationConfig, logger *zap.Logger) (*automa
 	}
 
 	return &automation{
-		issuer: issuer,
-		key:    keyCfg,
-		ttl:    certTTL,
-		logger: logger,
-		cache:  cache,
+		issuer:     issuer,
+		key:        keyCfg,
+		ttl:        certTTL,
+		commonName: commonName,
+		logger:     logger,
+		cache:      cache,
 	}, nil
 }
 
@@ -131,7 +138,7 @@ func (a *automation) issue(ctx context.Context, name string) (*tls.Certificate, 
 		return nil, fmt.Errorf("failed to generate leaf key: %w", err)
 	}
 
-	leaf, caChain, err := a.issuer.sign(ctx, newCertificateRequest(key, name, a.ttl))
+	leaf, caChain, err := a.issuer.sign(ctx, newCertificateRequest(key, name, a.commonName, a.ttl))
 	if err != nil {
 		return nil, err
 	}
@@ -184,13 +191,14 @@ type certificateRequest struct {
 	key         crypto.Signer
 	dnsNames    []string
 	ipAddresses []net.IP
+	commonName  string
 	ttl         time.Duration
 }
 
-// newCertificateRequest creates a new certificate request for the given name and TTL.
+// newCertificateRequest creates a new certificate request for the given name, subject common name and TTL.
 // If an empty name is provided, the certificate would have no Subject Alternative Names.
-func newCertificateRequest(key crypto.Signer, name string, ttl time.Duration) *certificateRequest {
-	req := &certificateRequest{key: key, ttl: ttl}
+func newCertificateRequest(key crypto.Signer, name, commonName string, ttl time.Duration) *certificateRequest {
+	req := &certificateRequest{key: key, commonName: commonName, ttl: ttl}
 
 	if ip := net.ParseIP(name); ip != nil {
 		req.ipAddresses = []net.IP{ip}
@@ -204,7 +212,7 @@ func newCertificateRequest(key crypto.Signer, name string, ttl time.Duration) *c
 // csr builds the DER-encoded certificate request.
 func (c *certificateRequest) csr() ([]byte, error) {
 	template := &x509.CertificateRequest{
-		Subject:     pkix.Name{CommonName: subjectCommonName},
+		Subject:     pkix.Name{CommonName: c.commonName},
 		DNSNames:    c.dnsNames,
 		IPAddresses: c.ipAddresses,
 	}

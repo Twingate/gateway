@@ -173,7 +173,7 @@ func (l *localIssuer) sign(_ context.Context, req *certificateRequest) (*x509.Ce
 	now := time.Now()
 	template := &x509.Certificate{
 		SerialNumber: serial,
-		Subject:      pkix.Name{CommonName: subjectCommonName},
+		Subject:      pkix.Name{CommonName: req.commonName},
 		NotBefore:    now.Add(-clockSkewBuffer),
 		NotAfter:     now.Add(req.ttl),
 		KeyUsage:     x509.KeyUsageDigitalSignature,
@@ -251,7 +251,8 @@ func (v *vaultIssuer) sign(ctx context.Context, req *certificateRequest) (*x509.
 		"csr": string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csr})),
 		"ttl": req.ttl.String(),
 		// pem_bundle returns the CA chain concatenated onto the leaf
-		"format": "pem_bundle",
+		"format":               "pem_bundle",
+		"exclude_cn_from_sans": true,
 	}
 
 	secret, err := v.vault.Client.Logical().WriteWithContext(ctx, v.mount+"/sign/"+v.role, data)

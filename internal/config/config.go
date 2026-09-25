@@ -115,8 +115,9 @@ type TLSAutomationConfig struct {
 }
 
 type TLSAutomationCertificateConfig struct {
-	TTL time.Duration           `yaml:"ttl"`
-	Key TLSCertificateKeyConfig `yaml:"key"`
+	CommonName string                  `yaml:"commonName"`
+	TTL        time.Duration           `yaml:"ttl"`
+	Key        TLSCertificateKeyConfig `yaml:"key"`
 }
 
 type TLSCertificateKeyConfig struct {

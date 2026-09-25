@@ -172,6 +172,7 @@ tls:
         privateKeyFile: "tls.key"
   automation:
     certificate:
+      commonName: "gateway.acme.int"
       ttl: "48h"
       key:
         type: "ecdsa"
@@ -197,6 +198,7 @@ webApp: {}
 	require.NotNil(t, cfg.TLS.Automation.Issuer.Local)
 	assert.Equal(t, "ca.crt", cfg.TLS.Automation.Issuer.Local.CertificateFile)
 	assert.Equal(t, "ca.key", cfg.TLS.Automation.Issuer.Local.PrivateKeyFile)
+	assert.Equal(t, "gateway.acme.int", cfg.TLS.Automation.Certificate.CommonName)
 	assert.Equal(t, 48*time.Hour, cfg.TLS.Automation.Certificate.TTL)
 	assert.Equal(t, "ecdsa", cfg.TLS.Automation.Certificate.Key.Type)
 	assert.Equal(t, 384, cfg.TLS.Automation.Certificate.Key.Bits)
