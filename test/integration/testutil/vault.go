@@ -90,7 +90,6 @@ func SetupVaultPKI(t *testing.T) (string, int) {
 		"key_type=any",
 		"allowed_domains=acme.int",
 		"allow_subdomains=true",
-		"allow_bare_domains=true",
 		"max_ttl=72h",
 	))
 	require.NoError(t, err, "failed to create PKI signing role in Vault")
