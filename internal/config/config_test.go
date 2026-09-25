@@ -378,14 +378,19 @@ func TestByteSize_UnmarshalText(t *testing.T) {
 		errContains string
 	}{
 		{name: "binary unit", text: "1Mi", want: 1_048_576},
+		{name: "binary unit long form", text: "1MiB", want: 1_048_576},
 		{name: "decimal unit", text: "1M", want: 1_000_000},
+		{name: "decimal unit long form", text: "1MB", want: 1_000_000},
+		{name: "lowercase unit", text: "1mb", want: 1_000_000},
 		{name: "no unit", text: "1000000", want: 1_000_000},
-		{name: "unsupported unit", text: "1MB", errContains: "invalid size"},
+		{name: "zero", text: "0", want: 0},
+		{name: "fraction of a unit", text: "1.5MB", want: 1_500_000},
 		{name: "not a number", text: "large", errContains: "invalid size"},
-		{name: "sub-byte unit resolving to a whole byte", text: "1000m", want: 1},
-		{name: "milli unit", text: "1m", errContains: "at least one byte"},
+		{name: "negative", text: "-1MB", errContains: "invalid size"},
+		{name: "sub-byte unit", text: "1n", errContains: "invalid size"},
 		{name: "fraction of a byte", text: "0.5", errContains: "at least one byte"},
-		{name: "negative exponent", text: "1e-9", errContains: "at least one byte"},
+		{name: "fraction of a byte with a unit", text: "0.0000001MB", errContains: "at least one byte"},
+		{name: "too large", text: "10EB", errContains: "too large"},
 	}
 
 	for _, tt := range tests {

@@ -4,19 +4,21 @@
 package config
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"os"
 	"regexp"
 	"strings"
 	"time"
 
+	"github.com/dustin/go-humanize"
 	"github.com/hashicorp/go-retryablehttp"
 	"go.uber.org/zap"
 	"go.yaml.in/yaml/v4"
 	"golang.org/x/crypto/ssh"
-	"k8s.io/apimachinery/pkg/api/resource"
 
 	"gateway/internal/util/useragent"
 )
@@ -100,19 +102,28 @@ type SessionRecordingSegmentConfig struct {
 
 type byteSize int
 
-var errSubByteSize = errors.New("size must be zero or at least one byte")
+var (
+	errSubByteSize  = errors.New("size must be zero or at least one byte")
+	errSizeTooLarge = errors.New("size too large")
+)
 
 func (b *byteSize) UnmarshalText(text []byte) error {
-	size, err := resource.ParseQuantity(string(text))
+	size, err := humanize.ParseBytes(string(text))
 	if err != nil {
 		return fmt.Errorf("invalid size %q: %w", text, err)
 	}
 
-	if size.Sign() > 0 && size.CmpInt64(1) < 0 {
+	if size > math.MaxInt {
+		return fmt.Errorf("%w: %q", errSizeTooLarge, text)
+	}
+
+	// ParseBytes truncates a size under a byte and arrive as 0, which means "no limit".
+	// Check for non-zero digits alongside a zero result.
+	if size == 0 && bytes.ContainsAny(text, "123456789") {
 		return fmt.Errorf("%w: %q", errSubByteSize, text)
 	}
 
-	*b = byteSize(size.Value())
+	*b = byteSize(size)
 
 	return nil
 }
