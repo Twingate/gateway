@@ -210,9 +210,11 @@ twingate:
   network: "acme"
 port: 8443
 metricsPort: 9090
-auditLog:
-  flushInterval: "10m"
-  flushSizeThreshold: 1000000
+log:
+  sessionRecording:
+    segment:
+      maxDuration: "30s"
+      maxSize: "2Mi"
 tls:
   certificates:
     files:
@@ -233,6 +235,8 @@ kubernetes: {}
 	assert.Equal(t, "acme", cfg.Twingate.Network)
 	assert.Equal(t, 8443, cfg.Port)
 	assert.Equal(t, 9090, cfg.MetricsPort)
+	assert.Equal(t, time.Second*30, cfg.Log.SessionRecording.Segment.MaxDuration)
+	assert.Equal(t, 2_097_152, cfg.Log.SessionRecording.Segment.MaxSize.Bytes())
 
 	require.NotNil(t, cfg.Kubernetes)
 	assert.Empty(t, cfg.Kubernetes.Upstreams)
@@ -245,9 +249,11 @@ twingate:
   network: "acme"
 port: 8443
 metricsPort: 9090
-auditLog:
-  flushInterval: "10m"
-  flushSizeThreshold: 1000000
+log:
+  sessionRecording:
+    segment:
+      maxDuration: "10m"
+      maxSize: "1Mi"
 tls:
   certificates:
     files:
@@ -359,9 +365,50 @@ kubernetes: {}
 	// Check defaults
 	assert.Equal(t, 8443, cfg.Port)
 	assert.Equal(t, 9090, cfg.MetricsPort)
-	assert.Equal(t, time.Minute*10, cfg.AuditLog.FlushInterval)
-	assert.Equal(t, 1_000_000, cfg.AuditLog.FlushSizeThreshold)
+	assert.Equal(t, time.Minute*10, cfg.Log.SessionRecording.Segment.MaxDuration)
+	assert.Equal(t, 1_000_000, cfg.Log.SessionRecording.Segment.MaxSize.Bytes())
 	assert.Equal(t, "twingate.com", cfg.Twingate.Host)
+}
+
+func TestByteSize_UnmarshalText(t *testing.T) {
+	tests := []struct {
+		name        string
+		text        string
+		want        int
+		errContains string
+	}{
+		{name: "binary unit", text: "1Mi", want: 1_048_576},
+		{name: "binary unit long form", text: "1MiB", want: 1_048_576},
+		{name: "decimal unit", text: "1M", want: 1_000_000},
+		{name: "decimal unit long form", text: "1MB", want: 1_000_000},
+		{name: "lowercase unit", text: "1mb", want: 1_000_000},
+		{name: "no unit", text: "1000000", want: 1_000_000},
+		{name: "zero", text: "0", want: 0},
+		{name: "fraction of a unit", text: "1.5MB", want: 1_500_000},
+		{name: "not a number", text: "large", errContains: "invalid size"},
+		{name: "negative", text: "-1MB", errContains: "invalid size"},
+		{name: "sub-byte unit", text: "1n", errContains: "invalid size"},
+		{name: "fraction of a byte", text: "0.5", errContains: "at least one byte"},
+		{name: "fraction of a byte with a unit", text: "0.0000001MB", errContains: "at least one byte"},
+		{name: "too large", text: "10EB", errContains: "too large"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var size byteSize
+
+			err := size.UnmarshalText([]byte(tt.text))
+			if tt.errContains != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errContains)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, size.Bytes())
+		})
+	}
 }
 
 func TestLoad_Errors(t *testing.T) {
@@ -422,6 +469,29 @@ func TestConfig_Validate(t *testing.T) {
 				},
 			},
 			wantErr: false,
+		},
+		{
+			name: "negative session recording segment limit",
+			config: &Config{
+				Twingate:    TwingateConfig{Network: "test", Host: "twingate.com"},
+				Port:        8443,
+				MetricsPort: 9090,
+				Log: LogConfig{
+					SessionRecording: SessionRecordingConfig{
+						Segment: SessionRecordingSegmentConfig{MaxSize: -1},
+					},
+				},
+				TLS: TLSConfig{
+					Certificates: &TLSCertificateSources{
+						Files: []TLSCertificateFileKeyPair{
+							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+						},
+					},
+				},
+				Kubernetes: &KubernetesConfig{},
+			},
+			wantErr:     true,
+			errContains: "log config",
 		},
 		{
 			name: "invalid upstreamCABundles entry",
@@ -770,6 +840,50 @@ func TestConfig_Validate(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 			}
+		})
+	}
+}
+
+func TestSessionRecordingSegmentConfig_Validate(t *testing.T) {
+	tests := []struct {
+		name        string
+		segment     SessionRecordingSegmentConfig
+		wantErr     error
+		errContains string
+	}{
+		{
+			name:    "valid",
+			segment: SessionRecordingSegmentConfig{MaxDuration: 5 * time.Minute, MaxSize: 1_000_000},
+		},
+		{
+			name:    "zero is valid",
+			segment: SessionRecordingSegmentConfig{},
+		},
+		{
+			name:        "negative maxDuration",
+			segment:     SessionRecordingSegmentConfig{MaxDuration: -1 * time.Minute, MaxSize: 1_000_000},
+			wantErr:     errNegativeDuration,
+			errContains: "maxDuration",
+		},
+		{
+			name:        "negative maxSize",
+			segment:     SessionRecordingSegmentConfig{MaxDuration: 5 * time.Minute, MaxSize: -100},
+			wantErr:     errNegativeSize,
+			errContains: "maxSize",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.segment.Validate()
+			if tt.wantErr == nil {
+				assert.NoError(t, err)
+
+				return
+			}
+
+			require.ErrorIs(t, err, tt.wantErr)
+			assert.Contains(t, err.Error(), tt.errContains)
 		})
 	}
 }

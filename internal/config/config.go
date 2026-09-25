@@ -4,14 +4,17 @@
 package config
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"os"
 	"regexp"
 	"strings"
 	"time"
 
+	"github.com/dustin/go-humanize"
 	"github.com/hashicorp/go-retryablehttp"
 	"go.uber.org/zap"
 	"go.yaml.in/yaml/v4"
@@ -47,19 +50,19 @@ var issuerByDomain = map[string]string{
 }
 
 const (
-	defaultTwingateHost               = "twingate.com"
-	defaultPort                       = 8443
-	defaultMetricsPort                = 9090
-	defaultAuditLogFlushInterval      = time.Minute * 10
-	defaultAuditLogFlushSizeThreshold = 1_000_000 // 1MB in bytes
-	minTLSCertificateTTL              = time.Minute * 10
+	defaultTwingateHost                       = "twingate.com"
+	defaultPort                               = 8443
+	defaultMetricsPort                        = 9090
+	defaultSessionRecordingSegmentMaxDuration = time.Minute * 10
+	defaultSessionRecordingSegmentMaxSize     = 1_000_000 // 1MB in bytes
+	minTLSCertificateTTL                      = time.Minute * 10
 )
 
 type Config struct {
 	Twingate          TwingateConfig     `yaml:"twingate"`
 	Port              int                `yaml:"port"`
 	MetricsPort       int                `yaml:"metricsPort"`
-	AuditLog          AuditLogConfig     `yaml:"auditLog"`
+	Log               LogConfig          `yaml:"log"`
 	TLS               TLSConfig          `yaml:"tls"`
 	UpstreamCABundles []UpstreamCABundle `yaml:"upstreamCABundles,omitempty"`
 	Kubernetes        *KubernetesConfig  `yaml:"kubernetes,omitempty"`
@@ -82,9 +85,51 @@ func (t TwingateConfig) Issuer() string {
 	return issuerByDomain[trustedDomainFor(t.Host)]
 }
 
-type AuditLogConfig struct {
-	FlushInterval      time.Duration `yaml:"flushInterval"`
-	FlushSizeThreshold int           `yaml:"flushSizeThreshold"` // bytes
+type LogConfig struct {
+	SessionRecording SessionRecordingConfig `yaml:"sessionRecording"`
+}
+
+// SessionRecordingConfig represents the recording configuration for interactive sessions.
+type SessionRecordingConfig struct {
+	Segment SessionRecordingSegmentConfig `yaml:"segment"`
+}
+
+// SessionRecordingSegmentConfig sets the limits at which a recording is split into a new segment.
+type SessionRecordingSegmentConfig struct {
+	MaxDuration time.Duration `yaml:"maxDuration"`
+	MaxSize     byteSize      `yaml:"maxSize"`
+}
+
+type byteSize int
+
+var (
+	errSubByteSize  = errors.New("size must be zero or at least one byte")
+	errSizeTooLarge = errors.New("size too large")
+)
+
+func (b *byteSize) UnmarshalText(text []byte) error {
+	size, err := humanize.ParseBytes(string(text))
+	if err != nil {
+		return fmt.Errorf("invalid size %q: %w", text, err)
+	}
+
+	if size > math.MaxInt {
+		return fmt.Errorf("%w: %q", errSizeTooLarge, text)
+	}
+
+	// ParseBytes truncates a size under a byte and arrive as 0, which means "no limit".
+	// Check for non-zero digits alongside a zero result.
+	if size == 0 && bytes.ContainsAny(text, "123456789") {
+		return fmt.Errorf("%w: %q", errSubByteSize, text)
+	}
+
+	*b = byteSize(size)
+
+	return nil
+}
+
+func (b byteSize) Bytes() int {
+	return int(b)
 }
 
 // TLSConfig represents the downstream TLS configuration.
@@ -283,9 +328,13 @@ func newDefaultConfig() *Config {
 		Twingate: TwingateConfig{
 			Host: defaultTwingateHost,
 		},
-		AuditLog: AuditLogConfig{
-			FlushInterval:      defaultAuditLogFlushInterval,
-			FlushSizeThreshold: defaultAuditLogFlushSizeThreshold,
+		Log: LogConfig{
+			SessionRecording: SessionRecordingConfig{
+				Segment: SessionRecordingSegmentConfig{
+					MaxDuration: defaultSessionRecordingSegmentMaxDuration,
+					MaxSize:     defaultSessionRecordingSegmentMaxSize,
+				},
+			},
 		},
 	}
 }
@@ -383,6 +432,10 @@ func (c *Config) Validate() error {
 		return err
 	}
 
+	if err := c.Log.Validate(); err != nil {
+		return fmt.Errorf("log config: %w", err)
+	}
+
 	if err := c.TLS.Validate(); err != nil {
 		return fmt.Errorf("tls config: %w", err)
 	}
@@ -406,6 +459,39 @@ func (c *Config) Validate() error {
 	// Check that at least one protocol is configured
 	if c.Kubernetes == nil && c.SSH == nil && c.WebApp == nil {
 		return fmt.Errorf("%w: at least one protocol (Kubernetes, SSH, or WebApp) must be configured", ErrRequired)
+	}
+
+	return nil
+}
+
+var (
+	errNegativeDuration = errors.New("duration must be non-negative")
+	errNegativeSize     = errors.New("size must be non-negative")
+)
+
+func (l *LogConfig) Validate() error {
+	if err := l.SessionRecording.Validate(); err != nil {
+		return fmt.Errorf("sessionRecording: %w", err)
+	}
+
+	return nil
+}
+
+func (s *SessionRecordingConfig) Validate() error {
+	if err := s.Segment.Validate(); err != nil {
+		return fmt.Errorf("segment: %w", err)
+	}
+
+	return nil
+}
+
+func (s *SessionRecordingSegmentConfig) Validate() error {
+	if s.MaxDuration < 0 {
+		return fmt.Errorf("%w: maxDuration", errNegativeDuration)
+	}
+
+	if s.MaxSize < 0 {
+		return fmt.Errorf("%w: maxSize", errNegativeSize)
 	}
 
 	return nil
