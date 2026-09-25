@@ -172,7 +172,7 @@ func TestRecorder_PeriodicFlush(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		core, logs := observer.New(zap.DebugLevel)
 
-		r := NewRecorder(zap.New(core), WithFlushInterval(time.Minute)).(*asciicastRecorder)
+		r := NewRecorder(zap.New(core), WithSegmentMaxDuration(time.Minute)).(*asciicastRecorder)
 		defer r.Stop()
 
 		r.header = "header"
@@ -270,7 +270,7 @@ func TestRecorderFlow(t *testing.T) {
 	})
 }
 
-func TestRecorder_WriteJSON_NoFlushWhenFlushSizeThresholdIsZero(t *testing.T) {
+func TestRecorder_WriteJSON_NoFlushWhenSegmentMaxSizeIsZero(t *testing.T) {
 	testRegistry := prometheus.NewRegistry()
 	RegisterRecordedSessionMetrics("test", testRegistry)
 
@@ -280,18 +280,18 @@ func TestRecorder_WriteJSON_NoFlushWhenFlushSizeThresholdIsZero(t *testing.T) {
 		r := NewRecorder(zap.New(core)).(*asciicastRecorder)
 		defer r.Stop()
 
-		r.config.flushSizeThreshold = 0
+		r.config.segmentMaxSize = 0
 
 		_ = r.writeJSON([]any{0, "o", "a"}) // 11 bytes
 
 		// Wait for the flush goroutine time to process
 		synctest.Wait()
 
-		assert.Equal(t, 0, logs.Len(), "No logs should be written when flush size threshold is zero")
+		assert.Equal(t, 0, logs.Len(), "No logs should be written when segment max size is zero")
 	})
 }
 
-func TestRecorder_WriteJSON_FlushLogsWhenExceedingSizeThreshold(t *testing.T) {
+func TestRecorder_WriteJSON_FlushLogsWhenExceedingSegmentMaxSize(t *testing.T) {
 	testRegistry := prometheus.NewRegistry()
 	RegisterRecordedSessionMetrics("test", testRegistry)
 
@@ -299,7 +299,7 @@ func TestRecorder_WriteJSON_FlushLogsWhenExceedingSizeThreshold(t *testing.T) {
 		core, logs := observer.New(zap.DebugLevel)
 		r := NewRecorder(zap.New(core)).(*asciicastRecorder)
 
-		r.config.flushSizeThreshold = 15
+		r.config.segmentMaxSize = 15
 		r.header = "header"
 
 		_ = r.writeJSON([]any{0, "o", "a"}) // 11 bytes

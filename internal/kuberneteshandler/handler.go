@@ -66,8 +66,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		recorderFactory := func() sessionrecorder.Recorder {
 			return sessionrecorder.NewRecorder(
 				auditLogger,
-				sessionrecorder.WithFlushSizeThreshold(h.sessionRecording.Segment.MaxSize.Bytes()),
-				sessionrecorder.WithFlushInterval(h.sessionRecording.Segment.MaxDuration),
+				sessionrecorder.WithSegmentMaxSize(h.sessionRecording.Segment.MaxSize.Bytes()),
+				sessionrecorder.WithSegmentMaxDuration(h.sessionRecording.Segment.MaxDuration),
 			)
 		}
 		wsHijacker := wshijacker.NewHijacker(r, w, conn.Claims.User.Username, recorderFactory, wshijacker.NewConn)
