@@ -92,31 +92,31 @@ ssh:
   ca: {}
     # Manual CA configuration
     # manual:
-    #   # Name of existing secret containing the CA private key (key name: ca-private-key)
-    #   existingSecret: ""
-    #   # CA private key content (used if existingSecret is not set)
+    #   # CA private key content (PEM format)
     #   privateKey: ""
+    #   # Name of an existing Secret containing the CA private key (key name: `ca-private-key`)
+    #   secretName: ""
 
     # Vault CA configuration
     # vault:
     #   address: "https://vault.example.com:8200"
-    #   namespace: ""  # Optional
+    #   namespace: "" # Optional
     #
     #   # CA bundle for verifying Vault's TLS certificate
     #   caBundle: ""  # CA bundle content (PEM format)
-    #   existingCABundleSecret: ""  # Name of existing secret containing CA bundle (key name: ca.crt)
+    #   caBundleConfigMapName: ""  # Name of existing ConfigMap containing the CA bundle (key name: `ca.crt`)
     #
     #   # Auth configuration.
-    #   # To authenticate with a Vault token, set the VAULT_TOKEN environment variable through `extraEnvVars`.
-    #
+    #   # To authenticate with a Vault token, set the VAULT_TOKEN environment variable through `extraEnvVars` instead.
+    #   #
     #   # An inline secretId is for dev/testing only; in production use
-    #   # existingSecretIdSecret so the raw credential never appears in Helm values.
+    #   # secretIdSecretName so the raw credential never appears in Helm values.
     #   auth:
     #     appRole:
     #       mount: "approle"
     #       roleId: ""
     #       secretId: ""  # SecretID value (dev/testing only)
-    #       existingSecretIdSecret: ""  # Name of existing secret containing the AppRole SecretID (key name: secretId)
+    #       secretIdSecretName: ""  # Name of existing Secret containing the AppRole SecretID (key name: `secretId`)
     #
     #   # Default mount/role (can be overridden per-CA)
     #   mount: "ssh"
@@ -289,7 +289,7 @@ tls:
       #
       #   # CA bundle for verifying Vault's TLS certificate
       #   caBundle: ""  # CA bundle content (PEM format)
-      #   caBundleConfigMapName: ""  # Name of existing ConfigMap containing CA bundle (key name: `ca.crt`)
+      #   caBundleConfigMapName: ""  # Name of existing ConfigMap containing the CA bundle (key name: `ca.crt`)
       #
       #   # Auth configuration.
       #   # To authenticate with a Vault token, set the VAULT_TOKEN environment variable through `extraEnvVars` instead.
@@ -300,8 +300,8 @@ tls:
       #     appRole:
       #       mount: "approle"
       #       roleId: ""
-      #       secretIdSecretName: ""  # Name of existing Secret containing the AppRole SecretID (key name: `secretId`)
       #       secretId: ""  # SecretID value (dev/testing only)
+      #       secretIdSecretName: ""  # Name of existing Secret containing the AppRole SecretID (key name: `secretId`)
       #
       #   mount: "pki"
       #   role: "gateway"

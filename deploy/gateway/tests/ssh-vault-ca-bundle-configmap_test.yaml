@@ -1,6 +1,6 @@
-suite: SSH Vault CA bundle secret
+suite: SSH Vault CA bundle ConfigMap
 templates:
-  - ssh-vault-ca-bundle-secret.yaml
+  - ssh-vault-ca-bundle-configmap.yaml
 set:
   ssh:
     gateway:
@@ -18,13 +18,13 @@ tests:
       # Empty document
       - notExists:
           path: kind
-  - it: should not render when `enabled` is true but using an existing CA bundle secret
+  - it: should not render when `enabled` is true but using an existing CA bundle ConfigMap
     set:
       ssh:
         enabled: true
         ca:
           vault:
-            existingCABundleSecret: "my-existing-secret"
+            caBundleConfigMapName: "my-existing-configmap"
     asserts:
       # Empty document
       - notExists:
@@ -36,7 +36,7 @@ tests:
         ca:
           vault:
             caBundle: ""
-            existingCABundleSecret: ""
+            caBundleConfigMapName: ""
     asserts:
       # Empty document
       - notExists:
@@ -53,6 +53,6 @@ tests:
           path: metadata.name
           value: RELEASE-NAME-gateway-ssh-vault-ca-bundle
       - equal:
-          path: data
-          value:
-            ca.crt: Y2EtY2VydA==
+          path: data["ca.crt"]
+          value: |
+            ca-cert

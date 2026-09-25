@@ -130,15 +130,15 @@ data:
           {{- with .ca.vault.namespace }}
           namespace: {{ . | quote }}
           {{- end }}
-          {{- if or .ca.vault.caBundle .ca.vault.existingCABundleSecret }}
-          caBundleFile: "/etc/gateway/vault/ca.crt"
+          {{- if or .ca.vault.caBundle .ca.vault.caBundleConfigMapName }}
+          caBundleFile: "/etc/gateway/ssh/vault/ca.crt"
           {{- end }}
           {{- if and .ca.vault.auth .ca.vault.auth.appRole }}
           auth:
             appRole:
               mount: {{ default "approle" .ca.vault.auth.appRole.mount | quote }}
               roleID: {{ .ca.vault.auth.appRole.roleId | quote }}
-              secretIDFile: "/etc/gateway/vault/approle/secretId"
+              secretIDFile: "/etc/gateway/ssh/vault/approle/secretId"
           {{- end }}
           mount: {{ default "ssh" .ca.vault.mount | quote }}
           role: {{ .ca.vault.role | quote }}

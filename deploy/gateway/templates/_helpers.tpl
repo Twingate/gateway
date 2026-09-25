@@ -209,19 +209,19 @@ return a string; callers decode it with fromJsonArray.
 Create the name of the SSH manual CA secret to use
 */}}
 {{- define "gateway.sshManualCASecretName" -}}
-{{- if .Values.ssh.ca.manual.existingSecret }}
-{{- .Values.ssh.ca.manual.existingSecret }}
+{{- if .Values.ssh.ca.manual.secretName }}
+{{- .Values.ssh.ca.manual.secretName }}
 {{- else }}
 {{- printf "%s-ssh-manual-ca" (include "gateway.fullname" .) }}
 {{- end }}
 {{- end }}
 
 {{/*
-Create the name of the SSH Vault CA bundle secret to use
+Create the name of the SSH Vault CA bundle ConfigMap to use
 */}}
-{{- define "gateway.sshVaultCABundleSecretName" -}}
-{{- if and .Values.ssh.ca.vault .Values.ssh.ca.vault.existingCABundleSecret }}
-{{- .Values.ssh.ca.vault.existingCABundleSecret }}
+{{- define "gateway.sshVaultCABundleConfigMapName" -}}
+{{- if and .Values.ssh.ca.vault .Values.ssh.ca.vault.caBundleConfigMapName }}
+{{- .Values.ssh.ca.vault.caBundleConfigMapName }}
 {{- else }}
 {{- printf "%s-ssh-vault-ca-bundle" (include "gateway.fullname" .) }}
 {{- end }}
@@ -231,8 +231,8 @@ Create the name of the SSH Vault CA bundle secret to use
 Create the name of the SSH Vault AppRole secret ID secret to use
 */}}
 {{- define "gateway.sshVaultAppRoleSecretIdSecretName" -}}
-{{- if and .Values.ssh.ca.vault .Values.ssh.ca.vault.auth.appRole .Values.ssh.ca.vault.auth.appRole.existingSecretIdSecret }}
-{{- .Values.ssh.ca.vault.auth.appRole.existingSecretIdSecret }}
+{{- if and .Values.ssh.ca.vault .Values.ssh.ca.vault.auth.appRole .Values.ssh.ca.vault.auth.appRole.secretIdSecretName }}
+{{- .Values.ssh.ca.vault.auth.appRole.secretIdSecretName }}
 {{- else }}
 {{- printf "%s-ssh-vault-approle-secret-id" (include "gateway.fullname" .) }}
 {{- end }}
