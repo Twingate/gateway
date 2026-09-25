@@ -92,10 +92,10 @@ ssh:
   ca: {}
     # Manual CA configuration
     # manual:
-    #   # Name of an existing Secret containing the CA private key (key name: `ca-private-key`)
-    #   secretName: ""
     #   # CA private key content (PEM format)
     #   privateKey: ""
+    #   # Name of an existing Secret containing the CA private key (key name: `ca-private-key`)
+    #   secretName: ""
 
     # Vault CA configuration
     # vault:
@@ -115,8 +115,8 @@ ssh:
     #     appRole:
     #       mount: "approle"
     #       roleId: ""
-    #       secretIdSecretName: ""  # Name of existing Secret containing the AppRole SecretID (key name: `secretId`)
     #       secretId: ""  # SecretID value (dev/testing only)
+    #       secretIdSecretName: ""  # Name of existing Secret containing the AppRole SecretID (key name: `secretId`)
     #
     #   # Default mount/role (can be overridden per-CA)
     #   mount: "ssh"
@@ -300,8 +300,8 @@ tls:
       #     appRole:
       #       mount: "approle"
       #       roleId: ""
-      #       secretIdSecretName: ""  # Name of existing Secret containing the AppRole SecretID (key name: `secretId`)
       #       secretId: ""  # SecretID value (dev/testing only)
+      #       secretIdSecretName: ""  # Name of existing Secret containing the AppRole SecretID (key name: `secretId`)
       #
       #   mount: "pki"
       #   role: "gateway"
