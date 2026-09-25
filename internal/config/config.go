@@ -31,7 +31,6 @@ var (
 	ErrDuplicateTLSCert          = errors.New("duplicate certificateFile")
 	ErrInvalidSSHKeyType         = errors.New("invalid SSH key type")
 	ErrNegativeTTL               = errors.New("TTL must be non-negative")
-	ErrNegativeLimit             = errors.New("limit must be non-negative")
 )
 
 // networkRegexp matches a twingate.network slug: 1-63 lowercase alphanumeric characters.
@@ -102,10 +101,16 @@ type SessionRecordingSegmentConfig struct {
 
 type byteSize int
 
+var errSubByteSize = errors.New("size must be zero or at least one byte")
+
 func (b *byteSize) UnmarshalText(text []byte) error {
 	size, err := resource.ParseQuantity(string(text))
 	if err != nil {
 		return fmt.Errorf("invalid size %q: %w", text, err)
+	}
+
+	if size.Sign() > 0 && size.CmpInt64(1) < 0 {
+		return fmt.Errorf("%w: %q", errSubByteSize, text)
 	}
 
 	*b = byteSize(size.Value())
@@ -450,11 +455,8 @@ func (c *Config) Validate() error {
 }
 
 var (
-	ErrMissingTLSCertificateSource = errors.New("either 'certificates' or 'automation' must be specified for TLS config")
-	ErrMissingTLSIssuerConfig      = errors.New("at least one TLS issuer must be configured")
-	ErrConflictingTLSIssuerConfig  = errors.New("only one of 'local', 'vault' or 'gcpPrivateCA' can be specified for TLS issuer config")
-	ErrInvalidTLSKeyType           = errors.New("invalid TLS key type")
-	errShortTTL                    = errors.New("TTL is too short")
+	errNegativeDuration = errors.New("duration must be non-negative")
+	errNegativeSize     = errors.New("size must be non-negative")
 )
 
 func (l *LogConfig) Validate() error {
@@ -475,15 +477,23 @@ func (s *SessionRecordingConfig) Validate() error {
 
 func (s *SessionRecordingSegmentConfig) Validate() error {
 	if s.MaxDuration < 0 {
-		return fmt.Errorf("%w: maxDuration", ErrNegativeLimit)
+		return fmt.Errorf("%w: maxDuration", errNegativeDuration)
 	}
 
 	if s.MaxSize < 0 {
-		return fmt.Errorf("%w: maxSize", ErrNegativeLimit)
+		return fmt.Errorf("%w: maxSize", errNegativeSize)
 	}
 
 	return nil
 }
+
+var (
+	ErrMissingTLSCertificateSource = errors.New("either 'certificates' or 'automation' must be specified for TLS config")
+	ErrMissingTLSIssuerConfig      = errors.New("at least one TLS issuer must be configured")
+	ErrConflictingTLSIssuerConfig  = errors.New("only one of 'local', 'vault' or 'gcpPrivateCA' can be specified for TLS issuer config")
+	ErrInvalidTLSKeyType           = errors.New("invalid TLS key type")
+	errShortTTL                    = errors.New("TTL is too short")
+)
 
 func (t *TLSConfig) Validate() error {
 	if t.Certificates == nil && t.Automation == nil {

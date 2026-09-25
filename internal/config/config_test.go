@@ -382,6 +382,10 @@ func TestByteSize_UnmarshalText(t *testing.T) {
 		{name: "no unit", text: "1000000", want: 1_000_000},
 		{name: "unsupported unit", text: "1MB", errContains: "invalid size"},
 		{name: "not a number", text: "large", errContains: "invalid size"},
+		{name: "sub-byte unit resolving to a whole byte", text: "1000m", want: 1},
+		{name: "milli unit", text: "1m", errContains: "at least one byte"},
+		{name: "fraction of a byte", text: "0.5", errContains: "at least one byte"},
+		{name: "negative exponent", text: "1e-9", errContains: "at least one byte"},
 	}
 
 	for _, tt := range tests {
@@ -839,6 +843,7 @@ func TestSessionRecordingSegmentConfig_Validate(t *testing.T) {
 	tests := []struct {
 		name        string
 		segment     SessionRecordingSegmentConfig
+		wantErr     error
 		errContains string
 	}{
 		{
@@ -852,11 +857,13 @@ func TestSessionRecordingSegmentConfig_Validate(t *testing.T) {
 		{
 			name:        "negative maxDuration",
 			segment:     SessionRecordingSegmentConfig{MaxDuration: -1 * time.Minute, MaxSize: 1_000_000},
+			wantErr:     errNegativeDuration,
 			errContains: "maxDuration",
 		},
 		{
 			name:        "negative maxSize",
-			segment:     SessionRecordingSegmentConfig{MaxDuration: 5 * time.Minute, MaxSize: -1},
+			segment:     SessionRecordingSegmentConfig{MaxDuration: 5 * time.Minute, MaxSize: -100},
+			wantErr:     errNegativeSize,
 			errContains: "maxSize",
 		},
 	}
@@ -864,13 +871,13 @@ func TestSessionRecordingSegmentConfig_Validate(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := tt.segment.Validate()
-			if tt.errContains == "" {
+			if tt.wantErr == nil {
 				assert.NoError(t, err)
 
 				return
 			}
 
-			require.ErrorIs(t, err, ErrNegativeLimit)
+			require.ErrorIs(t, err, tt.wantErr)
 			assert.Contains(t, err.Error(), tt.errContains)
 		})
 	}
