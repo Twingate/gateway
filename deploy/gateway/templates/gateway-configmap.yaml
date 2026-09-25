@@ -34,6 +34,9 @@ data:
       automation:
         {{- with .Values.tls.automation.certificate }}
         certificate:
+          {{- with .commonName }}
+          commonName: {{ . | quote }}
+          {{- end }}
           {{- with .ttl }}
           ttl: {{ . | quote }}
           {{- end }}

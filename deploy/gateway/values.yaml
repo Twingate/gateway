@@ -260,6 +260,7 @@ tls:
   automation:
     enabled: false
     certificate:
+      commonName: "twingate-gateway"
       ttl: "24h"
       key:
         # Key type: ecdsa, rsa

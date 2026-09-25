@@ -546,6 +546,11 @@
               "type": "object",
               "description": "TLS configuration of the certificates the Gateway issues.",
               "properties": {
+                "commonName": {
+                  "type": "string",
+                  "description": "Subject common name of an issued certificate.",
+                  "default": "twingate-gateway"
+                },
                 "ttl": {
                   "type": "string",
                   "description": "Lifetime of an issued certificate (e.g. `24h`).",

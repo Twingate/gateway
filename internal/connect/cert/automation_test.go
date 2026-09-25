@@ -464,24 +464,34 @@ func TestAutomation_cachedCert(t *testing.T) {
 
 func TestNewCertificateRequest(t *testing.T) {
 	tests := []struct {
-		name      string
-		host      string
-		wantNames []string
+		name       string
+		host       string
+		commonName string
+		wantNames  []string
 	}{
 		{
-			name:      "hostname becomes a DNS name",
-			host:      "app.acme.int",
-			wantNames: []string{"app.acme.int"},
+			name:       "hostname becomes a DNS name",
+			host:       "app.acme.int",
+			commonName: defaultCommonName,
+			wantNames:  []string{"app.acme.int"},
 		},
 		{
-			name:      "IP becomes an IP address",
-			host:      "10.0.0.5",
-			wantNames: []string{"10.0.0.5"},
+			name:       "IP becomes an IP address",
+			host:       "10.0.0.5",
+			commonName: defaultCommonName,
+			wantNames:  []string{"10.0.0.5"},
 		},
 		{
 			// A handshake without SNI leaves no name to request.
-			name: "no host asks for no names",
-			host: "",
+			name:       "no host asks for no names",
+			host:       "",
+			commonName: defaultCommonName,
+		},
+		{
+			name:       "subject carries the configured common name",
+			host:       "app.acme.int",
+			commonName: "gateway.acme.int",
+			wantNames:  []string{"app.acme.int"},
 		},
 	}
 
@@ -490,7 +500,7 @@ func TestNewCertificateRequest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := newCertificateRequest(key, tt.host, defaultTTL)
+			req := newCertificateRequest(key, tt.host, tt.commonName, defaultTTL)
 
 			assert.Equal(t, tt.wantNames, requestSANs(req))
 			assert.Equal(t, defaultTTL, req.ttl)
@@ -505,7 +515,7 @@ func TestNewCertificateRequest(t *testing.T) {
 			// A backend reads the names off the request but forwards the CSR, so the two
 			// have to agree, and the CSR has to prove possession of the key it asks for.
 			assert.Equal(t, requestSANs(req), csrSANs(csr))
-			assert.Empty(t, csr.Subject.CommonName)
+			assert.Equal(t, tt.commonName, csr.Subject.CommonName)
 			assert.NoError(t, csr.CheckSignature())
 		})
 	}
