@@ -1,0 +1,11 @@
+{{- if and .Values.ssh.enabled .Values.ssh.ca .Values.ssh.ca.vault .Values.ssh.ca.vault.caBundle (not .Values.ssh.ca.vault.caBundleConfigMapName) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "gateway.sshVaultCABundleConfigMapName" . }}
+  labels:
+    {{- include "gateway.labels" . | nindent 4 }}
+data:
+  ca.crt: |
+    {{- .Values.ssh.ca.vault.caBundle | trim | nindent 4 }}
+{{- end }}
