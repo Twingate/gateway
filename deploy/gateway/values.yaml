@@ -260,7 +260,7 @@ tls:
   automation:
     enabled: false
     certificate:
-      # Subject common name is required for the gcpPrivateCA issuer.
+      # Subject common name is required when using `gcpPrivateCA` issuer.
       commonName: ""
       ttl: "24h"
       key:

@@ -548,7 +548,7 @@
               "properties": {
                 "commonName": {
                   "type": "string",
-                  "description": "Subject common name of the certificate. Required for the `gcpPrivateCA` issuer.",
+                  "description": "Subject common name of the certificate. Required when using `gcpPrivateCA` issuer.",
                   "default": ""
                 },
                 "ttl": {
@@ -715,6 +715,17 @@
                   {"required": ["vault"]},
                   {"required": ["gcpPrivateCA"]}
                 ]
+              }
+            },
+            "if": {
+              "properties": {"issuer": {"required": ["gcpPrivateCA"]}}
+            },
+            "then": {
+              "properties": {
+                "certificate": {
+                  "required": ["commonName"],
+                  "properties": {"commonName": {"minLength": 1}}
+                }
               }
             }
           },
