@@ -18,17 +18,19 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"gateway/internal/util/useragent"
+	yamlutil "gateway/internal/util/yaml"
 )
 
 var (
-	ErrRequired          = errors.New("required field is missing")
-	ErrInvalidNetwork    = errors.New("invalid twingate.network")
-	ErrInvalidHost       = errors.New("invalid twingate.host")
-	ErrInvalidPort       = errors.New("invalid port number")
-	ErrDuplicateUpstream = errors.New("duplicate upstream name")
-	ErrDuplicateTLSCA    = errors.New("duplicate TLS CA name")
-	ErrInvalidSSHKeyType = errors.New("invalid SSH key type")
-	ErrNegativeTTL       = errors.New("TTL must be non-negative")
+	ErrRequired                  = errors.New("required field is missing")
+	ErrInvalidNetwork            = errors.New("invalid twingate.network")
+	ErrInvalidHost               = errors.New("invalid twingate.host")
+	ErrInvalidPort               = errors.New("invalid port number")
+	ErrDuplicateUpstream         = errors.New("duplicate upstream name")
+	ErrDuplicateUpstreamCABundle = errors.New("duplicate upstream CA bundle file")
+	ErrDuplicateTLSCert          = errors.New("duplicate certificateFile")
+	ErrInvalidSSHKeyType         = errors.New("invalid SSH key type")
+	ErrNegativeTTL               = errors.New("TTL must be non-negative")
 )
 
 // networkRegexp matches a twingate.network slug: 1-63 lowercase alphanumeric characters.
@@ -46,27 +48,25 @@ var issuerByDomain = map[string]string{
 }
 
 const (
-	defaultTwingateHost               = "twingate.com"
-	defaultPort                       = 8443
-	defaultMetricsPort                = 9090
-	defaultAuditLogFlushInterval      = time.Minute * 10
-	defaultAuditLogFlushSizeThreshold = 1_000_000 // 1MB in bytes
+	defaultTwingateHost                       = "twingate.com"
+	defaultPort                               = 8443
+	defaultMetricsPort                        = 9090
+	defaultSessionRecordingSegmentMaxDuration = time.Minute * 5
+	defaultSessionRecordingSegmentMaxSize     = 64_000  // 64KB in bytes
+	maxSessionRecordingSegmentMaxSize         = 256_000 // 256KB in bytes
+	minTLSCertificateTTL                      = time.Minute * 10
 )
 
 type Config struct {
-	Twingate    TwingateConfig    `yaml:"twingate"`
-	Port        int               `yaml:"port"`
-	MetricsPort int               `yaml:"metricsPort"`
-	AuditLog    AuditLogConfig    `yaml:"auditLog"`
-	TLS         TLSConfig         `yaml:"tls"`
-	CAs         []CA              `yaml:"cas,omitempty"`
-	Kubernetes  *KubernetesConfig `yaml:"kubernetes,omitempty"`
-	SSH         *SSHConfig        `yaml:"ssh,omitempty"`
-	WebApp      *WebAppConfig     `yaml:"webApp,omitempty"`
-}
-
-type WebAppConfig struct {
-	RequestHeaders map[string]string `yaml:"requestHeaders,omitempty"`
+	Twingate          TwingateConfig     `yaml:"twingate"`
+	Port              int                `yaml:"port"`
+	MetricsPort       int                `yaml:"metricsPort"`
+	Log               LogConfig          `yaml:"log"`
+	TLS               TLSConfig          `yaml:"tls"`
+	UpstreamCABundles []UpstreamCABundle `yaml:"upstreamCABundles,omitempty"`
+	Kubernetes        *KubernetesConfig  `yaml:"kubernetes,omitempty"`
+	SSH               *SSHConfig         `yaml:"ssh,omitempty"`
+	WebApp            *WebAppConfig      `yaml:"webApp,omitempty"`
 }
 
 type TwingateConfig struct {
@@ -84,20 +84,85 @@ func (t TwingateConfig) Issuer() string {
 	return issuerByDomain[trustedDomainFor(t.Host)]
 }
 
-type AuditLogConfig struct {
-	FlushInterval      time.Duration `yaml:"flushInterval"`
-	FlushSizeThreshold int           `yaml:"flushSizeThreshold"` // bytes
+type LogConfig struct {
+	SessionRecording SessionRecordingConfig `yaml:"sessionRecording"`
 }
 
+// SessionRecordingConfig represents the recording configuration for interactive sessions.
+type SessionRecordingConfig struct {
+	Segment SessionRecordingSegmentConfig `yaml:"segment"`
+}
+
+// SessionRecordingSegmentConfig sets the limits at which a recording is split into a new segment.
+type SessionRecordingSegmentConfig struct {
+	MaxDuration time.Duration     `yaml:"maxDuration"`
+	MaxSize     yamlutil.ByteSize `yaml:"maxSize"`
+}
+
+// TLSConfig represents the downstream TLS configuration.
 type TLSConfig struct {
+	Certificates *TLSCertificateSources `yaml:"certificates,omitempty"`
+	Automation   *TLSAutomationConfig   `yaml:"automation,omitempty"`
+}
+
+// TLSCertificateSources lists the TLS certificates the Gateway can serve.
+type TLSCertificateSources struct {
+	Files []TLSCertificateFileKeyPair `yaml:"files"`
+}
+
+type TLSCertificateFileKeyPair struct {
 	CertificateFile string `yaml:"certificateFile"`
 	PrivateKeyFile  string `yaml:"privateKeyFile"`
 }
 
-// CA is a certificate authority the Gateway trusts when verifying upstream TLS connections.
-type CA struct {
-	Name     string `yaml:"name"`
-	CertFile string `yaml:"certFile"`
+// UpstreamCABundle is a PEM file of certificate authorities the Gateway trusts when verifying upstream TLS connections.
+type UpstreamCABundle struct {
+	File string `yaml:"file"`
+}
+
+// TLSAutomationConfig configures on-demand issuing of downstream certificates.
+type TLSAutomationConfig struct {
+	Certificate TLSAutomationCertificateConfig `yaml:"certificate"`
+	Issuer      TLSIssuerConfig                `yaml:"issuer"`
+}
+
+type TLSAutomationCertificateConfig struct {
+	CommonName string                  `yaml:"commonName"`
+	TTL        time.Duration           `yaml:"ttl"`
+	Key        TLSCertificateKeyConfig `yaml:"key"`
+}
+
+type TLSCertificateKeyConfig struct {
+	Type string `yaml:"type"` // ecdsa or rsa. Defaults to ecdsa.
+	Bits int    `yaml:"bits"` // ECDSA: 256/384/521, RSA: 2048/3072/4096. Defaults to 256 for ECDSA, 2048 for RSA.
+}
+
+type TLSIssuerConfig struct {
+	Local        *TLSLocalIssuerConfig        `yaml:"local,omitempty"`
+	Vault        *TLSVaultIssuerConfig        `yaml:"vault,omitempty"`
+	GCPPrivateCA *TLSGCPPrivateCAIssuerConfig `yaml:"gcpPrivateCA,omitempty"`
+}
+
+type TLSLocalIssuerConfig struct {
+	CertificateFile string `yaml:"certificateFile"`
+	PrivateKeyFile  string `yaml:"privateKeyFile"`
+}
+
+type TLSVaultIssuerConfig struct {
+	VaultConfig `yaml:",inline"`
+
+	Mount string `yaml:"mount,omitempty"`
+	Role  string `yaml:"role"`
+}
+
+type TLSGCPPrivateCAIssuerConfig struct {
+	Project  string `yaml:"project"`
+	Location string `yaml:"location"`
+	CAPoolID string `yaml:"caPoolID"`
+	// Pins issuance to one CA in the pool, bypassing the pool's load balancing.
+	IssuingCertificateAuthorityID string `yaml:"issuingCertificateAuthorityID,omitempty"`
+
+	CredentialsFile string `yaml:"credentialsFile,omitempty"` // Defaults to Application Default Credentials
 }
 
 type KubernetesConfig struct {
@@ -145,11 +210,7 @@ type SSHCALocalConfig struct {
 
 // SSHCAVaultConfig configures CAs backed by Vault's SSH secrets engine.
 type SSHCAVaultConfig struct {
-	Address      string               `yaml:"address"`                // Vault server address, e.g. https://vault.example.com:8200
-	CABundleFile string               `yaml:"caBundleFile,omitempty"` // Path to a PEM CA bundle for verifying Vault's TLS certificate; omit to use the system trust store
-	Auth         SSHCAVaultAuthConfig `yaml:"auth"`
-
-	Namespace string `yaml:"namespace,omitempty"` // Optional Vault namespace
+	VaultConfig `yaml:",inline"`
 
 	// Default SSH secrets engine mount point and role (used for all CAs unless
 	// overridden below).
@@ -173,27 +234,36 @@ type SSHCAVaultMountConfig struct {
 	Mount string `yaml:"mount,omitempty"`
 }
 
-// SSHCAVaultAuthConfig configures how the Gateway authenticates to Vault.
-// At most one method may be set. If none is set, the token is read from the
-// VAULT_TOKEN environment variable.
-type SSHCAVaultAuthConfig struct {
-	Token   string                   `yaml:"token,omitempty"` // Static Vault token. Inline tokens are for dev/testing only; in production deliver the token via the VAULT_TOKEN environment variable sourced from a secret store
-	AppRole *SSHCAVaultAppRoleConfig `yaml:"appRole,omitempty"`
-	GCP     *SSHCAVaultGCPConfig     `yaml:"gcp,omitempty"`
-	AWS     *SSHCAVaultAWSConfig     `yaml:"aws,omitempty"`
+// VaultConfig holds the connection settings shared by every Vault-backed CA.
+type VaultConfig struct {
+	Address      string          `yaml:"address"`                // Vault server address, e.g. https://vault.example.com:8200
+	CABundleFile string          `yaml:"caBundleFile,omitempty"` // Path to a PEM CA bundle for verifying Vault's TLS certificate; omit to use the system trust store
+	Auth         VaultAuthConfig `yaml:"auth"`
+
+	Namespace string `yaml:"namespace,omitempty"` // Optional Vault namespace
 }
 
-// SSHCAVaultAppRoleConfig configures Vault AppRole authentication.
+// VaultAuthConfig configures how the Gateway authenticates to Vault.
+// At most one method may be set. If none is set, the token is read from the
+// VAULT_TOKEN environment variable.
+type VaultAuthConfig struct {
+	Token   string              `yaml:"token,omitempty"` // Static Vault token. Inline tokens are for dev/testing only; in production deliver the token via the VAULT_TOKEN environment variable sourced from a secret store
+	AppRole *VaultAppRoleConfig `yaml:"appRole,omitempty"`
+	GCP     *VaultGCPConfig     `yaml:"gcp,omitempty"`
+	AWS     *VaultAWSConfig     `yaml:"aws,omitempty"`
+}
+
+// VaultAppRoleConfig configures Vault AppRole authentication.
 // Exactly one of SecretID or SecretIDFile must be set.
-type SSHCAVaultAppRoleConfig struct {
+type VaultAppRoleConfig struct {
 	Mount        string `yaml:"mount,omitempty"` // AppRole auth mount path. Defaults to "approle"
 	RoleID       string `yaml:"roleID"`
 	SecretID     string `yaml:"secretID"`     // Inline SecretID, for dev/testing only
 	SecretIDFile string `yaml:"secretIDFile"` // Path to a file containing the SecretID; preferred in production
 }
 
-// SSHCAVaultGCPConfig configures Vault GCP authentication.
-type SSHCAVaultGCPConfig struct {
+// VaultGCPConfig configures Vault GCP authentication.
+type VaultGCPConfig struct {
 	Mount string `yaml:"mount,omitempty"` // GCP auth mount path. Defaults to "gcp"
 	Role  string `yaml:"role"`            // Vault GCP auth role to login as
 	Type  string `yaml:"type"`            // "gce" or "iam"
@@ -202,8 +272,8 @@ type SSHCAVaultGCPConfig struct {
 	ServiceAccountEmail string `yaml:"serviceAccountEmail,omitempty"` // Required
 }
 
-// SSHCAVaultAWSConfig configures Vault AWS authentication.
-type SSHCAVaultAWSConfig struct {
+// VaultAWSConfig configures Vault AWS authentication.
+type VaultAWSConfig struct {
 	Mount             string `yaml:"mount,omitempty"` // AWS auth mount path. Defaults to "aws"
 	Role              string `yaml:"role"`            // Vault AWS auth role to login as
 	Type              string `yaml:"type"`            // "iam" or "ec2"
@@ -215,6 +285,10 @@ type SSHCAVaultAWSConfig struct {
 	Nonce         string `yaml:"nonce,omitempty"`
 }
 
+type WebAppConfig struct {
+	RequestHeaders map[string]string `yaml:"requestHeaders,omitempty"`
+}
+
 func newDefaultConfig() *Config {
 	return &Config{
 		Port:        defaultPort,
@@ -222,9 +296,13 @@ func newDefaultConfig() *Config {
 		Twingate: TwingateConfig{
 			Host: defaultTwingateHost,
 		},
-		AuditLog: AuditLogConfig{
-			FlushInterval:      defaultAuditLogFlushInterval,
-			FlushSizeThreshold: defaultAuditLogFlushSizeThreshold,
+		Log: LogConfig{
+			SessionRecording: SessionRecordingConfig{
+				Segment: SessionRecordingSegmentConfig{
+					MaxDuration: defaultSessionRecordingSegmentMaxDuration,
+					MaxSize:     defaultSessionRecordingSegmentMaxSize,
+				},
+			},
 		},
 	}
 }
@@ -322,12 +400,16 @@ func (c *Config) Validate() error {
 		return err
 	}
 
+	if err := c.Log.Validate(); err != nil {
+		return fmt.Errorf("log config: %w", err)
+	}
+
 	if err := c.TLS.Validate(); err != nil {
 		return fmt.Errorf("tls config: %w", err)
 	}
 
-	if err := validateCAs(c.CAs); err != nil {
-		return fmt.Errorf("cas config: %w", err)
+	if err := validateUpstreamCABundles(c.UpstreamCABundles); err != nil {
+		return fmt.Errorf("upstreamCABundles config: %w", err)
 	}
 
 	if c.Kubernetes != nil {
@@ -350,7 +432,90 @@ func (c *Config) Validate() error {
 	return nil
 }
 
+var (
+	errNegativeDuration = errors.New("duration must be non-negative")
+	errSizeOutOfRange   = errors.New("size must be greater than 0 and at most 256KB")
+)
+
+func (l *LogConfig) Validate() error {
+	if err := l.SessionRecording.Validate(); err != nil {
+		return fmt.Errorf("sessionRecording: %w", err)
+	}
+
+	return nil
+}
+
+func (s *SessionRecordingConfig) Validate() error {
+	if err := s.Segment.Validate(); err != nil {
+		return fmt.Errorf("segment: %w", err)
+	}
+
+	return nil
+}
+
+func (s *SessionRecordingSegmentConfig) Validate() error {
+	if s.MaxDuration < 0 {
+		return fmt.Errorf("%w: maxDuration", errNegativeDuration)
+	}
+
+	if s.MaxSize <= 0 || s.MaxSize > maxSessionRecordingSegmentMaxSize {
+		return fmt.Errorf("%w: maxSize", errSizeOutOfRange)
+	}
+
+	return nil
+}
+
+var (
+	ErrMissingTLSCertificateSource = errors.New("either 'certificates' or 'automation' must be specified for TLS config")
+	ErrMissingTLSIssuerConfig      = errors.New("at least one TLS issuer must be configured")
+	ErrConflictingTLSIssuerConfig  = errors.New("only one of 'local', 'vault' or 'gcpPrivateCA' can be specified for TLS issuer config")
+	ErrInvalidTLSKeyType           = errors.New("invalid TLS key type")
+	errShortTTL                    = errors.New("TTL is too short")
+)
+
 func (t *TLSConfig) Validate() error {
+	if t.Certificates == nil && t.Automation == nil {
+		return ErrMissingTLSCertificateSource
+	}
+
+	if t.Certificates != nil {
+		if err := t.Certificates.Validate(); err != nil {
+			return fmt.Errorf("certificates: %w", err)
+		}
+	}
+
+	if t.Automation != nil {
+		if err := t.Automation.Validate(); err != nil {
+			return fmt.Errorf("automation: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func (t *TLSCertificateSources) Validate() error {
+	if len(t.Files) == 0 {
+		return fmt.Errorf("%w: files", ErrRequired)
+	}
+
+	certificateFiles := make(map[string]struct{})
+
+	for i, keyPair := range t.Files {
+		if err := keyPair.Validate(); err != nil {
+			return fmt.Errorf("files[%d]: %w", i, err)
+		}
+
+		if _, exists := certificateFiles[keyPair.CertificateFile]; exists {
+			return fmt.Errorf("%w: %q", ErrDuplicateTLSCert, keyPair.CertificateFile)
+		}
+
+		certificateFiles[keyPair.CertificateFile] = struct{}{}
+	}
+
+	return nil
+}
+
+func (t *TLSCertificateFileKeyPair) Validate() error {
 	if t.CertificateFile == "" {
 		return fmt.Errorf("%w: certificateFile", ErrRequired)
 	}
@@ -360,6 +525,151 @@ func (t *TLSConfig) Validate() error {
 	}
 
 	return nil
+}
+
+func (a *TLSAutomationConfig) Validate() error {
+	if err := a.Certificate.Validate(); err != nil {
+		return fmt.Errorf("certificate: %w", err)
+	}
+
+	if err := a.Issuer.Validate(); err != nil {
+		return fmt.Errorf("issuer: %w", err)
+	}
+
+	if a.Issuer.GCPPrivateCA != nil && a.Certificate.CommonName == "" {
+		return fmt.Errorf("certificate: %w: commonName is required for gcpPrivateCA issuer", ErrRequired)
+	}
+
+	return nil
+}
+
+func (c *TLSAutomationCertificateConfig) Validate() error {
+	if c.TTL < 0 {
+		return fmt.Errorf("%w: ttl", ErrNegativeTTL)
+	}
+
+	if c.TTL != 0 && c.TTL < minTLSCertificateTTL {
+		return fmt.Errorf("%w: TTL must be at least %s", errShortTTL, minTLSCertificateTTL)
+	}
+
+	if err := c.Key.Validate(); err != nil {
+		return fmt.Errorf("key: %w", err)
+	}
+
+	return nil
+}
+
+func (k *TLSCertificateKeyConfig) Validate() error {
+	validTypes := map[string]bool{
+		"ecdsa": true,
+		"rsa":   true,
+	}
+
+	if k.Type != "" && !validTypes[k.Type] {
+		return fmt.Errorf("%w: %q", ErrInvalidTLSKeyType, k.Type)
+	}
+
+	return nil
+}
+
+func (i *TLSIssuerConfig) Validate() error {
+	configured := 0
+
+	for _, set := range []bool{i.Local != nil, i.Vault != nil, i.GCPPrivateCA != nil} {
+		if set {
+			configured++
+		}
+	}
+
+	switch {
+	case configured == 0:
+		return ErrMissingTLSIssuerConfig
+	case configured > 1:
+		return ErrConflictingTLSIssuerConfig
+	}
+
+	if i.Local != nil {
+		if err := i.Local.Validate(); err != nil {
+			return fmt.Errorf("local: %w", err)
+		}
+	}
+
+	if i.Vault != nil {
+		if err := i.Vault.Validate(); err != nil {
+			return fmt.Errorf("vault: %w", err)
+		}
+	}
+
+	if i.GCPPrivateCA != nil {
+		if err := i.GCPPrivateCA.Validate(); err != nil {
+			return fmt.Errorf("gcpPrivateCA: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func (l *TLSLocalIssuerConfig) Validate() error {
+	if l.CertificateFile == "" {
+		return fmt.Errorf("%w: certificateFile", ErrRequired)
+	}
+
+	if l.PrivateKeyFile == "" {
+		return fmt.Errorf("%w: privateKeyFile", ErrRequired)
+	}
+
+	return nil
+}
+
+func (v *VaultConfig) Validate() error {
+	if v.Address == "" {
+		return fmt.Errorf("%w: address", ErrRequired)
+	}
+
+	if err := v.Auth.Validate(); err != nil {
+		return fmt.Errorf("auth: %w", err)
+	}
+
+	return nil
+}
+
+func (v *TLSVaultIssuerConfig) Validate() error {
+	if err := v.VaultConfig.Validate(); err != nil {
+		return err
+	}
+
+	if v.Role == "" {
+		return fmt.Errorf("%w: role", ErrRequired)
+	}
+
+	return nil
+}
+
+func (g *TLSGCPPrivateCAIssuerConfig) Validate() error {
+	if g.Project == "" {
+		return fmt.Errorf("%w: project", ErrRequired)
+	}
+
+	if g.Location == "" {
+		return fmt.Errorf("%w: location", ErrRequired)
+	}
+
+	if g.CAPoolID == "" {
+		return fmt.Errorf("%w: caPoolID", ErrRequired)
+	}
+
+	return nil
+}
+
+const defaultVaultPKIMount = "pki"
+
+// GetMount returns the PKI secrets engine mount point, defaulting to "pki".
+func (v *TLSVaultIssuerConfig) GetMount() string {
+	if v.Mount != "" {
+		return v.Mount
+	}
+
+	return defaultVaultPKIMount
 }
 
 func (k *KubernetesConfig) Validate() error {
@@ -392,31 +702,27 @@ func (k *KubernetesUpstream) Validate() error {
 	return nil
 }
 
-func validateCAs(cas []CA) error {
-	caNames := make(map[string]struct{})
+func validateUpstreamCABundles(caBundles []UpstreamCABundle) error {
+	bundleFiles := make(map[string]struct{})
 
-	for i, ca := range cas {
-		if err := ca.Validate(); err != nil {
-			return fmt.Errorf("cas[%d] (name: %q): %w", i, ca.Name, err)
+	for i, caBundle := range caBundles {
+		if err := caBundle.Validate(); err != nil {
+			return fmt.Errorf("upstreamCABundles[%d]: %w", i, err)
 		}
 
-		if _, exists := caNames[ca.Name]; exists {
-			return fmt.Errorf("%w: %q", ErrDuplicateTLSCA, ca.Name)
+		if _, exists := bundleFiles[caBundle.File]; exists {
+			return fmt.Errorf("%w: %q", ErrDuplicateUpstreamCABundle, caBundle.File)
 		}
 
-		caNames[ca.Name] = struct{}{}
+		bundleFiles[caBundle.File] = struct{}{}
 	}
 
 	return nil
 }
 
-func (c *CA) Validate() error {
-	if c.Name == "" {
-		return fmt.Errorf("%w: name", ErrRequired)
-	}
-
-	if c.CertFile == "" {
-		return fmt.Errorf("%w: certFile", ErrRequired)
+func (c *UpstreamCABundle) Validate() error {
+	if c.File == "" {
+		return fmt.Errorf("%w: file", ErrRequired)
 	}
 
 	return nil
@@ -519,12 +825,8 @@ func (m *SSHCALocalConfig) Validate() error {
 }
 
 func (v *SSHCAVaultConfig) Validate() error {
-	if v.Address == "" {
-		return fmt.Errorf("%w: server", ErrRequired)
-	}
-
-	if err := v.Auth.Validate(); err != nil {
-		return fmt.Errorf("auth: %w", err)
+	if err := v.VaultConfig.Validate(); err != nil {
+		return err
 	}
 
 	// Validate that we can resolve Gateway host and user cert mounts/roles
@@ -555,7 +857,7 @@ var (
 	ErrInvalidAWSSignatureType   = errors.New("aws signatureType must be 'identity', 'pkcs7', or 'rsa2048'")
 )
 
-func (a *SSHCAVaultAuthConfig) Validate() error {
+func (a *VaultAuthConfig) Validate() error {
 	configuredMethods := a.countConfiguredMethods()
 	if configuredMethods > 1 {
 		return ErrConflictingAuthConfig
@@ -582,7 +884,7 @@ func (a *SSHCAVaultAuthConfig) Validate() error {
 	return nil
 }
 
-func (a *SSHCAVaultAuthConfig) countConfiguredMethods() int {
+func (a *VaultAuthConfig) countConfiguredMethods() int {
 	count := 0
 
 	if a.Token != "" {
@@ -607,7 +909,7 @@ func (a *SSHCAVaultAuthConfig) countConfiguredMethods() int {
 const defaultAppRoleMount = "approle"
 
 // GetMount returns the appRole mount path, defaulting to "approle" if not specified.
-func (a *SSHCAVaultAppRoleConfig) GetMount() string {
+func (a *VaultAppRoleConfig) GetMount() string {
 	if a.Mount != "" {
 		return a.Mount
 	}
@@ -615,7 +917,7 @@ func (a *SSHCAVaultAppRoleConfig) GetMount() string {
 	return defaultAppRoleMount
 }
 
-func (a *SSHCAVaultAppRoleConfig) Validate() error {
+func (a *VaultAppRoleConfig) Validate() error {
 	if a.RoleID == "" {
 		return fmt.Errorf("%w: roleID", ErrRequired)
 	}
@@ -634,7 +936,7 @@ func (a *SSHCAVaultAppRoleConfig) Validate() error {
 const defaultGCPMount = "gcp"
 
 // GetMount returns the GCP auth mount path, defaulting to "gcp" if not specified.
-func (g *SSHCAVaultGCPConfig) GetMount() string {
+func (g *VaultGCPConfig) GetMount() string {
 	if g.Mount != "" {
 		return g.Mount
 	}
@@ -642,7 +944,7 @@ func (g *SSHCAVaultGCPConfig) GetMount() string {
 	return defaultGCPMount
 }
 
-func (g *SSHCAVaultGCPConfig) Validate() error {
+func (g *VaultGCPConfig) Validate() error {
 	if g.Role == "" {
 		return fmt.Errorf("%w: role", ErrRequired)
 	}
@@ -673,7 +975,7 @@ const (
 )
 
 // GetMount returns the AWS auth mount path, defaulting to "aws" if not specified.
-func (a *SSHCAVaultAWSConfig) GetMount() string {
+func (a *VaultAWSConfig) GetMount() string {
 	if a.Mount != "" {
 		return a.Mount
 	}
@@ -683,7 +985,7 @@ func (a *SSHCAVaultAWSConfig) GetMount() string {
 
 // GetSignatureType returns the EC2 auth signature type, defaulting to "rsa2048"
 // (SHA-256) when unset rather than the Vault SDK's pkcs7 (SHA-1) default.
-func (a *SSHCAVaultAWSConfig) GetSignatureType() string {
+func (a *VaultAWSConfig) GetSignatureType() string {
 	if a.SignatureType != "" {
 		return a.SignatureType
 	}
@@ -691,7 +993,7 @@ func (a *SSHCAVaultAWSConfig) GetSignatureType() string {
 	return defaultAWSSignatureType
 }
 
-func (a *SSHCAVaultAWSConfig) Validate() error {
+func (a *VaultAWSConfig) Validate() error {
 	if a.Role == "" {
 		return fmt.Errorf("%w: role", ErrRequired)
 	}
@@ -711,7 +1013,7 @@ func (a *SSHCAVaultAWSConfig) Validate() error {
 	}
 }
 
-func (a *SSHCAVaultAWSConfig) validateEC2Type() error {
+func (a *VaultAWSConfig) validateEC2Type() error {
 	if a.SignatureType == "" {
 		return nil
 	}

@@ -159,18 +159,69 @@ func TestResolveTwingateHostname(t *testing.T) {
 	})
 }
 
+func TestLoad_TLSAutomation(t *testing.T) {
+	yaml := `
+twingate:
+  network: "acme"
+port: 8443
+metricsPort: 9090
+tls:
+  certificates:
+    files:
+      - certificateFile: "tls.crt"
+        privateKeyFile: "tls.key"
+  automation:
+    certificate:
+      commonName: "gateway.acme.int"
+      ttl: "48h"
+      key:
+        type: "ecdsa"
+        bits: 384
+    issuer:
+      local:
+        certificateFile: "ca.crt"
+        privateKeyFile: "ca.key"
+webApp: {}
+`
+
+	tmpFile := filepath.Join(t.TempDir(), "config.yaml")
+	err := os.WriteFile(tmpFile, []byte(yaml), 0600)
+	require.NoError(t, err)
+
+	cfg, err := Load(tmpFile)
+	require.NoError(t, err)
+	require.NotNil(t, cfg.TLS.Automation)
+	require.NotNil(t, cfg.TLS.Certificates)
+
+	assert.Equal(t, []TLSCertificateFileKeyPair{{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"}}, cfg.TLS.Certificates.Files)
+
+	require.NotNil(t, cfg.TLS.Automation.Issuer.Local)
+	assert.Equal(t, "ca.crt", cfg.TLS.Automation.Issuer.Local.CertificateFile)
+	assert.Equal(t, "ca.key", cfg.TLS.Automation.Issuer.Local.PrivateKeyFile)
+	assert.Equal(t, "gateway.acme.int", cfg.TLS.Automation.Certificate.CommonName)
+	assert.Equal(t, 48*time.Hour, cfg.TLS.Automation.Certificate.TTL)
+	assert.Equal(t, "ecdsa", cfg.TLS.Automation.Certificate.Key.Type)
+	assert.Equal(t, 384, cfg.TLS.Automation.Certificate.Key.Bits)
+
+	assert.NoError(t, cfg.Validate())
+}
+
 func TestLoad_Kubernetes(t *testing.T) {
 	yaml := `
 twingate:
   network: "acme"
 port: 8443
 metricsPort: 9090
-auditLog:
-  flushInterval: "10m"
-  flushSizeThreshold: 1000000
+log:
+  sessionRecording:
+    segment:
+      maxDuration: "30s"
+      maxSize: "128KB"
 tls:
-  certificateFile: "tls.crt"
-  privateKeyFile: "tls.key"
+  certificates:
+    files:
+      - certificateFile: "tls.crt"
+        privateKeyFile: "tls.key"
 kubernetes: {}
 `
 
@@ -186,6 +237,8 @@ kubernetes: {}
 	assert.Equal(t, "acme", cfg.Twingate.Network)
 	assert.Equal(t, 8443, cfg.Port)
 	assert.Equal(t, 9090, cfg.MetricsPort)
+	assert.Equal(t, time.Second*30, cfg.Log.SessionRecording.Segment.MaxDuration)
+	assert.Equal(t, 128_000, cfg.Log.SessionRecording.Segment.MaxSize.Bytes())
 
 	require.NotNil(t, cfg.Kubernetes)
 	assert.Empty(t, cfg.Kubernetes.Upstreams)
@@ -198,12 +251,11 @@ twingate:
   network: "acme"
 port: 8443
 metricsPort: 9090
-auditLog:
-  flushInterval: "10m"
-  flushSizeThreshold: 1000000
 tls:
-  certificateFile: "tls.crt"
-  privateKeyFile: "tls.key"
+  certificates:
+    files:
+      - certificateFile: "tls.crt"
+        privateKeyFile: "tls.key"
 ssh:
   gateway:
     username: "gateway"
@@ -241,8 +293,10 @@ func TestLoad_SSH_Vault(t *testing.T) {
 twingate:
   network: "acme"
 tls:
-  certificateFile: "tls.crt"
-  privateKeyFile: "tls.key"
+  certificates:
+    files:
+      - certificateFile: "tls.crt"
+        privateKeyFile: "tls.key"
 ssh:
   gateway:
     username: "gateway"
@@ -254,7 +308,7 @@ ssh:
       ttl: "5m"
   ca:
     vault:
-      server: "https://vault:8200"
+      address: "https://vault:8200"
       mount: "ssh-default"
       role: "gateway"
       gatewayHostCA:
@@ -291,8 +345,10 @@ func TestLoad_UseDefaultValues(t *testing.T) {
 twingate:
   network: "acme"
 tls:
-  certificateFile: "tls.crt"
-  privateKeyFile: "tls.key"
+  certificates:
+    files:
+      - certificateFile: "tls.crt"
+        privateKeyFile: "tls.key"
 kubernetes: {}
 `
 
@@ -306,8 +362,8 @@ kubernetes: {}
 	// Check defaults
 	assert.Equal(t, 8443, cfg.Port)
 	assert.Equal(t, 9090, cfg.MetricsPort)
-	assert.Equal(t, time.Minute*10, cfg.AuditLog.FlushInterval)
-	assert.Equal(t, 1_000_000, cfg.AuditLog.FlushSizeThreshold)
+	assert.Equal(t, time.Minute*5, cfg.Log.SessionRecording.Segment.MaxDuration)
+	assert.Equal(t, 64_000, cfg.Log.SessionRecording.Segment.MaxSize.Bytes())
 	assert.Equal(t, "twingate.com", cfg.Twingate.Host)
 }
 
@@ -356,9 +412,17 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: "test", Host: "twingate.com"},
 				Port:        8443,
 				MetricsPort: 9090,
+				Log: LogConfig{
+					SessionRecording: SessionRecordingConfig{
+						Segment: SessionRecordingSegmentConfig{MaxSize: defaultSessionRecordingSegmentMaxSize},
+					},
+				},
 				TLS: TLSConfig{
-					CertificateFile: "tls.crt",
-					PrivateKeyFile:  "tls.key",
+					Certificates: &TLSCertificateSources{
+						Files: []TLSCertificateFileKeyPair{
+							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+						},
+					},
 				},
 				Kubernetes: &KubernetesConfig{},
 				WebApp: &WebAppConfig{
@@ -368,17 +432,51 @@ func TestConfig_Validate(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "invalid cas entry",
+			name: "invalid session recording segment limit",
 			config: &Config{
 				Twingate:    TwingateConfig{Network: "test", Host: "twingate.com"},
 				Port:        8443,
 				MetricsPort: 9090,
-				TLS:         TLSConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
-				CAs:         []CA{{Name: "web-app"}},
-				Kubernetes:  &KubernetesConfig{},
+				Log: LogConfig{
+					SessionRecording: SessionRecordingConfig{
+						Segment: SessionRecordingSegmentConfig{MaxSize: 256_001},
+					},
+				},
+				TLS: TLSConfig{
+					Certificates: &TLSCertificateSources{
+						Files: []TLSCertificateFileKeyPair{
+							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+						},
+					},
+				},
+				Kubernetes: &KubernetesConfig{},
 			},
 			wantErr:     true,
-			errContains: "cas config",
+			errContains: "log config",
+		},
+		{
+			name: "invalid upstreamCABundles entry",
+			config: &Config{
+				Twingate:    TwingateConfig{Network: "test", Host: "twingate.com"},
+				Port:        8443,
+				MetricsPort: 9090,
+				Log: LogConfig{
+					SessionRecording: SessionRecordingConfig{
+						Segment: SessionRecordingSegmentConfig{MaxSize: defaultSessionRecordingSegmentMaxSize},
+					},
+				},
+				TLS: TLSConfig{
+					Certificates: &TLSCertificateSources{
+						Files: []TLSCertificateFileKeyPair{
+							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+						},
+					},
+				},
+				UpstreamCABundles: []UpstreamCABundle{{}},
+				Kubernetes:        &KubernetesConfig{},
+			},
+			wantErr:     true,
+			errContains: "upstreamCABundles config",
 		},
 		{
 			name: "missing Twingate network",
@@ -386,8 +484,11 @@ func TestConfig_Validate(t *testing.T) {
 				Port:        8443,
 				MetricsPort: 9090,
 				TLS: TLSConfig{
-					CertificateFile: "tls.crt",
-					PrivateKeyFile:  "tls.key",
+					Certificates: &TLSCertificateSources{
+						Files: []TLSCertificateFileKeyPair{
+							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+						},
+					},
 				},
 				Kubernetes: &KubernetesConfig{},
 			},
@@ -400,8 +501,19 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: "us1", Host: "twingate.com"},
 				Port:        8443,
 				MetricsPort: 9090,
-				TLS:         TLSConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
-				Kubernetes:  &KubernetesConfig{},
+				Log: LogConfig{
+					SessionRecording: SessionRecordingConfig{
+						Segment: SessionRecordingSegmentConfig{MaxSize: defaultSessionRecordingSegmentMaxSize},
+					},
+				},
+				TLS: TLSConfig{
+					Certificates: &TLSCertificateSources{
+						Files: []TLSCertificateFileKeyPair{
+							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+						},
+					},
+				},
+				Kubernetes: &KubernetesConfig{},
 			},
 			wantErr: false,
 		},
@@ -411,8 +523,14 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: "evil.com/x", Host: "twingate.com"},
 				Port:        8443,
 				MetricsPort: 9090,
-				TLS:         TLSConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
-				Kubernetes:  &KubernetesConfig{},
+				TLS: TLSConfig{
+					Certificates: &TLSCertificateSources{
+						Files: []TLSCertificateFileKeyPair{
+							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+						},
+					},
+				},
+				Kubernetes: &KubernetesConfig{},
 			},
 			wantErr:     true,
 			errContains: "must be 1-63 lowercase alphanumeric characters",
@@ -423,8 +541,14 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: "ACME", Host: "twingate.com"},
 				Port:        8443,
 				MetricsPort: 9090,
-				TLS:         TLSConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
-				Kubernetes:  &KubernetesConfig{},
+				TLS: TLSConfig{
+					Certificates: &TLSCertificateSources{
+						Files: []TLSCertificateFileKeyPair{
+							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+						},
+					},
+				},
+				Kubernetes: &KubernetesConfig{},
 			},
 			wantErr:     true,
 			errContains: "must be 1-63 lowercase alphanumeric characters",
@@ -435,8 +559,14 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: "us1-acme", Host: "twingate.com"},
 				Port:        8443,
 				MetricsPort: 9090,
-				TLS:         TLSConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
-				Kubernetes:  &KubernetesConfig{},
+				TLS: TLSConfig{
+					Certificates: &TLSCertificateSources{
+						Files: []TLSCertificateFileKeyPair{
+							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+						},
+					},
+				},
+				Kubernetes: &KubernetesConfig{},
 			},
 			wantErr:     true,
 			errContains: "must be 1-63 lowercase alphanumeric characters",
@@ -447,8 +577,19 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: strings.Repeat("a", 63), Host: "twingate.com"},
 				Port:        8443,
 				MetricsPort: 9090,
-				TLS:         TLSConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
-				Kubernetes:  &KubernetesConfig{},
+				Log: LogConfig{
+					SessionRecording: SessionRecordingConfig{
+						Segment: SessionRecordingSegmentConfig{MaxSize: defaultSessionRecordingSegmentMaxSize},
+					},
+				},
+				TLS: TLSConfig{
+					Certificates: &TLSCertificateSources{
+						Files: []TLSCertificateFileKeyPair{
+							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+						},
+					},
+				},
+				Kubernetes: &KubernetesConfig{},
 			},
 			wantErr: false,
 		},
@@ -458,8 +599,14 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: strings.Repeat("a", 64), Host: "twingate.com"},
 				Port:        8443,
 				MetricsPort: 9090,
-				TLS:         TLSConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
-				Kubernetes:  &KubernetesConfig{},
+				TLS: TLSConfig{
+					Certificates: &TLSCertificateSources{
+						Files: []TLSCertificateFileKeyPair{
+							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+						},
+					},
+				},
+				Kubernetes: &KubernetesConfig{},
 			},
 			wantErr:     true,
 			errContains: "must be 1-63 lowercase alphanumeric characters",
@@ -470,8 +617,19 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: "test", Host: "foo.stg.opstg.com"},
 				Port:        8443,
 				MetricsPort: 9090,
-				TLS:         TLSConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
-				Kubernetes:  &KubernetesConfig{},
+				Log: LogConfig{
+					SessionRecording: SessionRecordingConfig{
+						Segment: SessionRecordingSegmentConfig{MaxSize: defaultSessionRecordingSegmentMaxSize},
+					},
+				},
+				TLS: TLSConfig{
+					Certificates: &TLSCertificateSources{
+						Files: []TLSCertificateFileKeyPair{
+							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+						},
+					},
+				},
+				Kubernetes: &KubernetesConfig{},
 			},
 			wantErr: false,
 		},
@@ -481,8 +639,19 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: "acme", Host: "test"},
 				Port:        8443,
 				MetricsPort: 9090,
-				TLS:         TLSConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
-				Kubernetes:  &KubernetesConfig{},
+				Log: LogConfig{
+					SessionRecording: SessionRecordingConfig{
+						Segment: SessionRecordingSegmentConfig{MaxSize: defaultSessionRecordingSegmentMaxSize},
+					},
+				},
+				TLS: TLSConfig{
+					Certificates: &TLSCertificateSources{
+						Files: []TLSCertificateFileKeyPair{
+							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+						},
+					},
+				},
+				Kubernetes: &KubernetesConfig{},
 			},
 			wantErr: false,
 		},
@@ -492,8 +661,19 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: "test", Host: "Foo.Twingate.COM"},
 				Port:        8443,
 				MetricsPort: 9090,
-				TLS:         TLSConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
-				Kubernetes:  &KubernetesConfig{},
+				Log: LogConfig{
+					SessionRecording: SessionRecordingConfig{
+						Segment: SessionRecordingSegmentConfig{MaxSize: defaultSessionRecordingSegmentMaxSize},
+					},
+				},
+				TLS: TLSConfig{
+					Certificates: &TLSCertificateSources{
+						Files: []TLSCertificateFileKeyPair{
+							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+						},
+					},
+				},
+				Kubernetes: &KubernetesConfig{},
 			},
 			wantErr: false,
 		},
@@ -503,8 +683,14 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: "test", Host: ""},
 				Port:        8443,
 				MetricsPort: 9090,
-				TLS:         TLSConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
-				Kubernetes:  &KubernetesConfig{},
+				TLS: TLSConfig{
+					Certificates: &TLSCertificateSources{
+						Files: []TLSCertificateFileKeyPair{
+							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+						},
+					},
+				},
+				Kubernetes: &KubernetesConfig{},
 			},
 			wantErr:     true,
 			errContains: "invalid twingate.host",
@@ -515,8 +701,14 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: "test", Host: "evil.example.com"},
 				Port:        8443,
 				MetricsPort: 9090,
-				TLS:         TLSConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
-				Kubernetes:  &KubernetesConfig{},
+				TLS: TLSConfig{
+					Certificates: &TLSCertificateSources{
+						Files: []TLSCertificateFileKeyPair{
+							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+						},
+					},
+				},
+				Kubernetes: &KubernetesConfig{},
 			},
 			wantErr:     true,
 			errContains: "not a trusted Twingate domain",
@@ -527,8 +719,14 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: "test", Host: "https://evil.com/x"},
 				Port:        8443,
 				MetricsPort: 9090,
-				TLS:         TLSConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
-				Kubernetes:  &KubernetesConfig{},
+				TLS: TLSConfig{
+					Certificates: &TLSCertificateSources{
+						Files: []TLSCertificateFileKeyPair{
+							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+						},
+					},
+				},
+				Kubernetes: &KubernetesConfig{},
 			},
 			wantErr:     true,
 			errContains: "not a valid hostname",
@@ -539,8 +737,14 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: "test", Host: "evil.com/x.twingate.com"},
 				Port:        8443,
 				MetricsPort: 9090,
-				TLS:         TLSConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
-				Kubernetes:  &KubernetesConfig{},
+				TLS: TLSConfig{
+					Certificates: &TLSCertificateSources{
+						Files: []TLSCertificateFileKeyPair{
+							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+						},
+					},
+				},
+				Kubernetes: &KubernetesConfig{},
 			},
 			wantErr:     true,
 			errContains: "not a valid hostname",
@@ -551,8 +755,14 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: "test", Host: "10.0.0.5"},
 				Port:        8443,
 				MetricsPort: 9090,
-				TLS:         TLSConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
-				Kubernetes:  &KubernetesConfig{},
+				TLS: TLSConfig{
+					Certificates: &TLSCertificateSources{
+						Files: []TLSCertificateFileKeyPair{
+							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+						},
+					},
+				},
+				Kubernetes: &KubernetesConfig{},
 			},
 			wantErr:     true,
 			errContains: "not a trusted Twingate domain",
@@ -564,8 +774,11 @@ func TestConfig_Validate(t *testing.T) {
 				Port:        -1,
 				MetricsPort: 9090,
 				TLS: TLSConfig{
-					CertificateFile: "tls.crt",
-					PrivateKeyFile:  "tls.key",
+					Certificates: &TLSCertificateSources{
+						Files: []TLSCertificateFileKeyPair{
+							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+						},
+					},
 				},
 				Kubernetes: &KubernetesConfig{},
 			},
@@ -579,8 +792,11 @@ func TestConfig_Validate(t *testing.T) {
 				Port:        8443,
 				MetricsPort: 70000,
 				TLS: TLSConfig{
-					CertificateFile: "tls.crt",
-					PrivateKeyFile:  "tls.key",
+					Certificates: &TLSCertificateSources{
+						Files: []TLSCertificateFileKeyPair{
+							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+						},
+					},
 				},
 				Kubernetes: &KubernetesConfig{},
 			},
@@ -593,9 +809,17 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: "test", Host: "twingate.com"},
 				Port:        8443,
 				MetricsPort: 9090,
+				Log: LogConfig{
+					SessionRecording: SessionRecordingConfig{
+						Segment: SessionRecordingSegmentConfig{MaxSize: defaultSessionRecordingSegmentMaxSize},
+					},
+				},
 				TLS: TLSConfig{
-					CertificateFile: "tls.crt",
-					PrivateKeyFile:  "tls.key",
+					Certificates: &TLSCertificateSources{
+						Files: []TLSCertificateFileKeyPair{
+							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+						},
+					},
 				},
 			},
 			wantErr:     true,
@@ -616,6 +840,56 @@ func TestConfig_Validate(t *testing.T) {
 	}
 }
 
+func TestSessionRecordingSegmentConfig_Validate(t *testing.T) {
+	tests := []struct {
+		name        string
+		segment     SessionRecordingSegmentConfig
+		wantErr     error
+		errContains string
+	}{
+		{
+			name:    "valid",
+			segment: SessionRecordingSegmentConfig{MaxDuration: 5 * time.Minute, MaxSize: 64_000},
+		},
+		{
+			name:    "maxSize at the upper bound",
+			segment: SessionRecordingSegmentConfig{MaxSize: 256_000},
+		},
+		{
+			name:        "negative maxDuration",
+			segment:     SessionRecordingSegmentConfig{MaxDuration: -1 * time.Minute, MaxSize: 64_000},
+			wantErr:     errNegativeDuration,
+			errContains: "maxDuration",
+		},
+		{
+			name:        "zero maxSize",
+			segment:     SessionRecordingSegmentConfig{MaxDuration: 5 * time.Minute, MaxSize: 0},
+			wantErr:     errSizeOutOfRange,
+			errContains: "maxSize",
+		},
+		{
+			name:        "maxSize above the upper bound",
+			segment:     SessionRecordingSegmentConfig{MaxDuration: 5 * time.Minute, MaxSize: 256_001},
+			wantErr:     errSizeOutOfRange,
+			errContains: "maxSize",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.segment.Validate()
+			if tt.wantErr == nil {
+				assert.NoError(t, err)
+
+				return
+			}
+
+			require.ErrorIs(t, err, tt.wantErr)
+			assert.Contains(t, err.Error(), tt.errContains)
+		})
+	}
+}
+
 func TestTLSConfig_Validate(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -624,27 +898,385 @@ func TestTLSConfig_Validate(t *testing.T) {
 		errContains string
 	}{
 		{
-			name:    "valid",
-			tls:     TLSConfig{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+			name: "valid",
+			tls: TLSConfig{
+				Certificates: &TLSCertificateSources{
+					Files: []TLSCertificateFileKeyPair{
+						{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+					},
+				},
+				Automation: &TLSAutomationConfig{
+					Issuer: TLSIssuerConfig{
+						Local: &TLSLocalIssuerConfig{CertificateFile: "ca.crt", PrivateKeyFile: "ca.key"},
+					},
+				},
+			},
 			wantErr: false,
 		},
 		{
-			name:        "missing certificate",
-			tls:         TLSConfig{PrivateKeyFile: "tls.key"},
-			wantErr:     true,
-			errContains: "certificateFile",
+			name: "certificates only",
+			tls: TLSConfig{
+				Certificates: &TLSCertificateSources{
+					Files: []TLSCertificateFileKeyPair{
+						{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+					},
+				},
+			},
+			wantErr: false,
 		},
 		{
-			name:        "missing private key",
-			tls:         TLSConfig{CertificateFile: "tls.crt"},
+			name:        "missing certificates and automation",
+			tls:         TLSConfig{},
 			wantErr:     true,
-			errContains: "privateKeyFile",
+			errContains: "either 'certificates' or 'automation' must be specified for TLS config",
+		},
+		{
+			name:        "invalid certificates",
+			tls:         TLSConfig{Certificates: &TLSCertificateSources{}},
+			wantErr:     true,
+			errContains: "certificates: required field is missing: files",
+		},
+		{
+			name:        "invalid automation",
+			tls:         TLSConfig{Automation: &TLSAutomationConfig{}},
+			wantErr:     true,
+			errContains: "automation: issuer: at least one TLS issuer must be configured",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := tt.tls.Validate()
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errContains)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestTLSCertificateSources_Validate(t *testing.T) {
+	tests := []struct {
+		name        string
+		sources     TLSCertificateSources
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name: "multiple files",
+			sources: TLSCertificateSources{
+				Files: []TLSCertificateFileKeyPair{
+					{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+					{CertificateFile: "other.crt", PrivateKeyFile: "other.key"},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name:        "no files",
+			sources:     TLSCertificateSources{},
+			wantErr:     true,
+			errContains: "required field is missing: files",
+		},
+		{
+			name: "file missing certificate",
+			sources: TLSCertificateSources{
+				Files: []TLSCertificateFileKeyPair{
+					{PrivateKeyFile: "tls.key"},
+				},
+			},
+			wantErr:     true,
+			errContains: "files[0]: required field is missing: certificateFile",
+		},
+		{
+			name: "file missing private key",
+			sources: TLSCertificateSources{
+				Files: []TLSCertificateFileKeyPair{
+					{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+					{CertificateFile: "other.crt"},
+				},
+			},
+			wantErr:     true,
+			errContains: "files[1]: required field is missing: privateKeyFile",
+		},
+		{
+			name: "duplicate certificate file",
+			sources: TLSCertificateSources{
+				Files: []TLSCertificateFileKeyPair{
+					{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+					{CertificateFile: "tls.crt", PrivateKeyFile: "other.key"},
+				},
+			},
+			wantErr:     true,
+			errContains: `duplicate certificateFile: "tls.crt"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.sources.Validate()
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errContains)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestTLSAutomationConfig_Validate(t *testing.T) {
+	localIssuer := TLSIssuerConfig{
+		Local: &TLSLocalIssuerConfig{CertificateFile: "ca.crt", PrivateKeyFile: "ca.key"},
+	}
+
+	tests := []struct {
+		name        string
+		automation  TLSAutomationConfig
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name: "valid with full certificate config",
+			automation: TLSAutomationConfig{
+				Issuer: localIssuer,
+				Certificate: TLSAutomationCertificateConfig{
+					TTL: 48 * time.Hour,
+					Key: TLSCertificateKeyConfig{Type: "rsa", Bits: 4096},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name:       "valid with defaults",
+			automation: TLSAutomationConfig{Issuer: localIssuer},
+			wantErr:    false,
+		},
+		{
+			name: "valid with vault issuer",
+			automation: TLSAutomationConfig{
+				Issuer: TLSIssuerConfig{Vault: &TLSVaultIssuerConfig{
+					Address: "https://vault:8200",
+					Role:    "gateway",
+				}},
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid with gcpPrivateCA issuer",
+			automation: TLSAutomationConfig{
+				Issuer: TLSIssuerConfig{GCPPrivateCA: &TLSGCPPrivateCAIssuerConfig{
+					Project:  "acme",
+					Location: "us-east1",
+					CAPoolID: "gateway",
+				}},
+				Certificate: TLSAutomationCertificateConfig{CommonName: "gateway.acme.int"},
+			},
+			wantErr: false,
+		},
+		{
+			name: "gcpPrivateCA issuer missing common name",
+			automation: TLSAutomationConfig{
+				Issuer: TLSIssuerConfig{GCPPrivateCA: &TLSGCPPrivateCAIssuerConfig{
+					Project:  "acme",
+					Location: "us-east1",
+					CAPoolID: "gateway",
+				}},
+			},
+			wantErr:     true,
+			errContains: "certificate: required field is missing: commonName is required for gcpPrivateCA issuer",
+		},
+		{
+			name: "conflicting local, vault and gcpPrivateCA issuers",
+			automation: TLSAutomationConfig{
+				Issuer: TLSIssuerConfig{
+					Local:        localIssuer.Local,
+					Vault:        &TLSVaultIssuerConfig{Address: "https://vault:8200", Role: "gateway"},
+					GCPPrivateCA: &TLSGCPPrivateCAIssuerConfig{Project: "acme", Location: "us-east1", CAPoolID: "gateway"},
+				},
+			},
+			wantErr:     true,
+			errContains: "issuer: only one of 'local', 'vault' or 'gcpPrivateCA' can be specified",
+		},
+		{
+			name: "vault issuer missing address",
+			automation: TLSAutomationConfig{
+				Issuer: TLSIssuerConfig{Vault: &TLSVaultIssuerConfig{Role: "gateway"}},
+			},
+			wantErr:     true,
+			errContains: "issuer: vault: required field is missing: address",
+		},
+		{
+			name: "invalid gcpPrivateCA issuer",
+			automation: TLSAutomationConfig{
+				Issuer: TLSIssuerConfig{GCPPrivateCA: &TLSGCPPrivateCAIssuerConfig{Location: "us-east1", CAPoolID: "gateway"}},
+			},
+			wantErr:     true,
+			errContains: "issuer: gcpPrivateCA: required field is missing: project",
+		},
+		{
+			name:        "missing issuer",
+			automation:  TLSAutomationConfig{},
+			wantErr:     true,
+			errContains: "issuer: at least one TLS issuer must be configured",
+		},
+		{
+			name: "local issuer missing certificate",
+			automation: TLSAutomationConfig{
+				Issuer: TLSIssuerConfig{Local: &TLSLocalIssuerConfig{PrivateKeyFile: "ca.key"}},
+			},
+			wantErr:     true,
+			errContains: "issuer: local: required field is missing: certificateFile",
+		},
+		{
+			name: "local issuer missing private key",
+			automation: TLSAutomationConfig{
+				Issuer: TLSIssuerConfig{Local: &TLSLocalIssuerConfig{CertificateFile: "ca.crt"}},
+			},
+			wantErr:     true,
+			errContains: "issuer: local: required field is missing: privateKeyFile",
+		},
+		{
+			name: "ttl at the minimum",
+			automation: TLSAutomationConfig{
+				Issuer:      localIssuer,
+				Certificate: TLSAutomationCertificateConfig{TTL: minTLSCertificateTTL},
+			},
+			wantErr: false,
+		},
+		{
+			name: "negative ttl",
+			automation: TLSAutomationConfig{
+				Issuer:      localIssuer,
+				Certificate: TLSAutomationCertificateConfig{TTL: -time.Hour},
+			},
+			wantErr:     true,
+			errContains: "certificate: TTL must be non-negative: ttl",
+		},
+		{
+			name: "ttl below the minimum",
+			automation: TLSAutomationConfig{
+				Issuer:      localIssuer,
+				Certificate: TLSAutomationCertificateConfig{TTL: minTLSCertificateTTL - time.Second},
+			},
+			wantErr:     true,
+			errContains: "certificate: TTL is too short: TTL must be at least 10m0s",
+		},
+		{
+			name: "invalid key type",
+			automation: TLSAutomationConfig{
+				Issuer:      localIssuer,
+				Certificate: TLSAutomationCertificateConfig{Key: TLSCertificateKeyConfig{Type: "ed25519"}},
+			},
+			wantErr:     true,
+			errContains: "certificate: key: invalid TLS key type",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.automation.Validate()
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errContains)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestTLSVaultIssuerConfig_Validate(t *testing.T) {
+	tests := []struct {
+		name        string
+		cfg         TLSVaultIssuerConfig
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name: "valid",
+			cfg:  TLSVaultIssuerConfig{VaultConfig: VaultConfig{Address: "https://vault:8200"}, Role: "gateway"},
+		},
+		{
+			name:        "missing address",
+			cfg:         TLSVaultIssuerConfig{Role: "gateway"},
+			wantErr:     true,
+			errContains: "required field is missing: address",
+		},
+		{
+			name:        "missing role",
+			cfg:         TLSVaultIssuerConfig{VaultConfig: VaultConfig{Address: "https://vault:8200"}},
+			wantErr:     true,
+			errContains: "required field is missing: role",
+		},
+		{
+			name: "conflicting auth",
+			cfg: TLSVaultIssuerConfig{
+				VaultConfig: VaultConfig{
+					Address: "https://vault:8200",
+					Auth:    VaultAuthConfig{Token: "token", GCP: &VaultGCPConfig{Role: "role", Type: "gce"}},
+				},
+				Role: "gateway",
+			},
+			wantErr:     true,
+			errContains: "auth: only one of 'token', 'appRole', 'gcp', or 'aws' can be specified",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.cfg.Validate()
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errContains)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestTLSVaultIssuerConfig_GetMount(t *testing.T) {
+	assert.Equal(t, "pki", (&TLSVaultIssuerConfig{}).GetMount())
+	assert.Equal(t, "pki-int", (&TLSVaultIssuerConfig{Mount: "pki-int"}).GetMount())
+}
+
+func TestTLSGCPPrivateCAIssuerConfig_Validate(t *testing.T) {
+	tests := []struct {
+		name        string
+		cfg         TLSGCPPrivateCAIssuerConfig
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name: "valid",
+			cfg:  TLSGCPPrivateCAIssuerConfig{Project: "acme", Location: "us-east1", CAPoolID: "gateway"},
+		},
+		{
+			name:        "missing project",
+			cfg:         TLSGCPPrivateCAIssuerConfig{Location: "us-east1", CAPoolID: "gateway"},
+			wantErr:     true,
+			errContains: "required field is missing: project",
+		},
+		{
+			name:        "missing location",
+			cfg:         TLSGCPPrivateCAIssuerConfig{Project: "acme", CAPoolID: "gateway"},
+			wantErr:     true,
+			errContains: "required field is missing: location",
+		},
+		{
+			name:        "missing CA pool",
+			cfg:         TLSGCPPrivateCAIssuerConfig{Project: "acme", Location: "us-east1"},
+			wantErr:     true,
+			errContains: "required field is missing: caPoolID",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.cfg.Validate()
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.errContains)
@@ -704,52 +1336,46 @@ func TestKubernetesConfig_Validate(t *testing.T) {
 	}
 }
 
-func TestValidateCAs(t *testing.T) {
+func TestValidateUpstreamCABundles(t *testing.T) {
 	tests := []struct {
 		name        string
-		cas         []CA
+		caBundles   []UpstreamCABundle
 		wantErr     bool
 		errContains string
 	}{
 		{
 			name: "valid list",
-			cas: []CA{
-				{Name: "gcp-database", CertFile: "/etc/gateway/ca1.crt"},
-				{Name: "web-app", CertFile: "/etc/gateway/ca2.crt"},
+			caBundles: []UpstreamCABundle{
+				{File: "/etc/gateway/ca1.crt"},
+				{File: "/etc/gateway/ca2.crt"},
 			},
 			wantErr: false,
 		},
 		{
-			name:    "empty list is allowed",
-			cas:     []CA{},
-			wantErr: false,
+			name:      "empty list is allowed",
+			caBundles: []UpstreamCABundle{},
+			wantErr:   false,
 		},
 		{
-			name:        "missing name",
-			cas:         []CA{{CertFile: "/etc/gateway/ca.crt"}},
+			name:        "missing file",
+			caBundles:   []UpstreamCABundle{{}},
 			wantErr:     true,
-			errContains: "name",
+			errContains: "upstreamCABundles[0]: required field is missing: file",
 		},
 		{
-			name:        "missing certFile",
-			cas:         []CA{{Name: "web-app"}},
-			wantErr:     true,
-			errContains: "certFile",
-		},
-		{
-			name: "duplicate CA names",
-			cas: []CA{
-				{Name: "web-app", CertFile: "/etc/gateway/ca1.crt"},
-				{Name: "web-app", CertFile: "/etc/gateway/ca2.crt"},
+			name: "duplicate file",
+			caBundles: []UpstreamCABundle{
+				{File: "/etc/gateway/ca.crt"},
+				{File: "/etc/gateway/ca.crt"},
 			},
 			wantErr:     true,
-			errContains: "\"web-app\"",
+			errContains: "\"/etc/gateway/ca.crt\"",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateCAs(tt.cas)
+			err := validateUpstreamCABundles(tt.caBundles)
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.errContains)
@@ -760,18 +1386,18 @@ func TestValidateCAs(t *testing.T) {
 	}
 }
 
-func TestLoad_CAs(t *testing.T) {
+func TestLoad_UpstreamCABundles(t *testing.T) {
 	yaml := `
 twingate:
   network: "acme"
 tls:
-  certificateFile: "tls.crt"
-  privateKeyFile: "tls.key"
-cas:
-  - name: "gcp-database"
-    certFile: "/etc/gateway/ca1.crt"
-  - name: "web-app"
-    certFile: "/etc/gateway/ca2.crt"
+  certificates:
+    files:
+      - certificateFile: "tls.crt"
+        privateKeyFile: "tls.key"
+upstreamCABundles:
+  - file: "/etc/gateway/ca1.crt"
+  - file: "/etc/gateway/ca2.crt"
 webApp: {}
 `
 
@@ -783,11 +1409,11 @@ webApp: {}
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
 
-	want := []CA{
-		{Name: "gcp-database", CertFile: "/etc/gateway/ca1.crt"},
-		{Name: "web-app", CertFile: "/etc/gateway/ca2.crt"},
+	want := []UpstreamCABundle{
+		{File: "/etc/gateway/ca1.crt"},
+		{File: "/etc/gateway/ca2.crt"},
 	}
-	assert.Equal(t, want, cfg.CAs)
+	assert.Equal(t, want, cfg.UpstreamCABundles)
 	require.NoError(t, cfg.Validate())
 }
 
@@ -940,7 +1566,7 @@ func TestSSHConfig_Validate(t *testing.T) {
 			errContains: "privateKeyFile",
 		},
 		{
-			name: "Vault CA missing server",
+			name: "Vault CA missing address",
 			ssh: SSHConfig{
 				Gateway: SSHGatewayConfig{
 					Username: "gateway",
@@ -952,7 +1578,7 @@ func TestSSHConfig_Validate(t *testing.T) {
 				},
 			},
 			wantErr:     true,
-			errContains: "server",
+			errContains: "address",
 		},
 	}
 
@@ -1052,11 +1678,11 @@ func TestSSHCAVaultConfig_EffectiveMountAndRole(t *testing.T) {
 }
 
 func TestSSHCAVaultConfig_Validate(t *testing.T) {
-	t.Run("missing server", func(t *testing.T) {
+	t.Run("missing address", func(t *testing.T) {
 		cfg := &SSHCAVaultConfig{Role: "gateway"}
 		err := cfg.Validate()
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "server")
+		assert.Contains(t, err.Error(), "address")
 	})
 
 	t.Run("missing role (no override roles)", func(t *testing.T) {
@@ -1085,22 +1711,22 @@ func TestSSHCAVaultConfig_Validate(t *testing.T) {
 	})
 }
 
-func TestSSHCAVaultAuthConfig_Validate(t *testing.T) {
+func TestVaultAuthConfig_Validate(t *testing.T) {
 	tests := []struct {
 		name        string
-		cfg         SSHCAVaultAuthConfig
+		cfg         VaultAuthConfig
 		wantErr     bool
 		errContains string
 	}{
 		{
 			name:    "valid token",
-			cfg:     SSHCAVaultAuthConfig{Token: "token"},
+			cfg:     VaultAuthConfig{Token: "token"},
 			wantErr: false,
 		},
 		{
 			name: "valid appRole",
-			cfg: SSHCAVaultAuthConfig{
-				AppRole: &SSHCAVaultAppRoleConfig{
+			cfg: VaultAuthConfig{
+				AppRole: &VaultAppRoleConfig{
 					RoleID:       "role-id",
 					SecretIDFile: "/path/to/secret-id",
 				},
@@ -1109,8 +1735,8 @@ func TestSSHCAVaultAuthConfig_Validate(t *testing.T) {
 		},
 		{
 			name: "valid GCP",
-			cfg: SSHCAVaultAuthConfig{
-				GCP: &SSHCAVaultGCPConfig{
+			cfg: VaultAuthConfig{
+				GCP: &VaultGCPConfig{
 					Role: "my-role",
 					Type: "gce",
 				},
@@ -1119,8 +1745,8 @@ func TestSSHCAVaultAuthConfig_Validate(t *testing.T) {
 		},
 		{
 			name: "valid AWS",
-			cfg: SSHCAVaultAuthConfig{
-				AWS: &SSHCAVaultAWSConfig{
+			cfg: VaultAuthConfig{
+				AWS: &VaultAWSConfig{
 					Role: "my-role",
 					Type: "iam",
 				},
@@ -1129,14 +1755,14 @@ func TestSSHCAVaultAuthConfig_Validate(t *testing.T) {
 		},
 		{
 			name:    "valid with empty token (uses VAULT_TOKEN env)",
-			cfg:     SSHCAVaultAuthConfig{},
+			cfg:     VaultAuthConfig{},
 			wantErr: false,
 		},
 		{
 			name: "conflicting config - both token and appRole",
-			cfg: SSHCAVaultAuthConfig{
+			cfg: VaultAuthConfig{
 				Token: "token",
-				AppRole: &SSHCAVaultAppRoleConfig{
+				AppRole: &VaultAppRoleConfig{
 					RoleID:       "role-id",
 					SecretIDFile: "/path/to/secret-id",
 				},
@@ -1146,9 +1772,9 @@ func TestSSHCAVaultAuthConfig_Validate(t *testing.T) {
 		},
 		{
 			name: "conflicting config - both token and gcp",
-			cfg: SSHCAVaultAuthConfig{
+			cfg: VaultAuthConfig{
 				Token: "token",
-				GCP: &SSHCAVaultGCPConfig{
+				GCP: &VaultGCPConfig{
 					Role: "my-role",
 					Type: "gce",
 				},
@@ -1158,12 +1784,12 @@ func TestSSHCAVaultAuthConfig_Validate(t *testing.T) {
 		},
 		{
 			name: "conflicting config - both aws and gcp",
-			cfg: SSHCAVaultAuthConfig{
-				AWS: &SSHCAVaultAWSConfig{
+			cfg: VaultAuthConfig{
+				AWS: &VaultAWSConfig{
 					Role: "my-role",
 					Type: "iam",
 				},
-				GCP: &SSHCAVaultGCPConfig{
+				GCP: &VaultGCPConfig{
 					Role: "my-role",
 					Type: "gce",
 				},
@@ -1186,9 +1812,9 @@ func TestSSHCAVaultAuthConfig_Validate(t *testing.T) {
 	}
 }
 
-func TestSSHCAVaultAppRoleConfig_GetMount(t *testing.T) {
+func TestVaultAppRoleConfig_GetMount(t *testing.T) {
 	t.Run("default mount", func(t *testing.T) {
-		cfg := &SSHCAVaultAppRoleConfig{
+		cfg := &VaultAppRoleConfig{
 			RoleID:       "role-id",
 			SecretIDFile: "/path/to/secret-id",
 		}
@@ -1196,7 +1822,7 @@ func TestSSHCAVaultAppRoleConfig_GetMount(t *testing.T) {
 	})
 
 	t.Run("custom mount", func(t *testing.T) {
-		cfg := &SSHCAVaultAppRoleConfig{
+		cfg := &VaultAppRoleConfig{
 			Mount:        "custom-approle",
 			RoleID:       "role-id",
 			SecretIDFile: "/path/to/secret-id",
@@ -1205,9 +1831,9 @@ func TestSSHCAVaultAppRoleConfig_GetMount(t *testing.T) {
 	})
 }
 
-func TestSSHCAVaultAppRoleConfig_Validate(t *testing.T) {
+func TestVaultAppRoleConfig_Validate(t *testing.T) {
 	t.Run("missing roleId", func(t *testing.T) {
-		cfg := &SSHCAVaultAppRoleConfig{
+		cfg := &VaultAppRoleConfig{
 			SecretIDFile: "/path/to/secret-id",
 		}
 		err := cfg.Validate()
@@ -1216,7 +1842,7 @@ func TestSSHCAVaultAppRoleConfig_Validate(t *testing.T) {
 	})
 
 	t.Run("missing both secretID and secretIDFile", func(t *testing.T) {
-		cfg := &SSHCAVaultAppRoleConfig{
+		cfg := &VaultAppRoleConfig{
 			RoleID: "role-id",
 		}
 		err := cfg.Validate()
@@ -1225,7 +1851,7 @@ func TestSSHCAVaultAppRoleConfig_Validate(t *testing.T) {
 	})
 
 	t.Run("valid with secretID", func(t *testing.T) {
-		cfg := &SSHCAVaultAppRoleConfig{
+		cfg := &VaultAppRoleConfig{
 			RoleID:   "role-id",
 			SecretID: "my-secret-id",
 		}
@@ -1233,7 +1859,7 @@ func TestSSHCAVaultAppRoleConfig_Validate(t *testing.T) {
 	})
 
 	t.Run("valid with secretIDFile", func(t *testing.T) {
-		cfg := &SSHCAVaultAppRoleConfig{
+		cfg := &VaultAppRoleConfig{
 			RoleID:       "role-id",
 			SecretIDFile: "/path/to/secret-id",
 		}
@@ -1241,7 +1867,7 @@ func TestSSHCAVaultAppRoleConfig_Validate(t *testing.T) {
 	})
 
 	t.Run("conflicting secretID and secretIDFile", func(t *testing.T) {
-		cfg := &SSHCAVaultAppRoleConfig{
+		cfg := &VaultAppRoleConfig{
 			RoleID:       "role-id",
 			SecretID:     "my-secret-id",
 			SecretIDFile: "/path/to/secret-id",
@@ -1251,9 +1877,9 @@ func TestSSHCAVaultAppRoleConfig_Validate(t *testing.T) {
 	})
 }
 
-func TestSSHCAVaultGCPConfig_GetMount(t *testing.T) {
+func TestVaultGCPConfig_GetMount(t *testing.T) {
 	t.Run("default mount", func(t *testing.T) {
-		cfg := &SSHCAVaultGCPConfig{
+		cfg := &VaultGCPConfig{
 			Role: "my-role",
 			Type: "gce",
 		}
@@ -1261,7 +1887,7 @@ func TestSSHCAVaultGCPConfig_GetMount(t *testing.T) {
 	})
 
 	t.Run("custom mount", func(t *testing.T) {
-		cfg := &SSHCAVaultGCPConfig{
+		cfg := &VaultGCPConfig{
 			Mount: "custom-gcp",
 			Role:  "my-role",
 			Type:  "gce",
@@ -1270,49 +1896,49 @@ func TestSSHCAVaultGCPConfig_GetMount(t *testing.T) {
 	})
 }
 
-func TestSSHCAVaultGCPConfig_Validate(t *testing.T) {
+func TestVaultGCPConfig_Validate(t *testing.T) {
 	tests := []struct {
 		name        string
-		cfg         *SSHCAVaultGCPConfig
+		cfg         *VaultGCPConfig
 		wantErr     bool
 		errContains string
 	}{
 		{
 			name:    "valid GCE",
-			cfg:     &SSHCAVaultGCPConfig{Role: "my-role", Type: "gce"},
+			cfg:     &VaultGCPConfig{Role: "my-role", Type: "gce"},
 			wantErr: false,
 		},
 		{
 			name:    "valid IAM",
-			cfg:     &SSHCAVaultGCPConfig{Role: "my-role", Type: "iam", ServiceAccountEmail: "gateway-sa@project.iam.gserviceaccount.com"},
+			cfg:     &VaultGCPConfig{Role: "my-role", Type: "iam", ServiceAccountEmail: "gateway-sa@project.iam.gserviceaccount.com"},
 			wantErr: false,
 		},
 		{
 			name:    "valid GCE type case insensitive",
-			cfg:     &SSHCAVaultGCPConfig{Role: "my-role", Type: "GCE"},
+			cfg:     &VaultGCPConfig{Role: "my-role", Type: "GCE"},
 			wantErr: false,
 		},
 		{
 			name:        "missing role",
-			cfg:         &SSHCAVaultGCPConfig{Type: "gce"},
+			cfg:         &VaultGCPConfig{Type: "gce"},
 			wantErr:     true,
 			errContains: "role",
 		},
 		{
 			name:        "missing type",
-			cfg:         &SSHCAVaultGCPConfig{Role: "my-role"},
+			cfg:         &VaultGCPConfig{Role: "my-role"},
 			wantErr:     true,
 			errContains: "type",
 		},
 		{
 			name:        "invalid type",
-			cfg:         &SSHCAVaultGCPConfig{Role: "my-role", Type: "invalid"},
+			cfg:         &VaultGCPConfig{Role: "my-role", Type: "invalid"},
 			wantErr:     true,
 			errContains: "gcp type must be 'gce' or 'iam'",
 		},
 		{
 			name:        "IAM type missing serviceAccountEmail",
-			cfg:         &SSHCAVaultGCPConfig{Role: "my-role", Type: "iam"},
+			cfg:         &VaultGCPConfig{Role: "my-role", Type: "iam"},
 			wantErr:     true,
 			errContains: "serviceAccountEmail is required for iam type",
 		},
@@ -1331,15 +1957,15 @@ func TestSSHCAVaultGCPConfig_Validate(t *testing.T) {
 	}
 }
 
-func TestSSHCAVaultAWSConfig_GetMount(t *testing.T) {
+func TestVaultAWSConfig_GetMount(t *testing.T) {
 	tests := []struct {
 		name     string
-		cfg      *SSHCAVaultAWSConfig
+		cfg      *VaultAWSConfig
 		expected string
 	}{
 		{
 			name: "default mount",
-			cfg: &SSHCAVaultAWSConfig{
+			cfg: &VaultAWSConfig{
 				Role: "my-role",
 				Type: "iam",
 			},
@@ -1347,7 +1973,7 @@ func TestSSHCAVaultAWSConfig_GetMount(t *testing.T) {
 		},
 		{
 			name: "custom mount",
-			cfg: &SSHCAVaultAWSConfig{
+			cfg: &VaultAWSConfig{
 				Mount: "custom-aws",
 				Role:  "my-role",
 				Type:  "iam",
@@ -1363,20 +1989,20 @@ func TestSSHCAVaultAWSConfig_GetMount(t *testing.T) {
 	}
 }
 
-func TestSSHCAVaultAWSConfig_GetSignatureType(t *testing.T) {
+func TestVaultAWSConfig_GetSignatureType(t *testing.T) {
 	tests := []struct {
 		name     string
-		cfg      *SSHCAVaultAWSConfig
+		cfg      *VaultAWSConfig
 		expected string
 	}{
 		{
 			name:     "default to rsa2048 when unset",
-			cfg:      &SSHCAVaultAWSConfig{Role: "my-role", Type: "ec2"},
+			cfg:      &VaultAWSConfig{Role: "my-role", Type: "ec2"},
 			expected: "rsa2048",
 		},
 		{
 			name:     "explicit value preserved",
-			cfg:      &SSHCAVaultAWSConfig{Role: "my-role", Type: "ec2", SignatureType: "identity"},
+			cfg:      &VaultAWSConfig{Role: "my-role", Type: "ec2", SignatureType: "identity"},
 			expected: "identity",
 		},
 	}
@@ -1388,54 +2014,54 @@ func TestSSHCAVaultAWSConfig_GetSignatureType(t *testing.T) {
 	}
 }
 
-func TestSSHCAVaultAWSConfig_Validate(t *testing.T) {
+func TestVaultAWSConfig_Validate(t *testing.T) {
 	tests := []struct {
 		name        string
-		cfg         *SSHCAVaultAWSConfig
+		cfg         *VaultAWSConfig
 		wantErr     bool
 		errContains string
 	}{
 		{
 			name:    "valid IAM",
-			cfg:     &SSHCAVaultAWSConfig{Role: "my-role", Type: "iam"},
+			cfg:     &VaultAWSConfig{Role: "my-role", Type: "iam"},
 			wantErr: false,
 		},
 		{
 			name:    "valid EC2",
-			cfg:     &SSHCAVaultAWSConfig{Role: "my-role", Type: "ec2"},
+			cfg:     &VaultAWSConfig{Role: "my-role", Type: "ec2"},
 			wantErr: false,
 		},
 		{
 			name:    "valid EC2 with signatureType and nonce",
-			cfg:     &SSHCAVaultAWSConfig{Role: "my-role", Type: "ec2", SignatureType: "identity", Nonce: "my-nonce"},
+			cfg:     &VaultAWSConfig{Role: "my-role", Type: "ec2", SignatureType: "identity", Nonce: "my-nonce"},
 			wantErr: false,
 		},
 		{
 			name:    "Valid IAM case insensitive type",
-			cfg:     &SSHCAVaultAWSConfig{Role: "my-role", Type: "IAM"},
+			cfg:     &VaultAWSConfig{Role: "my-role", Type: "IAM"},
 			wantErr: false,
 		},
 		{
 			name:        "missing role",
-			cfg:         &SSHCAVaultAWSConfig{Type: "iam"},
+			cfg:         &VaultAWSConfig{Type: "iam"},
 			wantErr:     true,
 			errContains: "role",
 		},
 		{
 			name:        "missing type",
-			cfg:         &SSHCAVaultAWSConfig{Role: "my-role"},
+			cfg:         &VaultAWSConfig{Role: "my-role"},
 			wantErr:     true,
 			errContains: "type",
 		},
 		{
 			name:        "invalid type",
-			cfg:         &SSHCAVaultAWSConfig{Role: "my-role", Type: "invalid"},
+			cfg:         &VaultAWSConfig{Role: "my-role", Type: "invalid"},
 			wantErr:     true,
 			errContains: "aws type must be 'iam' or 'ec2'",
 		},
 		{
 			name:        "invalid signatureType",
-			cfg:         &SSHCAVaultAWSConfig{Role: "my-role", Type: "ec2", SignatureType: "invalid"},
+			cfg:         &VaultAWSConfig{Role: "my-role", Type: "ec2", SignatureType: "invalid"},
 			wantErr:     true,
 			errContains: "aws signatureType must be 'identity', 'pkcs7', or 'rsa2048'",
 		},

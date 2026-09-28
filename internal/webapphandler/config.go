@@ -26,7 +26,7 @@ type Config struct {
 	logger              *zap.Logger
 }
 
-func NewConfig(configRequestHeaders map[string]string, cas []config.CA, roundTripperMetrics *metrics.RoundTripperMetrics, logger *zap.Logger) (*Config, error) {
+func NewConfig(configRequestHeaders map[string]string, caBundles []config.UpstreamCABundle, roundTripperMetrics *metrics.RoundTripperMetrics, logger *zap.Logger) (*Config, error) {
 	headers := make(map[string]*template.Template, len(configRequestHeaders))
 
 	for name, value := range configRequestHeaders {
@@ -42,7 +42,7 @@ func NewConfig(configRequestHeaders map[string]string, cas []config.CA, roundTri
 		headers[name] = tmpl
 	}
 
-	caPool, err := newCAPool(cas)
+	caPool, err := newCAPool(caBundles)
 	if err != nil {
 		return nil, err
 	}
@@ -52,20 +52,20 @@ func NewConfig(configRequestHeaders map[string]string, cas []config.CA, roundTri
 
 // newCAPool merges the configured CAs on top of the system cert pool to verify
 // upstream TLS connections, so publicly-signed upstreams work without configuration.
-func newCAPool(cas []config.CA) (*x509.CertPool, error) {
+func newCAPool(caBundles []config.UpstreamCABundle) (*x509.CertPool, error) {
 	pool, err := x509.SystemCertPool()
 	if err != nil {
 		return nil, fmt.Errorf("load system cert pool: %w", err)
 	}
 
-	for _, ca := range cas {
-		caCert, err := os.ReadFile(ca.CertFile) //nolint:gosec // The CA file is provided by the operator
+	for _, caBundle := range caBundles {
+		caCerts, err := os.ReadFile(caBundle.File) //nolint:gosec // The CA bundle file is provided by the operator
 		if err != nil {
-			return nil, fmt.Errorf("ca %q: %w", ca.Name, err)
+			return nil, fmt.Errorf("ca %q: %w", caBundle.File, err)
 		}
 
-		if ok := pool.AppendCertsFromPEM(caCert); !ok {
-			return nil, fmt.Errorf("ca %q: %w", ca.Name, errInvalidCACert)
+		if ok := pool.AppendCertsFromPEM(caCerts); !ok {
+			return nil, fmt.Errorf("ca %q: %w", caBundle.File, errInvalidCACert)
 		}
 	}
 

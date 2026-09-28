@@ -1,0 +1,19 @@
+{{- $hasInline := false }}
+{{- range .Values.upstreamCABundles }}
+{{- if and (not .configMapName) .pem }}{{- $hasInline = true }}{{- end }}
+{{- end }}
+{{- if $hasInline }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "gateway.upstreamCABundlesConfigMapName" . }}
+  labels:
+    {{- include "gateway.labels" . | nindent 4 }}
+data:
+  {{- range $i, $bundle := .Values.upstreamCABundles }}
+  {{- if and (not $bundle.configMapName) $bundle.pem }}
+  {{ include "gateway.upstreamCABundleInlineKey" $i }}: |
+    {{- $bundle.pem | trim | nindent 4 }}
+  {{- end }}
+  {{- end }}
+{{- end }}

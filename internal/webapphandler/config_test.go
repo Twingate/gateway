@@ -75,7 +75,7 @@ func TestNewConfig(t *testing.T) {
 }
 
 func TestNewConfig_CAPoolAddsCustomCA(t *testing.T) {
-	cfg, err := NewConfig(nil, []config.CA{{Name: "custom", CertFile: "../../test/data/proxy/tls.crt"}}, metrics.RegisterRoundTripperMetrics(prometheus.NewRegistry()), zap.NewNop())
+	cfg, err := NewConfig(nil, []config.UpstreamCABundle{{File: "../../test/data/proxy/tls.crt"}}, metrics.RegisterRoundTripperMetrics(prometheus.NewRegistry()), zap.NewNop())
 	require.NoError(t, err)
 
 	block, _ := pem.Decode(data.ProxyCert)
@@ -94,32 +94,32 @@ func TestNewConfig_CAPool(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		cas         []config.CA
+		caBundles   []config.UpstreamCABundle
 		wantErr     bool
 		errContains string
 	}{
 		{
-			name:    "no CAs yields the system pool",
-			cas:     nil,
-			wantErr: false,
+			name:      "no CAs yields the system pool",
+			caBundles: nil,
+			wantErr:   false,
 		},
 		{
 			name:        "missing CA file",
-			cas:         []config.CA{{Name: "missing", CertFile: filepath.Join(t.TempDir(), "nope.crt")}},
+			caBundles:   []config.UpstreamCABundle{{File: filepath.Join(t.TempDir(), "nope.crt")}},
 			wantErr:     true,
-			errContains: "\"missing\"",
+			errContains: "nope.crt",
 		},
 		{
 			name:        "invalid PEM",
-			cas:         []config.CA{{Name: "invalid", CertFile: invalidPEMFile}},
+			caBundles:   []config.UpstreamCABundle{{File: invalidPEMFile}},
 			wantErr:     true,
-			errContains: "\"invalid\"",
+			errContains: "invalid.crt",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cfg, err := NewConfig(nil, tt.cas, metrics.RegisterRoundTripperMetrics(prometheus.NewRegistry()), zap.NewNop())
+			cfg, err := NewConfig(nil, tt.caBundles, metrics.RegisterRoundTripperMetrics(prometheus.NewRegistry()), zap.NewNop())
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.errContains)

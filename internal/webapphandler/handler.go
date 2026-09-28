@@ -118,12 +118,12 @@ func rewrite(r *httputil.ProxyRequest, conn *connect.ProxyConn, headers map[stri
 			return fmt.Errorf("header %q: %w", headerName, err)
 		}
 
-		r.Out.Header.Set(headerName, headerValue)
+		setHeader(r, headerName, headerValue)
 	}
 
 	// Per-resource request header rewrites from the GAT are applied last, so they override
-	// any config headers with the same name. Malformed or unsupported headers are skipped
-	// rather than failing the request.
+	// any config headers with the same name. A rewrite whose template fails to parse or
+	// evaluate is skipped rather than failing the request.
 	for headerName, value := range conn.GATClaims().Resource.GatewayMetadata.RequestHeaderRewrites {
 		tmpl, err := template.New(value)
 		if err != nil {
@@ -139,8 +139,17 @@ func rewrite(r *httputil.ProxyRequest, conn *connect.ProxyConn, headers map[stri
 			continue
 		}
 
-		r.Out.Header.Set(headerName, headerValue)
+		setHeader(r, headerName, headerValue)
 	}
 
 	return nil
+}
+
+func setHeader(r *httputil.ProxyRequest, name, value string) {
+	switch http.CanonicalHeaderKey(name) {
+	case "Host":
+		r.Out.Host = value
+	default:
+		r.Out.Header.Set(name, value)
+	}
 }

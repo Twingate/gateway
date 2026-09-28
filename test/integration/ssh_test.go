@@ -56,8 +56,14 @@ func setupSSHGateway(t *testing.T, user *token.User, sshCAConfig gatewayconfig.S
 		Port:        gatewayPort,
 		MetricsPort: 0,
 		TLS: gatewayconfig.TLSConfig{
-			CertificateFile: "../data/proxy/tls.crt",
-			PrivateKeyFile:  "../data/proxy/tls.key",
+			Certificates: &gatewayconfig.TLSCertificateSources{
+				Files: []gatewayconfig.TLSCertificateFileKeyPair{
+					{
+						CertificateFile: "../data/proxy/tls.crt",
+						PrivateKeyFile:  "../data/proxy/tls.key",
+					},
+				},
+			},
 		},
 		SSH: &gatewayconfig.SSHConfig{
 			Gateway: gatewayconfig.SSHGatewayConfig{
@@ -183,32 +189,32 @@ func TestSSH(t *testing.T) {
 func TestSSHVault(t *testing.T) {
 	const gatewayPort = 8448
 
-	vaultContainerID, vaultPort := testutil.SetupVaultServer(t)
+	vaultContainerID, vaultPort := testutil.SetupVaultSSHCA(t)
 	vaultAddress := fmt.Sprintf("http://127.0.0.1:%d", vaultPort)
 
 	tests := []struct {
 		name      string
-		authSetup func(t *testing.T) gatewayconfig.SSHCAVaultAuthConfig
+		authSetup func(t *testing.T) gatewayconfig.VaultAuthConfig
 	}{
 		{
 			name: "token",
-			authSetup: func(t *testing.T) gatewayconfig.SSHCAVaultAuthConfig {
+			authSetup: func(t *testing.T) gatewayconfig.VaultAuthConfig {
 				t.Helper()
 
-				return gatewayconfig.SSHCAVaultAuthConfig{
+				return gatewayconfig.VaultAuthConfig{
 					Token: testutil.SetupVaultToken(t, vaultContainerID),
 				}
 			},
 		},
 		{
 			name: "approle",
-			authSetup: func(t *testing.T) gatewayconfig.SSHCAVaultAuthConfig {
+			authSetup: func(t *testing.T) gatewayconfig.VaultAuthConfig {
 				t.Helper()
 
 				roleID, secretID := testutil.SetupVaultAppRole(t, vaultContainerID)
 
-				return gatewayconfig.SSHCAVaultAuthConfig{
-					AppRole: &gatewayconfig.SSHCAVaultAppRoleConfig{
+				return gatewayconfig.VaultAuthConfig{
+					AppRole: &gatewayconfig.VaultAppRoleConfig{
 						RoleID:   roleID,
 						SecretID: secretID,
 					},
@@ -227,9 +233,9 @@ func TestSSHVault(t *testing.T) {
 			}, gatewayconfig.SSHCAConfig{
 				Vault: &gatewayconfig.SSHCAVaultConfig{
 					Address: vaultAddress,
+					Auth:    auth,
 					Mount:   "ssh",
 					Role:    "gateway-signer",
-					Auth:    auth,
 				},
 			}, gatewayPort+i)
 

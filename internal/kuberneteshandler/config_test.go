@@ -14,9 +14,11 @@ import (
 )
 
 func TestNewConfig(t *testing.T) {
-	auditLogConfig := &config.AuditLogConfig{
-		FlushInterval:      60,
-		FlushSizeThreshold: 1000,
+	sessionRecordingConfig := &config.SessionRecordingConfig{
+		Segment: config.SessionRecordingSegmentConfig{
+			MaxDuration: 60,
+			MaxSize:     1000,
+		},
 	}
 
 	t.Run("Success with external upstream credentials", func(t *testing.T) {
@@ -30,7 +32,7 @@ func TestNewConfig(t *testing.T) {
 			},
 		}
 
-		cfg, err := NewConfig(auditLogConfig, k8sConfig, nil, zap.NewNop())
+		cfg, err := NewConfig(sessionRecordingConfig, k8sConfig, nil, zap.NewNop())
 
 		require.NoError(t, err)
 		assert.Equal(t, "test-token", cfg.bearerToken)
@@ -43,7 +45,7 @@ func TestNewConfig(t *testing.T) {
 
 		k8sConfig := &config.KubernetesConfig{}
 
-		cfg, err := NewConfig(auditLogConfig, k8sConfig, nil, zap.NewNop())
+		cfg, err := NewConfig(sessionRecordingConfig, k8sConfig, nil, zap.NewNop())
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "unable to load in-cluster configuration")

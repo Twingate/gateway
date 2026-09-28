@@ -13,6 +13,8 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
+
+	yamlutil "gateway/internal/util/yaml"
 )
 
 var (
@@ -61,13 +63,13 @@ type config struct {
 	// Logger to use for logging
 	logger *zap.Logger
 
-	// Threshold (in bytes) of the recorded lines to flush.
-	// If 0, no threshold is used.
-	flushSizeThreshold int
+	// Max size limit at which the session recording is flushed.
+	// If 0, there is no size limit.
+	segmentMaxSize yamlutil.ByteSize
 
-	// Interval to flush
-	// If 0, no periodic flush is used.
-	flushInterval time.Duration
+	// Max duration limit at which the session recording is flushed.
+	// If 0, there is no duration limit.
+	segmentMaxDuration time.Duration
 }
 
 type asciicastRecorder struct {
@@ -106,8 +108,8 @@ func NewRecorder(logger *zap.Logger, opts ...RecorderOption) Recorder {
 		opt(r)
 	}
 
-	if r.config.flushInterval > 0 {
-		r.flushTicker = time.NewTicker(r.config.flushInterval)
+	if r.config.segmentMaxDuration > 0 {
+		r.flushTicker = time.NewTicker(r.config.segmentMaxDuration)
 	}
 
 	r.flushWg.Add(1)
@@ -119,15 +121,15 @@ func NewRecorder(logger *zap.Logger, opts ...RecorderOption) Recorder {
 
 type RecorderOption func(*asciicastRecorder)
 
-func WithFlushSizeThreshold(limit int) RecorderOption {
+func WithSegmentMaxSize(size yamlutil.ByteSize) RecorderOption {
 	return func(r *asciicastRecorder) {
-		r.config.flushSizeThreshold = limit
+		r.config.segmentMaxSize = size
 	}
 }
 
-func WithFlushInterval(interval time.Duration) RecorderOption {
+func WithSegmentMaxDuration(duration time.Duration) RecorderOption {
 	return func(r *asciicastRecorder) {
-		r.config.flushInterval = interval
+		r.config.segmentMaxDuration = duration
 	}
 }
 
@@ -217,7 +219,7 @@ func (r *asciicastRecorder) storeEvent(event string) error {
 		totalSize += len(line)
 	}
 
-	if r.config.flushSizeThreshold > 0 && totalSize >= r.config.flushSizeThreshold {
+	if r.config.segmentMaxSize > 0 && totalSize >= r.config.segmentMaxSize.Bytes() {
 		// Send a flush signal if there is no pending flush
 		select {
 		case r.flushCh <- struct{}{}:
