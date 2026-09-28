@@ -93,7 +93,7 @@
                 },
                 "maxSize": {
                   "type": "string",
-                  "description": "Size limit (in bytes) at which the session recording is flushed (e.g., 1MB, 1MiB, 1M). Set to 0 for no size limit.",
+                  "description": "Size limit at which the session recording is flushed (e.g., 64KB). Must be greater than 0 and at most 256KB.",
                   "default": "64KB"
                 }
               },

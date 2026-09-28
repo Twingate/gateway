@@ -53,6 +53,7 @@ const (
 	defaultMetricsPort                        = 9090
 	defaultSessionRecordingSegmentMaxDuration = time.Minute * 5
 	defaultSessionRecordingSegmentMaxSize     = 64_000  // 64KB in bytes
+	maxSessionRecordingSegmentMaxSize         = 256_000 // 256KB in bytes
 	minTLSCertificateTTL                      = time.Minute * 10
 )
 
@@ -432,7 +433,7 @@ func (c *Config) Validate() error {
 
 var (
 	errNegativeDuration = errors.New("duration must be non-negative")
-	errNegativeSize     = errors.New("size must be non-negative")
+	errSizeOutOfRange   = errors.New("size must be greater than 0 and at most 256KB")
 )
 
 func (l *LogConfig) Validate() error {
@@ -456,8 +457,8 @@ func (s *SessionRecordingSegmentConfig) Validate() error {
 		return fmt.Errorf("%w: maxDuration", errNegativeDuration)
 	}
 
-	if s.MaxSize < 0 {
-		return fmt.Errorf("%w: maxSize", errNegativeSize)
+	if s.MaxSize <= 0 || s.MaxSize > maxSessionRecordingSegmentMaxSize {
+		return fmt.Errorf("%w: maxSize", errSizeOutOfRange)
 	}
 
 	return nil

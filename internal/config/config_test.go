@@ -435,14 +435,14 @@ func TestConfig_Validate(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "negative session recording segment limit",
+			name: "invalid session recording segment limit",
 			config: &Config{
 				Twingate:    TwingateConfig{Network: "test", Host: "twingate.com"},
 				Port:        8443,
 				MetricsPort: 9090,
 				Log: LogConfig{
 					SessionRecording: SessionRecordingConfig{
-						Segment: SessionRecordingSegmentConfig{MaxSize: -1},
+						Segment: SessionRecordingSegmentConfig{MaxSize: 256_001},
 					},
 				},
 				TLS: TLSConfig{
@@ -852,22 +852,28 @@ func TestSessionRecordingSegmentConfig_Validate(t *testing.T) {
 	}{
 		{
 			name:    "valid",
-			segment: SessionRecordingSegmentConfig{MaxDuration: 5 * time.Minute, MaxSize: 1_000_000},
+			segment: SessionRecordingSegmentConfig{MaxDuration: 5 * time.Minute, MaxSize: 64_000},
 		},
 		{
-			name:    "zero is valid",
-			segment: SessionRecordingSegmentConfig{},
+			name:    "maxSize at the upper bound",
+			segment: SessionRecordingSegmentConfig{MaxSize: 256_000},
 		},
 		{
 			name:        "negative maxDuration",
-			segment:     SessionRecordingSegmentConfig{MaxDuration: -1 * time.Minute, MaxSize: 1_000_000},
+			segment:     SessionRecordingSegmentConfig{MaxDuration: -1 * time.Minute, MaxSize: 64_000},
 			wantErr:     errNegativeDuration,
 			errContains: "maxDuration",
 		},
 		{
-			name:        "negative maxSize",
-			segment:     SessionRecordingSegmentConfig{MaxDuration: 5 * time.Minute, MaxSize: -100},
-			wantErr:     errNegativeSize,
+			name:        "zero maxSize",
+			segment:     SessionRecordingSegmentConfig{MaxDuration: 5 * time.Minute, MaxSize: 0},
+			wantErr:     errSizeOutOfRange,
+			errContains: "maxSize",
+		},
+		{
+			name:        "maxSize above the upper bound",
+			segment:     SessionRecordingSegmentConfig{MaxDuration: 5 * time.Minute, MaxSize: 256_001},
+			wantErr:     errSizeOutOfRange,
 			errContains: "maxSize",
 		},
 	}
