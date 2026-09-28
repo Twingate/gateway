@@ -119,15 +119,15 @@ func NewRecorder(logger *zap.Logger, opts ...RecorderOption) Recorder {
 
 type RecorderOption func(*asciicastRecorder)
 
-func WithSegmentMaxSize(limit int) RecorderOption {
+func WithSegmentMaxSize(size int) RecorderOption {
 	return func(r *asciicastRecorder) {
-		r.config.segmentMaxSize = limit
+		r.config.segmentMaxSize = size
 	}
 }
 
-func WithSegmentMaxDuration(interval time.Duration) RecorderOption {
+func WithSegmentMaxDuration(duration time.Duration) RecorderOption {
 	return func(r *asciicastRecorder) {
-		r.config.segmentMaxDuration = interval
+		r.config.segmentMaxDuration = duration
 	}
 }
 
