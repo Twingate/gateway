@@ -4,23 +4,21 @@
 package config
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
-	"math"
 	"net/http"
 	"os"
 	"regexp"
 	"strings"
 	"time"
 
-	"github.com/dustin/go-humanize"
 	"github.com/hashicorp/go-retryablehttp"
 	"go.uber.org/zap"
 	"go.yaml.in/yaml/v4"
 	"golang.org/x/crypto/ssh"
 
 	"gateway/internal/util/useragent"
+	yamlutil "gateway/internal/util/yaml"
 )
 
 var (
@@ -96,40 +94,8 @@ type SessionRecordingConfig struct {
 
 // SessionRecordingSegmentConfig sets the limits at which a recording is split into a new segment.
 type SessionRecordingSegmentConfig struct {
-	MaxDuration time.Duration `yaml:"maxDuration"`
-	MaxSize     byteSize      `yaml:"maxSize"`
-}
-
-type byteSize int
-
-var (
-	errSubByteSize  = errors.New("size must be zero or at least one byte")
-	errSizeTooLarge = errors.New("size too large")
-)
-
-func (b *byteSize) UnmarshalText(text []byte) error {
-	size, err := humanize.ParseBytes(string(text))
-	if err != nil {
-		return fmt.Errorf("invalid size %q: %w", text, err)
-	}
-
-	if size > math.MaxInt {
-		return fmt.Errorf("%w: %q", errSizeTooLarge, text)
-	}
-
-	// ParseBytes truncates a size under a byte and arrive as 0, which means "no limit".
-	// Check for non-zero digits alongside a zero result.
-	if size == 0 && bytes.ContainsAny(text, "123456789") {
-		return fmt.Errorf("%w: %q", errSubByteSize, text)
-	}
-
-	*b = byteSize(size)
-
-	return nil
-}
-
-func (b byteSize) Bytes() int {
-	return int(b)
+	MaxDuration time.Duration     `yaml:"maxDuration"`
+	MaxSize     yamlutil.ByteSize `yaml:"maxSize"`
 }
 
 // TLSConfig represents the downstream TLS configuration.
