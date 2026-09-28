@@ -18,6 +18,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"gateway/internal/util/useragent"
+	yamlutil "gateway/internal/util/yaml"
 )
 
 var (
@@ -47,19 +48,20 @@ var issuerByDomain = map[string]string{
 }
 
 const (
-	defaultTwingateHost               = "twingate.com"
-	defaultPort                       = 8443
-	defaultMetricsPort                = 9090
-	defaultAuditLogFlushInterval      = time.Minute * 10
-	defaultAuditLogFlushSizeThreshold = 1_000_000 // 1MB in bytes
-	minTLSCertificateTTL              = time.Minute * 10
+	defaultTwingateHost                       = "twingate.com"
+	defaultPort                               = 8443
+	defaultMetricsPort                        = 9090
+	defaultSessionRecordingSegmentMaxDuration = time.Minute * 5
+	defaultSessionRecordingSegmentMaxSize     = 64_000  // 64KB in bytes
+	maxSessionRecordingSegmentMaxSize         = 256_000 // 256KB in bytes
+	minTLSCertificateTTL                      = time.Minute * 10
 )
 
 type Config struct {
 	Twingate          TwingateConfig     `yaml:"twingate"`
 	Port              int                `yaml:"port"`
 	MetricsPort       int                `yaml:"metricsPort"`
-	AuditLog          AuditLogConfig     `yaml:"auditLog"`
+	Log               LogConfig          `yaml:"log"`
 	TLS               TLSConfig          `yaml:"tls"`
 	UpstreamCABundles []UpstreamCABundle `yaml:"upstreamCABundles,omitempty"`
 	Kubernetes        *KubernetesConfig  `yaml:"kubernetes,omitempty"`
@@ -82,9 +84,19 @@ func (t TwingateConfig) Issuer() string {
 	return issuerByDomain[trustedDomainFor(t.Host)]
 }
 
-type AuditLogConfig struct {
-	FlushInterval      time.Duration `yaml:"flushInterval"`
-	FlushSizeThreshold int           `yaml:"flushSizeThreshold"` // bytes
+type LogConfig struct {
+	SessionRecording SessionRecordingConfig `yaml:"sessionRecording"`
+}
+
+// SessionRecordingConfig represents the recording configuration for interactive sessions.
+type SessionRecordingConfig struct {
+	Segment SessionRecordingSegmentConfig `yaml:"segment"`
+}
+
+// SessionRecordingSegmentConfig sets the limits at which a recording is split into a new segment.
+type SessionRecordingSegmentConfig struct {
+	MaxDuration time.Duration     `yaml:"maxDuration"`
+	MaxSize     yamlutil.ByteSize `yaml:"maxSize"`
 }
 
 // TLSConfig represents the downstream TLS configuration.
@@ -284,9 +296,13 @@ func newDefaultConfig() *Config {
 		Twingate: TwingateConfig{
 			Host: defaultTwingateHost,
 		},
-		AuditLog: AuditLogConfig{
-			FlushInterval:      defaultAuditLogFlushInterval,
-			FlushSizeThreshold: defaultAuditLogFlushSizeThreshold,
+		Log: LogConfig{
+			SessionRecording: SessionRecordingConfig{
+				Segment: SessionRecordingSegmentConfig{
+					MaxDuration: defaultSessionRecordingSegmentMaxDuration,
+					MaxSize:     defaultSessionRecordingSegmentMaxSize,
+				},
+			},
 		},
 	}
 }
@@ -384,6 +400,10 @@ func (c *Config) Validate() error {
 		return err
 	}
 
+	if err := c.Log.Validate(); err != nil {
+		return fmt.Errorf("log config: %w", err)
+	}
+
 	if err := c.TLS.Validate(); err != nil {
 		return fmt.Errorf("tls config: %w", err)
 	}
@@ -407,6 +427,39 @@ func (c *Config) Validate() error {
 	// Check that at least one protocol is configured
 	if c.Kubernetes == nil && c.SSH == nil && c.WebApp == nil {
 		return fmt.Errorf("%w: at least one protocol (Kubernetes, SSH, or WebApp) must be configured", ErrRequired)
+	}
+
+	return nil
+}
+
+var (
+	errNegativeDuration = errors.New("duration must be non-negative")
+	errSizeOutOfRange   = errors.New("size must be greater than 0 and at most 256KB")
+)
+
+func (l *LogConfig) Validate() error {
+	if err := l.SessionRecording.Validate(); err != nil {
+		return fmt.Errorf("sessionRecording: %w", err)
+	}
+
+	return nil
+}
+
+func (s *SessionRecordingConfig) Validate() error {
+	if err := s.Segment.Validate(); err != nil {
+		return fmt.Errorf("segment: %w", err)
+	}
+
+	return nil
+}
+
+func (s *SessionRecordingSegmentConfig) Validate() error {
+	if s.MaxDuration < 0 {
+		return fmt.Errorf("%w: maxDuration", errNegativeDuration)
+	}
+
+	if s.MaxSize <= 0 || s.MaxSize > maxSessionRecordingSegmentMaxSize {
+		return fmt.Errorf("%w: maxSize", errSizeOutOfRange)
 	}
 
 	return nil
