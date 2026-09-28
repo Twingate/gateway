@@ -15,10 +15,12 @@ data:
     metricsPort: {{ .metrics }}
     {{- end }}
 
-    {{ with .Values.auditLog -}}
-    auditLog:
-      flushInterval: {{ .flushInterval }}
-      flushSizeThreshold: {{ .flushSizeThreshold }}
+    {{ with .Values.log.sessionRecording.segment -}}
+    log:
+      sessionRecording:
+        segment:
+          maxDuration: {{ .maxDuration | quote }}
+          maxSize: {{ .maxSize | quote }}
     {{- end }}
 
     tls:
@@ -34,6 +36,9 @@ data:
       automation:
         {{- with .Values.tls.automation.certificate }}
         certificate:
+          {{- with .commonName }}
+          commonName: {{ . | quote }}
+          {{- end }}
           {{- with .ttl }}
           ttl: {{ . | quote }}
           {{- end }}
@@ -46,6 +51,30 @@ data:
           {{- end }}
         {{- end }}
         issuer:
+          {{- with .Values.tls.automation.issuer.local }}
+          local:
+            certificateFile: "/etc/gateway/tls/ca/ca.crt"
+            privateKeyFile: "/etc/gateway/tls/ca/ca.key"
+          {{- end }}
+          {{- with .Values.tls.automation.issuer.vault }}
+          vault:
+            address: {{ required "tls.automation.issuer.vault.address is required" .address | quote }}
+            {{- with .namespace }}
+            namespace: {{ . | quote }}
+            {{- end }}
+            {{- if or .caBundle .caBundleConfigMapName }}
+            caBundleFile: "/etc/gateway/tls/vault/ca.crt"
+            {{- end }}
+            {{- if and .auth .auth.appRole }}
+            auth:
+              appRole:
+                mount: {{ default "approle" .auth.appRole.mount | quote }}
+                roleID: {{ required "tls.automation.issuer.vault.auth.appRole.roleId is required" .auth.appRole.roleId | quote }}
+                secretIDFile: "/etc/gateway/tls/vault/approle/secretId"
+            {{- end }}
+            mount: {{ default "pki" .mount | quote }}
+            role: {{ required "tls.automation.issuer.vault.role is required" .role | quote }}
+          {{- end }}
           {{- with .Values.tls.automation.issuer.gcpPrivateCA }}
           gcpPrivateCA:
             project: {{ required "tls.automation.issuer.gcpPrivateCA.project is required" .project | quote }}
@@ -92,10 +121,10 @@ data:
         userCertificate:
           ttl: {{ .userCertificate.ttl | quote }}
       {{- end }}
-      {{- if and .ca .ca.manual }}
+      {{- if and .ca .ca.local }}
 
       ca:
-        manual:
+        local:
           privateKeyFile: "/etc/gateway/ssh/ca-private-key"
       {{- end }}
       {{- if and .ca .ca.vault }}
@@ -106,12 +135,15 @@ data:
           {{- with .ca.vault.namespace }}
           namespace: {{ . | quote }}
           {{- end }}
+          {{- if or .ca.vault.caBundle .ca.vault.caBundleConfigMapName }}
+          caBundleFile: "/etc/gateway/ssh/vault/ca.crt"
+          {{- end }}
           {{- if and .ca.vault.auth .ca.vault.auth.appRole }}
           auth:
             appRole:
               mount: {{ default "approle" .ca.vault.auth.appRole.mount | quote }}
               roleID: {{ .ca.vault.auth.appRole.roleId | quote }}
-              secretIDFile: "/etc/gateway/vault/approle/secretId"
+              secretIDFile: "/etc/gateway/ssh/vault/approle/secretId"
           {{- end }}
           mount: {{ default "ssh" .ca.vault.mount | quote }}
           role: {{ .ca.vault.role | quote }}

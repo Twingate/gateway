@@ -172,6 +172,7 @@ tls:
         privateKeyFile: "tls.key"
   automation:
     certificate:
+      commonName: "gateway.acme.int"
       ttl: "48h"
       key:
         type: "ecdsa"
@@ -197,6 +198,7 @@ webApp: {}
 	require.NotNil(t, cfg.TLS.Automation.Issuer.Local)
 	assert.Equal(t, "ca.crt", cfg.TLS.Automation.Issuer.Local.CertificateFile)
 	assert.Equal(t, "ca.key", cfg.TLS.Automation.Issuer.Local.PrivateKeyFile)
+	assert.Equal(t, "gateway.acme.int", cfg.TLS.Automation.Certificate.CommonName)
 	assert.Equal(t, 48*time.Hour, cfg.TLS.Automation.Certificate.TTL)
 	assert.Equal(t, "ecdsa", cfg.TLS.Automation.Certificate.Key.Type)
 	assert.Equal(t, 384, cfg.TLS.Automation.Certificate.Key.Bits)
@@ -210,9 +212,11 @@ twingate:
   network: "acme"
 port: 8443
 metricsPort: 9090
-auditLog:
-  flushInterval: "10m"
-  flushSizeThreshold: 1000000
+log:
+  sessionRecording:
+    segment:
+      maxDuration: "30s"
+      maxSize: "128KB"
 tls:
   certificates:
     files:
@@ -233,6 +237,8 @@ kubernetes: {}
 	assert.Equal(t, "acme", cfg.Twingate.Network)
 	assert.Equal(t, 8443, cfg.Port)
 	assert.Equal(t, 9090, cfg.MetricsPort)
+	assert.Equal(t, time.Second*30, cfg.Log.SessionRecording.Segment.MaxDuration)
+	assert.Equal(t, 128_000, cfg.Log.SessionRecording.Segment.MaxSize.Bytes())
 
 	require.NotNil(t, cfg.Kubernetes)
 	assert.Empty(t, cfg.Kubernetes.Upstreams)
@@ -245,9 +251,6 @@ twingate:
   network: "acme"
 port: 8443
 metricsPort: 9090
-auditLog:
-  flushInterval: "10m"
-  flushSizeThreshold: 1000000
 tls:
   certificates:
     files:
@@ -263,7 +266,7 @@ ssh:
     userCertificate:
       ttl: "5m"
   ca:
-    manual:
+    local:
       privateKeyFile: "ca.key"
 `
 
@@ -282,7 +285,7 @@ ssh:
 	assert.Equal(t, "ed25519", cfg.SSH.Gateway.Key.Type)
 	assert.Equal(t, 24*time.Hour, cfg.SSH.Gateway.HostCertificate.TTL)
 	assert.Equal(t, 5*time.Minute, cfg.SSH.Gateway.UserCertificate.TTL)
-	require.NotNil(t, cfg.SSH.CA.Manual)
+	require.NotNil(t, cfg.SSH.CA.Local)
 }
 
 func TestLoad_SSH_Vault(t *testing.T) {
@@ -359,8 +362,8 @@ kubernetes: {}
 	// Check defaults
 	assert.Equal(t, 8443, cfg.Port)
 	assert.Equal(t, 9090, cfg.MetricsPort)
-	assert.Equal(t, time.Minute*10, cfg.AuditLog.FlushInterval)
-	assert.Equal(t, 1_000_000, cfg.AuditLog.FlushSizeThreshold)
+	assert.Equal(t, time.Minute*5, cfg.Log.SessionRecording.Segment.MaxDuration)
+	assert.Equal(t, 64_000, cfg.Log.SessionRecording.Segment.MaxSize.Bytes())
 	assert.Equal(t, "twingate.com", cfg.Twingate.Host)
 }
 
@@ -409,6 +412,11 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: "test", Host: "twingate.com"},
 				Port:        8443,
 				MetricsPort: 9090,
+				Log: LogConfig{
+					SessionRecording: SessionRecordingConfig{
+						Segment: SessionRecordingSegmentConfig{MaxSize: defaultSessionRecordingSegmentMaxSize},
+					},
+				},
 				TLS: TLSConfig{
 					Certificates: &TLSCertificateSources{
 						Files: []TLSCertificateFileKeyPair{
@@ -424,11 +432,39 @@ func TestConfig_Validate(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "invalid session recording segment limit",
+			config: &Config{
+				Twingate:    TwingateConfig{Network: "test", Host: "twingate.com"},
+				Port:        8443,
+				MetricsPort: 9090,
+				Log: LogConfig{
+					SessionRecording: SessionRecordingConfig{
+						Segment: SessionRecordingSegmentConfig{MaxSize: 256_001},
+					},
+				},
+				TLS: TLSConfig{
+					Certificates: &TLSCertificateSources{
+						Files: []TLSCertificateFileKeyPair{
+							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+						},
+					},
+				},
+				Kubernetes: &KubernetesConfig{},
+			},
+			wantErr:     true,
+			errContains: "log config",
+		},
+		{
 			name: "invalid upstreamCABundles entry",
 			config: &Config{
 				Twingate:    TwingateConfig{Network: "test", Host: "twingate.com"},
 				Port:        8443,
 				MetricsPort: 9090,
+				Log: LogConfig{
+					SessionRecording: SessionRecordingConfig{
+						Segment: SessionRecordingSegmentConfig{MaxSize: defaultSessionRecordingSegmentMaxSize},
+					},
+				},
 				TLS: TLSConfig{
 					Certificates: &TLSCertificateSources{
 						Files: []TLSCertificateFileKeyPair{
@@ -465,6 +501,11 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: "us1", Host: "twingate.com"},
 				Port:        8443,
 				MetricsPort: 9090,
+				Log: LogConfig{
+					SessionRecording: SessionRecordingConfig{
+						Segment: SessionRecordingSegmentConfig{MaxSize: defaultSessionRecordingSegmentMaxSize},
+					},
+				},
 				TLS: TLSConfig{
 					Certificates: &TLSCertificateSources{
 						Files: []TLSCertificateFileKeyPair{
@@ -536,6 +577,11 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: strings.Repeat("a", 63), Host: "twingate.com"},
 				Port:        8443,
 				MetricsPort: 9090,
+				Log: LogConfig{
+					SessionRecording: SessionRecordingConfig{
+						Segment: SessionRecordingSegmentConfig{MaxSize: defaultSessionRecordingSegmentMaxSize},
+					},
+				},
 				TLS: TLSConfig{
 					Certificates: &TLSCertificateSources{
 						Files: []TLSCertificateFileKeyPair{
@@ -571,6 +617,11 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: "test", Host: "foo.stg.opstg.com"},
 				Port:        8443,
 				MetricsPort: 9090,
+				Log: LogConfig{
+					SessionRecording: SessionRecordingConfig{
+						Segment: SessionRecordingSegmentConfig{MaxSize: defaultSessionRecordingSegmentMaxSize},
+					},
+				},
 				TLS: TLSConfig{
 					Certificates: &TLSCertificateSources{
 						Files: []TLSCertificateFileKeyPair{
@@ -588,6 +639,11 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: "acme", Host: "test"},
 				Port:        8443,
 				MetricsPort: 9090,
+				Log: LogConfig{
+					SessionRecording: SessionRecordingConfig{
+						Segment: SessionRecordingSegmentConfig{MaxSize: defaultSessionRecordingSegmentMaxSize},
+					},
+				},
 				TLS: TLSConfig{
 					Certificates: &TLSCertificateSources{
 						Files: []TLSCertificateFileKeyPair{
@@ -605,6 +661,11 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: "test", Host: "Foo.Twingate.COM"},
 				Port:        8443,
 				MetricsPort: 9090,
+				Log: LogConfig{
+					SessionRecording: SessionRecordingConfig{
+						Segment: SessionRecordingSegmentConfig{MaxSize: defaultSessionRecordingSegmentMaxSize},
+					},
+				},
 				TLS: TLSConfig{
 					Certificates: &TLSCertificateSources{
 						Files: []TLSCertificateFileKeyPair{
@@ -748,6 +809,11 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: "test", Host: "twingate.com"},
 				Port:        8443,
 				MetricsPort: 9090,
+				Log: LogConfig{
+					SessionRecording: SessionRecordingConfig{
+						Segment: SessionRecordingSegmentConfig{MaxSize: defaultSessionRecordingSegmentMaxSize},
+					},
+				},
 				TLS: TLSConfig{
 					Certificates: &TLSCertificateSources{
 						Files: []TLSCertificateFileKeyPair{
@@ -770,6 +836,56 @@ func TestConfig_Validate(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 			}
+		})
+	}
+}
+
+func TestSessionRecordingSegmentConfig_Validate(t *testing.T) {
+	tests := []struct {
+		name        string
+		segment     SessionRecordingSegmentConfig
+		wantErr     error
+		errContains string
+	}{
+		{
+			name:    "valid",
+			segment: SessionRecordingSegmentConfig{MaxDuration: 5 * time.Minute, MaxSize: 64_000},
+		},
+		{
+			name:    "maxSize at the upper bound",
+			segment: SessionRecordingSegmentConfig{MaxSize: 256_000},
+		},
+		{
+			name:        "negative maxDuration",
+			segment:     SessionRecordingSegmentConfig{MaxDuration: -1 * time.Minute, MaxSize: 64_000},
+			wantErr:     errNegativeDuration,
+			errContains: "maxDuration",
+		},
+		{
+			name:        "zero maxSize",
+			segment:     SessionRecordingSegmentConfig{MaxDuration: 5 * time.Minute, MaxSize: 0},
+			wantErr:     errSizeOutOfRange,
+			errContains: "maxSize",
+		},
+		{
+			name:        "maxSize above the upper bound",
+			segment:     SessionRecordingSegmentConfig{MaxDuration: 5 * time.Minute, MaxSize: 256_001},
+			wantErr:     errSizeOutOfRange,
+			errContains: "maxSize",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.segment.Validate()
+			if tt.wantErr == nil {
+				assert.NoError(t, err)
+
+				return
+			}
+
+			require.ErrorIs(t, err, tt.wantErr)
+			assert.Contains(t, err.Error(), tt.errContains)
 		})
 	}
 }
@@ -956,8 +1072,21 @@ func TestTLSAutomationConfig_Validate(t *testing.T) {
 					Location: "us-east1",
 					CAPoolID: "gateway",
 				}},
+				Certificate: TLSAutomationCertificateConfig{CommonName: "gateway.acme.int"},
 			},
 			wantErr: false,
+		},
+		{
+			name: "gcpPrivateCA issuer missing common name",
+			automation: TLSAutomationConfig{
+				Issuer: TLSIssuerConfig{GCPPrivateCA: &TLSGCPPrivateCAIssuerConfig{
+					Project:  "acme",
+					Location: "us-east1",
+					CAPoolID: "gateway",
+				}},
+			},
+			wantErr:     true,
+			errContains: "certificate: required field is missing: commonName is required for gcpPrivateCA issuer",
 		},
 		{
 			name: "conflicting local, vault and gcpPrivateCA issuers",
@@ -1358,10 +1487,10 @@ func TestSSHConfig_Validate(t *testing.T) {
 				CA: SSHCAConfig{},
 			},
 			wantErr:     true,
-			errContains: "either 'manual' or 'vault' must be specified",
+			errContains: "either 'local' or 'vault' must be specified",
 		},
 		{
-			name: "valid with manual CA",
+			name: "valid with local CA",
 			ssh: SSHConfig{
 				Gateway: SSHGatewayConfig{
 					Username:        "gateway",
@@ -1370,7 +1499,7 @@ func TestSSHConfig_Validate(t *testing.T) {
 					UserCertificate: SSHCertificateConfig{TTL: 5 * time.Minute},
 				},
 				CA: SSHCAConfig{
-					Manual: &SSHCAManualConfig{
+					Local: &SSHCALocalConfig{
 						PrivateKeyFile: "ca.key",
 					},
 				},
@@ -1404,14 +1533,14 @@ func TestSSHConfig_Validate(t *testing.T) {
 			errContains: "invalid SSH key type",
 		},
 		{
-			name: "conflicting CA config - both manual and Vault",
+			name: "conflicting CA config - both local and Vault",
 			ssh: SSHConfig{
 				Gateway: SSHGatewayConfig{
 					Username: "gateway",
 					Key:      SSHKeyConfig{Type: "ed25519"},
 				},
 				CA: SSHCAConfig{
-					Manual: &SSHCAManualConfig{
+					Local: &SSHCALocalConfig{
 						PrivateKeyFile: "ca.key",
 					},
 					Vault: &SSHCAVaultConfig{
@@ -1421,16 +1550,16 @@ func TestSSHConfig_Validate(t *testing.T) {
 				},
 			},
 			wantErr:     true,
-			errContains: "only one of 'manual' or 'vault'",
+			errContains: "only one of 'local' or 'vault'",
 		},
 		{
-			name: "manual CA missing private key file",
+			name: "local CA missing private key file",
 			ssh: SSHConfig{
 				Gateway: SSHGatewayConfig{
 					Username: "gateway",
 				},
 				CA: SSHCAConfig{
-					Manual: &SSHCAManualConfig{},
+					Local: &SSHCALocalConfig{},
 				},
 			},
 			wantErr:     true,

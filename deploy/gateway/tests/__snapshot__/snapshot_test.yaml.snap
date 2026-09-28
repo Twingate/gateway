@@ -118,9 +118,11 @@ should render with Kubernetes enabled:
         port: 8443
         metricsPort: 9090
 
-        auditLog:
-          flushInterval: 5m
-          flushSizeThreshold: 1e+06
+        log:
+          sessionRecording:
+            segment:
+              maxDuration: "5m"
+              maxSize: "64KB"
 
         tls:
           certificates:
@@ -270,7 +272,7 @@ should render with SSH enabled:
                   name: tls-certs-0
                   readOnly: true
                 - mountPath: /etc/gateway/ssh
-                  name: ssh-manual-ca
+                  name: ssh-local-ca
                   readOnly: true
           securityContext:
             seccompProfile:
@@ -283,9 +285,9 @@ should render with SSH enabled:
             - name: tls-certs-0
               secret:
                 secretName: RELEASE-NAME-gateway-tls
-            - name: ssh-manual-ca
+            - name: ssh-local-ca
               secret:
-                secretName: RELEASE-NAME-gateway-ssh-manual-ca
+                secretName: RELEASE-NAME-gateway-ssh-local-ca
   4: |
     apiVersion: v1
     data:
@@ -297,9 +299,11 @@ should render with SSH enabled:
         port: 8443
         metricsPort: 9090
 
-        auditLog:
-          flushInterval: 5m
-          flushSizeThreshold: 1e+06
+        log:
+          sessionRecording:
+            segment:
+              maxDuration: "5m"
+              maxSize: "64KB"
 
         tls:
           certificates:
@@ -318,7 +322,7 @@ should render with SSH enabled:
               ttl: "5m"
 
           ca:
-            manual:
+            local:
               privateKeyFile: "/etc/gateway/ssh/ca-private-key"
     kind: ConfigMap
     metadata:
@@ -374,5 +378,5 @@ should render with SSH enabled:
         app.kubernetes.io/name: gateway
         app.kubernetes.io/version: 0.1.0
         helm.sh/chart: gateway-0.1.0
-      name: RELEASE-NAME-gateway-ssh-manual-ca
+      name: RELEASE-NAME-gateway-ssh-local-ca
     type: Opaque

@@ -64,12 +64,12 @@ type Config struct {
 
 	gatewayUsername string
 
-	auditLog *config.AuditLogConfig
-	logger   *zap.Logger
+	sessionRecording *config.SessionRecordingConfig
+	logger           *zap.Logger
 }
 
 // NewConfig creates an SSH handler config from the config package types.
-func NewConfig(auditLogConfig *config.AuditLogConfig, sshCfg *config.SSHConfig, logger *zap.Logger) (*Config, error) {
+func NewConfig(sessionRecordingConfig *config.SessionRecordingConfig, sshCfg *config.SSHConfig, logger *zap.Logger) (*Config, error) {
 	caProvider, err := newCAFromConfig(sshCfg.CA, logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create ca: %w", err)
@@ -109,8 +109,8 @@ func NewConfig(auditLogConfig *config.AuditLogConfig, sshCfg *config.SSHConfig, 
 		userCertTTL:     userCertTTL,
 		gatewayUsername: sshCfg.Gateway.Username,
 
-		auditLog: auditLogConfig,
-		logger:   logger,
+		sessionRecording: sessionRecordingConfig,
+		logger:           logger,
 	}, nil
 }
 

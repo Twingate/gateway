@@ -105,12 +105,12 @@ type caProvider interface {
 }
 
 // newCAFromConfig creates a caProvider based on the provided configuration.
-// - If config.Manual is set, creates an embedded CA with the provided key files.
+// - If config.Local is set, creates a CA from the provided private key file.
 // - If config.Vault is set, creates Vault-backed CAs.
 func newCAFromConfig(config gatewayconfig.SSHCAConfig, logger *zap.Logger) (caProvider, error) {
 	switch {
-	case config.Manual != nil:
-		return newManualCA(config.Manual.PrivateKeyFile, logger)
+	case config.Local != nil:
+		return newLocalCA(config.Local.PrivateKeyFile, logger)
 	case config.Vault != nil:
 		return newVaultCA(config.Vault, logger)
 	default:
@@ -118,9 +118,9 @@ func newCAFromConfig(config gatewayconfig.SSHCAConfig, logger *zap.Logger) (caPr
 	}
 }
 
-// manualCAProvider signs with an embedded key reloaded from a file, so the CA key
+// localCAProvider signs with an embedded key reloaded from a file, so the CA key
 // can be rotated without a restart. Upstream host authentication uses TOFU.
-type manualCAProvider struct {
+type localCAProvider struct {
 	ca          *embeddedCA
 	keyReloader *keyReloader
 
@@ -128,8 +128,7 @@ type manualCAProvider struct {
 	tofuHostKeys map[string]*tofuHostKey
 }
 
-// newManualCA creates an embedded CA with keys loaded from files.
-func newManualCA(privateKeyFile string, logger *zap.Logger) (*manualCAProvider, error) {
+func newLocalCA(privateKeyFile string, logger *zap.Logger) (*localCAProvider, error) {
 	reloader := newKeyReloader(privateKeyFile, logger)
 	if err := reloader.load(); err != nil {
 		return nil, err
@@ -140,16 +139,16 @@ func newManualCA(privateKeyFile string, logger *zap.Logger) (*manualCAProvider, 
 	}
 
 	publicKeyStr := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(reloader.getSigner().PublicKey())))
-	logger.Info("Using manual CA for SSH authentication", zap.String("ca_public_key", publicKeyStr))
+	logger.Info("Using local CA for SSH authentication", zap.String("ca_public_key", publicKeyStr))
 
-	return &manualCAProvider{
+	return &localCAProvider{
 		ca:           ca,
 		keyReloader:  reloader,
 		tofuHostKeys: make(map[string]*tofuHostKey),
 	}, nil
 }
 
-func (p *manualCAProvider) Start(ctx context.Context) error {
+func (p *localCAProvider) Start(ctx context.Context) error {
 	p.keyReloader.Run(ctx)
 
 	go p.ca.notifyRotationsFrom(ctx, p.keyReloader.reloadCh)
@@ -157,12 +156,12 @@ func (p *manualCAProvider) Start(ctx context.Context) error {
 	return nil
 }
 
-func (p *manualCAProvider) gatewayHostCA() ca { return p.ca }
-func (p *manualCAProvider) gatewayUserCA() ca { return p.ca }
+func (p *localCAProvider) gatewayHostCA() ca { return p.ca }
+func (p *localCAProvider) gatewayUserCA() ca { return p.ca }
 
 // upstreamHostKeyCallback returns a TOFU callback that pins the upstream's host key on
 // first use per address.
-func (p *manualCAProvider) upstreamHostKeyCallback(_ context.Context, address string) (ssh.HostKeyCallback, error) {
+func (p *localCAProvider) upstreamHostKeyCallback(_ context.Context, address string) (ssh.HostKeyCallback, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 

@@ -66,8 +66,8 @@ main.go → cmd/start.go → proxy.NewProxy() → proxy.Start()
 
 **`internal/backend/ssh/`** - SSH proxy:
 
-- SSH server with CA-signed certificates (manual/Vault)
-- Manual CA private key hot-reloads on file change (`key_reloader.go`)
+- SSH server with CA-signed certificates (local/Vault)
+- Local CA private key hot-reloads on file change (`key_reloader.go`)
 - Bidirectional channel forwarding to upstreams
 - Host certs (gateway→client) + User certs (gateway→upstream)
 
@@ -85,7 +85,7 @@ main.go → cmd/start.go → proxy.NewProxy() → proxy.Start()
 
 **K8s Security**: Gateway uses impersonation headers (`Impersonate-User`, `Impersonate-Group`). K8s RBAC enforced at API server level. Gateway service account only needs impersonation permission.
 
-**SSH Security**: Certificate-based auth. CA options: manual (file) or Vault (production); one is required. Separate CAs supported for gateway-host, gateway-user, and upstream verification.
+**SSH Security**: Certificate-based auth. CA options: local (file) or Vault (production); one is required. Separate CAs supported for gateway-host, gateway-user, and upstream verification.
 
 ## Directory Structure
 
@@ -272,7 +272,7 @@ Resources: Deployment, Service, ServiceAccount, ClusterRole/Binding, Secret (TLS
 - `gateway_http_request_duration_seconds`: Request latency
 - `gateway_session_recordings_total`: Recording counts
 
-**Secrets**: TLS cert/key, SSH CA key (manual mode), Vault token, upstream K8s tokens
+**Secrets**: TLS cert/key, SSH CA key (local CA mode), Vault AppRole SecretID, upstream K8s tokens
 
 ## Troubleshooting
 

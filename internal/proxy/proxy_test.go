@@ -58,7 +58,7 @@ var fullConfig = gatewayconfig.Config{
 			UserCertificate: gatewayconfig.SSHCertificateConfig{},
 		},
 		CA: gatewayconfig.SSHCAConfig{
-			Manual: &gatewayconfig.SSHCAManualConfig{
+			Local: &gatewayconfig.SSHCALocalConfig{
 				PrivateKeyFile: "../../test/data/ssh/ca/ca",
 			},
 		},
@@ -147,7 +147,7 @@ func TestShutdown_ClosesAllComponents(t *testing.T) {
 	// Create and attach a real HTTP proxy
 	registry := prometheus.NewRegistry()
 
-	k8sConfig, err := kubernetes.NewConfig(&gatewayconfig.AuditLogConfig{}, fullConfig.Kubernetes, metrics.RegisterRoundTripperMetrics(registry), zap.NewNop())
+	k8sConfig, err := kubernetes.NewConfig(&gatewayconfig.SessionRecordingConfig{}, fullConfig.Kubernetes, metrics.RegisterRoundTripperMetrics(registry), zap.NewNop())
 	require.NoError(t, err)
 
 	k8sHandler, err := kubernetes.NewHandler(*k8sConfig)
@@ -176,7 +176,7 @@ func TestShutdown_ClosesAllComponents(t *testing.T) {
 
 	// Create and attach a real SSH proxy
 	sshConfig, err := ssh.NewConfig(
-		&gatewayconfig.AuditLogConfig{},
+		&gatewayconfig.SessionRecordingConfig{},
 		fullConfig.SSH,
 		zap.NewNop(),
 	)

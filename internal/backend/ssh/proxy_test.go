@@ -449,7 +449,7 @@ func newFakeCAProvider(current caProvider) *fakeCAProvider {
 	}
 }
 
-// newTestProxy builds an Proxy in manual CA mode, so tests can drive Serve/serveConn
+// newTestProxy builds a Proxy in local CA mode, so tests can drive Serve/serveConn
 // directly without going through Start.
 func newTestProxy(t *testing.T) *Proxy {
 	t.Helper()
@@ -464,7 +464,7 @@ func newTestProxyWithLogger(t *testing.T, logger *zap.Logger) *Proxy {
 
 	config, err := NewConfig(nil, &gatewayconfig.SSHConfig{
 		CA: gatewayconfig.SSHCAConfig{
-			Manual: &gatewayconfig.SSHCAManualConfig{PrivateKeyFile: "../../../test/data/ssh/ca/ca"},
+			Local: &gatewayconfig.SSHCALocalConfig{PrivateKeyFile: "../../../test/data/ssh/ca/ca"},
 		},
 		Gateway: gatewayconfig.SSHGatewayConfig{Username: testProxyUsername},
 	}, logger)

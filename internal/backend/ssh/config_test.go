@@ -16,9 +16,11 @@ import (
 )
 
 func TestNewConfig(t *testing.T) {
-	auditLog := &gatewayconfig.AuditLogConfig{
-		FlushInterval:      time.Minute * 5,
-		FlushSizeThreshold: 2000,
+	sessionRecording := &gatewayconfig.SessionRecordingConfig{
+		Segment: gatewayconfig.SessionRecordingSegmentConfig{
+			MaxDuration: time.Minute * 5,
+			MaxSize:     2000,
+		},
 	}
 
 	tests := []struct {
@@ -53,13 +55,13 @@ func TestNewConfig(t *testing.T) {
 					UserCertificate: gatewayconfig.SSHCertificateConfig{TTL: 5 * time.Minute},
 				},
 				CA: gatewayconfig.SSHCAConfig{
-					Manual: &gatewayconfig.SSHCAManualConfig{
+					Local: &gatewayconfig.SSHCALocalConfig{
 						PrivateKeyFile: "../../../test/data/ssh/ca/ca",
 					},
 				},
 			}
 
-			config, err := NewConfig(auditLog, sshConfig, zap.NewNop())
+			config, err := NewConfig(sessionRecording, sshConfig, zap.NewNop())
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
 				require.ErrorContains(t, err, tt.wantErrText)
@@ -71,7 +73,7 @@ func TestNewConfig(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, config)
 
-			assert.Equal(t, auditLog, config.auditLog)
+			assert.Equal(t, sessionRecording, config.sessionRecording)
 			assert.Equal(t, "gateway", config.gatewayUsername)
 
 			require.NotNil(t, config.hostCerts)
@@ -84,8 +86,8 @@ func TestNewConfig(t *testing.T) {
 	}
 }
 
-func TestNewConfig_WithManualCA(t *testing.T) {
-	auditLog := &gatewayconfig.AuditLogConfig{}
+func TestNewConfig_WithLocalCA(t *testing.T) {
+	sessionRecording := &gatewayconfig.SessionRecordingConfig{}
 
 	sshConfig := &gatewayconfig.SSHConfig{
 		Gateway: gatewayconfig.SSHGatewayConfig{
@@ -95,19 +97,19 @@ func TestNewConfig_WithManualCA(t *testing.T) {
 			UserCertificate: gatewayconfig.SSHCertificateConfig{TTL: 5 * time.Minute},
 		},
 		CA: gatewayconfig.SSHCAConfig{
-			Manual: &gatewayconfig.SSHCAManualConfig{
+			Local: &gatewayconfig.SSHCALocalConfig{
 				PrivateKeyFile: "../../../test/data/ssh/ca/ca",
 			},
 		},
 	}
 
-	config, err := NewConfig(auditLog, sshConfig, zap.NewNop())
+	config, err := NewConfig(sessionRecording, sshConfig, zap.NewNop())
 	require.NoError(t, err)
 	assert.NotNil(t, config)
 }
 
-func TestNewConfig_InvalidManualCA(t *testing.T) {
-	auditLog := &gatewayconfig.AuditLogConfig{}
+func TestNewConfig_InvalidLocalCA(t *testing.T) {
+	sessionRecording := &gatewayconfig.SessionRecordingConfig{}
 
 	sshConfig := &gatewayconfig.SSHConfig{
 		Gateway: gatewayconfig.SSHGatewayConfig{
@@ -117,13 +119,13 @@ func TestNewConfig_InvalidManualCA(t *testing.T) {
 			UserCertificate: gatewayconfig.SSHCertificateConfig{TTL: 5 * time.Minute},
 		},
 		CA: gatewayconfig.SSHCAConfig{
-			Manual: &gatewayconfig.SSHCAManualConfig{
+			Local: &gatewayconfig.SSHCALocalConfig{
 				PrivateKeyFile: "nonexistent.key",
 			},
 		},
 	}
 
-	config, err := NewConfig(auditLog, sshConfig, zap.NewNop())
+	config, err := NewConfig(sessionRecording, sshConfig, zap.NewNop())
 	require.Error(t, err)
 	assert.Nil(t, config)
 	assert.Contains(t, err.Error(), "failed to create ca")

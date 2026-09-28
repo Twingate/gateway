@@ -136,6 +136,40 @@ true
 {{- end -}}
 {{- end -}}
 
+{{/*
+Create the name of the TLS Vault issuer CA bundle ConfigMap to use
+*/}}
+{{- define "gateway.tlsVaultIssuerCABundleConfigMapName" -}}
+{{- if and .Values.tls.automation.issuer.vault .Values.tls.automation.issuer.vault.caBundleConfigMapName }}
+{{- .Values.tls.automation.issuer.vault.caBundleConfigMapName }}
+{{- else }}
+{{- printf "%s-tls-vault-issuer-ca-bundle" (include "gateway.fullname" .) }}
+{{- end }}
+{{- end }}
+
+{{/*
+Create the name of the TLS Vault issuer AppRole secret ID Secret to use
+*/}}
+{{- define "gateway.tlsVaultIssuerAppRoleSecretIdSecretName" -}}
+{{- if and .Values.tls.automation.issuer.vault .Values.tls.automation.issuer.vault.auth.appRole .Values.tls.automation.issuer.vault.auth.appRole.secretIdSecretName }}
+{{- .Values.tls.automation.issuer.vault.auth.appRole.secretIdSecretName }}
+{{- else }}
+{{- printf "%s-tls-vault-issuer-approle-secret-id" (include "gateway.fullname" .) }}
+{{- end }}
+{{- end }}
+
+
+{{/*
+Create the name of the TLS local issuer Secret to use
+*/}}
+{{- define "gateway.tlsLocalIssuerSecretName" -}}
+{{- if .Values.tls.automation.issuer.local.secretName }}
+{{- .Values.tls.automation.issuer.local.secretName }}
+{{- else }}
+{{- printf "%s-tls-local-issuer" (include "gateway.fullname" .) }}
+{{- end }}
+{{- end }}
+
 
 {{/*
 Create the name of the ConfigMap holding the inline `upstreamCABundles` PEM bundles
@@ -172,35 +206,24 @@ return a string; callers decode it with fromJsonArray.
 {{- end }}
 
 {{/*
-Create the name of the SSH manual CA secret to use
+Create the name of the SSH local CA secret to use
 */}}
-{{- define "gateway.sshManualCASecretName" -}}
-{{- if .Values.ssh.ca.manual.existingSecret }}
-{{- .Values.ssh.ca.manual.existingSecret }}
+{{- define "gateway.sshLocalCASecretName" -}}
+{{- if .Values.ssh.ca.local.secretName }}
+{{- .Values.ssh.ca.local.secretName }}
 {{- else }}
-{{- printf "%s-ssh-manual-ca" (include "gateway.fullname" .) }}
+{{- printf "%s-ssh-local-ca" (include "gateway.fullname" .) }}
 {{- end }}
 {{- end }}
 
 {{/*
-Create the name of the SSH Vault CA bundle secret to use
+Create the name of the SSH Vault CA bundle ConfigMap to use
 */}}
-{{- define "gateway.sshVaultCABundleSecretName" -}}
-{{- if and .Values.ssh.ca.vault .Values.ssh.ca.vault.existingCABundleSecret }}
-{{- .Values.ssh.ca.vault.existingCABundleSecret }}
+{{- define "gateway.sshVaultCABundleConfigMapName" -}}
+{{- if and .Values.ssh.ca.vault .Values.ssh.ca.vault.caBundleConfigMapName }}
+{{- .Values.ssh.ca.vault.caBundleConfigMapName }}
 {{- else }}
 {{- printf "%s-ssh-vault-ca-bundle" (include "gateway.fullname" .) }}
-{{- end }}
-{{- end }}
-
-{{/*
-Create the name of the SSH Vault token secret to use
-*/}}
-{{- define "gateway.sshVaultTokenSecretName" -}}
-{{- if and .Values.ssh.ca.vault .Values.ssh.ca.vault.auth.existingTokenSecret }}
-{{- .Values.ssh.ca.vault.auth.existingTokenSecret }}
-{{- else }}
-{{- printf "%s-ssh-vault-token" (include "gateway.fullname" .) }}
 {{- end }}
 {{- end }}
 
@@ -208,8 +231,8 @@ Create the name of the SSH Vault token secret to use
 Create the name of the SSH Vault AppRole secret ID secret to use
 */}}
 {{- define "gateway.sshVaultAppRoleSecretIdSecretName" -}}
-{{- if and .Values.ssh.ca.vault .Values.ssh.ca.vault.auth.appRole .Values.ssh.ca.vault.auth.appRole.existingSecretIdSecret }}
-{{- .Values.ssh.ca.vault.auth.appRole.existingSecretIdSecret }}
+{{- if and .Values.ssh.ca.vault .Values.ssh.ca.vault.auth.appRole .Values.ssh.ca.vault.auth.appRole.secretIdSecretName }}
+{{- .Values.ssh.ca.vault.auth.appRole.secretIdSecretName }}
 {{- else }}
 {{- printf "%s-ssh-vault-approle-secret-id" (include "gateway.fullname" .) }}
 {{- end }}
@@ -267,6 +290,20 @@ Create the name of the Secret holding the CA certificate the TwingateCertificate
 {{- $certificateAuthority.certificateSecretName }}
 {{- else }}
 {{- printf "%s-ca" (include "gateway.fullname" .) }}
+{{- end }}
+{{- end }}
+
+{{/*
+Return the name of the secretRef used by the TwingateCertificateAuthority.
+*/}}
+{{- define "gateway.certificateAuthoritySecretRefName" -}}
+{{- $names := include "gateway.tlsSecretNames" . | fromJsonArray }}
+{{- if include "gateway.certificateAuthorityCertificateProvided" . }}
+{{- include "gateway.certificateAuthoritySecretName" . }}
+{{- else if $names }}
+{{- first $names }}
+{{- else if and .Values.tls.automation.enabled .Values.tls.automation.issuer.local }}
+{{- include "gateway.tlsLocalIssuerSecretName" . }}
 {{- end }}
 {{- end }}
 

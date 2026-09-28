@@ -93,6 +93,19 @@ tests:
           content:
             name: FOO
             value: "bar"
+  - it: should not mount TLS Vault volumes when not enabled
+    set:
+      twingate:
+        network: "acme"
+      tls:
+        automation:
+          enabled: false
+    asserts:
+      - notContains:
+          path: spec.template.spec.volumes
+          any: true
+          content:
+            name: tls-vault-issuer-ca-bundle
 ---
 suite: Deployment with SSH
 templates:
@@ -101,15 +114,13 @@ set:
   ssh:
     enabled: true
 tests:
-  - it: should not add SSH manual CA volume and volume mount when `ssh.enabled` is true but `ssh.ca.manual` is not specified
+  - it: should not add SSH local CA volume and volume mount when `ssh.enabled` is true but `ssh.ca.local` is not specified
     set:
       ssh:
         ca:
           vault:
             address: "https://vault.example.com:8200"
             role: "gateway"
-            auth:
-              token: "vault-token"
     asserts:
       - equal:
           path: spec.template.spec.volumes
@@ -129,25 +140,25 @@ tests:
             - name: tls-certs-0
               mountPath: /etc/gateway/tls/0
               readOnly: true
-  - it: should add SSH manual CA volume and volume mount when `ssh.enabled` is true and `ssh.ca.manual` is specified
+  - it: should add SSH local CA volume and volume mount when `ssh.enabled` is true and `ssh.ca.local` is specified
     set:
       ssh:
         ca:
-          manual:
+          local:
             privateKey: "my-private-key"
     asserts:
       - contains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
-            name: ssh-manual-ca
+            name: ssh-local-ca
             mountPath: /etc/gateway/ssh
             readOnly: true
       - contains:
           path: spec.template.spec.volumes
           content:
-            name: ssh-manual-ca
+            name: ssh-local-ca
             secret:
-              secretName: RELEASE-NAME-gateway-ssh-manual-ca
+              secretName: RELEASE-NAME-gateway-ssh-local-ca
 ---
 suite: Deployment with SSH and Vault CA
 templates:
@@ -160,117 +171,64 @@ set:
         address: "https://vault.example.com:8200"
         role: "gateway"
 tests:
-  - it: should include Vault token env var
-    set:
-      ssh:
-        ca:
-          vault:
-            auth:
-              token: "vault-token"
-    asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: VAULT_TOKEN
-            valueFrom:
-              secretKeyRef:
-                name: RELEASE-NAME-gateway-ssh-vault-token
-                key: token
-  - it: should use existing token secret when specified
-    set:
-      ssh:
-        ca:
-          vault:
-            auth:
-              existingTokenSecret: "my-vault-token-secret"
-    asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: VAULT_TOKEN
-            valueFrom:
-              secretKeyRef:
-                name: my-vault-token-secret
-                key: token
   - it: should support Vault CA bundle when CA bundle is specified
     set:
       ssh:
         ca:
           vault:
             caBundle: "my-ca-bundle"
-            auth:
-              token: "my-token"
     asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: VAULT_CACERT
-            value: /etc/gateway/vault/ca.crt
       - contains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
-            name: vault-ca-bundle
-            mountPath: /etc/gateway/vault
+            name: ssh-vault-ca-bundle
+            mountPath: /etc/gateway/ssh/vault
             readOnly: true
       - contains:
           path: spec.template.spec.volumes
           content:
-            name: vault-ca-bundle
-            secret:
-              secretName: RELEASE-NAME-gateway-ssh-vault-ca-bundle
-  - it: should support Vault CA bundle when existing CA bundle secret is specified
+            name: ssh-vault-ca-bundle
+            configMap:
+              name: RELEASE-NAME-gateway-ssh-vault-ca-bundle
+  - it: should support Vault CA bundle when an existing CA bundle ConfigMap is specified
     set:
       ssh:
         ca:
           vault:
-            existingCABundleSecret: "my-ca-bundle-secret"
-            auth:
-              token: "my-token"
+            caBundleConfigMapName: "my-ca-bundle-configmap"
     asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: VAULT_CACERT
-            value: /etc/gateway/vault/ca.crt
       - contains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
-            name: vault-ca-bundle
-            mountPath: /etc/gateway/vault
+            name: ssh-vault-ca-bundle
+            mountPath: /etc/gateway/ssh/vault
             readOnly: true
       - contains:
           path: spec.template.spec.volumes
           content:
-            name: vault-ca-bundle
-            secret:
-              secretName: my-ca-bundle-secret
+            name: ssh-vault-ca-bundle
+            configMap:
+              name: my-ca-bundle-configmap
   - it: should not add Vault CA bundle when CA bundle is not specified
     set:
       ssh:
         ca:
           vault:
             caBundle: ""
-            existingCABundleSecret: ""
-            auth:
-              token: "my-token"
+            caBundleConfigMapName: ""
     asserts:
-      - notContains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: VAULT_CACERT
-            value: /etc/gateway/vault/ca.crt
       - notContains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
-            name: vault-ca-bundle
-            mountPath: /etc/gateway/vault
+            name: ssh-vault-ca-bundle
+            mountPath: /etc/gateway/ssh/vault
             readOnly: true
       - notContains:
           path: spec.template.spec.volumes
           content:
-            name: vault-ca-bundle
-            secret:
-              secretName: RELEASE-NAME-gateway-ssh-vault-ca-bundle
+            name: ssh-vault-ca-bundle
+            configMap:
+              name: RELEASE-NAME-gateway-ssh-vault-ca-bundle
   - it: should include Vault AppRole Secret ID volume and volumeMount
     set:
       ssh:
@@ -284,16 +242,16 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
-            name: vault-approle-secret-id
-            mountPath: /etc/gateway/vault/approle
+            name: ssh-vault-approle-secret-id
+            mountPath: /etc/gateway/ssh/vault/approle
             readOnly: true
       - contains:
           path: spec.template.spec.volumes
           content:
-            name: vault-approle-secret-id
+            name: ssh-vault-approle-secret-id
             secret:
               secretName: RELEASE-NAME-gateway-ssh-vault-approle-secret-id
-  - it: should use existing Vault AppRole Secret ID secret name when specified
+  - it: should use an existing Vault AppRole secret ID Secret when specified
     set:
       ssh:
         ca:
@@ -301,27 +259,14 @@ tests:
             auth:
               appRole:
                 roleId: "my-role-id"
-                existingSecretIdSecret: "my-existing-approle-secret"
+                secretIdSecretName: "my-existing-approle-secret"
     asserts:
       - contains:
           path: spec.template.spec.volumes
           content:
-            name: vault-approle-secret-id
+            name: ssh-vault-approle-secret-id
             secret:
               secretName: my-existing-approle-secret
-  - it: should error when both token and appRole are specified
-    set:
-      ssh:
-        ca:
-          vault:
-            auth:
-              token: "my-token"
-              appRole:
-                roleId: "my-role-id"
-                secretId: "my-secret-id"
-    asserts:
-      - failedTemplate:
-          errorPattern: "at '/ssh/ca/vault/auth': 'oneOf' failed, subschemas 1, 2 matched"
 ---
 suite: Deployment with upstream CA bundles
 templates:
@@ -399,4 +344,152 @@ tests:
           content:
             name: upstream-ca-bundle-1
             mountPath: /etc/gateway/upstream-ca-bundles/1
+            readOnly: true
+---
+suite: Deployment with local issuer TLS automation
+templates:
+  - deployment.yaml
+set:
+  tls:
+    certificates:
+      autoGenerated:
+        enabled: false
+tests:
+  - it: should add the local issuer volume and volume mount
+    set:
+      tls:
+        automation:
+          enabled: true
+          issuer:
+            local:
+              certificate: "my-ca-cert"
+              privateKey: "my-ca-key"
+    asserts:
+      - equal:
+          path: spec.template.spec.volumes
+          value:
+            - name: config
+              configMap:
+                name: RELEASE-NAME-gateway-config
+            - name: tls-local-issuer
+              secret:
+                secretName: RELEASE-NAME-gateway-tls-local-issuer
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts
+          value:
+            - name: config
+              mountPath: /etc/gateway
+              readOnly: true
+            - name: tls-local-issuer
+              mountPath: /etc/gateway/tls/ca
+              readOnly: true
+  - it: should mount an existing local issuer Secret
+    set:
+      tls:
+        automation:
+          enabled: true
+          issuer:
+            local:
+              secretName: "my-existing-secret"
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: tls-local-issuer
+            secret:
+              secretName: my-existing-secret
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: tls-local-issuer
+            mountPath: /etc/gateway/tls/ca
+            readOnly: true
+---
+suite: Deployment with Vault issuer TLS automation
+templates:
+  - deployment.yaml
+set:
+  tls:
+    certificates:
+      autoGenerated:
+        enabled: false
+    automation:
+      enabled: true
+      issuer:
+        vault:
+          address: "https://vault.acme.int:8200"
+          role: "gateway"
+tests:
+  - it: should mount the AppRole secret ID and the CA bundle ConfigMap
+    set:
+      tls:
+        automation:
+          issuer:
+            vault:
+              caBundle: "ca-cert"
+              auth:
+                appRole:
+                  roleId: "my-role-id"
+                  secretId: "my-secret-id"
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: tls-vault-issuer-approle-secret-id
+            secret:
+              secretName: RELEASE-NAME-gateway-tls-vault-issuer-approle-secret-id
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: tls-vault-issuer-approle-secret-id
+            mountPath: /etc/gateway/tls/vault/approle
+            readOnly: true
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: tls-vault-issuer-ca-bundle
+            configMap:
+              name: RELEASE-NAME-gateway-tls-vault-issuer-ca-bundle
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: tls-vault-issuer-ca-bundle
+            mountPath: /etc/gateway/tls/vault
+            readOnly: true
+  - it: should mount an existing AppRole secret ID secret
+    set:
+      tls:
+        automation:
+          issuer:
+            vault:
+              auth:
+                appRole:
+                  roleId: "my-role-id"
+                  secretIdSecretName: "my-existing-approle-secret"
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: tls-vault-issuer-approle-secret-id
+            secret:
+              secretName: my-existing-approle-secret
+  - it: should mount an existing CA bundle ConfigMap
+    set:
+      tls:
+        automation:
+          issuer:
+            vault:
+              caBundleConfigMapName: "my-existing-configmap"
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: tls-vault-issuer-ca-bundle
+            configMap:
+              name: my-existing-configmap
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: tls-vault-issuer-ca-bundle
+            mountPath: /etc/gateway/tls/vault
             readOnly: true

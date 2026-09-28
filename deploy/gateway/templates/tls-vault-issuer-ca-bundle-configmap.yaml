@@ -1,0 +1,11 @@
+{{- if and .Values.tls.automation.enabled .Values.tls.automation.issuer.vault .Values.tls.automation.issuer.vault.caBundle (not .Values.tls.automation.issuer.vault.caBundleConfigMapName) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "gateway.tlsVaultIssuerCABundleConfigMapName" . }}
+  labels:
+    {{- include "gateway.labels" . | nindent 4 }}
+data:
+  ca.crt: |
+    {{- .Values.tls.automation.issuer.vault.caBundle | trim | nindent 4 }}
+{{- end }}
