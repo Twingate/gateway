@@ -257,6 +257,8 @@ tests:
             enabled: false
         automation:
           enabled: true
+          certificate:
+            commonName: "gateway.acme.int"
           issuer:
             gcpPrivateCA:
               project: "twingate-prod"
@@ -279,6 +281,8 @@ tests:
       tls:
         automation:
           enabled: true
+          certificate:
+            commonName: "gateway.acme.int"
           issuer:
             gcpPrivateCA:
               project: "twingate-prod"

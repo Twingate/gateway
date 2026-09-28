@@ -9,6 +9,7 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"fmt"
 	"net"
 	"strings"
@@ -32,10 +33,11 @@ const (
 // It caches one certificate per requested name and issues a fresh one once the
 // cached certificate nears its expiry.
 type automation struct {
-	issuer issuer
-	key    keyConfig
-	ttl    time.Duration
-	logger *zap.Logger
+	issuer     issuer
+	key        keyConfig
+	ttl        time.Duration
+	commonName string
+	logger     *zap.Logger
 
 	mu sync.Mutex
 	// counts CA rotations, so a certificate signed before one is not cached
@@ -65,11 +67,12 @@ func newAutomation(cfg *config.TLSAutomationConfig, logger *zap.Logger) (*automa
 	}
 
 	return &automation{
-		issuer: issuer,
-		key:    keyCfg,
-		ttl:    certTTL,
-		logger: logger,
-		cache:  cache,
+		issuer:     issuer,
+		key:        keyCfg,
+		ttl:        certTTL,
+		commonName: cfg.Certificate.CommonName,
+		logger:     logger,
+		cache:      cache,
 	}, nil
 }
 
@@ -129,7 +132,7 @@ func (a *automation) issue(ctx context.Context, name string) (*tls.Certificate, 
 		return nil, fmt.Errorf("failed to generate leaf key: %w", err)
 	}
 
-	leaf, caChain, err := a.issuer.sign(ctx, newCertificateRequest(key, name, a.ttl))
+	leaf, caChain, err := a.issuer.sign(ctx, newCertificateRequest(key, name, a.commonName, a.ttl))
 	if err != nil {
 		return nil, err
 	}
@@ -182,18 +185,19 @@ type certificateRequest struct {
 	key         crypto.Signer
 	dnsNames    []string
 	ipAddresses []net.IP
+	commonName  string
 	ttl         time.Duration
 }
 
-// newCertificateRequest creates a new certificate request for the given name and TTL.
-// If an empty name is provided, the certificate would have no Subject Alternative Names.
-func newCertificateRequest(key crypto.Signer, name string, ttl time.Duration) *certificateRequest {
-	req := &certificateRequest{key: key, ttl: ttl}
+// newCertificateRequest creates a new certificate request for the given Subject Alternative Name (SAN), Subject Common Name and TTL.
+// If an empty SAN is provided, the certificate would have no SANs.
+func newCertificateRequest(key crypto.Signer, subjectAlternativeName, commonName string, ttl time.Duration) *certificateRequest {
+	req := &certificateRequest{key: key, commonName: commonName, ttl: ttl}
 
-	if ip := net.ParseIP(name); ip != nil {
+	if ip := net.ParseIP(subjectAlternativeName); ip != nil {
 		req.ipAddresses = []net.IP{ip}
-	} else if name != "" {
-		req.dnsNames = []string{name}
+	} else if subjectAlternativeName != "" {
+		req.dnsNames = []string{subjectAlternativeName}
 	}
 
 	return req
@@ -201,7 +205,11 @@ func newCertificateRequest(key crypto.Signer, name string, ttl time.Duration) *c
 
 // csr builds the DER-encoded certificate request.
 func (c *certificateRequest) csr() ([]byte, error) {
-	template := &x509.CertificateRequest{DNSNames: c.dnsNames, IPAddresses: c.ipAddresses}
+	template := &x509.CertificateRequest{
+		Subject:     pkix.Name{CommonName: c.commonName},
+		DNSNames:    c.dnsNames,
+		IPAddresses: c.ipAddresses,
+	}
 
 	csr, err := x509.CreateCertificateRequest(rand.Reader, template, c.key)
 	if err != nil {

@@ -115,8 +115,9 @@ type TLSAutomationConfig struct {
 }
 
 type TLSAutomationCertificateConfig struct {
-	TTL time.Duration           `yaml:"ttl"`
-	Key TLSCertificateKeyConfig `yaml:"key"`
+	CommonName string                  `yaml:"commonName"`
+	TTL        time.Duration           `yaml:"ttl"`
+	Key        TLSCertificateKeyConfig `yaml:"key"`
 }
 
 type TLSCertificateKeyConfig struct {
@@ -480,6 +481,10 @@ func (a *TLSAutomationConfig) Validate() error {
 
 	if err := a.Issuer.Validate(); err != nil {
 		return fmt.Errorf("issuer: %w", err)
+	}
+
+	if a.Issuer.GCPPrivateCA != nil && a.Certificate.CommonName == "" {
+		return fmt.Errorf("certificate: %w: commonName is required for gcpPrivateCA issuer", ErrRequired)
 	}
 
 	return nil

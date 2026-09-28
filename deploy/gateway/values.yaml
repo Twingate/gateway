@@ -260,6 +260,8 @@ tls:
   automation:
     enabled: false
     certificate:
+      # Subject common name is required when using `gcpPrivateCA` issuer.
+      commonName: ""
       ttl: "24h"
       key:
         # Key type: ecdsa, rsa
