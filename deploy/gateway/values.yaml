@@ -50,7 +50,7 @@ log:
     # A recording is split into a new segment when it exceeds either of these limits.
     segment:
       maxDuration: 5m
-      maxSize: "1M"
+      maxSize: "64KB"
 
 # CA bundles the Gateway trusts when verifying upstream TLS connections, on top of the
 # system trust store. Each entry is either an existing ConfigMap or an inline PEM bundle.

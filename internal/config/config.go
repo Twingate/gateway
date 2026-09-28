@@ -51,8 +51,8 @@ const (
 	defaultTwingateHost                       = "twingate.com"
 	defaultPort                               = 8443
 	defaultMetricsPort                        = 9090
-	defaultSessionRecordingSegmentMaxDuration = time.Minute * 10
-	defaultSessionRecordingSegmentMaxSize     = 1_000_000 // 1MB in bytes
+	defaultSessionRecordingSegmentMaxDuration = time.Minute * 5
+	defaultSessionRecordingSegmentMaxSize     = 64_000  // 64KB in bytes
 	minTLSCertificateTTL                      = time.Minute * 10
 )
 

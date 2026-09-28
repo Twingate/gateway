@@ -122,7 +122,7 @@ should render with Kubernetes enabled:
           sessionRecording:
             segment:
               maxDuration: "5m"
-              maxSize: "1M"
+              maxSize: "64KB"
 
         tls:
           certificates:
@@ -303,7 +303,7 @@ should render with SSH enabled:
           sessionRecording:
             segment:
               maxDuration: "5m"
-              maxSize: "1M"
+              maxSize: "64KB"
 
         tls:
           certificates:

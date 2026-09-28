@@ -214,7 +214,7 @@ log:
   sessionRecording:
     segment:
       maxDuration: "30s"
-      maxSize: "2Mi"
+      maxSize: "128KB"
 tls:
   certificates:
     files:
@@ -236,7 +236,7 @@ kubernetes: {}
 	assert.Equal(t, 8443, cfg.Port)
 	assert.Equal(t, 9090, cfg.MetricsPort)
 	assert.Equal(t, time.Second*30, cfg.Log.SessionRecording.Segment.MaxDuration)
-	assert.Equal(t, 2_097_152, cfg.Log.SessionRecording.Segment.MaxSize.Bytes())
+	assert.Equal(t, 128_000, cfg.Log.SessionRecording.Segment.MaxSize.Bytes())
 
 	require.NotNil(t, cfg.Kubernetes)
 	assert.Empty(t, cfg.Kubernetes.Upstreams)
@@ -253,7 +253,7 @@ log:
   sessionRecording:
     segment:
       maxDuration: "10m"
-      maxSize: "1Mi"
+      maxSize: "64KB"
 tls:
   certificates:
     files:
@@ -365,8 +365,8 @@ kubernetes: {}
 	// Check defaults
 	assert.Equal(t, 8443, cfg.Port)
 	assert.Equal(t, 9090, cfg.MetricsPort)
-	assert.Equal(t, time.Minute*10, cfg.Log.SessionRecording.Segment.MaxDuration)
-	assert.Equal(t, 1_000_000, cfg.Log.SessionRecording.Segment.MaxSize.Bytes())
+	assert.Equal(t, time.Minute*5, cfg.Log.SessionRecording.Segment.MaxDuration)
+	assert.Equal(t, 64_000, cfg.Log.SessionRecording.Segment.MaxSize.Bytes())
 	assert.Equal(t, "twingate.com", cfg.Twingate.Host)
 }
 
@@ -415,6 +415,11 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: "test", Host: "twingate.com"},
 				Port:        8443,
 				MetricsPort: 9090,
+				Log: LogConfig{
+					SessionRecording: SessionRecordingConfig{
+						Segment: SessionRecordingSegmentConfig{MaxSize: defaultSessionRecordingSegmentMaxSize},
+					},
+				},
 				TLS: TLSConfig{
 					Certificates: &TLSCertificateSources{
 						Files: []TLSCertificateFileKeyPair{
@@ -458,6 +463,11 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: "test", Host: "twingate.com"},
 				Port:        8443,
 				MetricsPort: 9090,
+				Log: LogConfig{
+					SessionRecording: SessionRecordingConfig{
+						Segment: SessionRecordingSegmentConfig{MaxSize: defaultSessionRecordingSegmentMaxSize},
+					},
+				},
 				TLS: TLSConfig{
 					Certificates: &TLSCertificateSources{
 						Files: []TLSCertificateFileKeyPair{
@@ -494,6 +504,11 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: "us1", Host: "twingate.com"},
 				Port:        8443,
 				MetricsPort: 9090,
+				Log: LogConfig{
+					SessionRecording: SessionRecordingConfig{
+						Segment: SessionRecordingSegmentConfig{MaxSize: defaultSessionRecordingSegmentMaxSize},
+					},
+				},
 				TLS: TLSConfig{
 					Certificates: &TLSCertificateSources{
 						Files: []TLSCertificateFileKeyPair{
@@ -565,6 +580,11 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: strings.Repeat("a", 63), Host: "twingate.com"},
 				Port:        8443,
 				MetricsPort: 9090,
+				Log: LogConfig{
+					SessionRecording: SessionRecordingConfig{
+						Segment: SessionRecordingSegmentConfig{MaxSize: defaultSessionRecordingSegmentMaxSize},
+					},
+				},
 				TLS: TLSConfig{
 					Certificates: &TLSCertificateSources{
 						Files: []TLSCertificateFileKeyPair{
@@ -600,6 +620,11 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: "test", Host: "foo.stg.opstg.com"},
 				Port:        8443,
 				MetricsPort: 9090,
+				Log: LogConfig{
+					SessionRecording: SessionRecordingConfig{
+						Segment: SessionRecordingSegmentConfig{MaxSize: defaultSessionRecordingSegmentMaxSize},
+					},
+				},
 				TLS: TLSConfig{
 					Certificates: &TLSCertificateSources{
 						Files: []TLSCertificateFileKeyPair{
@@ -617,6 +642,11 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: "acme", Host: "test"},
 				Port:        8443,
 				MetricsPort: 9090,
+				Log: LogConfig{
+					SessionRecording: SessionRecordingConfig{
+						Segment: SessionRecordingSegmentConfig{MaxSize: defaultSessionRecordingSegmentMaxSize},
+					},
+				},
 				TLS: TLSConfig{
 					Certificates: &TLSCertificateSources{
 						Files: []TLSCertificateFileKeyPair{
@@ -634,6 +664,11 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: "test", Host: "Foo.Twingate.COM"},
 				Port:        8443,
 				MetricsPort: 9090,
+				Log: LogConfig{
+					SessionRecording: SessionRecordingConfig{
+						Segment: SessionRecordingSegmentConfig{MaxSize: defaultSessionRecordingSegmentMaxSize},
+					},
+				},
 				TLS: TLSConfig{
 					Certificates: &TLSCertificateSources{
 						Files: []TLSCertificateFileKeyPair{
@@ -777,6 +812,11 @@ func TestConfig_Validate(t *testing.T) {
 				Twingate:    TwingateConfig{Network: "test", Host: "twingate.com"},
 				Port:        8443,
 				MetricsPort: 9090,
+				Log: LogConfig{
+					SessionRecording: SessionRecordingConfig{
+						Segment: SessionRecordingSegmentConfig{MaxSize: defaultSessionRecordingSegmentMaxSize},
+					},
+				},
 				TLS: TLSConfig{
 					Certificates: &TLSCertificateSources{
 						Files: []TLSCertificateFileKeyPair{
