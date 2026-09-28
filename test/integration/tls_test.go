@@ -81,7 +81,6 @@ func TestTLSVault(t *testing.T) {
 				MetricsPort: 0,
 				TLS: gatewayconfig.TLSConfig{
 					Automation: &gatewayconfig.TLSAutomationConfig{
-						Certificate: gatewayconfig.TLSAutomationCertificateConfig{CommonName: "gateway.acme.int"},
 						Issuer: gatewayconfig.TLSIssuerConfig{
 							Vault: &gatewayconfig.TLSVaultIssuerConfig{
 								Address: vaultAddress,
@@ -117,7 +116,7 @@ func TestTLSVault(t *testing.T) {
 
 			leaf := conn.ConnectionState().PeerCertificates[0]
 			assert.Equal(t, []string{"app.acme.int"}, leaf.DNSNames)
-			assert.Equal(t, "gateway.acme.int", leaf.Subject.CommonName)
+			assert.Empty(t, leaf.Subject.CommonName, "all names live in the SANs")
 		})
 	}
 }

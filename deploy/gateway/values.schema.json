@@ -548,8 +548,8 @@
               "properties": {
                 "commonName": {
                   "type": "string",
-                  "description": "Subject common name of an issued certificate.",
-                  "default": "twingate-gateway"
+                  "description": "Subject common name of the certificate. Required for the `gcpPrivateCA` issuer.",
+                  "default": ""
                 },
                 "ttl": {
                   "type": "string",

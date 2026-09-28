@@ -553,6 +553,7 @@ tests:
         automation:
           enabled: true
           certificate:
+            commonName: "gateway.acme.int"
             ttl: "24h"
             key:
               type: "ecdsa"
@@ -580,7 +581,7 @@ tests:
             tls:
               automation:
                 certificate:
-                  commonName: "twingate-gateway"
+                  commonName: "gateway.acme.int"
                   ttl: "24h"
                   key:
                     type: "ecdsa"
@@ -711,7 +712,6 @@ tests:
             tls:
               automation:
                 certificate:
-                  commonName: "twingate-gateway"
                   ttl: "24h"
                   key:
                     type: "ecdsa"
@@ -801,7 +801,6 @@ tests:
             tls:
               automation:
                 certificate:
-                  commonName: "twingate-gateway"
                   ttl: "24h"
                   key:
                     type: "ecdsa"
@@ -842,7 +841,6 @@ tests:
             tls:
               automation:
                 certificate:
-                  commonName: "twingate-gateway"
                   ttl: "24h"
                   key:
                     type: "ecdsa"
@@ -936,6 +934,8 @@ tests:
             enabled: false
         automation:
           enabled: true
+          certificate:
+            commonName: "gateway.acme.int"
           issuer:
             gcpPrivateCA:
               project: "twingate-prod"
@@ -960,7 +960,7 @@ tests:
             tls:
               automation:
                 certificate:
-                  commonName: "twingate-gateway"
+                  commonName: "gateway.acme.int"
                   ttl: "24h"
                   key:
                     type: "ecdsa"

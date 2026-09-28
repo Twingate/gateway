@@ -260,7 +260,8 @@ tls:
   automation:
     enabled: false
     certificate:
-      commonName: "twingate-gateway"
+      # Subject common name is required for the gcpPrivateCA issuer.
+      commonName: ""
       ttl: "24h"
       key:
         # Key type: ecdsa, rsa

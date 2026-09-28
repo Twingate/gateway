@@ -958,8 +958,21 @@ func TestTLSAutomationConfig_Validate(t *testing.T) {
 					Location: "us-east1",
 					CAPoolID: "gateway",
 				}},
+				Certificate: TLSAutomationCertificateConfig{CommonName: "gateway.acme.int"},
 			},
 			wantErr: false,
+		},
+		{
+			name: "gcpPrivateCA issuer missing common name",
+			automation: TLSAutomationConfig{
+				Issuer: TLSIssuerConfig{GCPPrivateCA: &TLSGCPPrivateCAIssuerConfig{
+					Project:  "acme",
+					Location: "us-east1",
+					CAPoolID: "gateway",
+				}},
+			},
+			wantErr:     true,
+			errContains: "certificate: required field is missing: commonName is required for gcpPrivateCA issuer",
 		},
 		{
 			name: "conflicting local, vault and gcpPrivateCA issuers",

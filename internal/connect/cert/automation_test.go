@@ -464,9 +464,11 @@ func TestAutomation_cachedCert(t *testing.T) {
 
 func TestNewCertificateRequest(t *testing.T) {
 	tests := []struct {
-		name      string
-		host      string
-		wantNames []string
+		name           string
+		host           string
+		commonName     string
+		wantNames      []string
+		wantCommonName string
 	}{
 		{
 			name:      "hostname becomes a DNS name",
@@ -477,6 +479,12 @@ func TestNewCertificateRequest(t *testing.T) {
 			name:      "IP becomes an IP address",
 			host:      "10.0.0.5",
 			wantNames: []string{"10.0.0.5"},
+		},
+		{
+			name:           "empty host with common name",
+			host:           "",
+			commonName:     "test.acme.int",
+			wantCommonName: "test.acme.int",
 		},
 		{
 			// A handshake without SNI leaves no name to request.
@@ -490,7 +498,7 @@ func TestNewCertificateRequest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := newCertificateRequest(key, tt.host, defaultCommonName, defaultTTL)
+			req := newCertificateRequest(key, tt.host, tt.commonName, defaultTTL)
 
 			assert.Equal(t, tt.wantNames, requestSANs(req))
 			assert.Equal(t, defaultTTL, req.ttl)
@@ -505,7 +513,7 @@ func TestNewCertificateRequest(t *testing.T) {
 			// A backend reads the names off the request but forwards the CSR, so the two
 			// have to agree, and the CSR has to prove possession of the key it asks for.
 			assert.Equal(t, requestSANs(req), csrSANs(csr))
-			assert.Equal(t, defaultCommonName, csr.Subject.CommonName)
+			assert.Equal(t, tt.wantCommonName, csr.Subject.CommonName)
 			assert.NoError(t, csr.CheckSignature())
 		})
 	}

@@ -483,6 +483,10 @@ func (a *TLSAutomationConfig) Validate() error {
 		return fmt.Errorf("issuer: %w", err)
 	}
 
+	if a.Issuer.GCPPrivateCA != nil && a.Certificate.CommonName == "" {
+		return fmt.Errorf("certificate: %w: commonName is required for gcpPrivateCA issuer", ErrRequired)
+	}
+
 	return nil
 }
 

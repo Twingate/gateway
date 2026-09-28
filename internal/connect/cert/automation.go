@@ -24,10 +24,9 @@ import (
 )
 
 const (
-	defaultTTL        = 24 * time.Hour
-	defaultCommonName = "twingate-gateway"
-	maxCachedCerts    = 1024
-	expiryBuffer      = 5 * time.Minute
+	defaultTTL     = 24 * time.Hour
+	maxCachedCerts = 1024
+	expiryBuffer   = 5 * time.Minute
 )
 
 // automation issues short-lived certificates through the configured issuer.
@@ -57,11 +56,6 @@ func newAutomation(cfg *config.TLSAutomationConfig, logger *zap.Logger) (*automa
 		certTTL = defaultTTL
 	}
 
-	commonName := cfg.Certificate.CommonName
-	if commonName == "" {
-		commonName = defaultCommonName
-	}
-
 	issuer, err := newIssuer(cfg.Issuer, logger)
 	if err != nil {
 		return nil, err
@@ -76,7 +70,7 @@ func newAutomation(cfg *config.TLSAutomationConfig, logger *zap.Logger) (*automa
 		issuer:     issuer,
 		key:        keyCfg,
 		ttl:        certTTL,
-		commonName: commonName,
+		commonName: cfg.Certificate.CommonName,
 		logger:     logger,
 		cache:      cache,
 	}, nil
