@@ -206,13 +206,13 @@ return a string; callers decode it with fromJsonArray.
 {{- end }}
 
 {{/*
-Create the name of the SSH manual CA secret to use
+Create the name of the SSH local CA secret to use
 */}}
-{{- define "gateway.sshManualCASecretName" -}}
-{{- if .Values.ssh.ca.manual.secretName }}
-{{- .Values.ssh.ca.manual.secretName }}
+{{- define "gateway.sshLocalCASecretName" -}}
+{{- if .Values.ssh.ca.local.secretName }}
+{{- .Values.ssh.ca.local.secretName }}
 {{- else }}
-{{- printf "%s-ssh-manual-ca" (include "gateway.fullname" .) }}
+{{- printf "%s-ssh-local-ca" (include "gateway.fullname" .) }}
 {{- end }}
 {{- end }}
 
