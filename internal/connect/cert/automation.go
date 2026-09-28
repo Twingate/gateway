@@ -195,15 +195,15 @@ type certificateRequest struct {
 	ttl         time.Duration
 }
 
-// newCertificateRequest creates a new certificate request for the given name, subject common name and TTL.
-// If an empty name is provided, the certificate would have no Subject Alternative Names.
-func newCertificateRequest(key crypto.Signer, name, commonName string, ttl time.Duration) *certificateRequest {
+// newCertificateRequest creates a new certificate request for the given Subject Alternative Name (SAN), Subject Common Name and TTL.
+// If an empty SAN is provided, the certificate would have no SANs.
+func newCertificateRequest(key crypto.Signer, subjectAlternativeName, commonName string, ttl time.Duration) *certificateRequest {
 	req := &certificateRequest{key: key, commonName: commonName, ttl: ttl}
 
-	if ip := net.ParseIP(name); ip != nil {
+	if ip := net.ParseIP(subjectAlternativeName); ip != nil {
 		req.ipAddresses = []net.IP{ip}
-	} else if name != "" {
-		req.dnsNames = []string{name}
+	} else if subjectAlternativeName != "" {
+		req.dnsNames = []string{subjectAlternativeName}
 	}
 
 	return req
