@@ -239,17 +239,17 @@
               "type": "object",
               "description": "Manual CA configuration.",
               "properties": {
-                "existingSecret": {
+                "secretName": {
                   "type": "string",
-                  "description": "Name of existing secret containing the CA private key (key name: ca-private-key)."
+                  "description": "Name of an existing Secret containing the CA private key (key name: `ca-private-key`)."
                 },
                 "privateKey": {
                   "type": "string",
-                  "description": "CA private key content (used if existingSecret is not set)."
+                  "description": "CA private key content (PEM format)."
                 }
               },
               "oneOf": [
-                {"required": ["existingSecret"]},
+                {"required": ["secretName"]},
                 {"required": ["privateKey"]}
               ],
               "additionalProperties": false
@@ -271,9 +271,9 @@
                   "type": "string",
                   "description": "CA bundle content for verifying Vault's TLS certificate (PEM format). Optional if Vault uses a certificate from the system trust store."
                 },
-                "existingCABundleSecret": {
+                "caBundleConfigMapName": {
                   "type": "string",
-                  "description": "Name of existing secret containing CA bundle (key name: ca.crt). Optional if Vault uses a certificate from the system trust store."
+                  "description": "Name of an existing ConfigMap holding the CA bundle (key name: `ca.crt`). Optional if Vault uses a certificate from the system trust store."
                 },
                 "auth": {
                   "type": "object",
@@ -296,16 +296,16 @@
                         },
                         "secretId": {
                           "type": "string",
-                          "description": "AppRole Secret ID in plaintext (dev/testing only; use existingSecretIdSecret in production)."
+                          "description": "AppRole secret ID in plain text. Dev and testing only; use `secretIdSecretName` in production."
                         },
-                        "existingSecretIdSecret": {
+                        "secretIdSecretName": {
                           "type": "string",
-                          "description": "Name of existing K8s Secret containing the Secret ID (key name: secretId)."
+                          "description": "Name of an existing Secret containing the AppRole secret ID under (key name: `secretId`)."
                         }
                       },
                       "oneOf": [
                         { "required": ["secretId"] },
-                        { "required": ["existingSecretIdSecret"] }
+                        { "required": ["secretIdSecretName"] }
                       ],
                       "additionalProperties": false
                     }

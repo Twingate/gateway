@@ -327,7 +327,7 @@ tests:
                 vault:
                   address: "https://vault.example.com:8200"
                   namespace: "test-namespace"
-                  caBundleFile: "/etc/gateway/vault/ca.crt"
+                  caBundleFile: "/etc/gateway/ssh/vault/ca.crt"
                   mount: "ssh-gateway"
                   role: "gateway"
                   gatewayHostCA:
@@ -388,7 +388,7 @@ tests:
                     appRole:
                       mount: "approle"
                       roleID: "my-role-id"
-                      secretIDFile: "/etc/gateway/vault/approle/secretId"
+                      secretIDFile: "/etc/gateway/ssh/vault/approle/secretId"
                   mount: "ssh-gateway"
                   role: "gateway"
   - it: should error when SSH Gateway username is empty
