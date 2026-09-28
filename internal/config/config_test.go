@@ -249,11 +249,6 @@ twingate:
   network: "acme"
 port: 8443
 metricsPort: 9090
-log:
-  sessionRecording:
-    segment:
-      maxDuration: "10m"
-      maxSize: "64KB"
 tls:
   certificates:
     files:

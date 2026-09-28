@@ -13,6 +13,8 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
+
+	yamlutil "gateway/internal/util/yaml"
 )
 
 var (
@@ -61,9 +63,9 @@ type config struct {
 	// Logger to use for logging
 	logger *zap.Logger
 
-	// Max size (in bytes) limit at which the session recording is flushed.
+	// Max size limit at which the session recording is flushed.
 	// If 0, there is no size limit.
-	segmentMaxSize int
+	segmentMaxSize yamlutil.ByteSize
 
 	// Max duration limit at which the session recording is flushed.
 	// If 0, there is no duration limit.
@@ -119,7 +121,7 @@ func NewRecorder(logger *zap.Logger, opts ...RecorderOption) Recorder {
 
 type RecorderOption func(*asciicastRecorder)
 
-func WithSegmentMaxSize(size int) RecorderOption {
+func WithSegmentMaxSize(size yamlutil.ByteSize) RecorderOption {
 	return func(r *asciicastRecorder) {
 		r.config.segmentMaxSize = size
 	}
@@ -217,7 +219,7 @@ func (r *asciicastRecorder) storeEvent(event string) error {
 		totalSize += len(line)
 	}
 
-	if r.config.segmentMaxSize > 0 && totalSize >= r.config.segmentMaxSize {
+	if r.config.segmentMaxSize > 0 && totalSize >= r.config.segmentMaxSize.Bytes() {
 		// Send a flush signal if there is no pending flush
 		select {
 		case r.flushCh <- struct{}{}:
