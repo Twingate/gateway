@@ -11,6 +11,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/golang-jwt/jwt/v5"
 	"go.uber.org/zap/zapcore"
@@ -30,6 +31,7 @@ var (
 	errInvalidTokenType   = errors.New("token type is invalid")
 	errUnsupportedVersion = errors.New("unsupported version")
 	errInvalidPort        = errors.New("invalid port")
+	errInvalidTLSMode     = errors.New("invalid TLS mode")
 )
 
 type GATClaims struct {
@@ -77,7 +79,21 @@ func (p GATClaims) Validate() error {
 		return err
 	}
 
-	return validatePort(p.Resource.GatewayMetadata.Upstream.Port, "resource.gateway_metadata.upstream.port")
+	if err := validatePort(p.Resource.GatewayMetadata.Upstream.Port, "resource.gateway_metadata.upstream.port"); err != nil {
+		return err
+	}
+
+	// The Controller sends TLS modes only for Web App resources. Kubernetes always uses TLS and SSH
+	// never does, so their GATs carry no tls_mode.
+	if p.Resource.Type != ResourceTypeWebApp {
+		return nil
+	}
+
+	if err := validateTLSMode(p.Resource.GatewayMetadata.Downstream.TLSMode, TLSServerModes, "resource.gateway_metadata.downstream.tls_mode"); err != nil {
+		return err
+	}
+
+	return validateTLSMode(p.Resource.GatewayMetadata.Upstream.TLSMode, TLSClientModes, "resource.gateway_metadata.upstream.tls_mode")
 }
 
 // validatePort ensures a GAT-provided port is within the valid TCP range. A missing port (zero)
@@ -90,12 +106,22 @@ func validatePort(port int, fieldName string) error {
 	return nil
 }
 
+// validateTLSMode ensures a GAT-provided TLS mode is one of validModes. A missing mode (empty)
+// is treated as invalid.
+func validateTLSMode[T ~string](mode T, validModes []T, fieldName string) error {
+	if !slices.Contains(validModes, mode) {
+		return fmt.Errorf("%w: %w %q: %q", jwt.ErrTokenInvalidClaims, errInvalidTLSMode, fieldName, mode)
+	}
+
+	return nil
+}
+
 func (p GATClaims) ShouldUpgradeTLS() bool {
 	switch p.Resource.Type {
 	case ResourceTypeKubernetes:
 		return true
 	case ResourceTypeWebApp:
-		return p.Resource.GatewayMetadata.Downstream.TLS
+		return p.Resource.GatewayMetadata.Downstream.TLSMode == TLSServerModeTLS13
 	case ResourceTypeSSH:
 		return false
 	}
@@ -162,17 +188,43 @@ type GatewayMetadata struct {
 type Downstream struct {
 	// Port is the port that the protocol client connects to.
 	Port int `json:"port"`
-	// TLS indicates whether the Gateway should enforce TLS for the protocol client.
-	TLS bool `json:"tls"`
+	// TLSMode is how the Gateway, as the TLS server, secures the connection from the protocol client.
+	TLSMode TLSServerMode `json:"tls_mode"` //nolint:tagliatelle // GAT wire format from the controller uses snake_case
 }
+
+type TLSServerMode string
+
+const (
+	// TLSServerModeTLS13 requires the protocol client to connect over TLS 1.3.
+	TLSServerModeTLS13 TLSServerMode = "TLS13"
+	// TLSServerModeNone accepts plaintext connections from the protocol client.
+	TLSServerModeNone TLSServerMode = "NONE"
+)
+
+var TLSServerModes = []TLSServerMode{TLSServerModeTLS13, TLSServerModeNone}
 
 // Upstream describes the connection between the Gateway and the upstream resource.
 type Upstream struct {
 	// Port is the port on the upstream resource that the Gateway forwards the connection to.
 	Port int `json:"port"`
-	// TLS indicates the Gateway must connect to the upstream resource over TLS.
-	TLS bool `json:"tls"`
+	// TLSMode is how the Gateway, as the TLS client, secures the connection to the upstream resource.
+	TLSMode TLSClientMode `json:"tls_mode"` //nolint:tagliatelle // GAT wire format from the controller uses snake_case
 }
+
+type TLSClientMode string
+
+const (
+	// TLSClientModeVerifyFull verifies the upstream certificate chain and that it matches the upstream hostname.
+	TLSClientModeVerifyFull TLSClientMode = "VERIFY_FULL"
+	// TLSClientModeVerifyCA verifies the upstream certificate chain but not the hostname.
+	TLSClientModeVerifyCA TLSClientMode = "VERIFY_CA"
+	// TLSClientModeInsecure uses TLS without verifying the upstream certificate.
+	TLSClientModeInsecure TLSClientMode = "INSECURE"
+	// TLSClientModeNone connects to the upstream resource in plaintext.
+	TLSClientModeNone TLSClientMode = "NONE"
+)
+
+var TLSClientModes = []TLSClientMode{TLSClientModeVerifyFull, TLSClientModeVerifyCA, TLSClientModeInsecure, TLSClientModeNone}
 
 // PublicKey is a wrapper for ecdsa.PublicKey that adds support for JSON
 // marshaling and unmarshaling. It uses PEM encoding followed by base64 encoding
