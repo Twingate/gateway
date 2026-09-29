@@ -1,0 +1,241 @@
+// Copyright (c) Twingate Inc.
+// SPDX-License-Identifier: MPL-2.0
+
+package frontend
+
+import (
+	"crypto/ecdsa"
+	"crypto/sha256"
+	"encoding/base64"
+	"fmt"
+	"net"
+	"net/http"
+	"regexp"
+	"strconv"
+	"strings"
+
+	"gateway/internal/config"
+	"gateway/internal/token"
+)
+
+// AuthHeaderKey is the header that contains the auth token.
+const AuthHeaderKey string = "Proxy-Authorization"
+
+// AuthSignatureHeaderKey is the header that contains the signature of the token for Proof-of-Possession.
+const AuthSignatureHeaderKey string = "X-Token-Signature"
+
+// ConnIDHeaderKey is the header that contains the Connection ID.
+const ConnIDHeaderKey string = "X-Connection-Id"
+
+type Info struct {
+	RequestedHost string
+	UpstreamHost  string
+	Claims        *token.GATClaims
+	ConnID        string
+	Token         string
+}
+
+type HTTPError struct {
+	Err     error
+	Code    int // HTTP status code
+	Message string
+}
+
+func (e *HTTPError) Error() string {
+	return fmt.Sprintf("%d: %s", e.Code, e.Message)
+}
+
+func (e *HTTPError) Unwrap() error {
+	return e.Err
+}
+
+type Validator interface {
+	ParseConnect(req *http.Request, ekm []byte) (connectInfo Info, err error)
+}
+
+type MessageValidator struct {
+	TokenParser *token.Parser
+}
+
+func (v *MessageValidator) ParseConnect(req *http.Request, ekm []byte) (connectInfo Info, err error) {
+	if req.Method != http.MethodConnect {
+		// did not receive CONNECT, return 405 Method Not Allowed
+		return Info{
+			Claims: nil,
+			ConnID: "",
+		}, &HTTPError{
+			Code:    http.StatusMethodNotAllowed,
+			Message: "expected CONNECT request got " + req.Method,
+			Err:     nil,
+		}
+	}
+
+	connID := req.Header.Get(ConnIDHeaderKey)
+
+	authHeader := req.Header.Get(AuthHeaderKey)
+
+	bearerToken, tokenErr := token.ParseBearerToken(authHeader)
+	if tokenErr != nil {
+		// did not receive identity header in CONNECT, return 407 Proxy Authentication Required
+		return Info{
+			Claims: nil,
+			ConnID: connID,
+		}, &HTTPError{
+			Code:    http.StatusProxyAuthRequired,
+			Message: fmt.Sprintf("missing identity header in CONNECT %v", tokenErr),
+			Err:     tokenErr,
+		}
+	}
+
+	gatClaims := &token.GATClaims{}
+
+	_, tokenErr = v.TokenParser.ParseWithClaims(bearerToken, gatClaims)
+	if tokenErr != nil {
+		return Info{
+			Claims: nil,
+			ConnID: connID,
+		}, &HTTPError{
+			Code:    http.StatusUnauthorized,
+			Message: fmt.Sprintf("failed to parse token with error %v", tokenErr),
+			Err:     tokenErr,
+		}
+	}
+
+	// parse signature header for Proof-of-Possession
+	signatureB64 := req.Header.Get(AuthSignatureHeaderKey)
+
+	clientSig, tokenErr := base64.StdEncoding.DecodeString(signatureB64)
+	if tokenErr != nil {
+		return Info{
+			Claims: gatClaims,
+			ConnID: connID,
+		}, &HTTPError{
+			Code:    http.StatusUnauthorized,
+			Message: fmt.Sprintf("failed to decode client signature with error %v", tokenErr),
+			Err:     tokenErr,
+		}
+	}
+
+	// verify signature
+	hashed := sha256.Sum256(ekm)
+
+	ok := ecdsa.VerifyASN1(&gatClaims.ClientPublicKey.PublicKey, hashed[:], clientSig)
+	if !ok {
+		return Info{
+			Claims: gatClaims,
+			ConnID: connID,
+		}, &HTTPError{
+			Code:    http.StatusUnauthorized,
+			Message: "failed to verify signature",
+			Err:     nil,
+		}
+	}
+
+	// verify the CONNECT target against the GAT token and resolve the upstream host
+	requestedHost, upstreamHost, httpErr := resolveUpstream(req.RequestURI, gatClaims.Resource)
+	if httpErr != nil {
+		return Info{
+			Claims: gatClaims,
+			ConnID: connID,
+		}, httpErr
+	}
+
+	return Info{
+		RequestedHost: requestedHost,
+		UpstreamHost:  upstreamHost,
+		Claims:        gatClaims,
+		ConnID:        connID,
+		Token:         bearerToken,
+	}, nil
+}
+
+// resolveUpstream verifies the CONNECT target against the GAT resource, returning the host the
+// client asked for and the host the Gateway forwards to.
+func resolveUpstream(target string, resource token.Resource) (requestedHost, upstreamHost string, _ *HTTPError) {
+	host, port, err := net.SplitHostPort(target)
+	if err != nil {
+		return "", "", &HTTPError{
+			Code:    http.StatusBadRequest,
+			Message: fmt.Sprintf("failed to parse CONNECT target: %v", err),
+			Err:     err,
+		}
+	}
+
+	upstreamHost = host
+
+	switch {
+	case matchResourceAddress(resource.Address, host):
+		// host matches the resource address; forward to the same host
+	case matchResourceAliases(resource.Aliases, host):
+		// host matches an alias; forward to the resource's address
+		upstreamHost = resource.Address
+	default:
+		return "", "", &HTTPError{
+			Code:    http.StatusBadRequest,
+			Message: fmt.Sprintf("CONNECT host %s does not match resource address %s or aliases %v", host, resource.Address, resource.Aliases),
+			Err:     nil,
+		}
+	}
+
+	if !config.HostnameRegexp.MatchString(upstreamHost) {
+		return "", "", &HTTPError{
+			Code:    http.StatusBadRequest,
+			Message: "CONNECT host resolves to an invalid host: " + upstreamHost,
+			Err:     nil,
+		}
+	}
+
+	requestedPort, err := strconv.Atoi(port)
+	if err != nil {
+		return "", "", &HTTPError{
+			Code:    http.StatusBadRequest,
+			Message: fmt.Sprintf("failed to parse CONNECT target port: %v", err),
+			Err:     err,
+		}
+	}
+
+	if downstreamPort := resource.GatewayMetadata.Downstream.Port; requestedPort != downstreamPort {
+		return "", "", &HTTPError{
+			Code:    http.StatusBadRequest,
+			Message: fmt.Sprintf("CONNECT port %d does not match token downstream port %d", requestedPort, downstreamPort),
+			Err:     nil,
+		}
+	}
+
+	return host, upstreamHost, nil
+}
+
+var validDNSLabel = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$`)
+
+// matchResourceAddress checks whether host matches the resource address pattern.
+// Supports exact match and RFC 6125 wildcard matching: *.example.com matches
+// api.example.com but not example.com or foo.bar.example.com.
+func matchResourceAddress(pattern, host string) bool {
+	if strings.EqualFold(pattern, host) {
+		return true
+	}
+
+	if !strings.HasPrefix(pattern, "*.") {
+		return false
+	}
+
+	suffix := pattern[1:]
+	if len(host) <= len(suffix) || !strings.HasSuffix(strings.ToLower(host), strings.ToLower(suffix)) {
+		return false
+	}
+
+	label := host[:len(host)-len(suffix)]
+
+	return validDNSLabel.MatchString(label)
+}
+
+// matchResourceAliases reports whether host matches any of the resource aliases.
+func matchResourceAliases(aliases []string, host string) bool {
+	for _, alias := range aliases {
+		if alias != "" && strings.EqualFold(alias, host) {
+			return true
+		}
+	}
+
+	return false
+}

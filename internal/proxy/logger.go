@@ -7,7 +7,7 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
-	"gateway/internal/version"
+	"gateway/internal/util/version"
 )
 
 const DefaultLoggerName = "gateway"

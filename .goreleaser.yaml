@@ -31,7 +31,7 @@ builds:
       - -trimpath
     ldflags:
       - -s -w
-      - -X gateway/internal/version.Version={{.Version}}
+      - -X gateway/internal/util/version.Version={{.Version}}
     mod_timestamp: '{{ .CommitTimestamp }}'
   - id: gateway-debug
     binary: gateway-debug
@@ -46,7 +46,7 @@ builds:
     flags:
       - -trimpath
     ldflags:
-      - -X gateway/internal/version.Version={{.Version}}
+      - -X gateway/internal/util/version.Version={{.Version}}
     mod_timestamp: '{{ .CommitTimestamp }}'
 
 dockers_v2:

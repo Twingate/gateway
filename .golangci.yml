@@ -8,7 +8,6 @@ linters:
   disable:
     - cyclop
     - dupl
-    - depguard
     - dogsled
     - exhaustruct  # Deprecated since v2.13.0 and replaced by exhaustruct_v5
     - exhaustruct_v5
@@ -39,6 +38,17 @@ linters:
           - err113
           - goconst
   settings:
+    depguard:
+      rules:
+        util:
+          list-mode: lax
+          files:
+            - "**/internal/util/**"
+          allow:
+            - gateway/internal/util
+          deny:
+            - pkg: gateway/internal
+              desc: util packages depend only on stdlib, third-party modules, and other util packages
     ireturn:
       allow:
         # default values

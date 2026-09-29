@@ -10,10 +10,10 @@ import (
 	"fmt"
 	"os/exec"
 
-	"gateway/internal/sshhandler"
+	"gateway/internal/backend/ssh"
 )
 
-var sshBanner = []byte(sshhandler.Banner)
+var sshBanner = []byte(ssh.Banner)
 
 var errMissingBanner = errors.New("output does not start with SSH banner")
 
