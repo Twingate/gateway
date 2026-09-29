@@ -172,34 +172,34 @@ Create the name of the TLS local issuer Secret to use
 
 
 {{/*
-Create the name of the ConfigMap holding the inline `upstreamCABundles` PEM bundles
+Create the name of the ConfigMap holding the inline `upstreamTrustedCABundles` PEM bundles
 */}}
-{{- define "gateway.upstreamCABundlesConfigMapName" -}}
-{{- printf "%s-upstream-ca-bundles" (include "gateway.fullname" .) }}
+{{- define "gateway.upstreamTrustedCABundlesConfigMapName" -}}
+{{- printf "%s-upstream-trusted-ca-bundles" (include "gateway.fullname" .) }}
 {{- end }}
 
 {{/*
-ConfigMap key for an inline `pem` bundle, derived from its position in `upstreamCABundles`.
+ConfigMap key for an inline `pem` bundle, derived from its position in `upstreamTrustedCABundles`.
 */}}
-{{- define "gateway.upstreamCABundleInlineKey" -}}
+{{- define "gateway.upstreamTrustedCABundleInlineKey" -}}
 {{- printf "ca%d.crt" . }}
 {{- end }}
 
 {{/*
-Resolve each `upstreamCABundles` entry to the ConfigMap name and key holding its PEM.
+Resolve each `upstreamTrustedCABundles` entry to the ConfigMap name and key holding its PEM.
 Entries with `configMapName` are returned as given, defaulting the key to `ca.crt`.
 Inline `pem` entries point at the chart-owned ConfigMap, keyed `ca<index>.crt`.
 
 Returns a JSON array of {configMapName, key} objects, because include can only
 return a string; callers decode it with fromJsonArray.
 */}}
-{{- define "gateway.upstreamCABundleSources" -}}
+{{- define "gateway.upstreamTrustedCABundleSources" -}}
 {{- $sources := list }}
-{{- range $i, $bundle := .Values.upstreamCABundles }}
+{{- range $i, $bundle := .Values.upstreamTrustedCABundles }}
 {{- if $bundle.configMapName }}
 {{- $sources = append $sources (dict "configMapName" $bundle.configMapName "key" ($bundle.configMapKey | default "ca.crt")) }}
 {{- else if $bundle.pem }}
-{{- $sources = append $sources (dict "configMapName" (include "gateway.upstreamCABundlesConfigMapName" $) "key" (include "gateway.upstreamCABundleInlineKey" $i)) }}
+{{- $sources = append $sources (dict "configMapName" (include "gateway.upstreamTrustedCABundlesConfigMapName" $) "key" (include "gateway.upstreamTrustedCABundleInlineKey" $i)) }}
 {{- end }}
 {{- end }}
 {{- $sources | toJson }}

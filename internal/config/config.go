@@ -22,15 +22,15 @@ import (
 )
 
 var (
-	ErrRequired                  = errors.New("required field is missing")
-	ErrInvalidNetwork            = errors.New("invalid twingate.network")
-	ErrInvalidHost               = errors.New("invalid twingate.host")
-	ErrInvalidPort               = errors.New("invalid port number")
-	ErrDuplicateUpstream         = errors.New("duplicate upstream name")
-	ErrDuplicateUpstreamCABundle = errors.New("duplicate upstream CA bundle file")
-	ErrDuplicateTLSCert          = errors.New("duplicate certificateFile")
-	ErrInvalidSSHKeyType         = errors.New("invalid SSH key type")
-	ErrNegativeTTL               = errors.New("TTL must be non-negative")
+	ErrRequired                         = errors.New("required field is missing")
+	ErrInvalidNetwork                   = errors.New("invalid twingate.network")
+	ErrInvalidHost                      = errors.New("invalid twingate.host")
+	ErrInvalidPort                      = errors.New("invalid port number")
+	ErrDuplicateUpstream                = errors.New("duplicate upstream name")
+	ErrDuplicateUpstreamTrustedCABundle = errors.New("duplicate upstream trusted CA bundle file")
+	ErrDuplicateTLSCert                 = errors.New("duplicate certificateFile")
+	ErrInvalidSSHKeyType                = errors.New("invalid SSH key type")
+	ErrNegativeTTL                      = errors.New("TTL must be non-negative")
 )
 
 // networkRegexp matches a twingate.network slug: 1-63 lowercase alphanumeric characters.
@@ -58,15 +58,15 @@ const (
 )
 
 type Config struct {
-	Twingate          TwingateConfig     `yaml:"twingate"`
-	Port              int                `yaml:"port"`
-	MetricsPort       int                `yaml:"metricsPort"`
-	Log               LogConfig          `yaml:"log"`
-	TLS               TLSConfig          `yaml:"tls"`
-	UpstreamCABundles []UpstreamCABundle `yaml:"upstreamCABundles,omitempty"`
-	Kubernetes        *KubernetesConfig  `yaml:"kubernetes,omitempty"`
-	SSH               *SSHConfig         `yaml:"ssh,omitempty"`
-	WebApp            *WebAppConfig      `yaml:"webApp,omitempty"`
+	Twingate                 TwingateConfig            `yaml:"twingate"`
+	Port                     int                       `yaml:"port"`
+	MetricsPort              int                       `yaml:"metricsPort"`
+	Log                      LogConfig                 `yaml:"log"`
+	TLS                      TLSConfig                 `yaml:"tls"`
+	UpstreamTrustedCABundles []UpstreamTrustedCABundle `yaml:"upstreamTrustedCABundles,omitempty"`
+	Kubernetes               *KubernetesConfig         `yaml:"kubernetes,omitempty"`
+	SSH                      *SSHConfig                `yaml:"ssh,omitempty"`
+	WebApp                   *WebAppConfig             `yaml:"webApp,omitempty"`
 }
 
 type TwingateConfig struct {
@@ -115,8 +115,8 @@ type TLSCertificateFileKeyPair struct {
 	PrivateKeyFile  string `yaml:"privateKeyFile"`
 }
 
-// UpstreamCABundle is a PEM file of certificate authorities the Gateway trusts when verifying upstream TLS connections.
-type UpstreamCABundle struct {
+// UpstreamTrustedCABundle is a PEM file of certificate authorities the Gateway trusts when verifying upstream TLS connections.
+type UpstreamTrustedCABundle struct {
 	File string `yaml:"file"`
 }
 
@@ -408,8 +408,8 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("tls config: %w", err)
 	}
 
-	if err := validateUpstreamCABundles(c.UpstreamCABundles); err != nil {
-		return fmt.Errorf("upstreamCABundles config: %w", err)
+	if err := validateUpstreamTrustedCABundles(c.UpstreamTrustedCABundles); err != nil {
+		return fmt.Errorf("upstreamTrustedCABundles config: %w", err)
 	}
 
 	if c.Kubernetes != nil {
@@ -702,16 +702,16 @@ func (k *KubernetesUpstream) Validate() error {
 	return nil
 }
 
-func validateUpstreamCABundles(caBundles []UpstreamCABundle) error {
+func validateUpstreamTrustedCABundles(caBundles []UpstreamTrustedCABundle) error {
 	bundleFiles := make(map[string]struct{})
 
 	for i, caBundle := range caBundles {
 		if err := caBundle.Validate(); err != nil {
-			return fmt.Errorf("upstreamCABundles[%d]: %w", i, err)
+			return fmt.Errorf("upstreamTrustedCABundles[%d]: %w", i, err)
 		}
 
 		if _, exists := bundleFiles[caBundle.File]; exists {
-			return fmt.Errorf("%w: %q", ErrDuplicateUpstreamCABundle, caBundle.File)
+			return fmt.Errorf("%w: %q", ErrDuplicateUpstreamTrustedCABundle, caBundle.File)
 		}
 
 		bundleFiles[caBundle.File] = struct{}{}
@@ -720,7 +720,7 @@ func validateUpstreamCABundles(caBundles []UpstreamCABundle) error {
 	return nil
 }
 
-func (c *UpstreamCABundle) Validate() error {
+func (c *UpstreamTrustedCABundle) Validate() error {
 	if c.File == "" {
 		return fmt.Errorf("%w: file", ErrRequired)
 	}

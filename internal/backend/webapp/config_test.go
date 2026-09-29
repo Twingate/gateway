@@ -75,7 +75,7 @@ func TestNewConfig(t *testing.T) {
 }
 
 func TestNewConfig_CAPoolAddsCustomCA(t *testing.T) {
-	cfg, err := NewConfig(nil, []config.UpstreamCABundle{{File: "../../../test/data/proxy/tls.crt"}}, metrics.RegisterRoundTripperMetrics(prometheus.NewRegistry()), zap.NewNop())
+	cfg, err := NewConfig(nil, []config.UpstreamTrustedCABundle{{File: "../../../test/data/proxy/tls.crt"}}, metrics.RegisterRoundTripperMetrics(prometheus.NewRegistry()), zap.NewNop())
 	require.NoError(t, err)
 
 	block, _ := pem.Decode(data.ProxyCert)
@@ -94,7 +94,7 @@ func TestNewConfig_CAPool(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		caBundles   []config.UpstreamCABundle
+		caBundles   []config.UpstreamTrustedCABundle
 		wantErr     bool
 		errContains string
 	}{
@@ -105,13 +105,13 @@ func TestNewConfig_CAPool(t *testing.T) {
 		},
 		{
 			name:        "missing CA file",
-			caBundles:   []config.UpstreamCABundle{{File: filepath.Join(t.TempDir(), "nope.crt")}},
+			caBundles:   []config.UpstreamTrustedCABundle{{File: filepath.Join(t.TempDir(), "nope.crt")}},
 			wantErr:     true,
 			errContains: "nope.crt",
 		},
 		{
 			name:        "invalid PEM",
-			caBundles:   []config.UpstreamCABundle{{File: invalidPEMFile}},
+			caBundles:   []config.UpstreamTrustedCABundle{{File: invalidPEMFile}},
 			wantErr:     true,
 			errContains: "invalid.crt",
 		},

@@ -268,36 +268,36 @@ tests:
             secret:
               secretName: my-existing-approle-secret
 ---
-suite: Deployment with upstream CA bundles
+suite: Deployment with upstream trusted CA bundles
 templates:
   - deployment.yaml
 set:
   twingate:
     network: "acme"
 tests:
-  - it: should not add any upstream CA bundle volume when empty
+  - it: should not add any upstream trusted CA bundle volume when empty
     set:
-      upstreamCABundles: []
+      upstreamTrustedCABundles: []
     asserts:
       - notContains:
           path: spec.template.spec.volumes
           content:
-            name: upstream-ca-bundle-0
+            name: upstream-trusted-ca-bundle-0
           any: true
       - notContains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
-            name: upstream-ca-bundle-0
+            name: upstream-trusted-ca-bundle-0
           any: true
   - it: should mount an existing ConfigMap under its default key
     set:
-      upstreamCABundles:
+      upstreamTrustedCABundles:
         - configMapName: "corp-root-ca"
     asserts:
       - contains:
           path: spec.template.spec.volumes
           content:
-            name: upstream-ca-bundle-0
+            name: upstream-trusted-ca-bundle-0
             configMap:
               name: corp-root-ca
               items:
@@ -306,19 +306,19 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
-            name: upstream-ca-bundle-0
-            mountPath: /etc/gateway/upstream-ca-bundles/0
+            name: upstream-trusted-ca-bundle-0
+            mountPath: /etc/gateway/upstream-trusted-ca-bundles/0
             readOnly: true
   - it: should mount an existing ConfigMap under the configured key
     set:
-      upstreamCABundles:
+      upstreamTrustedCABundles:
         - configMapName: "corp-root-ca"
           configMapKey: "bundle.pem"
     asserts:
       - contains:
           path: spec.template.spec.volumes
           content:
-            name: upstream-ca-bundle-0
+            name: upstream-trusted-ca-bundle-0
             configMap:
               name: corp-root-ca
               items:
@@ -326,24 +326,24 @@ tests:
                   path: ca.crt
   - it: should mount inline PEM bundles
     set:
-      upstreamCABundles:
+      upstreamTrustedCABundles:
         - configMapName: "corp-root-ca"
         - pem: "my-upstream-ca"
     asserts:
       - contains:
           path: spec.template.spec.volumes
           content:
-            name: upstream-ca-bundle-1
+            name: upstream-trusted-ca-bundle-1
             configMap:
-              name: RELEASE-NAME-gateway-upstream-ca-bundles
+              name: RELEASE-NAME-gateway-upstream-trusted-ca-bundles
               items:
                 - key: ca1.crt
                   path: ca.crt
       - contains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
-            name: upstream-ca-bundle-1
-            mountPath: /etc/gateway/upstream-ca-bundles/1
+            name: upstream-trusted-ca-bundle-1
+            mountPath: /etc/gateway/upstream-trusted-ca-bundles/1
             readOnly: true
 ---
 suite: Deployment with local issuer TLS automation

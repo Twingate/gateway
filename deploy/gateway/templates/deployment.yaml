@@ -6,7 +6,7 @@
 {{- $tlsVaultIssuerAppRoleEnabled := and $tlsVaultIssuerEnabled .Values.tls.automation.issuer.vault.auth .Values.tls.automation.issuer.vault.auth.appRole -}}
 {{- $tlsSecretNames := include "gateway.tlsSecretNames" . | fromJsonArray -}}
 {{- $tlsLocalIssuerEnabled := and .Values.tls.automation.enabled .Values.tls.automation.issuer.local -}}
-{{- $upstreamCABundles := include "gateway.upstreamCABundleSources" . | fromJsonArray -}}
+{{- $upstreamTrustedCABundles := include "gateway.upstreamTrustedCABundleSources" . | fromJsonArray -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -76,9 +76,9 @@ spec:
               mountPath: /etc/gateway/tls/ca
               readOnly: true
             {{- end }}
-            {{- range $i, $source := $upstreamCABundles }}
-            - name: upstream-ca-bundle-{{ $i }}
-              mountPath: /etc/gateway/upstream-ca-bundles/{{ $i }}
+            {{- range $i, $source := $upstreamTrustedCABundles }}
+            - name: upstream-trusted-ca-bundle-{{ $i }}
+              mountPath: /etc/gateway/upstream-trusted-ca-bundles/{{ $i }}
               readOnly: true
             {{- end }}
             {{- if $tlsVaultIssuerCABundleEnabled }}
@@ -125,8 +125,8 @@ spec:
           secret:
             secretName: {{ include "gateway.tlsLocalIssuerSecretName" . }}
         {{- end }}
-        {{- range $i, $source := $upstreamCABundles }}
-        - name: upstream-ca-bundle-{{ $i }}
+        {{- range $i, $source := $upstreamTrustedCABundles }}
+        - name: upstream-trusted-ca-bundle-{{ $i }}
           configMap:
             name: {{ $source.configMapName | quote }}
             items:

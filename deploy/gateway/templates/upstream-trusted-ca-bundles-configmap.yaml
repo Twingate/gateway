@@ -1,18 +1,18 @@
 {{- $hasInline := false }}
-{{- range .Values.upstreamCABundles }}
+{{- range .Values.upstreamTrustedCABundles }}
 {{- if and (not .configMapName) .pem }}{{- $hasInline = true }}{{- end }}
 {{- end }}
 {{- if $hasInline }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ include "gateway.upstreamCABundlesConfigMapName" . }}
+  name: {{ include "gateway.upstreamTrustedCABundlesConfigMapName" . }}
   labels:
     {{- include "gateway.labels" . | nindent 4 }}
 data:
-  {{- range $i, $bundle := .Values.upstreamCABundles }}
+  {{- range $i, $bundle := .Values.upstreamTrustedCABundles }}
   {{- if and (not $bundle.configMapName) $bundle.pem }}
-  {{ include "gateway.upstreamCABundleInlineKey" $i }}: |
+  {{ include "gateway.upstreamTrustedCABundleInlineKey" $i }}: |
     {{- $bundle.pem | trim | nindent 4 }}
   {{- end }}
   {{- end }}

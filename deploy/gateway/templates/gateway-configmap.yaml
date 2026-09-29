@@ -86,11 +86,11 @@ data:
           {{- end }}
       {{- end }}
 
-    {{- with include "gateway.upstreamCABundleSources" . | fromJsonArray }}
+    {{- with include "gateway.upstreamTrustedCABundleSources" . | fromJsonArray }}
 
-    upstreamCABundles:
+    upstreamTrustedCABundles:
       {{- range $i, $source := . }}
-      - file: "/etc/gateway/upstream-ca-bundles/{{ $i }}/ca.crt"
+      - file: "/etc/gateway/upstream-trusted-ca-bundles/{{ $i }}/ca.crt"
       {{- end }}
     {{- end }}
 
