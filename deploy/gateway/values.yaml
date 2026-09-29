@@ -54,7 +54,7 @@ log:
 
 # CA bundles the Gateway trusts when verifying upstream TLS connections, on top of the
 # system trust store. Each entry is either an existing ConfigMap or an inline PEM bundle.
-upstreamCABundles: []
+upstreamTrustedCABundles: []
   # - configMapName: "corp-root-ca"
   #   # Optional, defaults to `ca.crt`.
   #   configMapKey: ca.crt

@@ -105,7 +105,7 @@
       },
       "additionalProperties": false
     },
-    "upstreamCABundles": {
+    "upstreamTrustedCABundles": {
       "type": "array",
       "description": "CA bundles the Gateway trusts when verifying upstream TLS connections, on top of the system trust store.",
       "default": [],
