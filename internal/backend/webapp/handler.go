@@ -114,12 +114,15 @@ func verifyCertificateChain(rootCAs *x509.CertPool) func(tls.ConnectionState) er
 			return errNoPeerCertificate
 		}
 
-		intermediates := x509.NewCertPool()
+		opts := x509.VerifyOptions{
+			Roots:         rootCAs,
+			Intermediates: x509.NewCertPool(),
+		}
 		for _, cert := range cs.PeerCertificates[1:] {
-			intermediates.AddCert(cert)
+			opts.Intermediates.AddCert(cert)
 		}
 
-		if _, err := cs.PeerCertificates[0].Verify(x509.VerifyOptions{Roots: rootCAs, Intermediates: intermediates}); err != nil {
+		if _, err := cs.PeerCertificates[0].Verify(opts); err != nil {
 			return fmt.Errorf("verify upstream certificate: %w", err)
 		}
 
