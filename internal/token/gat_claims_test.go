@@ -20,10 +20,10 @@ import (
 
 func TestGATClaims_ShouldUpgradeTLS(t *testing.T) {
 	tests := []struct {
-		name          string
-		resourceType  ResourceType
-		downstreamTLS bool
-		expected      bool
+		name              string
+		resourceType      ResourceType
+		downstreamTLSMode TLSServerMode
+		expected          bool
 	}{
 		{
 			name:         "Kubernetes should upgrade TLS",
@@ -31,21 +31,27 @@ func TestGATClaims_ShouldUpgradeTLS(t *testing.T) {
 			expected:     true,
 		},
 		{
-			name:          "SSH should not upgrade TLS",
-			resourceType:  ResourceTypeSSH,
-			downstreamTLS: true,
-			expected:      false,
+			name:              "SSH should not upgrade TLS",
+			resourceType:      ResourceTypeSSH,
+			downstreamTLSMode: TLSServerModeTLS13,
+			expected:          false,
 		},
 		{
-			name:         "Web app without downstream TLS should not upgrade TLS",
+			name:              "Web app with downstream TLS mode none should not upgrade TLS",
+			resourceType:      ResourceTypeWebApp,
+			downstreamTLSMode: TLSServerModeNone,
+			expected:          false,
+		},
+		{
+			name:         "Web app without downstream TLS mode should not upgrade TLS",
 			resourceType: ResourceTypeWebApp,
 			expected:     false,
 		},
 		{
-			name:          "Web app with downstream TLS should upgrade TLS",
-			resourceType:  ResourceTypeWebApp,
-			downstreamTLS: true,
-			expected:      true,
+			name:              "Web app with downstream TLS mode TLS13 should upgrade TLS",
+			resourceType:      ResourceTypeWebApp,
+			downstreamTLSMode: TLSServerModeTLS13,
+			expected:          true,
 		},
 	}
 
@@ -55,7 +61,7 @@ func TestGATClaims_ShouldUpgradeTLS(t *testing.T) {
 				Resource: Resource{
 					Type: tt.resourceType,
 					GatewayMetadata: GatewayMetadata{
-						Downstream: Downstream{TLS: tt.downstreamTLS},
+						Downstream: Downstream{TLSMode: tt.downstreamTLSMode},
 					},
 				},
 			}
@@ -102,6 +108,30 @@ func TestGATTokenClaims_Validate(t *testing.T) {
 		err := validClaims.Validate()
 		require.NoError(t, err)
 	})
+
+	validTLSModes := []struct {
+		name       string
+		downstream TLSServerMode
+		upstream   TLSClientMode
+	}{
+		{name: "downstream TLS13", downstream: TLSServerModeTLS13, upstream: TLSClientModeVerifyFull},
+		{name: "downstream NONE", downstream: TLSServerModeNone, upstream: TLSClientModeVerifyFull},
+		{name: "upstream VERIFY_FULL", downstream: TLSServerModeTLS13, upstream: TLSClientModeVerifyFull},
+		{name: "upstream VERIFY_CA", downstream: TLSServerModeTLS13, upstream: TLSClientModeVerifyCA},
+		{name: "upstream INSECURE", downstream: TLSServerModeTLS13, upstream: TLSClientModeInsecure},
+		{name: "upstream NONE", downstream: TLSServerModeTLS13, upstream: TLSClientModeNone},
+	}
+
+	for _, tt := range validTLSModes {
+		t.Run("Valid web app TLS modes: "+tt.name, func(t *testing.T) {
+			claims := validClaims
+			claims.Resource.Type = ResourceTypeWebApp
+			claims.Resource.GatewayMetadata.Downstream.TLSMode = tt.downstream
+			claims.Resource.GatewayMetadata.Upstream.TLSMode = tt.upstream
+
+			assert.NoError(t, claims.Validate())
+		})
+	}
 
 	tests := []struct {
 		name                 string
@@ -239,6 +269,44 @@ func TestGATTokenClaims_Validate(t *testing.T) {
 			expectedError:        jwt.ErrTokenInvalidClaims,
 			expectedErrorMessage: "invalid port \"resource.gateway_metadata.upstream.port\": 65536",
 		},
+		{
+			name: "Missing web app downstream TLS mode",
+			setupFn: func(claims *GATClaims) {
+				claims.Resource.Type = ResourceTypeWebApp
+				claims.Resource.GatewayMetadata.Upstream.TLSMode = TLSClientModeVerifyFull
+			},
+			expectedError:        errInvalidTLSMode,
+			expectedErrorMessage: "invalid TLS mode \"resource.gateway_metadata.downstream.tls_mode\": \"\"",
+		},
+		{
+			name: "Invalid web app downstream TLS mode",
+			setupFn: func(claims *GATClaims) {
+				claims.Resource.Type = ResourceTypeWebApp
+				claims.Resource.GatewayMetadata.Downstream.TLSMode = "TLS12"
+				claims.Resource.GatewayMetadata.Upstream.TLSMode = TLSClientModeVerifyFull
+			},
+			expectedError:        errInvalidTLSMode,
+			expectedErrorMessage: "invalid TLS mode \"resource.gateway_metadata.downstream.tls_mode\": \"TLS12\"",
+		},
+		{
+			name: "Missing web app upstream TLS mode",
+			setupFn: func(claims *GATClaims) {
+				claims.Resource.Type = ResourceTypeWebApp
+				claims.Resource.GatewayMetadata.Downstream.TLSMode = TLSServerModeTLS13
+			},
+			expectedError:        errInvalidTLSMode,
+			expectedErrorMessage: "invalid TLS mode \"resource.gateway_metadata.upstream.tls_mode\": \"\"",
+		},
+		{
+			name: "Invalid web app upstream TLS mode",
+			setupFn: func(claims *GATClaims) {
+				claims.Resource.Type = ResourceTypeWebApp
+				claims.Resource.GatewayMetadata.Downstream.TLSMode = TLSServerModeTLS13
+				claims.Resource.GatewayMetadata.Upstream.TLSMode = "VERIFY_NONE"
+			},
+			expectedError:        errInvalidTLSMode,
+			expectedErrorMessage: "invalid TLS mode \"resource.gateway_metadata.upstream.tls_mode\": \"VERIFY_NONE\"",
+		},
 	}
 
 	for _, tt := range tests {
@@ -348,58 +416,12 @@ func TestPublicKey_UnmarshalJSON(t *testing.T) {
 	}
 }
 
-func TestGatewayMetadata_UnmarshalDownstreamTLS(t *testing.T) {
-	tests := []struct {
-		name    string
-		json    string
-		wantTLS bool
-	}{
-		{
-			name:    "downstream TLS true",
-			json:    `{"downstream": {"port": 443, "tls": true}}`,
-			wantTLS: true,
-		},
-		{
-			name:    "TLS absent defaults to false",
-			json:    `{"downstream": {"port": 443}}`,
-			wantTLS: false,
-		},
-	}
+func TestGatewayMetadata_UnmarshalTLSModes(t *testing.T) {
+	var metadata GatewayMetadata
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var metadata GatewayMetadata
+	err := json.Unmarshal([]byte(`{"downstream": {"port": 443, "tls_mode": "TLS13"}, "upstream": {"port": 5000, "tls_mode": "VERIFY_CA"}}`), &metadata)
+	require.NoError(t, err)
 
-			require.NoError(t, json.Unmarshal([]byte(tt.json), &metadata))
-			assert.Equal(t, tt.wantTLS, metadata.Downstream.TLS)
-		})
-	}
-}
-
-func TestGatewayMetadata_UnmarshalUpstreamTLS(t *testing.T) {
-	tests := []struct {
-		name    string
-		json    string
-		wantTLS bool
-	}{
-		{
-			name:    "upstream TLS true",
-			json:    `{"upstream": {"port": 5000, "tls": true}}`,
-			wantTLS: true,
-		},
-		{
-			name:    "TLS absent defaults to false",
-			json:    `{"upstream": {"port": 5000}}`,
-			wantTLS: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var metadata GatewayMetadata
-
-			require.NoError(t, json.Unmarshal([]byte(tt.json), &metadata))
-			assert.Equal(t, tt.wantTLS, metadata.Upstream.TLS)
-		})
-	}
+	assert.Equal(t, TLSServerModeTLS13, metadata.Downstream.TLSMode)
+	assert.Equal(t, TLSClientModeVerifyCA, metadata.Upstream.TLSMode)
 }

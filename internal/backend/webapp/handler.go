@@ -6,18 +6,26 @@ package webapp
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"strings"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
 
 	"gateway/internal/backend/httpproxy"
 	"gateway/internal/backend/webapp/template"
 	"gateway/internal/frontend"
 	"gateway/internal/metrics"
+	"gateway/internal/token"
+)
+
+var (
+	errNoPeerCertificate  = errors.New("upstream presented no certificate")
+	errUnsupportedTLSMode = errors.New("unsupported upstream TLS mode")
 )
 
 type Handler struct {
@@ -34,23 +42,92 @@ func NewHandler(cfg Config) *Handler {
 				panic(err)
 			}
 		},
-		Transport: metrics.InstrumentRoundTripper(cfg.roundTripperMetrics, metrics.ResourceTypeWebApp, createTransport(cfg.caPool)),
+		Transport: metrics.InstrumentRoundTripper(cfg.roundTripperMetrics, metrics.ResourceTypeWebApp, createUpstreamRoundTripper(cfg.caPool)),
 	}
 
 	return &Handler{proxy: proxy}
 }
 
-// createTransport clones http.DefaultTransport to preserve its proxy, timeout,
-// and HTTP/2 defaults and pins upstream TLS verification to the given CA pool.
-func createTransport(caPool *x509.CertPool) *http.Transport {
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-
-	transport.TLSClientConfig = &tls.Config{
-		MinVersion: tls.VersionTLS13,
-		RootCAs:    caPool,
+// createUpstreamRoundTripper sends each request through a transport dedicated to the upstream TLS
+// mode in the connection's GAT, so pooled upstream connections are never reused across modes.
+func createUpstreamRoundTripper(caPool *x509.CertPool) promhttp.RoundTripperFunc {
+	transports := make(map[token.TLSClientMode]*http.Transport, len(token.TLSClientModes))
+	for _, mode := range token.TLSClientModes {
+		transports[mode] = createTransport(newUpstreamTLSConfig(mode, caPool))
 	}
 
+	return func(r *http.Request) (*http.Response, error) {
+		mode := httpproxy.ProxyConnFromContext(r.Context()).GATClaims().Resource.GatewayMetadata.Upstream.TLSMode
+
+		transport, ok := transports[mode]
+		if !ok {
+			return nil, fmt.Errorf("%w %q", errUnsupportedTLSMode, mode)
+		}
+
+		return transport.RoundTrip(r)
+	}
+}
+
+// createTransport clones http.DefaultTransport to preserve its proxy, timeout,
+// and HTTP/2 defaults and applies the given upstream TLS config.
+func createTransport(tlsConfig *tls.Config) *http.Transport {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSClientConfig = tlsConfig
+
 	return transport
+}
+
+// newUpstreamTLSConfig returns the TLS client config for connecting to an upstream in the given
+// mode, verifying certificate chains against rootCAs. It returns nil for TLSClientModeNone.
+func newUpstreamTLSConfig(mode token.TLSClientMode, rootCAs *x509.CertPool) *tls.Config {
+	switch mode {
+	case token.TLSClientModeNone:
+		return nil
+	case token.TLSClientModeInsecure:
+		return &tls.Config{
+			MinVersion:         tls.VersionTLS13,
+			InsecureSkipVerify: true, // #nosec G402 -- The resource explicitly opts out of upstream certificate verification
+		}
+	case token.TLSClientModeVerifyCA:
+		// Disable the built-in verification, which always checks the hostname, and verify only the
+		// certificate chain in VerifyConnection.
+		return &tls.Config{
+			MinVersion:         tls.VersionTLS13,
+			InsecureSkipVerify: true, // #nosec G402 -- The certificate chain is verified in VerifyConnection
+			VerifyConnection:   verifyCertificateChain(rootCAs),
+		}
+	case token.TLSClientModeVerifyFull:
+		fallthrough
+	default:
+		return &tls.Config{
+			MinVersion: tls.VersionTLS13,
+			RootCAs:    rootCAs,
+		}
+	}
+}
+
+// verifyCertificateChain returns a VerifyConnection callback that verifies the peer's certificate
+// chain against rootCAs without checking the hostname.
+func verifyCertificateChain(rootCAs *x509.CertPool) func(tls.ConnectionState) error {
+	return func(cs tls.ConnectionState) error {
+		if len(cs.PeerCertificates) == 0 {
+			return errNoPeerCertificate
+		}
+
+		opts := x509.VerifyOptions{
+			Roots:         rootCAs,
+			Intermediates: x509.NewCertPool(),
+		}
+		for _, cert := range cs.PeerCertificates[1:] {
+			opts.Intermediates.AddCert(cert)
+		}
+
+		if _, err := cs.PeerCertificates[0].Verify(opts); err != nil {
+			return fmt.Errorf("verify upstream certificate: %w", err)
+		}
+
+		return nil
+	}
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -92,9 +169,9 @@ func downstreamScheme(conn *frontend.ProxyConn) string {
 }
 
 func rewrite(r *httputil.ProxyRequest, conn *frontend.ProxyConn, headers map[string]*template.Template) error {
-	scheme := "http"
-	if conn.GATClaims().Resource.GatewayMetadata.Upstream.TLS {
-		scheme = "https"
+	scheme := "https"
+	if conn.GATClaims().Resource.GatewayMetadata.Upstream.TLSMode == token.TLSClientModeNone {
+		scheme = "http"
 	}
 
 	targetURL := &url.URL{

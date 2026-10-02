@@ -46,8 +46,9 @@ type Client struct {
 
 	resourceHostname      string
 	downstreamPort        int
-	downstreamTLS         bool
+	downstreamTLSMode     token.TLSServerMode
 	upstreamPort          int
+	upstreamTLSMode       token.TLSClientMode
 	resourceType          token.ResourceType
 	requestHeaderRewrites map[string]string
 
@@ -74,11 +75,11 @@ func WithRequestHeaderRewrites(rewrites map[string]string) Option {
 	}
 }
 
-// WithDownstreamTLS marks the resource as TLS-enforced on downstream in the GAT
+// WithDownstreamTLS sets the downstream TLS mode in the GAT to TLS 1.3
 // and switches the client-facing port to the HTTPS port.
 func WithDownstreamTLS() Option {
 	return func(c *Client) {
-		c.downstreamTLS = true
+		c.downstreamTLSMode = token.TLSServerModeTLS13
 		c.downstreamPort = 443
 	}
 }
@@ -134,6 +135,12 @@ func NewClient(user *token.User, geoIPLocation token.GeoIPLocation, proxyAddress
 		cancel:           cancel,
 		wg:               &sync.WaitGroup{},
 		logger:           logger,
+	}
+
+	// The Controller sends TLS modes only for Web App resources.
+	if resourceType == token.ResourceTypeWebApp {
+		c.downstreamTLSMode = token.TLSServerModeNone
+		c.upstreamTLSMode = token.TLSClientModeNone
 	}
 
 	for _, opt := range opts {
@@ -288,8 +295,8 @@ func (c *Client) fetchGAT() (string, error) {
 			Type:    c.resourceType,
 			Address: c.resourceHostname,
 			GatewayMetadata: token.GatewayMetadata{
-				Downstream:            token.Downstream{Port: c.downstreamPort, TLS: c.downstreamTLS},
-				Upstream:              token.Upstream{Port: c.upstreamPort},
+				Downstream:            token.Downstream{Port: c.downstreamPort, TLSMode: c.downstreamTLSMode},
+				Upstream:              token.Upstream{Port: c.upstreamPort, TLSMode: c.upstreamTLSMode},
 				RequestHeaderRewrites: c.requestHeaderRewrites,
 			},
 		},

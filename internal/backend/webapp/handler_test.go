@@ -5,6 +5,9 @@ package webapp
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
 	"maps"
@@ -13,6 +16,7 @@ import (
 	"net/http/httputil"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
@@ -24,6 +28,7 @@ import (
 	"gateway/internal/frontend"
 	"gateway/internal/metrics"
 	"gateway/internal/token"
+	"gateway/test/data"
 )
 
 func mustParse(t *testing.T, templates map[string]string) map[string]*template.Template {
@@ -265,7 +270,7 @@ func TestRewrite_PreservesClientHost(t *testing.T) {
 	conn := frontend.NewProxyConn(nil, nil, nil, zap.NewNop(), connMetrics)
 	conn.UpstreamHost = "admin.example.int"
 	conn.Claims = &token.GATClaims{
-		Resource: token.Resource{GatewayMetadata: token.GatewayMetadata{Upstream: token.Upstream{Port: 80}}},
+		Resource: token.Resource{GatewayMetadata: token.GatewayMetadata{Upstream: token.Upstream{Port: 80, TLSMode: token.TLSClientModeNone}}},
 	}
 
 	proxyReq := &httputil.ProxyRequest{
@@ -282,12 +287,14 @@ func TestRewrite_PreservesClientHost(t *testing.T) {
 
 func TestRewrite_UpstreamScheme(t *testing.T) {
 	tests := []struct {
-		name        string
-		upstreamTLS bool
-		wantScheme  string
+		name            string
+		upstreamTLSMode token.TLSClientMode
+		wantScheme      string
 	}{
-		{name: "plain HTTP when TLS is false", upstreamTLS: false, wantScheme: "http"},
-		{name: "HTTPS when TLS is true", upstreamTLS: true, wantScheme: "https"},
+		{name: "plain HTTP when TLS mode is none", upstreamTLSMode: token.TLSClientModeNone, wantScheme: "http"},
+		{name: "HTTPS when TLS mode is verify_full", upstreamTLSMode: token.TLSClientModeVerifyFull, wantScheme: "https"},
+		{name: "HTTPS when TLS mode is verify_ca", upstreamTLSMode: token.TLSClientModeVerifyCA, wantScheme: "https"},
+		{name: "HTTPS when TLS mode is insecure", upstreamTLSMode: token.TLSClientModeInsecure, wantScheme: "https"},
 	}
 
 	for _, tt := range tests {
@@ -298,7 +305,7 @@ func TestRewrite_UpstreamScheme(t *testing.T) {
 			conn.Claims = &token.GATClaims{
 				Resource: token.Resource{
 					GatewayMetadata: token.GatewayMetadata{
-						Upstream: token.Upstream{Port: 8443, TLS: tt.upstreamTLS},
+						Upstream: token.Upstream{Port: 8443, TLSMode: tt.upstreamTLSMode},
 					},
 				},
 			}
@@ -322,7 +329,7 @@ func TestRewrite_StripsClientIdentityHeaders(t *testing.T) {
 	conn := frontend.NewProxyConn(nil, nil, nil, zap.NewNop(), connMetrics)
 	conn.UpstreamHost = "admin.example.int"
 	conn.Claims = &token.GATClaims{
-		Resource: token.Resource{GatewayMetadata: token.GatewayMetadata{Upstream: token.Upstream{Port: 80}}},
+		Resource: token.Resource{GatewayMetadata: token.GatewayMetadata{Upstream: token.Upstream{Port: 80, TLSMode: token.TLSClientModeNone}}},
 	}
 
 	outReq := httptest.NewRequest(http.MethodGet, "http://admin.example.int/path", nil)
@@ -368,13 +375,175 @@ func TestRewrite_SkipsInvalidGATHeaders(t *testing.T) {
 	assert.Empty(t, proxyReq.Out.Header.Values("X-Unknown"), "unknown header should not be set")
 }
 
-func TestCreateTransport(t *testing.T) {
-	caPool := x509.NewCertPool()
-	transport := createTransport(caPool)
+func newTLSTestServer(t *testing.T, cert tls.Certificate) *httptest.Server {
+	t.Helper()
 
-	require.NotNil(t, transport.TLSClientConfig)
-	assert.Same(t, caPool, transport.TLSClientConfig.RootCAs)
-	assert.Equal(t, uint16(tls.VersionTLS13), transport.TLSClientConfig.MinVersion)
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	server.TLS = &tls.Config{MinVersion: tls.VersionTLS13, Certificates: []tls.Certificate{cert}}
+	server.StartTLS()
+	t.Cleanup(server.Close)
+
+	return server
+}
+
+func TestCreateUpstreamRoundTripper(t *testing.T) {
+	cert, err := tls.X509KeyPair(data.ProxyCert, data.ProxyKey)
+	require.NoError(t, err)
+
+	server := newTLSTestServer(t, cert)
+
+	roundTripper := createUpstreamRoundTripper(x509.NewCertPool())
+
+	roundTrip := func(t *testing.T, mode token.TLSClientMode) (int, error) {
+		t.Helper()
+
+		connMetrics := frontend.CreateProxyConnMetrics(prometheus.NewRegistry())
+		conn := frontend.NewProxyConn(nil, nil, nil, zap.NewNop(), connMetrics)
+		conn.Claims = &token.GATClaims{
+			Resource: token.Resource{GatewayMetadata: token.GatewayMetadata{Upstream: token.Upstream{TLSMode: mode}}},
+		}
+
+		ctx := context.WithValue(t.Context(), httpproxy.ConnContextKey{}, conn)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL, nil)
+		require.NoError(t, err)
+
+		resp, err := roundTripper.RoundTrip(req)
+		if err != nil {
+			return 0, err
+		}
+
+		_ = resp.Body.Close()
+
+		return resp.StatusCode, nil
+	}
+
+	t.Run("insecure skips certificate verification", func(t *testing.T) {
+		statusCode, err := roundTrip(t, token.TLSClientModeInsecure)
+		require.NoError(t, err)
+
+		assert.Equal(t, http.StatusOK, statusCode)
+	})
+
+	t.Run("verify_full rejects an untrusted certificate", func(t *testing.T) {
+		_, err := roundTrip(t, token.TLSClientModeVerifyFull)
+
+		var unknownAuthorityErr x509.UnknownAuthorityError
+		assert.ErrorAs(t, err, &unknownAuthorityErr)
+	})
+
+	t.Run("unknown TLS mode is rejected", func(t *testing.T) {
+		_, err := roundTrip(t, "bogus")
+
+		assert.ErrorIs(t, err, errUnsupportedTLSMode)
+	})
+}
+
+func TestCreateTransport(t *testing.T) {
+	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS13}
+	transport := createTransport(tlsConfig)
+
+	assert.Same(t, tlsConfig, transport.TLSClientConfig)
+	assert.NotSame(t, http.DefaultTransport, transport)
+}
+
+func TestNewUpstreamTLSConfig(t *testing.T) {
+	cert, err := tls.X509KeyPair(data.ProxyCert, data.ProxyKey)
+	require.NoError(t, err)
+
+	server := newTLSTestServer(t, cert)
+
+	trustedPool := x509.NewCertPool()
+	require.True(t, trustedPool.AppendCertsFromPEM(data.ProxyCert))
+
+	tests := []struct {
+		name       string
+		mode       token.TLSClientMode
+		rootCAs    *x509.CertPool
+		serverName string
+		wantErr    bool
+	}{
+		{name: "verify_full accepts a trusted certificate matching the hostname", mode: token.TLSClientModeVerifyFull, rootCAs: trustedPool, serverName: "localhost"},
+		{name: "verify_full rejects a hostname mismatch", mode: token.TLSClientModeVerifyFull, rootCAs: trustedPool, serverName: "corp.internal", wantErr: true},
+		{name: "verify_full rejects an untrusted certificate", mode: token.TLSClientModeVerifyFull, rootCAs: x509.NewCertPool(), serverName: "localhost", wantErr: true},
+		{name: "verify_ca accepts a hostname mismatch", mode: token.TLSClientModeVerifyCA, rootCAs: trustedPool, serverName: "corp.internal"},
+		{name: "verify_ca rejects an untrusted certificate", mode: token.TLSClientModeVerifyCA, rootCAs: x509.NewCertPool(), serverName: "corp.internal", wantErr: true},
+		{name: "insecure accepts an untrusted certificate with a hostname mismatch", mode: token.TLSClientModeInsecure, rootCAs: x509.NewCertPool(), serverName: "corp.internal"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tlsConfig := newUpstreamTLSConfig(tt.mode, tt.rootCAs)
+			require.NotNil(t, tlsConfig)
+			assert.Equal(t, uint16(tls.VersionTLS13), tlsConfig.MinVersion)
+
+			tlsConfig.ServerName = tt.serverName
+			dialer := &tls.Dialer{Config: tlsConfig}
+
+			conn, err := dialer.DialContext(t.Context(), "tcp", server.Listener.Addr().String())
+			if tt.wantErr {
+				assert.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			_ = conn.Close()
+		})
+	}
+
+	t.Run("verify_ca accepts a certificate issued by an intermediate CA", func(t *testing.T) {
+		serverCert, rootCAs := newCertificateChain(t)
+		chainServer := newTLSTestServer(t, serverCert)
+
+		tlsConfig := newUpstreamTLSConfig(token.TLSClientModeVerifyCA, rootCAs)
+		tlsConfig.ServerName = "corp.internal"
+		dialer := &tls.Dialer{Config: tlsConfig}
+
+		conn, err := dialer.DialContext(t.Context(), "tcp", chainServer.Listener.Addr().String())
+		require.NoError(t, err)
+
+		_ = conn.Close()
+	})
+
+	t.Run("none returns no TLS config", func(t *testing.T) {
+		assert.Nil(t, newUpstreamTLSConfig(token.TLSClientModeNone, trustedPool))
+	})
+}
+
+// newCertificateChain returns a leaf certificate issued by an intermediate CA, served together with
+// that intermediate, and a pool holding only the root CA that issued the intermediate.
+func newCertificateChain(t *testing.T) (tls.Certificate, *x509.CertPool) {
+	t.Helper()
+
+	issue := func(tmpl, parent *x509.Certificate, parentKey *ecdsa.PrivateKey) (*x509.Certificate, *ecdsa.PrivateKey) {
+		key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		require.NoError(t, err)
+
+		if parent == nil {
+			parent, parentKey = tmpl, key
+		}
+
+		der, err := x509.CreateCertificate(rand.Reader, tmpl, parent, &key.PublicKey, parentKey)
+		require.NoError(t, err)
+
+		cert, err := x509.ParseCertificate(der)
+		require.NoError(t, err)
+
+		return cert, key
+	}
+
+	ca := &x509.Certificate{NotAfter: time.Now().Add(time.Hour), IsCA: true, BasicConstraintsValid: true}
+	root, rootKey := issue(ca, nil, nil)
+	intermediate, intermediateKey := issue(ca, root, rootKey)
+	leaf, leafKey := issue(&x509.Certificate{NotAfter: ca.NotAfter}, intermediate, intermediateKey)
+
+	rootCAs := x509.NewCertPool()
+	rootCAs.AddCert(root)
+
+	return tls.Certificate{Certificate: [][]byte{leaf.Raw, intermediate.Raw}, PrivateKey: leafKey}, rootCAs
 }
 
 func TestBuildVariables_CoversAllowedKeys(t *testing.T) {
@@ -391,23 +560,23 @@ func TestBuildVariables_CoversAllowedKeys(t *testing.T) {
 func TestRewrite_SetsXForwardedProto(t *testing.T) {
 	tests := []struct {
 		name              string
-		downstreamTLS     bool
+		downstreamTLSMode token.TLSServerMode
 		clientSuppliedXFP string
 		want              string
 	}{
 		{
-			name:          "HTTPS when the Gateway terminates TLS downstream",
-			downstreamTLS: true,
-			want:          "https",
+			name:              "HTTPS when the Gateway terminates TLS downstream",
+			downstreamTLSMode: token.TLSServerModeTLS13,
+			want:              "https",
 		},
 		{
-			name:          "HTTP when the protocol client connects in plaintext",
-			downstreamTLS: false,
-			want:          "http",
+			name:              "HTTP when the protocol client connects in plaintext",
+			downstreamTLSMode: token.TLSServerModeNone,
+			want:              "http",
 		},
 		{
 			name:              "client-supplied value is overwritten",
-			downstreamTLS:     false,
+			downstreamTLSMode: token.TLSServerModeNone,
 			clientSuppliedXFP: "https",
 			want:              "http",
 		},
@@ -422,8 +591,8 @@ func TestRewrite_SetsXForwardedProto(t *testing.T) {
 				Resource: token.Resource{
 					Type: token.ResourceTypeWebApp,
 					GatewayMetadata: token.GatewayMetadata{
-						Downstream: token.Downstream{Port: 443, TLS: tt.downstreamTLS},
-						Upstream:   token.Upstream{Port: 80},
+						Downstream: token.Downstream{Port: 443, TLSMode: tt.downstreamTLSMode},
+						Upstream:   token.Upstream{Port: 80, TLSMode: token.TLSClientModeNone},
 					},
 				},
 			}
