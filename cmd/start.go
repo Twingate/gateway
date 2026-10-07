@@ -35,6 +35,9 @@ func start() error {
 		return fmt.Errorf("failed to create logger %w", err)
 	}
 
+	// Closing waits for a backup compression still running, so a stop does not leave it half written.
+	defer logger.Close()
+
 	p, err := newProxy(cfg, logger)
 	if err != nil {
 		return err
