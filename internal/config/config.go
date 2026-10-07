@@ -464,7 +464,7 @@ var (
 	errNegativeDuration    = errors.New("duration must be non-negative")
 	errSizeOutOfRange      = errors.New("size must be greater than 0 and at most 256KB")
 	errMultipleOutputs     = errors.New("only one of stderr or stdout may be set")
-	errUnsupportedLogLevel = errors.New("level must be debug, info, warn or error")
+	errUnsupportedLogLevel = errors.New("must be debug, info, warn or error")
 )
 
 func (l *LogConfig) Validate() error {

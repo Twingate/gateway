@@ -910,7 +910,7 @@ func TestLogConfig_Validate(t *testing.T) {
 			name:        "invalid system level",
 			log:         LogConfig{System: LogSystemConfig{Level: zapcore.FatalLevel}, SessionRecording: SessionRecordingConfig{Segment: segment}},
 			wantErr:     errUnsupportedLogLevel,
-			errContains: "system: level",
+			errContains: "level",
 		},
 		{
 			name:        "two audit outputs",
