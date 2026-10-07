@@ -89,7 +89,7 @@ func (r *reloader) load(keyPair config.TLSCertificateFileKeyPair) error {
 	r.certs[keyPair.CertificateFile] = &cert
 	r.mu.Unlock()
 
-	r.logger.Info("loaded cert and key files", zap.String("certificateFile", keyPair.CertificateFile))
+	r.logger.Info("loaded cert and key files", zap.String("certificate_file", keyPair.CertificateFile))
 
 	return nil
 }

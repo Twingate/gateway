@@ -388,7 +388,7 @@ func stripNetworkPrefix(hostname, network string) string {
 }
 
 func resolveTwingateHostname(targetURL, defaultHost string, retryMax int, logger *zap.Logger) string {
-	logger = logger.With(zap.String("url", targetURL), zap.String("defaultHost", defaultHost))
+	logger = logger.With(zap.String("url", targetURL), zap.String("default_host", defaultHost))
 
 	client := retryablehttp.NewClient()
 	client.HTTPClient.Transport = useragent.Transport{Base: client.HTTPClient.Transport}
@@ -408,7 +408,7 @@ func resolveTwingateHostname(targetURL, defaultHost string, retryMax int, logger
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusPermanentRedirect {
-		logger.Warn("No redirect received", zap.Int("statusCode", resp.StatusCode))
+		logger.Warn("No redirect received", zap.Int("status_code", resp.StatusCode))
 
 		return defaultHost
 	}
@@ -423,7 +423,7 @@ func resolveTwingateHostname(targetURL, defaultHost string, retryMax int, logger
 	resolved := location.Hostname()
 	if err := validateHost(resolved); err != nil {
 		logger.Warn("Resolved Twingate host failed validation, keeping configured host",
-			zap.String("resolvedHost", resolved), zap.Error(err))
+			zap.String("resolved_host", resolved), zap.Error(err))
 
 		return defaultHost
 	}
