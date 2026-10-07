@@ -133,20 +133,32 @@ func TestNew_WritesEachCategoryToOutput(t *testing.T) {
 	}
 }
 
-func TestOutputPath(t *testing.T) {
+func TestWriters_Open(t *testing.T) {
 	tests := []struct {
-		name   string
-		output config.LogOutputConfig
-		want   string
+		name     string
+		output   config.LogOutputConfig
+		wantKey  string
+		wantFile *os.File
 	}{
-		{name: "stderr", output: config.LogOutputConfig{Stderr: &config.LogStandardErrorConfig{}}, want: "stderr"},
-		{name: "stdout", output: config.LogOutputConfig{Stdout: &config.LogStandardOutputConfig{}}, want: "stdout"},
-		{name: "omitted output default to stderr", output: config.LogOutputConfig{}, want: "stderr"},
+		{name: "stdout", output: config.LogOutputConfig{Stdout: &config.LogStandardOutputConfig{}}, wantKey: "stdout", wantFile: os.Stdout},
+		{name: "empty config defaults to stderr", output: config.LogOutputConfig{}, wantKey: "stderr", wantFile: os.Stderr},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, outputPath(tt.output))
+			w := writers{}
+			writer := w.open(tt.output)
+
+			assert.Equal(t, zapcore.Lock(tt.wantFile), writer)
+			assert.Same(t, writer, w[tt.wantKey])
 		})
 	}
+
+	t.Run("shares the open writer of the same output", func(t *testing.T) {
+		w := writers{}
+		output := config.LogOutputConfig{Stdout: &config.LogStandardOutputConfig{}}
+		writer := w.open(output)
+
+		assert.Same(t, writer, w.open(output))
+	})
 }

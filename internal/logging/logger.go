@@ -4,7 +4,7 @@
 package logging
 
 import (
-	"fmt"
+	"os"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -25,47 +25,23 @@ type Logger struct {
 	Session *zap.Logger
 }
 
-// New builds the loggers from the log configuration.
+// New builds the loggers from the log configuration. Categories configured with the same output
+// share one writer.
 func New(cfg config.LogConfig) (Logger, error) {
-	system, err := newLogger(SystemLoggerName, cfg.System.Output, cfg.System.Level, false)
-	if err != nil {
-		return Logger{}, err
-	}
+	w := writers{}
 
-	audit, err := newLogger(AuditLoggerName, cfg.Audit.Output, zapcore.InfoLevel, true)
-	if err != nil {
-		return Logger{}, err
-	}
-
-	session, err := newLogger(SessionLoggerName, cfg.SessionRecording.Output, zapcore.InfoLevel, false)
-	if err != nil {
-		return Logger{}, err
-	}
-
-	return Logger{System: system, Audit: audit, Session: session}, nil
+	return Logger{
+		System:  w.newLogger(SystemLoggerName, cfg.System.Output, cfg.System.Level, false),
+		Audit:   w.newLogger(AuditLoggerName, cfg.Audit.Output, zapcore.InfoLevel, true),
+		Session: w.newLogger(SessionLoggerName, cfg.SessionRecording.Output, zapcore.InfoLevel, false),
+	}, nil
 }
 
-func newLogger(name string, output config.LogOutputConfig, level zapcore.Level, disableCaller bool) (*zap.Logger, error) {
-	logger, err := logConfig(level, outputPath(output), disableCaller).Build()
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", name, err)
-	}
+// writers holds every writer opened so far, keyed by output name.
+// Loggers configured with the same output share one writer.
+type writers map[string]zapcore.WriteSyncer
 
-	return logger.Named(name).With(zap.String("version", version.Version)), nil
-}
-
-func outputPath(output config.LogOutputConfig) string {
-	switch {
-	case output.Stdout != nil:
-		return "stdout"
-	case output.Stderr != nil:
-		fallthrough
-	default:
-		return "stderr"
-	}
-}
-
-func logConfig(level zapcore.Level, outputPath string, disableCaller bool) zap.Config {
+func (w writers) newLogger(name string, output config.LogOutputConfig, level zapcore.Level, disableCaller bool) *zap.Logger {
 	encoderConfig := zapcore.EncoderConfig{
 		TimeKey:        "ts",
 		LevelKey:       "levelname",
@@ -79,13 +55,40 @@ func logConfig(level zapcore.Level, outputPath string, disableCaller bool) zap.C
 		EncodeCaller:   zapcore.ShortCallerEncoder,
 	}
 
-	return zap.Config{
-		Level:            zap.NewAtomicLevelAt(level),
-		Development:      false,
-		DisableCaller:    disableCaller,
-		Encoding:         "json",
-		EncoderConfig:    encoderConfig,
-		OutputPaths:      []string{outputPath},
-		ErrorOutputPaths: []string{"stderr"},
+	core := zapcore.NewCore(zapcore.NewJSONEncoder(encoderConfig), w.open(output), level)
+	logger := zap.New(core, zap.WithCaller(!disableCaller), zap.AddStacktrace(zapcore.ErrorLevel))
+
+	return logger.Named(name).With(zap.String("version", version.Version))
+}
+
+func (w writers) open(output config.LogOutputConfig) zapcore.WriteSyncer {
+	var key string
+
+	switch {
+	case output.Stdout != nil:
+		key = "stdout"
+	case output.Stderr != nil:
+		fallthrough
+	default:
+		key = "stderr"
+	}
+
+	if writer, opened := w[key]; opened {
+		return writer
+	}
+
+	w[key] = newWriter(output)
+
+	return w[key]
+}
+
+func newWriter(output config.LogOutputConfig) zapcore.WriteSyncer {
+	switch {
+	case output.Stdout != nil:
+		return zapcore.Lock(os.Stdout)
+	case output.Stderr != nil:
+		fallthrough
+	default:
+		return zapcore.Lock(os.Stderr)
 	}
 }
