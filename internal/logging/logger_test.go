@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -58,6 +59,15 @@ func parseLogLines(t *testing.T, content []byte) []map[string]any {
 	return lines
 }
 
+func readLogLines(t *testing.T, path string) []map[string]any {
+	t.Helper()
+
+	content, err := os.ReadFile(filepath.Clean(path))
+	require.NoError(t, err)
+
+	return parseLogLines(t, content)
+}
+
 func TestNew_SystemLevel(t *testing.T) {
 	tests := []struct {
 		name            string
@@ -85,10 +95,12 @@ func TestNew_SystemLevel(t *testing.T) {
 func TestNew_WritesEachCategoryToOutput(t *testing.T) {
 	readStderr := captureStream(t, &os.Stderr)
 	readStdout := captureStream(t, &os.Stdout)
+	sessionPath := filepath.Join(t.TempDir(), "sessions.log")
 
 	logger, err := New(config.LogConfig{
-		System: config.LogSystemConfig{Output: config.LogOutputConfig{Stderr: &config.LogStandardErrorConfig{}}},
-		Audit:  config.LogAuditConfig{Output: config.LogOutputConfig{Stdout: &config.LogStandardOutputConfig{}}},
+		System:           config.LogSystemConfig{Output: config.LogOutputConfig{Stderr: &config.LogStandardErrorConfig{}}},
+		Audit:            config.LogAuditConfig{Output: config.LogOutputConfig{Stdout: &config.LogStandardOutputConfig{}}},
+		SessionRecording: config.SessionRecordingConfig{Output: config.LogOutputConfig{File: &config.LogFileOutputConfig{Path: sessionPath}}},
 	})
 	require.NoError(t, err)
 
@@ -98,8 +110,10 @@ func TestNew_WritesEachCategoryToOutput(t *testing.T) {
 
 	stderrLines := parseLogLines(t, readStderr())
 	stdoutLines := parseLogLines(t, readStdout())
-	require.Len(t, stderrLines, 2)
+	sessionLines := readLogLines(t, sessionPath)
+	require.Len(t, stderrLines, 1)
 	require.Len(t, stdoutLines, 1)
+	require.Len(t, sessionLines, 1)
 
 	tests := []struct {
 		name       string
@@ -110,7 +124,7 @@ func TestNew_WritesEachCategoryToOutput(t *testing.T) {
 	}{
 		{name: "system on stderr", line: stderrLines[0], wantLogger: "system", wantMsg: "system line", wantCaller: true},
 		{name: "audit on stdout without caller", line: stdoutLines[0], wantLogger: "audit", wantMsg: "audit line"},
-		{name: "session on stderr when its output is omitted", line: stderrLines[1], wantLogger: "session", wantMsg: "session line", wantCaller: true},
+		{name: "session in its file", line: sessionLines[0], wantLogger: "session", wantMsg: "session line", wantCaller: true},
 	}
 
 	for _, tt := range tests {
@@ -147,7 +161,8 @@ func TestWriters_Open(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			w := writers{}
-			writer := w.open(tt.output)
+			writer, err := w.open(tt.output)
+			require.NoError(t, err)
 
 			assert.Equal(t, zapcore.Lock(tt.wantFile), writer)
 			assert.Same(t, writer, w[tt.wantKey])
@@ -157,8 +172,43 @@ func TestWriters_Open(t *testing.T) {
 	t.Run("shares the open writer of the same output", func(t *testing.T) {
 		w := writers{}
 		output := config.LogOutputConfig{Stdout: &config.LogStandardOutputConfig{}}
-		writer := w.open(output)
+		writer, err := w.open(output)
+		require.NoError(t, err)
 
-		assert.Same(t, writer, w.open(output))
+		shared, err := w.open(output)
+		require.NoError(t, err)
+
+		assert.Same(t, writer, shared)
 	})
+}
+
+func TestNew_UnwritableFile(t *testing.T) {
+	parent := filepath.Join(t.TempDir(), "not-a-directory")
+	require.NoError(t, os.WriteFile(parent, nil, 0600))
+
+	_, err := New(config.LogConfig{
+		Audit: config.LogAuditConfig{Output: config.LogOutputConfig{File: &config.LogFileOutputConfig{Path: filepath.Join(parent, "audit.log")}}},
+	})
+
+	assert.ErrorContains(t, err, "audit: ")
+}
+
+type mockWriter struct {
+	zapcore.WriteSyncer
+
+	closed bool
+}
+
+func (m *mockWriter) Close() error {
+	m.closed = true
+
+	return nil
+}
+
+func TestLogger_Close(t *testing.T) {
+	writer := &mockWriter{}
+	logger := Logger{writers: writers{"/var/log/gateway/audit.log": writer, "stdout": zapcore.Lock(os.Stdout)}}
+
+	require.NoError(t, logger.Close())
+	assert.True(t, writer.closed)
 }

@@ -6,12 +6,15 @@ package config
 import (
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
 
+	"github.com/dustin/go-humanize"
 	"github.com/hashicorp/go-retryablehttp"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -54,8 +57,9 @@ const (
 	defaultMetricsPort                        = 9090
 	defaultLogSystemLevel                     = zapcore.InfoLevel
 	defaultSessionRecordingSegmentMaxDuration = time.Minute * 5
-	defaultSessionRecordingSegmentMaxSize     = 64_000  // 64KB in bytes
-	maxSessionRecordingSegmentMaxSize         = 256_000 // 256KB in bytes
+	defaultSessionRecordingSegmentMaxSize     = 64_000                // 64KB in bytes
+	maxSessionRecordingSegmentMaxSize         = 256_000               // 256KB in bytes
+	maxLogFileRotationMaxAge                  = 3650 * 24 * time.Hour // 10 years
 	minTLSCertificateTTL                      = time.Minute * 10
 )
 
@@ -110,6 +114,7 @@ type SessionRecordingConfig struct {
 type LogOutputConfig struct {
 	Stderr *LogStandardErrorConfig  `yaml:"stderr,omitempty"`
 	Stdout *LogStandardOutputConfig `yaml:"stdout,omitempty"`
+	File   *LogFileOutputConfig     `yaml:"file,omitempty"`
 }
 
 // LogStandardErrorConfig configures the process's stderr stream.
@@ -117,6 +122,31 @@ type LogStandardErrorConfig struct{}
 
 // LogStandardOutputConfig configures the process's stdout stream.
 type LogStandardOutputConfig struct{}
+
+// LogFileOutputConfig appends the logs to the file at Path and rotates it.
+type LogFileOutputConfig struct {
+	Path     string                `yaml:"path"`
+	Rotation LogFileRotationConfig `yaml:"rotation"`
+}
+
+// LogFileRotationConfig sets when the active log file is renamed to a backup and how long the
+// backups are kept. Every field is optional.
+type LogFileRotationConfig struct {
+	// MaxSize is the file size at which the active file is rotated, such as "100MB". It is
+	// rounded up to whole megabytes. When it is omitted or 0, the file rotates at 100MB.
+	MaxSize yamlutil.ByteSize `yaml:"maxSize"`
+	// MaxBackupFiles is how many backups are kept; the oldest is deleted beyond that. When it is
+	// omitted or 0, 3 backups are kept.
+	MaxBackupFiles int `yaml:"maxBackupFiles"`
+	// MaxAge is how long a backup is kept before it is deleted, such as "7d" or "36h". It is
+	// rounded up to whole days, so "36h" keeps backups for 2 days. 0 keeps backups until
+	// MaxBackupFiles deletes them. When it is omitted, backups are kept for 7 days. It can be kept
+	// at most 3650 days (10 years).
+	MaxAge *yamlutil.Duration `yaml:"maxAge"`
+	// Compression compresses each backup after rotation using the selected compression algorithm:
+	// "none", "gzip" or "zstd". When it is omitted, backups are not compressed.
+	Compression string `yaml:"compression"`
+}
 
 // SessionRecordingSegmentConfig sets the limits at which a recording is split into a new segment.
 type SessionRecordingSegmentConfig struct {
@@ -461,10 +491,11 @@ func (c *Config) Validate() error {
 }
 
 var (
-	errNegativeDuration    = errors.New("duration must be non-negative")
-	errSizeOutOfRange      = errors.New("size must be greater than 0 and at most 256KB")
-	errMultipleOutputs     = errors.New("only one of stderr or stdout may be set")
-	errUnsupportedLogLevel = errors.New("must be debug, info, warn or error")
+	errNegativeDuration     = errors.New("duration must be non-negative")
+	errSizeOutOfRange       = errors.New("size must be greater than 0 and at most 256KB")
+	errMultipleOutputs      = errors.New("only one of stderr, stdout or file may be set")
+	errUnsupportedLogLevel  = errors.New("must be debug, info, warn or error")
+	errDuplicateLogFilePath = errors.New("duplicate log file path")
 )
 
 func (l *LogConfig) Validate() error {
@@ -478,6 +509,25 @@ func (l *LogConfig) Validate() error {
 
 	if err := l.SessionRecording.Validate(); err != nil {
 		return fmt.Errorf("sessionRecording: %w", err)
+	}
+
+	return l.validateUniqueFilePaths()
+}
+
+func (l *LogConfig) validateUniqueFilePaths() error {
+	paths := map[string]bool{}
+
+	for _, output := range []LogOutputConfig{l.System.Output, l.Audit.Output, l.SessionRecording.Output} {
+		if output.File == nil {
+			continue
+		}
+
+		path := filepath.Clean(output.File.Path)
+		if paths[path] {
+			return fmt.Errorf("%w: %s", errDuplicateLogFilePath, path)
+		}
+
+		paths[path] = true
 	}
 
 	return nil
@@ -528,11 +578,110 @@ func (s *SessionRecordingSegmentConfig) Validate() error {
 }
 
 func (o *LogOutputConfig) Validate() error {
-	if o.Stderr != nil && o.Stdout != nil {
+	outputs := 0
+
+	for _, set := range []bool{o.Stderr != nil, o.Stdout != nil, o.File != nil} {
+		if set {
+			outputs++
+		}
+	}
+
+	if outputs > 1 {
 		return errMultipleOutputs
 	}
 
+	if o.File != nil {
+		if err := o.File.Validate(); err != nil {
+			return fmt.Errorf("file: %w", err)
+		}
+	}
+
 	return nil
+}
+
+var (
+	errNegativeSize           = errors.New("size must be non-negative")
+	errNegativeCount          = errors.New("count must be non-negative")
+	errDurationTooLong        = errors.New("duration must be at most 3650 days")
+	errUnsupportedCompression = errors.New("must be none, gzip or zstd")
+)
+
+func (f *LogFileOutputConfig) Validate() error {
+	if f.Path == "" {
+		return fmt.Errorf("%w: path", ErrRequired)
+	}
+
+	if err := f.Rotation.Validate(); err != nil {
+		return fmt.Errorf("rotation: %w", err)
+	}
+
+	return nil
+}
+
+func (r *LogFileRotationConfig) Validate() error {
+	if r.MaxSize < 0 {
+		return fmt.Errorf("%w: maxSize", errNegativeSize)
+	}
+
+	if r.MaxBackupFiles < 0 {
+		return fmt.Errorf("%w: maxBackupFiles", errNegativeCount)
+	}
+
+	if r.MaxAge != nil && time.Duration(*r.MaxAge) > maxLogFileRotationMaxAge {
+		return fmt.Errorf("%w: maxAge", errDurationTooLong)
+	}
+
+	switch r.Compression {
+	case "", "none", "gzip", "zstd":
+		return nil
+	default:
+		return fmt.Errorf("%w: compression", errUnsupportedCompression)
+	}
+}
+
+const (
+	defaultLogFileRotationMaxSize        = 100_000_000 // 100MB in bytes
+	defaultLogFileRotationMaxBackupFiles = 3
+	defaultLogFileRotationMaxAge         = 7 * 24 * time.Hour
+	defaultLogFileRotationCompression    = "none"
+)
+
+// GetMaxSize returns MaxSize in whole megabytes, rounded up, defaulting to 100MB.
+func (r *LogFileRotationConfig) GetMaxSize() int {
+	maxSize := r.MaxSize
+	if maxSize == 0 {
+		maxSize = defaultLogFileRotationMaxSize
+	}
+
+	return int(math.Ceil(float64(maxSize.Bytes()) / humanize.MByte))
+}
+
+// GetMaxBackupFiles returns MaxBackupFiles, defaulting to 3.
+func (r *LogFileRotationConfig) GetMaxBackupFiles() int {
+	if r.MaxBackupFiles != 0 {
+		return r.MaxBackupFiles
+	}
+
+	return defaultLogFileRotationMaxBackupFiles
+}
+
+// GetMaxAge returns MaxAge in whole days, rounded up, defaulting to 7 days.
+func (r *LogFileRotationConfig) GetMaxAge() int {
+	maxAge := yamlutil.Duration(defaultLogFileRotationMaxAge)
+	if r.MaxAge != nil {
+		maxAge = *r.MaxAge
+	}
+
+	return int(math.Ceil(time.Duration(maxAge).Hours() / 24))
+}
+
+// GetCompression returns Compression, defaulting to "none".
+func (r *LogFileRotationConfig) GetCompression() string {
+	if r.Compression != "" {
+		return r.Compression
+	}
+
+	return defaultLogFileRotationCompression
 }
 
 var (

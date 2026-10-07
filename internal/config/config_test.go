@@ -16,6 +16,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+
+	yamlutil "gateway/internal/util/yaml"
 )
 
 func TestStripNetworkPrefix(t *testing.T) {
@@ -171,10 +173,16 @@ log:
       stdout: {}
   audit:
     output:
-      stderr: {}
+      file:
+        path: /var/log/gateway/audit.log
+        rotation:
+          maxSize: 10MB
+          maxBackupFiles: 5
+          maxAge: 36h
+          compression: gzip
   sessionRecording:
     output:
-      stdout: {}
+      stderr: {}
 tls:
   certificates:
     files:
@@ -191,8 +199,61 @@ kubernetes: {}
 
 	assert.Equal(t, zapcore.DebugLevel, cfg.Log.System.Level)
 	assert.Equal(t, LogOutputConfig{Stdout: &LogStandardOutputConfig{}}, cfg.Log.System.Output)
-	assert.Equal(t, LogOutputConfig{Stderr: &LogStandardErrorConfig{}}, cfg.Log.Audit.Output)
-	assert.Equal(t, LogOutputConfig{Stdout: &LogStandardOutputConfig{}}, cfg.Log.SessionRecording.Output)
+	assert.Equal(t, LogOutputConfig{File: &LogFileOutputConfig{
+		Path: "/var/log/gateway/audit.log",
+		Rotation: LogFileRotationConfig{
+			MaxSize:        10_000_000,
+			MaxBackupFiles: 5,
+			MaxAge:         new(yamlutil.Duration(36 * time.Hour)),
+			Compression:    "gzip",
+		},
+	}}, cfg.Log.Audit.Output)
+	assert.Equal(t, LogOutputConfig{Stderr: &LogStandardErrorConfig{}}, cfg.Log.SessionRecording.Output)
+}
+
+func TestLoad_LogFileRotation(t *testing.T) {
+	tests := []struct {
+		name     string
+		rotation string
+		want     LogFileRotationConfig
+	}{
+		{name: "rotation omitted"},
+		{
+			name: "explicit zero maxAge is kept",
+			rotation: `
+        rotation:
+          maxAge: 0h`,
+			want: LogFileRotationConfig{MaxAge: new(yamlutil.Duration(0))},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			yaml := `
+twingate:
+  network: "acme"
+log:
+  audit:
+    output:
+      file:
+        path: /var/log/gateway/audit.log` + tt.rotation + `
+tls:
+  certificates:
+    files:
+      - certificateFile: "tls.crt"
+        privateKeyFile: "tls.key"
+kubernetes: {}
+`
+
+			tmpFile := filepath.Join(t.TempDir(), "config.yaml")
+			require.NoError(t, os.WriteFile(tmpFile, []byte(yaml), 0600))
+
+			cfg, err := Load(tmpFile)
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.want, cfg.Log.Audit.Output.File.Rotation)
+		})
+	}
 }
 
 func TestLoad_TLSAutomation(t *testing.T) {
@@ -900,6 +961,13 @@ func TestLogConfig_Validate(t *testing.T) {
 			},
 		},
 		{
+			name: "one file path per category",
+			log: LogConfig{
+				Audit:            LogAuditConfig{Output: LogOutputConfig{File: &LogFileOutputConfig{Path: "/var/log/gateway/audit.log"}}},
+				SessionRecording: SessionRecordingConfig{Segment: segment, Output: LogOutputConfig{File: &LogFileOutputConfig{Path: "/var/log/gateway/sessions.log"}}},
+			},
+		},
+		{
 			name:        "two system outputs",
 			log:         LogConfig{System: LogSystemConfig{Output: twoOutputs}, SessionRecording: SessionRecordingConfig{Segment: segment}},
 			wantErr:     errMultipleOutputs,
@@ -916,6 +984,15 @@ func TestLogConfig_Validate(t *testing.T) {
 			log:         LogConfig{SessionRecording: SessionRecordingConfig{Segment: segment, Output: twoOutputs}},
 			wantErr:     errMultipleOutputs,
 			errContains: "sessionRecording: output",
+		},
+		{
+			name: "duplicate file output paths",
+			log: LogConfig{
+				Audit:            LogAuditConfig{Output: LogOutputConfig{File: &LogFileOutputConfig{Path: "/var/log/gateway/gateway.log"}}},
+				SessionRecording: SessionRecordingConfig{Segment: segment, Output: LogOutputConfig{File: &LogFileOutputConfig{Path: "/var/log/gateway/gateway.log"}}},
+			},
+			wantErr:     errDuplicateLogFilePath,
+			errContains: "/var/log/gateway/gateway.log",
 		},
 	}
 
@@ -994,6 +1071,12 @@ func TestLogAuditConfig_Validate(t *testing.T) {
 			audit:       LogAuditConfig{Output: LogOutputConfig{Stderr: &LogStandardErrorConfig{}, Stdout: &LogStandardOutputConfig{}}},
 			wantErr:     errMultipleOutputs,
 			errContains: "output",
+		},
+		{
+			name:        "invalid file output",
+			audit:       LogAuditConfig{Output: LogOutputConfig{File: &LogFileOutputConfig{}}},
+			wantErr:     ErrRequired,
+			errContains: "output: file: ",
 		},
 	}
 
@@ -1102,6 +1185,165 @@ func TestSessionRecordingSegmentConfig_Validate(t *testing.T) {
 			assert.Contains(t, err.Error(), tt.errContains)
 		})
 	}
+}
+
+func TestLogFileOutputConfig_Validate(t *testing.T) {
+	tests := []struct {
+		name        string
+		file        LogFileOutputConfig
+		wantErr     error
+		errContains string
+	}{
+		{
+			name: "valid",
+			file: LogFileOutputConfig{Path: "/var/log/gateway/audit.log"},
+		},
+		{
+			name:        "missing path",
+			file:        LogFileOutputConfig{},
+			wantErr:     ErrRequired,
+			errContains: "path",
+		},
+		{
+			name:        "invalid rotation",
+			file:        LogFileOutputConfig{Path: "/var/log/gateway/audit.log", Rotation: LogFileRotationConfig{MaxBackupFiles: -1}},
+			wantErr:     errNegativeCount,
+			errContains: "rotation: ",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.file.Validate()
+			if tt.wantErr == nil {
+				assert.NoError(t, err)
+
+				return
+			}
+
+			require.ErrorIs(t, err, tt.wantErr)
+			assert.Contains(t, err.Error(), tt.errContains)
+		})
+	}
+}
+
+func TestLogFileRotationConfig_Validate(t *testing.T) {
+	tests := []struct {
+		name        string
+		rotation    LogFileRotationConfig
+		wantErr     error
+		errContains string
+	}{
+		{
+			name:     "every field omitted",
+			rotation: LogFileRotationConfig{},
+		},
+		{
+			name:     "valid",
+			rotation: LogFileRotationConfig{MaxSize: 100_000_000, MaxBackupFiles: 3, MaxAge: new(yamlutil.Duration(7 * 24 * time.Hour)), Compression: "none"},
+		},
+		{
+			name:     "gzip compression",
+			rotation: LogFileRotationConfig{Compression: "gzip"},
+		},
+		{
+			name:     "zstd compression",
+			rotation: LogFileRotationConfig{Compression: "zstd"},
+		},
+		{
+			name:        "negative maxSize",
+			rotation:    LogFileRotationConfig{MaxSize: -1},
+			wantErr:     errNegativeSize,
+			errContains: "maxSize",
+		},
+		{
+			name:        "negative maxBackupFiles",
+			rotation:    LogFileRotationConfig{MaxBackupFiles: -1},
+			wantErr:     errNegativeCount,
+			errContains: "maxBackupFiles",
+		},
+		{
+			name:     "maxAge at the upper bound",
+			rotation: LogFileRotationConfig{MaxAge: new(yamlutil.Duration(3650 * 24 * time.Hour))},
+		},
+		{
+			name:        "maxAge above the upper bound",
+			rotation:    LogFileRotationConfig{MaxAge: new(yamlutil.Duration(3650*24*time.Hour + 1))},
+			wantErr:     errDurationTooLong,
+			errContains: "maxAge",
+		},
+		{
+			name:        "unsupported compression",
+			rotation:    LogFileRotationConfig{Compression: "lz4"},
+			wantErr:     errUnsupportedCompression,
+			errContains: "compression",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.rotation.Validate()
+			if tt.wantErr == nil {
+				assert.NoError(t, err)
+
+				return
+			}
+
+			require.ErrorIs(t, err, tt.wantErr)
+			assert.Contains(t, err.Error(), tt.errContains)
+		})
+	}
+}
+
+func TestLogFileRotationConfig_GetMaxSize(t *testing.T) {
+	tests := []struct {
+		name    string
+		maxSize yamlutil.ByteSize
+		want    int
+	}{
+		{name: "omitted uses the 100MB default", maxSize: 0, want: 100},
+		{name: "1MB is 1", maxSize: 1_000_000, want: 1},
+		{name: "just over 1MB rounds up to 2", maxSize: 1_000_001, want: 2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rotation := LogFileRotationConfig{MaxSize: tt.maxSize}
+
+			assert.Equal(t, tt.want, rotation.GetMaxSize())
+		})
+	}
+}
+
+func TestLogFileRotationConfig_GetMaxBackupFiles(t *testing.T) {
+	assert.Equal(t, 3, (&LogFileRotationConfig{}).GetMaxBackupFiles())
+	assert.Equal(t, 5, (&LogFileRotationConfig{MaxBackupFiles: 5}).GetMaxBackupFiles())
+}
+
+func TestLogFileRotationConfig_GetMaxAge(t *testing.T) {
+	tests := []struct {
+		name   string
+		maxAge *yamlutil.Duration
+		want   int
+	}{
+		{name: "omitted uses the 7-day default", maxAge: nil, want: 7},
+		{name: "explicit zero turns the age limit off", maxAge: new(yamlutil.Duration(0)), want: 0},
+		{name: "36h rounds up to 2 days", maxAge: new(yamlutil.Duration(36 * time.Hour)), want: 2},
+		{name: "whole days are kept", maxAge: new(yamlutil.Duration(7 * 24 * time.Hour)), want: 7},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rotation := LogFileRotationConfig{MaxAge: tt.maxAge}
+
+			assert.Equal(t, tt.want, rotation.GetMaxAge())
+		})
+	}
+}
+
+func TestLogFileRotationConfig_GetCompression(t *testing.T) {
+	assert.Equal(t, "none", (&LogFileRotationConfig{}).GetCompression())
+	assert.Equal(t, "gzip", (&LogFileRotationConfig{Compression: "gzip"}).GetCompression())
 }
 
 func TestTLSConfig_Validate(t *testing.T) {
