@@ -99,7 +99,7 @@ func TestProxy_StartFailure(t *testing.T) {
 func TestProxy_AcceptError(t *testing.T) {
 	// A non-ErrClosed accept error is logged and stops the loop.
 	core, logs := observer.New(zap.ErrorLevel)
-	logger := logging.Logger{System: zap.NewNop(), Audit: zap.New(core), Session: zap.NewNop()}
+	logger := logging.Logger{System: zap.New(core), Audit: zap.NewNop(), Session: zap.NewNop()}
 	sshProxy := newTestProxyWithLogger(t, logger)
 
 	listener := newTestListener(t, "unused:22")

@@ -58,7 +58,7 @@ func (p *Proxy) Start(ctx context.Context, listener net.Listener) error {
 		conn, err := listener.Accept()
 		if err != nil {
 			if !errors.Is(err, net.ErrClosed) {
-				p.config.logger.Audit.Error("Failed to accept incoming connection", zap.Error(err))
+				p.config.logger.System.Error("Failed to accept incoming connection", zap.Error(err))
 			}
 
 			break

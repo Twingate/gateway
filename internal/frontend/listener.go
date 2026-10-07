@@ -156,7 +156,7 @@ func (l *Listener) Serve(ctx context.Context, listener net.Listener) error {
 		conn, err := listener.Accept()
 		if err != nil {
 			if errors.Is(err, net.ErrClosed) {
-				l.logger.Audit.Info("Listener closed")
+				l.logger.System.Info("Listener closed")
 
 				return nil
 			}

@@ -107,7 +107,7 @@ func (c *ChannelPair) serve() {
 	// Handle the source channel's requests
 	sourceEOFTrigger := make(chan RequestHandlerFlushTrigger, 1)
 	sourceRequestHandler := &RequestHandler{
-		logger:            logger.Audit,
+		logger:            c.logger.Audit,
 		sshChannelCtx:     c.sshChannelCtx,
 		flushTrigger:      sourceEOFTrigger,
 		sourceRequestChan: c.source.requests,
@@ -141,7 +141,7 @@ func (c *ChannelPair) serve() {
 	targetEOFTrigger := make(chan RequestHandlerFlushTrigger, 1)
 	targetChannelCtx := c.sshChannelCtx.reversed()
 	targetRequestHandler := &RequestHandler{
-		logger:            logger.Audit,
+		logger:            c.logger.Audit,
 		sshChannelCtx:     targetChannelCtx,
 		flushTrigger:      targetEOFTrigger,
 		sourceRequestChan: c.target.requests,
