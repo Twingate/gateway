@@ -21,6 +21,7 @@ import (
 
 	"gateway/internal/config"
 	"gateway/internal/frontend/cert"
+	"gateway/internal/logging"
 	"gateway/internal/token"
 )
 
@@ -150,7 +151,7 @@ func createTestListenerWithChannels(t *testing.T) *testListenerFixtures {
 	}
 
 	registry := prometheus.NewRegistry()
-	logger := zap.NewNop()
+	logger := logging.NewNop()
 	// Create listener with minimal config (we'll override the factory)
 	listener := &Listener{
 		channels:    channels,
@@ -357,7 +358,7 @@ func TestListener_UnsupportedResourceType(t *testing.T) {
 	}
 
 	registry := prometheus.NewRegistry()
-	logger := zap.NewNop()
+	logger := logging.NewNop()
 	listener := &Listener{
 		channels:    channels,
 		logger:      logger,
@@ -411,7 +412,7 @@ func TestListener_Serve_GracefulShutdown(t *testing.T) {
 		token.ResourceTypeKubernetes: httpChannel,
 	}
 
-	logger := zap.NewNop()
+	logger := logging.NewNop()
 
 	kubernetesClaims := createClaims(t, token.ResourceTypeKubernetes)
 

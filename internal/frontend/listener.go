@@ -17,6 +17,7 @@ import (
 
 	"gateway/internal/config"
 	"gateway/internal/frontend/cert"
+	"gateway/internal/logging"
 	"gateway/internal/token"
 )
 
@@ -77,7 +78,7 @@ type Listener struct {
 	certManager      *cert.Manager
 	tlsConfig        *tls.Config
 	connectValidator Validator
-	logger           *zap.Logger
+	logger           logging.Logger
 
 	// Factory method for creating ProxyConn
 	proxyConnFactory ConnFactory
@@ -92,7 +93,7 @@ func NewListener(
 	tlsCfg config.TLSConfig,
 	channels map[token.ResourceType]chan<- Conn,
 	registry *prometheus.Registry,
-	logger *zap.Logger,
+	logger logging.Logger,
 ) (*Listener, error) {
 	tokenParser, err := token.NewParser(ctx, token.ParserConfig{
 		Issuer:   twingateConfig.Issuer(),
@@ -103,7 +104,7 @@ func NewListener(
 		return nil, fmt.Errorf("failed to create token parser: %w", err)
 	}
 
-	certManager, err := cert.NewManager(tlsCfg, logger)
+	certManager, err := cert.NewManager(tlsCfg, logger.System)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create TLS certificate manager: %w", err)
 	}
@@ -155,24 +156,24 @@ func (l *Listener) Serve(ctx context.Context, listener net.Listener) error {
 		conn, err := listener.Accept()
 		if err != nil {
 			if errors.Is(err, net.ErrClosed) {
-				l.logger.Info("Listener closed")
+				l.logger.Audit.Info("Listener closed")
 
 				return nil
 			}
 
-			l.logger.Error("Failed to accept connection", zap.Error(err))
+			l.logger.Audit.Error("Failed to accept connection", zap.Error(err))
 
 			return err
 		}
 
-		l.logger.Debug("Accepted connection", zap.String("remote addr", conn.RemoteAddr().String()))
+		l.logger.System.Debug("Accepted connection", zap.String("remote_addr", conn.RemoteAddr().String()))
 
 		wg.Go(func() {
-			proxyConn := l.proxyConnFactory(conn, l.tlsConfig, l.connectValidator, l.logger)
+			proxyConn := l.proxyConnFactory(conn, l.tlsConfig, l.connectValidator, l.logger.Audit)
 
 			if err := proxyConn.Authenticate(); err != nil {
 				if !errors.Is(err, io.EOF) {
-					l.logger.Error("Failed to authenticate connection", zap.Error(err))
+					l.logger.Audit.Error("Failed to authenticate connection", zap.Error(err))
 				}
 
 				_ = proxyConn.Close()
@@ -184,7 +185,7 @@ func (l *Listener) Serve(ctx context.Context, listener net.Listener) error {
 			channel, exists := l.channels[resourceType]
 
 			if !exists {
-				l.logger.Error("Unsupported resource type", zap.String("resource_type", string(resourceType)))
+				l.logger.Audit.Error("Unsupported resource type", zap.String("resource_type", string(resourceType)))
 
 				_ = proxyConn.Close()
 
@@ -193,7 +194,7 @@ func (l *Listener) Serve(ctx context.Context, listener net.Listener) error {
 
 			if proxyConn.GATClaims().ShouldUpgradeTLS() {
 				if err := proxyConn.UpgradeToTLS(); err != nil {
-					l.logger.Error("Failed to upgrade to TLS", zap.Error(err))
+					l.logger.Audit.Error("Failed to upgrade to TLS", zap.Error(err))
 
 					_ = proxyConn.Close()
 
@@ -205,7 +206,7 @@ func (l *Listener) Serve(ctx context.Context, listener net.Listener) error {
 			case channel <- proxyConn:
 				// delivered successfully
 			case <-ctx.Done():
-				l.logger.Debug("Context canceled before routing connection to backend")
+				l.logger.System.Debug("Context canceled before routing connection to backend")
 
 				_ = proxyConn.Close()
 			}

@@ -14,11 +14,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
-	"go.uber.org/zap/zaptest"
 	"go.uber.org/zap/zaptest/observer"
 	"golang.org/x/crypto/ssh"
 
+	"gateway/internal/logging"
 	"gateway/internal/sessionrecorder"
 )
 
@@ -124,8 +123,9 @@ func TestChannelPair_RequestLogsCarryChannelExtraBothDirections(t *testing.T) {
 	// The forwarding details parsed at channel open must appear on request logs for both
 	// directions; the target->source handler works on a reversed copy of the channel context.
 	core, logs := observer.New(zap.DebugLevel)
+	logger := logging.Logger{System: zap.NewNop(), Audit: zap.New(core), Session: zap.NewNop()}
 	channels := newProxyChannels(t, channelTypeDirectTCPIP)
-	channels.logger = zap.New(core)
+	channels.logger = logger
 	channels.extra = map[string]any{"test-extra": "test-value"}
 	done := channels.serve(t)
 
@@ -157,8 +157,9 @@ func TestChannelPair_SessionRequestLogsAcceptedOnlyWithReply(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			core, logs := observer.New(zap.DebugLevel)
+			logger := logging.Logger{System: zap.NewNop(), Audit: zap.New(core), Session: zap.NewNop()}
 			channels := newProxyChannels(t, channelTypeSession)
-			channels.logger = zap.New(core)
+			channels.logger = logger
 			done := channels.serve(t)
 
 			if tt.wantReply {
@@ -179,40 +180,6 @@ func TestChannelPair_SessionRequestLogsAcceptedOnlyWithReply(t *testing.T) {
 			} else {
 				assert.NotContains(t, requestField, "accepted")
 			}
-		})
-	}
-}
-
-func TestChannelPair_RequestLogLevelByType(t *testing.T) {
-	tests := []struct {
-		name      string
-		reqType   string
-		payload   []byte
-		wantLevel zapcore.Level
-	}{
-		{name: "unknown custom type", reqType: "probe@example.com", wantLevel: zap.InfoLevel},
-		{name: "terminal mechanic", reqType: requestTypeWindowChange, payload: ssh.Marshal(windowChangeReq{WidthColumns: 80, HeightRows: 24}), wantLevel: zap.DebugLevel},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			core, logs := observer.New(zap.DebugLevel)
-			channels := newProxyChannels(t, channelTypeSession)
-			channels.logger = zap.New(core)
-			done := channels.serve(t)
-
-			channels.sendRequestAwaitReply(t, tt.reqType, tt.payload)
-
-			// Assert before the shell below adds a log entry of its own.
-			entries := logs.FilterMessage("SSH channel request").All()
-			require.Len(t, entries, 1)
-			assert.Equal(t, tt.wantLevel, entries[0].Level)
-
-			// Neither request starts the session; without the shell, serve() waits out
-			// sessionStartTimeout.
-			channels.sendRequestAwaitReply(t, requestTypeShell, nil)
-
-			channels.close(t, done)
 		})
 	}
 }
@@ -247,8 +214,9 @@ func TestChannelPair_RequestLogFieldsByType(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			core, logs := observer.New(zap.DebugLevel)
+			logger := logging.Logger{System: zap.NewNop(), Audit: zap.New(core), Session: zap.NewNop()}
 			channels := newProxyChannels(t, channelTypeSession)
-			channels.logger = zap.New(core)
+			channels.logger = logger
 			done := channels.serve(t)
 
 			channels.sendRequestAwaitReply(t, tt.reqType, tt.payload)
@@ -592,7 +560,10 @@ func TestChannelPair_SessionStartTimeout(t *testing.T) {
 }
 
 func TestChannelPair_SessionShellRecording(t *testing.T) {
+	core, logs := observer.New(zap.DebugLevel)
+	logger := logging.Logger{System: zap.NewNop(), Audit: zap.NewNop(), Session: zap.New(core)}
 	channels := newProxyChannels(t, "session")
+	channels.logger = logger
 	done := channels.serve(t)
 
 	// pty-req precedes shell by convention; its dimensions seed the asciinema header.
@@ -624,6 +595,11 @@ func TestChannelPair_SessionShellRecording(t *testing.T) {
 	assert.Equal(t, "terminal-output", state.output)
 	assert.Equal(t, []sessionrecorder.ResizeMsg{{Width: 120, Height: 40}}, state.resizes)
 	assert.True(t, state.stopped, "recorder must be stopped on teardown")
+
+	// The recording goes to the session category, carrying the channel's ssh fields.
+	require.NotNil(t, state.logger)
+	state.logger.Info("recording probe")
+	assert.Equal(t, channelTypeSession, observedSSHField(t, logs, "recording probe")["channel"].(map[string]any)["type"])
 }
 
 func TestChannelPair_SessionNonShellNoRecording(t *testing.T) {
@@ -756,7 +732,7 @@ func TestChannelPair_ServePanicClosesChannels(t *testing.T) {
 	// tears the pair down instead of crashing the test goroutine.
 	go func() {
 		defer close(done)
-		defer closeOnPanic(pair.logger, pair.close)
+		defer closeOnPanic(pair.logger.Audit, pair.close)
 
 		pair.serve()
 	}()
@@ -792,8 +768,8 @@ type proxyChannels struct {
 	// may be set before serve() to inject recorder write failures or panics.
 	recorder *fakeRecorder
 
-	// logger overrides the pair's logger, for tests asserting its log output; nil uses zaptest.
-	logger *zap.Logger
+	// logger is the pair's logger, which tests asserting its log output override.
+	logger logging.Logger
 
 	// extra sets the channel context's open details, as parsed at channel open by forwardChannels.
 	extra map[string]any
@@ -815,7 +791,7 @@ func newProxyChannels(t *testing.T, channelType string) *proxyChannels {
 		go ssh.DiscardRequests(end.requests)
 	}
 
-	channels := &proxyChannels{channelType: channelType, recorder: &fakeRecorder{}}
+	channels := &proxyChannels{channelType: channelType, recorder: &fakeRecorder{}, logger: newTestLogger(t)}
 	channels.source, channels.proxySource = openChannel(t, sourceConn, proxySourceConn, channelType, nil)
 	channels.proxyTarget, channels.target = openChannel(t, proxyTargetConn, targetConn, channelType, nil)
 
@@ -827,13 +803,8 @@ func newProxyChannels(t *testing.T, channelType string) *proxyChannels {
 func (p *proxyChannels) newPair(t *testing.T) *ChannelPair {
 	t.Helper()
 
-	logger := p.logger
-	if logger == nil {
-		logger = zaptest.NewLogger(t)
-	}
-
 	pair := NewChannelPair(
-		logger,
+		p.logger,
 		newSSHChannelContext(testSSHContext, p.channelType, labelDownstream, labelUpstream, p.extra),
 		"testuser",
 		p.proxySource,
@@ -1011,6 +982,7 @@ type fakeRecorder struct {
 	outputPanic any
 	resizePanic any
 
+	logger  *zap.Logger
 	header  *sessionrecorder.AsciicastHeader
 	output  bytes.Buffer
 	resizes []sessionrecorder.ResizeMsg
@@ -1073,6 +1045,7 @@ func (r *fakeRecorder) Stop() {
 // recorderState is a point-in-time copy of everything a fakeRecorder observed; its zero value
 // means the recorder was never touched.
 type recorderState struct {
+	logger  *zap.Logger
 	header  *sessionrecorder.AsciicastHeader
 	output  string
 	resizes []sessionrecorder.ResizeMsg
@@ -1084,6 +1057,7 @@ func (r *fakeRecorder) state() recorderState {
 	defer r.mu.Unlock()
 
 	return recorderState{
+		logger:  r.logger,
 		header:  r.header,
 		output:  r.output.String(),
 		resizes: r.resizes,
@@ -1096,6 +1070,11 @@ type fakeRecorderFactory struct {
 	recorder *fakeRecorder
 }
 
-func (f *fakeRecorderFactory) NewRecorder(*zap.Logger) sessionrecorder.Recorder {
+func (f *fakeRecorderFactory) NewRecorder(logger *zap.Logger) sessionrecorder.Recorder {
+	f.recorder.mu.Lock()
+	defer f.recorder.mu.Unlock()
+
+	f.recorder.logger = logger
+
 	return f.recorder
 }

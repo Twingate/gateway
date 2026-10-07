@@ -15,9 +15,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 
 	gatewayconfig "gateway/internal/config"
+	"gateway/internal/logging"
 	"gateway/internal/proxy"
 	"gateway/test/fake"
 	"gateway/test/integration/testutil"
@@ -93,7 +93,7 @@ func TestTLSVault(t *testing.T) {
 				WebApp: &gatewayconfig.WebAppConfig{},
 			}
 
-			p, err := proxy.NewProxy(&config, prometheus.NewRegistry(), zap.NewNop())
+			p, err := proxy.NewProxy(&config, prometheus.NewRegistry(), logging.NewNop())
 			require.NoError(t, err, "failed to create proxy")
 
 			go func() {

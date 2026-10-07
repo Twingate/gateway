@@ -73,8 +73,7 @@ func setupSSHGateway(t *testing.T, user *token.User, sshCAConfig gatewayconfig.S
 		},
 	}
 
-	core, logs := observer.New(zap.DebugLevel)
-	logger := zap.New(core).Named("test")
+	logger, logs := testutil.NewObservedLogger()
 
 	p, err := proxy.NewProxy(&config, prometheus.NewRegistry(), logger)
 	require.NoError(t, err, "failed to create proxy")
@@ -143,7 +142,7 @@ func TestSSH(t *testing.T) {
 		{Level: zap.InfoLevel, Request: map[string]any{
 			"type": "exec", "command": "whoami", "source": "downstream", "target": "upstream", "accepted": true,
 		}},
-		{Level: zap.DebugLevel, Request: map[string]any{
+		{Level: zap.InfoLevel, Request: map[string]any{
 			"type": "exit-status", "source": "upstream", "target": "downstream",
 		}},
 	})
@@ -173,7 +172,7 @@ func TestSSH(t *testing.T) {
 		{Level: zap.InfoLevel, Request: map[string]any{
 			"type": "subsystem", "name": "sftp", "source": "downstream", "target": "upstream", "accepted": true,
 		}},
-		{Level: zap.DebugLevel, Request: map[string]any{
+		{Level: zap.InfoLevel, Request: map[string]any{
 			"type": "exit-status", "source": "upstream", "target": "downstream",
 		}},
 	})

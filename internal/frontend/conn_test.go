@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 
 	promtestutil "github.com/prometheus/client_golang/prometheus/testutil"
 
@@ -390,12 +391,14 @@ func TestProxyConn_Authenticate_ValidConnectRequest(t *testing.T) {
 
 	// Create the ProxyConn from the accepted connection
 	metrics := CreateProxyConnMetrics(prometheus.NewRegistry())
+	core, logs := observer.New(zap.InfoLevel)
+	logger := zap.New(core)
 
 	proxyConn := &ProxyConn{
 		Conn:             conn,
 		TLSConfig:        serverTLSConfig,
 		ConnectValidator: mockValidator,
-		Logger:           zap.NewNop(),
+		Logger:           logger,
 		tracker:          NewProxyConnMetricsTracker(ConnCategoryUnknown, metrics),
 	}
 	defer proxyConn.Close()
@@ -403,6 +406,7 @@ func TestProxyConn_Authenticate_ValidConnectRequest(t *testing.T) {
 	// Perform connection auth logic
 	require.NoError(t, proxyConn.Authenticate())
 	assert.Equal(t, claims, proxyConn.Claims)
+	assert.Equal(t, 1, logs.FilterMessage("Authenticated connection").Len())
 
 	<-done
 }
@@ -468,12 +472,14 @@ func TestProxyConn_Authenticate_FailedValidation(t *testing.T) {
 
 	// Create the ProxyConn from the accepted connection
 	metrics := CreateProxyConnMetrics(prometheus.NewRegistry())
+	core, logs := observer.New(zap.InfoLevel)
+	logger := zap.New(core)
 
 	proxyConn := &ProxyConn{
 		Conn:             conn,
 		TLSConfig:        serverTLSConfig,
 		ConnectValidator: mockValidator,
-		Logger:           zap.NewNop(),
+		Logger:           logger,
 		tracker:          NewProxyConnMetricsTracker(ConnCategoryUnknown, metrics),
 	}
 	defer proxyConn.Close()
@@ -481,6 +487,7 @@ func TestProxyConn_Authenticate_FailedValidation(t *testing.T) {
 	// Perform connection auth logic
 	require.ErrorIs(t, proxyConn.Authenticate(), errValidation)
 	assert.Nil(t, proxyConn.Claims)
+	assert.Equal(t, 1, logs.FilterMessage("failed to serve request").Len())
 
 	<-done
 }

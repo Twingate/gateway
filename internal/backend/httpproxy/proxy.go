@@ -9,9 +9,8 @@ import (
 	"net/http"
 	"time"
 
-	"go.uber.org/zap"
-
 	"gateway/internal/frontend"
+	"gateway/internal/logging"
 	"gateway/internal/metrics"
 )
 
@@ -29,7 +28,7 @@ func ProxyConnFromContext(ctx context.Context) *frontend.ProxyConn {
 type Config struct {
 	Handler      http.Handler
 	Metrics      *metrics.HTTPMetrics
-	Logger       *zap.Logger
+	Logger       logging.Logger
 	ResourceType metrics.ResourceType
 }
 

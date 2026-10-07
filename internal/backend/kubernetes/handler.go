@@ -56,7 +56,7 @@ func NewHandler(cfg Config) (*Handler, error) {
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	auditLogger := httpproxy.AuditLoggerFromContext(r.Context())
+	logger := httpproxy.LoggerFromContext(r.Context())
 
 	conn := httpproxy.ProxyConnFromContext(r.Context())
 
@@ -65,7 +65,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// Audit Websocket streaming session
 		recorderFactory := func() sessionrecorder.Recorder {
 			return sessionrecorder.NewRecorder(
-				auditLogger,
+				logger.Session,
 				sessionrecorder.WithSegmentMaxSize(h.sessionRecording.Segment.MaxSize),
 				sessionrecorder.WithSegmentMaxDuration(h.sessionRecording.Segment.MaxDuration),
 			)

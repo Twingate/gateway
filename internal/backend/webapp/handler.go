@@ -36,9 +36,10 @@ func NewHandler(cfg Config) *Handler {
 	proxy := &httputil.ReverseProxy{
 		Rewrite: func(r *httputil.ProxyRequest) {
 			conn := httpproxy.ProxyConnFromContext(r.In.Context())
+			logger := httpproxy.LoggerFromContext(r.In.Context())
 
-			if err := rewrite(r, conn, cfg.requestHeaders); err != nil {
-				cfg.logger.Error("failed to rewrite headers", zap.Error(err))
+			if err := rewrite(r, conn, cfg.requestHeaders, logger.Audit); err != nil {
+				logger.Audit.Error("failed to rewrite headers", zap.Error(err))
 				panic(err)
 			}
 		},
@@ -168,7 +169,7 @@ func downstreamScheme(conn *frontend.ProxyConn) string {
 	return "http"
 }
 
-func rewrite(r *httputil.ProxyRequest, conn *frontend.ProxyConn, headers map[string]*template.Template) error {
+func rewrite(r *httputil.ProxyRequest, conn *frontend.ProxyConn, headers map[string]*template.Template, logger *zap.Logger) error {
 	scheme := "https"
 	if conn.GATClaims().Resource.GatewayMetadata.Upstream.TLSMode == token.TLSClientModeNone {
 		scheme = "http"
@@ -204,14 +205,14 @@ func rewrite(r *httputil.ProxyRequest, conn *frontend.ProxyConn, headers map[str
 	for headerName, value := range conn.GATClaims().Resource.GatewayMetadata.RequestHeaderRewrites {
 		tmpl, err := template.New(value)
 		if err != nil {
-			conn.Logger.Warn("skipping GAT request header rewrite", zap.String("header", headerName), zap.Error(err))
+			logger.Warn("skipping GAT request header rewrite", zap.String("header", headerName), zap.Error(err))
 
 			continue
 		}
 
 		headerValue, err := tmpl.Evaluate(variables)
 		if err != nil {
-			conn.Logger.Warn("skipping GAT request header rewrite", zap.String("header", headerName), zap.Error(err))
+			logger.Warn("skipping GAT request header rewrite", zap.String("header", headerName), zap.Error(err))
 
 			continue
 		}

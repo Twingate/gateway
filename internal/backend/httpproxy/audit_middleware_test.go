@@ -17,6 +17,7 @@ import (
 	"go.uber.org/zap/zaptest/observer"
 
 	"gateway/internal/frontend"
+	"gateway/internal/logging"
 	"gateway/internal/token"
 )
 
@@ -29,18 +30,18 @@ func (r *responseRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	return nil, nil, nil
 }
 
-func TestAuditLoggerFromContext(t *testing.T) {
+func TestLoggerFromContext(t *testing.T) {
 	t.Run("Returns logger from context", func(t *testing.T) {
-		expected := zap.NewNop()
-		ctx := context.WithValue(t.Context(), AuditLoggerKey{}, expected)
+		expected := logging.NewNop()
+		ctx := context.WithValue(t.Context(), LoggerKey{}, expected)
 
-		actual := AuditLoggerFromContext(ctx)
+		actual := LoggerFromContext(ctx)
 		assert.Equal(t, expected, actual)
 	})
 
 	t.Run("Panics when logger is not in context", func(t *testing.T) {
 		assert.Panics(t, func() {
-			AuditLoggerFromContext(t.Context())
+			LoggerFromContext(t.Context())
 		})
 	})
 }
@@ -130,7 +131,8 @@ func TestAuditMiddleware(t *testing.T) {
 			recorder.Header().Set("Audit-Id", "audit-id-1")
 
 			core, logs := observer.New(zap.DebugLevel)
-			logger := zap.New(core)
+
+			logger := logging.Logger{System: zap.NewNop(), Audit: zap.New(core), Session: zap.NewNop()}
 
 			func() {
 				defer func() {

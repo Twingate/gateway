@@ -4,7 +4,6 @@
 package kubernetes
 
 import (
-	"go.uber.org/zap"
 	"k8s.io/client-go/rest"
 
 	"gateway/internal/config"
@@ -18,14 +17,12 @@ type Config struct {
 	bearerToken     string
 	bearerTokenFile string
 	caFile          string
-	logger          *zap.Logger
 }
 
-func NewConfig(sessionRecordingConfig *config.SessionRecordingConfig, k8sConfig *config.KubernetesConfig, roundTripperMetrics *metrics.RoundTripperMetrics, logger *zap.Logger) (*Config, error) {
+func NewConfig(sessionRecordingConfig *config.SessionRecordingConfig, k8sConfig *config.KubernetesConfig, roundTripperMetrics *metrics.RoundTripperMetrics) (*Config, error) {
 	cfg := &Config{
 		sessionRecording:    sessionRecordingConfig,
 		roundTripperMetrics: roundTripperMetrics,
-		logger:              logger,
 	}
 
 	if len(k8sConfig.Upstreams) == 0 {

@@ -11,6 +11,7 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/crypto/ssh"
 
+	"gateway/internal/logging"
 	"gateway/internal/sessionrecorder"
 )
 
@@ -47,7 +48,7 @@ type channel struct {
 }
 
 type ChannelPair struct {
-	logger *zap.Logger
+	logger logging.Logger
 
 	// sshChannelCtx carries channel-level context
 	sshChannelCtx *sshChannelContext
@@ -72,7 +73,7 @@ type ChannelPair struct {
 }
 
 // NewChannelPair creates a new ChannelPair with the default factories.
-func NewChannelPair(logger *zap.Logger, sshChannelCtx *sshChannelContext, sshUsername string, source, target channel) *ChannelPair {
+func NewChannelPair(logger logging.Logger, sshChannelCtx *sshChannelContext, sshUsername string, source, target channel) *ChannelPair {
 	return &ChannelPair{
 		logger:              logger,
 		sshChannelCtx:       sshChannelCtx,
@@ -87,7 +88,9 @@ func NewChannelPair(logger *zap.Logger, sshChannelCtx *sshChannelContext, sshUse
 }
 
 func (c *ChannelPair) serve() {
-	logger := c.logger.With(zap.Any("ssh", c.sshChannelCtx.baseFields()))
+	field := zap.Any("ssh", c.sshChannelCtx.baseFields())
+	logger := c.logger
+	logger.Audit = logger.Audit.With(field)
 
 	var (
 		rec   sessionrecorder.Recorder
@@ -104,7 +107,7 @@ func (c *ChannelPair) serve() {
 	// Handle the source channel's requests
 	sourceEOFTrigger := make(chan RequestHandlerFlushTrigger, 1)
 	sourceRequestHandler := &RequestHandler{
-		logger:            c.logger,
+		logger:            logger.Audit,
 		sshChannelCtx:     c.sshChannelCtx,
 		flushTrigger:      sourceEOFTrigger,
 		sourceRequestChan: c.source.requests,
@@ -128,7 +131,7 @@ func (c *ChannelPair) serve() {
 			}
 
 			if err := r.WriteResizeEvent(int(req.WidthColumns), int(req.HeightRows)); err != nil {
-				logger.Error("failed to write resize event", zap.Error(err))
+				logger.Audit.Error("failed to write resize event", zap.Error(err))
 			}
 		},
 	}
@@ -138,7 +141,7 @@ func (c *ChannelPair) serve() {
 	targetEOFTrigger := make(chan RequestHandlerFlushTrigger, 1)
 	targetChannelCtx := c.sshChannelCtx.reversed()
 	targetRequestHandler := &RequestHandler{
-		logger:            c.logger,
+		logger:            logger.Audit,
 		sshChannelCtx:     targetChannelCtx,
 		flushTrigger:      targetEOFTrigger,
 		sourceRequestChan: c.target.requests,
@@ -154,10 +157,10 @@ func (c *ChannelPair) serve() {
 		// Wait for session to start from source prior to starting the data copying
 		select {
 		case command = <-sourceSessionSignals.started:
-			logger.Debug("Source session started", zap.String("command", command))
+			logger.Audit.Info("Source session started", zap.String("command", command))
 			asciinemaHeader.Command = command
 		case <-time.After(c.sessionStartTimeout):
-			logger.Error("Timeout waiting for source session to start")
+			logger.Audit.Error("Timeout waiting for source session to start")
 
 			return
 		}
@@ -168,7 +171,8 @@ func (c *ChannelPair) serve() {
 	if command == requestTypeShell {
 		recMu.Lock()
 
-		rec = c.recorderFactory.NewRecorder(logger)
+		logger.Session = logger.Session.With(field)
+		rec = c.recorderFactory.NewRecorder(logger.Session)
 
 		recMu.Unlock()
 
@@ -180,16 +184,16 @@ func (c *ChannelPair) serve() {
 		// in the onPtyRequest() callback on the sourceRequestHandler
 		err := rec.WriteHeader(asciinemaHeader)
 		if err != nil {
-			logger.Error("failed to write asciinema header", zap.Error(err))
+			logger.Audit.Error("failed to write asciinema header", zap.Error(err))
 		}
 
 		processor = &TerminalOutputRecorder{recorder: rec}
 	}
 
 	copier := &BidirectionalCopier{
-		logger: logger,
+		logger: logger.Audit,
 		SourceToTarget: ChannelCopyPair{
-			logger:          logger,
+			logger:          logger.Audit,
 			Src:             c.source.ch,
 			Dst:             c.target.ch,
 			EOFTriggerCh:    sourceEOFTrigger,
@@ -199,7 +203,7 @@ func (c *ChannelPair) serve() {
 		},
 
 		TargetToSource: ChannelCopyPair{
-			logger:          logger,
+			logger:          logger.Audit,
 			Src:             c.target.ch,
 			Dst:             c.source.ch,
 			EOFTriggerCh:    targetEOFTrigger,
