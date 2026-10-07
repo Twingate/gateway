@@ -939,6 +939,9 @@ func TestConfig_Validate(t *testing.T) {
 }
 
 func TestLogConfig_Validate(t *testing.T) {
+	wd, err := os.Getwd()
+	require.NoError(t, err)
+
 	segment := SessionRecordingSegmentConfig{MaxSize: defaultSessionRecordingSegmentMaxSize}
 	twoOutputs := LogOutputConfig{Stderr: &LogStandardErrorConfig{}, Stdout: &LogStandardOutputConfig{}}
 
@@ -993,6 +996,15 @@ func TestLogConfig_Validate(t *testing.T) {
 			},
 			wantErr:     errDuplicateLogFilePath,
 			errContains: "/var/log/gateway/gateway.log",
+		},
+		{
+			name: "one file spelled as a relative and an absolute path",
+			log: LogConfig{
+				Audit:            LogAuditConfig{Output: LogOutputConfig{File: &LogFileOutputConfig{Path: "logs/gateway.log"}}},
+				SessionRecording: SessionRecordingConfig{Segment: segment, Output: LogOutputConfig{File: &LogFileOutputConfig{Path: filepath.Join(wd, "logs/gateway.log")}}},
+			},
+			wantErr:     errDuplicateLogFilePath,
+			errContains: filepath.Join(wd, "logs/gateway.log"),
 		},
 	}
 
@@ -1253,7 +1265,17 @@ func TestLogFileRotationConfig_Validate(t *testing.T) {
 		{
 			name:        "negative maxSize",
 			rotation:    LogFileRotationConfig{MaxSize: -1},
-			wantErr:     errNegativeSize,
+			wantErr:     errLogFileSizeOutOfRange,
+			errContains: "maxSize",
+		},
+		{
+			name:     "maxSize at the upper bound",
+			rotation: LogFileRotationConfig{MaxSize: 1_000_000_000},
+		},
+		{
+			name:        "maxSize above the upper bound",
+			rotation:    LogFileRotationConfig{MaxSize: 1_000_000_001},
+			wantErr:     errLogFileSizeOutOfRange,
 			errContains: "maxSize",
 		},
 		{

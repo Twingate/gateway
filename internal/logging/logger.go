@@ -111,7 +111,7 @@ func (w writers) open(output config.LogOutputConfig) (zapcore.WriteSyncer, error
 	case output.Stdout != nil:
 		key = "stdout"
 	case output.File != nil:
-		key = output.File.Path
+		key = "file:" + output.File.Path
 	case output.Stderr != nil:
 		fallthrough
 	default:

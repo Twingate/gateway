@@ -60,6 +60,7 @@ const (
 	defaultSessionRecordingSegmentMaxSize     = 64_000                // 64KB in bytes
 	maxSessionRecordingSegmentMaxSize         = 256_000               // 256KB in bytes
 	maxLogFileRotationMaxAge                  = 3650 * 24 * time.Hour // 10 years
+	maxLogFileRotationMaxSize                 = 1_000_000_000         // 1GB in bytes
 	minTLSCertificateTTL                      = time.Minute * 10
 )
 
@@ -133,7 +134,8 @@ type LogFileOutputConfig struct {
 // backups are kept. Every field is optional.
 type LogFileRotationConfig struct {
 	// MaxSize is the file size at which the active file is rotated, such as "100MB". It is
-	// rounded up to whole megabytes. When it is omitted or 0, the file rotates at 100MB.
+	// rounded up to whole megabytes. When it is omitted or 0, the file rotates at 100MB. It can be at
+	// most 1GB.
 	MaxSize yamlutil.ByteSize `yaml:"maxSize"`
 	// MaxBackupFiles is how many backups are kept; the oldest is deleted beyond that. When it is
 	// omitted or 0, 3 backups are kept.
@@ -522,7 +524,13 @@ func (l *LogConfig) validateUniqueFilePaths() error {
 			continue
 		}
 
-		path := filepath.Clean(output.File.Path)
+		// Abs also resolves a relative path against the working directory, so two spellings of one file
+		// count as one.
+		path, err := filepath.Abs(output.File.Path)
+		if err != nil {
+			return fmt.Errorf("file path %s: %w", output.File.Path, err)
+		}
+
 		if paths[path] {
 			return fmt.Errorf("%w: %s", errDuplicateLogFilePath, path)
 		}
@@ -600,7 +608,7 @@ func (o *LogOutputConfig) Validate() error {
 }
 
 var (
-	errNegativeSize           = errors.New("size must be non-negative")
+	errLogFileSizeOutOfRange  = errors.New("size must be non-negative and at most 1GB")
 	errNegativeCount          = errors.New("count must be non-negative")
 	errDurationTooLong        = errors.New("duration must be at most 3650 days")
 	errUnsupportedCompression = errors.New("must be none, gzip or zstd")
@@ -619,8 +627,8 @@ func (f *LogFileOutputConfig) Validate() error {
 }
 
 func (r *LogFileRotationConfig) Validate() error {
-	if r.MaxSize < 0 {
-		return fmt.Errorf("%w: maxSize", errNegativeSize)
+	if r.MaxSize < 0 || r.MaxSize > maxLogFileRotationMaxSize {
+		return fmt.Errorf("%w: maxSize", errLogFileSizeOutOfRange)
 	}
 
 	if r.MaxBackupFiles < 0 {

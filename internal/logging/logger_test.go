@@ -104,6 +104,8 @@ func TestNew_WritesEachCategoryToOutput(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	t.Cleanup(func() { _ = logger.Close() })
+
 	logger.System.Info("system line")
 	logger.Audit.Info("audit line")
 	logger.Session.Info("session line")
@@ -179,6 +181,20 @@ func TestWriters_Open(t *testing.T) {
 		require.NoError(t, err)
 
 		assert.Same(t, writer, shared)
+	})
+
+	t.Run("a file named stdout does not share the stdout stream", func(t *testing.T) {
+		t.Chdir(t.TempDir())
+
+		w := writers{}
+		stdout, err := w.open(config.LogOutputConfig{Stdout: &config.LogStandardOutputConfig{}})
+		require.NoError(t, err)
+
+		file, err := w.open(config.LogOutputConfig{File: &config.LogFileOutputConfig{Path: "stdout"}})
+		require.NoError(t, err)
+
+		assert.NotSame(t, stdout, file)
+		assert.FileExists(t, "stdout")
 	})
 }
 
