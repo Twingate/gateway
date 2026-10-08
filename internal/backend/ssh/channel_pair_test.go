@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
 	"golang.org/x/crypto/ssh"
 
@@ -180,6 +181,41 @@ func TestChannelPair_SessionRequestLogsAcceptedOnlyWithReply(t *testing.T) {
 			} else {
 				assert.NotContains(t, requestField, "accepted")
 			}
+		})
+	}
+}
+
+func TestChannelPair_RequestLogLevelByType(t *testing.T) {
+	tests := []struct {
+		name      string
+		reqType   string
+		payload   []byte
+		wantLevel zapcore.Level
+	}{
+		{name: "unknown custom type", reqType: "probe@example.com", wantLevel: zap.InfoLevel},
+		{name: "terminal mechanic", reqType: requestTypeWindowChange, payload: ssh.Marshal(windowChangeReq{WidthColumns: 80, HeightRows: 24}), wantLevel: zap.DebugLevel},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			core, logs := observer.New(zap.DebugLevel)
+			logger := logging.Logger{System: zap.NewNop(), Audit: zap.New(core), Session: zap.NewNop()}
+			channels := newProxyChannels(t, channelTypeSession)
+			channels.logger = logger
+			done := channels.serve(t)
+
+			channels.sendRequestAwaitReply(t, tt.reqType, tt.payload)
+
+			// Assert before the shell below adds a log entry of its own.
+			entries := logs.FilterMessage("SSH channel request").All()
+			require.Len(t, entries, 1)
+			assert.Equal(t, tt.wantLevel, entries[0].Level)
+
+			// Neither request starts the session; without the shell, serve() waits out
+			// sessionStartTimeout.
+			channels.sendRequestAwaitReply(t, requestTypeShell, nil)
+
+			channels.close(t, done)
 		})
 	}
 }

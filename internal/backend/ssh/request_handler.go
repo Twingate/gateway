@@ -17,6 +17,18 @@ const (
 	requestTypeWindowChange = "window-change"
 )
 
+// auditIgnoredChannelRequests holds the request types with no audit value. Any type not
+// listed, including unrecognized custom ones, is audited, so an unusual request stays visible.
+var auditIgnoredChannelRequests = map[string]bool{
+	requestTypePty:          true,
+	requestTypeWindowChange: true,
+	"signal":                true,
+	"xon-xoff":              true,
+	"break":                 true,
+	"exit-status":           true,
+	"exit-signal":           true,
+}
+
 type SessionSignals struct {
 	started  chan string // The command that started the session
 	finished chan struct{}
@@ -172,7 +184,15 @@ func (h *RequestHandler) forwardRequest(req *ssh.Request) (accepted, startSessio
 		extra["accepted"] = accepted
 	}
 
-	h.logger.Info("SSH channel request", zap.Any("ssh", h.sshChannelCtx.withRequest(req.Type, extra)))
+	level := zap.InfoLevel
+	if auditIgnoredChannelRequests[req.Type] {
+		level = zap.DebugLevel
+	}
+
+	// Check first so withRequest only allocates when the entry is actually written.
+	if ce := h.logger.Check(level, "SSH channel request"); ce != nil {
+		ce.Write(zap.Any("ssh", h.sshChannelCtx.withRequest(req.Type, extra)))
+	}
 
 	// A session starts only when the target accepted the request; without WantReply there is
 	// no confirmation and the session starts unconditionally (RFC 4254, Section 6.5).

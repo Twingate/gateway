@@ -142,7 +142,7 @@ func TestSSH(t *testing.T) {
 		{Level: zap.InfoLevel, Request: map[string]any{
 			"type": "exec", "command": "whoami", "source": "downstream", "target": "upstream", "accepted": true,
 		}},
-		{Level: zap.InfoLevel, Request: map[string]any{
+		{Level: zap.DebugLevel, Request: map[string]any{
 			"type": "exit-status", "source": "upstream", "target": "downstream",
 		}},
 	})
@@ -172,7 +172,7 @@ func TestSSH(t *testing.T) {
 		{Level: zap.InfoLevel, Request: map[string]any{
 			"type": "subsystem", "name": "sftp", "source": "downstream", "target": "upstream", "accepted": true,
 		}},
-		{Level: zap.InfoLevel, Request: map[string]any{
+		{Level: zap.DebugLevel, Request: map[string]any{
 			"type": "exit-status", "source": "upstream", "target": "downstream",
 		}},
 	})

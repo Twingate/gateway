@@ -140,7 +140,7 @@ func (c *ConnPair) serve() {
 		_ = c.downstream.conn.Wait()
 
 		if err := c.upstream.conn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
-			c.logger.Audit.Info("Failed to close upstream connection", zap.Error(err))
+			c.logger.Audit.Debug("Failed to close upstream connection", zap.Error(err))
 		}
 	})
 
@@ -150,7 +150,7 @@ func (c *ConnPair) serve() {
 		_ = c.upstream.conn.Wait()
 
 		if err := c.downstream.conn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
-			c.logger.Audit.Info("Failed to close downstream connection", zap.Error(err))
+			c.logger.Audit.Debug("Failed to close downstream connection", zap.Error(err))
 		}
 	})
 

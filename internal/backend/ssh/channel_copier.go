@@ -57,7 +57,7 @@ func (c *ChannelCopyPair) copy() {
 	// See: https://datatracker.ietf.org/doc/html/rfc4254#section-5.3
 	// for how SSH Channels are closed using SSH_MSG_CHANNEL_EOF and SSH_MSG_CHANNEL_CLOSE
 
-	c.logger.Info("io.Copy finished, starting channel teardown")
+	c.logger.Debug("io.Copy finished, starting channel teardown")
 
 	// Try to flush any pending requests
 	eofTriggerCh := make(chan struct{}, 1)
@@ -71,11 +71,11 @@ func (c *ChannelCopyPair) copy() {
 	case <-eofTriggerCh:
 		// If Src sent EOF and the requests channel is still open,
 		// we try to flush any pending requests before continuing to send SSH_MSG_CHANNEL_EOF
-		c.logger.Info("EOF triggered")
+		c.logger.Debug("EOF triggered")
 	case <-c.ChannelClosedCh:
 		// If Src already closed the channel, then there's no pending requests anymore, so we can
 		// send SSH_MSG_CHANNEL_EOF
-		c.logger.Info("Channel closed")
+		c.logger.Debug("Channel closed")
 	case <-time.After(c.eofTimeout):
 		// If we timeout, we proceed with teardown
 		c.logger.Error("Timeout waiting for EOF trigger or channel close")
@@ -84,7 +84,7 @@ func (c *ChannelCopyPair) copy() {
 	// Now that we have flushed any pending requests, we can start teardown
 	// by closing the Dst channel write side (we are done writing data)
 	// which sends SSH_MSG_CHANNEL_EOF
-	c.logger.Info("Closing write side on destination")
+	c.logger.Debug("Closing write side on destination")
 
 	if err := c.Dst.CloseWrite(); err != nil && !errors.Is(err, io.EOF) {
 		c.logger.Error("CloseWrite failed", zap.Error(err))
@@ -94,7 +94,7 @@ func (c *ChannelCopyPair) copy() {
 	// will signify that the channel is fully closed
 	select {
 	case <-c.ChannelClosedCh:
-		c.logger.Info("Requests channel closed")
+		c.logger.Debug("Requests channel closed")
 	case <-time.After(c.closeTimeout):
 		c.logger.Error("Timeout waiting for requests channel close")
 	}
@@ -113,7 +113,7 @@ func (c *ChannelCopyPair) copy() {
 		c.logger.Error("Close failed", zap.Error(err))
 	}
 
-	c.logger.Info("Channel fully closed")
+	c.logger.Debug("Channel fully closed")
 }
 
 type BidirectionalCopier struct {

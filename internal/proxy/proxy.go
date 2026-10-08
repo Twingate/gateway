@@ -156,7 +156,7 @@ func (p *Proxy) Start() error {
 		p.config.TLS,
 		channels,
 		p.registry,
-		p.logger,
+		p.logger.System,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create connect listener: %w", err)

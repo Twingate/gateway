@@ -66,11 +66,11 @@ func (p *Proxy) Start(ctx context.Context, listener net.Listener) error {
 
 		// Serve SSH connection in a separate goroutine
 		go func() {
-			defer closeOnPanic(p.config.logger.Audit, func() { _ = conn.Close() })
+			defer closeOnPanic(p.config.logger.System, func() { _ = conn.Close() })
 
 			err := p.serveConn(ctx, conn.(frontend.Conn))
 			if err != nil {
-				p.config.logger.Audit.Error("Failed to serve SSH connection", zap.Error(err))
+				p.config.logger.System.Error("Failed to serve SSH connection", zap.Error(err))
 			}
 		}()
 	}
@@ -230,7 +230,7 @@ func closeDownstreamSSH(downstream connection, logger *zap.Logger, sshCtx *sshCo
 	for newChannel := range downstream.channels {
 		chCtx := newSSHChannelContext(sshCtx, newChannel.ChannelType(), labelDownstream, labelUpstream, nil)
 		chLogger := logger.With(zap.Any("ssh", chCtx.baseFields()))
-		chLogger.Info("Rejecting channel")
+		chLogger.Debug("Rejecting channel")
 
 		if err := newChannel.Reject(ssh.ConnectionFailed, "upstream connection failed"); err != nil {
 			chLogger.Error("Failed to reject channel", zap.Error(err))

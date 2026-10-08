@@ -157,7 +157,7 @@ func (c *ChannelPair) serve() {
 		// Wait for session to start from source prior to starting the data copying
 		select {
 		case command = <-sourceSessionSignals.started:
-			logger.Audit.Info("Source session started", zap.String("command", command))
+			logger.Audit.Debug("Source session started", zap.String("command", command))
 			asciinemaHeader.Command = command
 		case <-time.After(c.sessionStartTimeout):
 			logger.Audit.Error("Timeout waiting for source session to start")
