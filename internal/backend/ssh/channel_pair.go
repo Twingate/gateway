@@ -19,7 +19,7 @@ const defaultSessionStartTimeout = 10 * time.Second
 
 // sessionRecorderFactory creates session recorders.
 type sessionRecorderFactory interface {
-	NewRecorder(logger *zap.Logger) sessionrecorder.Recorder
+	newRecorder(logger *zap.Logger) sessionrecorder.Recorder
 }
 
 // defaultSessionRecorderFactory implements sessionRecorderFactory.
@@ -27,7 +27,7 @@ type defaultSessionRecorderFactory struct {
 	segment config.SessionRecordingSegmentConfig
 }
 
-func (f *defaultSessionRecorderFactory) NewRecorder(logger *zap.Logger) sessionrecorder.Recorder {
+func (f *defaultSessionRecorderFactory) newRecorder(logger *zap.Logger) sessionrecorder.Recorder {
 	return sessionrecorder.NewRecorder(
 		logger,
 		sessionrecorder.WithSegmentMaxSize(f.segment.MaxSize),
@@ -175,7 +175,7 @@ func (c *ChannelPair) serve() {
 	if command == requestTypeShell {
 		recMu.Lock()
 
-		rec = c.recorderFactory.NewRecorder(logger)
+		rec = c.recorderFactory.newRecorder(logger)
 
 		recMu.Unlock()
 

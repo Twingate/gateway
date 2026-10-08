@@ -1096,6 +1096,6 @@ type fakeRecorderFactory struct {
 	recorder *fakeRecorder
 }
 
-func (f *fakeRecorderFactory) NewRecorder(*zap.Logger) sessionrecorder.Recorder {
+func (f *fakeRecorderFactory) newRecorder(*zap.Logger) sessionrecorder.Recorder {
 	return f.recorder
 }
