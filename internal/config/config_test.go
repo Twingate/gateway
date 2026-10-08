@@ -1270,11 +1270,11 @@ func TestLogFileRotationConfig_Validate(t *testing.T) {
 		},
 		{
 			name:     "maxSize at the upper bound",
-			rotation: LogFileRotationConfig{MaxSize: 1_000_000_000},
+			rotation: LogFileRotationConfig{MaxSize: 1_073_741_824},
 		},
 		{
 			name:        "maxSize above the upper bound",
-			rotation:    LogFileRotationConfig{MaxSize: 1_000_000_001},
+			rotation:    LogFileRotationConfig{MaxSize: 1_073_741_825},
 			wantErr:     errLogFileSizeOutOfRange,
 			errContains: "maxSize",
 		},
@@ -1323,9 +1323,9 @@ func TestLogFileRotationConfig_GetMaxSize(t *testing.T) {
 		maxSize yamlutil.ByteSize
 		want    int
 	}{
-		{name: "omitted uses the 100MB default", maxSize: 0, want: 100},
-		{name: "1MB is 1", maxSize: 1_000_000, want: 1},
-		{name: "just over 1MB rounds up to 2", maxSize: 1_000_001, want: 2},
+		{name: "omitted uses the 100MiB default", maxSize: 0, want: 100},
+		{name: "1MiB is 1", maxSize: 1_048_576, want: 1},
+		{name: "just over 1MiB rounds up to 2", maxSize: 1_048_577, want: 2},
 	}
 
 	for _, tt := range tests {

@@ -60,7 +60,7 @@ const (
 	defaultSessionRecordingSegmentMaxSize     = 64_000                // 64KB in bytes
 	maxSessionRecordingSegmentMaxSize         = 256_000               // 256KB in bytes
 	maxLogFileRotationMaxAge                  = 3650 * 24 * time.Hour // 10 years
-	maxLogFileRotationMaxSize                 = 1_000_000_000         // 1GB in bytes
+	maxLogFileRotationMaxSize                 = 1_073_741_824         // 1GiB in bytes
 	minTLSCertificateTTL                      = time.Minute * 10
 )
 
@@ -133,9 +133,9 @@ type LogFileOutputConfig struct {
 // LogFileRotationConfig sets when the active log file is renamed to a backup and how long the
 // backups are kept. Every field is optional.
 type LogFileRotationConfig struct {
-	// MaxSize is the file size at which the active file is rotated, such as "100MB". It is
-	// rounded up to whole megabytes. When it is omitted or 0, the file rotates at 100MB. It can be at
-	// most 1GB.
+	// MaxSize is the file size at which the active file is rotated, such as "100MiB". It is
+	// rounded up to whole mebibytes (1MiB is 1,048,576 bytes). When it is omitted or 0, the file
+	// rotates at 100MiB. It can be at most 1GiB.
 	MaxSize yamlutil.ByteSize `yaml:"maxSize"`
 	// MaxBackupFiles is how many backups are kept; the oldest is deleted beyond that. When it is
 	// omitted or 0, 3 backups are kept.
@@ -608,7 +608,7 @@ func (o *LogOutputConfig) Validate() error {
 }
 
 var (
-	errLogFileSizeOutOfRange  = errors.New("size must be non-negative and at most 1GB")
+	errLogFileSizeOutOfRange  = errors.New("size must be non-negative and at most 1GiB")
 	errNegativeCount          = errors.New("count must be non-negative")
 	errDurationTooLong        = errors.New("duration must be at most 3650 days")
 	errUnsupportedCompression = errors.New("must be none, gzip or zstd")
@@ -648,20 +648,20 @@ func (r *LogFileRotationConfig) Validate() error {
 }
 
 const (
-	defaultLogFileRotationMaxSize        = 100_000_000 // 100MB in bytes
+	defaultLogFileRotationMaxSize        = 104_857_600 // 100MiB in bytes
 	defaultLogFileRotationMaxBackupFiles = 3
 	defaultLogFileRotationMaxAge         = 7 * 24 * time.Hour
 	defaultLogFileRotationCompression    = "none"
 )
 
-// GetMaxSize returns MaxSize in whole megabytes, rounded up, defaulting to 100MB.
+// GetMaxSize returns MaxSize in whole mebibytes, rounded up, defaulting to 100MiB.
 func (r *LogFileRotationConfig) GetMaxSize() int {
 	maxSize := r.MaxSize
 	if maxSize == 0 {
 		maxSize = defaultLogFileRotationMaxSize
 	}
 
-	return int(math.Ceil(float64(maxSize.Bytes()) / humanize.MByte))
+	return int(math.Ceil(float64(maxSize.Bytes()) / humanize.MiByte))
 }
 
 // GetMaxBackupFiles returns MaxBackupFiles, defaulting to 3.
