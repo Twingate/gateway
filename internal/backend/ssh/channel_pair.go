@@ -11,21 +11,28 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/crypto/ssh"
 
+	"gateway/internal/config"
 	"gateway/internal/sessionrecorder"
 )
 
 const defaultSessionStartTimeout = 10 * time.Second
 
-// SessionRecorderFactory creates session recorders.
-type SessionRecorderFactory interface {
+// sessionRecorderFactory creates session recorders.
+type sessionRecorderFactory interface {
 	NewRecorder(logger *zap.Logger) sessionrecorder.Recorder
 }
 
-// DefaultSessionRecorderFactory implements SessionRecorderFactory.
-type DefaultSessionRecorderFactory struct{}
+// defaultSessionRecorderFactory implements sessionRecorderFactory.
+type defaultSessionRecorderFactory struct {
+	segment config.SessionRecordingSegmentConfig
+}
 
-func (f *DefaultSessionRecorderFactory) NewRecorder(logger *zap.Logger) sessionrecorder.Recorder {
-	return sessionrecorder.NewRecorder(logger)
+func (f *defaultSessionRecorderFactory) NewRecorder(logger *zap.Logger) sessionrecorder.Recorder {
+	return sessionrecorder.NewRecorder(
+		logger,
+		sessionrecorder.WithSegmentMaxSize(f.segment.MaxSize),
+		sessionrecorder.WithSegmentMaxDuration(f.segment.MaxDuration),
+	)
 }
 
 // TerminalOutputRecorder is used for tapping into the raw output of a channel.
@@ -59,7 +66,7 @@ type ChannelPair struct {
 	sshUsername string
 
 	// Factory for creating session recorders
-	recorderFactory SessionRecorderFactory
+	recorderFactory sessionRecorderFactory
 
 	// sessionStartTimeout bounds the wait for a session-start request before serve() gives up.
 	sessionStartTimeout time.Duration
@@ -71,15 +78,15 @@ type ChannelPair struct {
 	ptyRequestOnce sync.Once
 }
 
-// NewChannelPair creates a new ChannelPair with the default factories.
-func NewChannelPair(logger *zap.Logger, sshChannelCtx *sshChannelContext, sshUsername string, source, target channel) *ChannelPair {
+// NewChannelPair creates a new ChannelPair with the default timeouts.
+func NewChannelPair(logger *zap.Logger, sshChannelCtx *sshChannelContext, sshUsername string, source, target channel, recorderFactory sessionRecorderFactory) *ChannelPair {
 	return &ChannelPair{
 		logger:              logger,
 		sshChannelCtx:       sshChannelCtx,
 		sshUsername:         sshUsername,
 		source:              source,
 		target:              target,
-		recorderFactory:     &DefaultSessionRecorderFactory{},
+		recorderFactory:     recorderFactory,
 		sessionStartTimeout: defaultSessionStartTimeout,
 		channelEOFTimeout:   defaultChannelEOFTimeout,
 		channelCloseTimeout: defaultChannelCloseTimeout,

@@ -179,7 +179,9 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 
 	logger.Info("SSH connection established", zap.Any("ssh", sshCtx.baseFields()))
 
-	sshConnPair := NewConnPair(logger, sshCtx, downstreamConn, upstreamConn)
+	recorderFactory := &defaultSessionRecorderFactory{segment: p.config.sessionRecording.Segment}
+
+	sshConnPair := NewConnPair(logger, sshCtx, downstreamConn, upstreamConn, recorderFactory)
 
 	// Serve the SSH connection pair
 	p.wg.Add(1)

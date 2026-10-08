@@ -208,7 +208,7 @@ func TestConnPair_SourceAcceptFailure(t *testing.T) {
 	target := acceptChannel(t, upstreamServer)
 
 	core, logs := observer.New(zap.DebugLevel)
-	pair := NewConnPair(zap.New(core), testSSHContext, connection{}, *proxyUpstream)
+	pair := NewConnPair(zap.New(core), testSSHContext, connection{}, *proxyUpstream, &defaultSessionRecorderFactory{})
 	forwardDeadChannel(t, pair, proxyUpstream.conn, "direct-tcpip")
 
 	// The already-opened target channel is closed again.
@@ -465,7 +465,7 @@ func TestConnPair_GlobalRequestSendError(t *testing.T) {
 	close(requests)
 
 	core, logs := observer.New(zap.DebugLevel)
-	pair := NewConnPair(zap.New(core), testSSHContext, *proxyDownstream, *proxyUpstream)
+	pair := NewConnPair(zap.New(core), testSSHContext, *proxyDownstream, *proxyUpstream, &defaultSessionRecorderFactory{})
 	pair.handleGlobalRequests(requests, proxyUpstream.conn, nil, labelDownstream, labelUpstream)
 
 	// The failed forward is logged and the origin gets a failure reply.
@@ -514,7 +514,7 @@ func TestConnPair_ServePanicClosesConnections(t *testing.T) {
 	channels <- panickingNewChannel{}
 
 	downstream := connection{conn: proxyDownstream.conn, channels: channels, requests: proxyDownstream.requests}
-	pair := NewConnPair(zaptest.NewLogger(t), testSSHContext, downstream, *proxyUpstream)
+	pair := NewConnPair(zaptest.NewLogger(t), testSSHContext, downstream, *proxyUpstream, &defaultSessionRecorderFactory{})
 
 	done := make(chan struct{})
 
@@ -544,7 +544,7 @@ func TestConnPair_CloseErrors(t *testing.T) {
 				_, proxyDownstream := sshPipeWithClose(t, nil, errors.New("close failed"))
 				proxyUpstream, _ := sshPipe(t)
 
-				NewConnPair(logger, testSSHContext, *proxyDownstream, *proxyUpstream).close()
+				NewConnPair(logger, testSSHContext, *proxyDownstream, *proxyUpstream, &defaultSessionRecorderFactory{}).close()
 			},
 		},
 		{
@@ -556,7 +556,7 @@ func TestConnPair_CloseErrors(t *testing.T) {
 				_, proxyDownstream := sshPipe(t)
 				proxyUpstream, _ := sshPipeWithClose(t, errors.New("close failed"), nil)
 
-				NewConnPair(logger, testSSHContext, *proxyDownstream, *proxyUpstream).close()
+				NewConnPair(logger, testSSHContext, *proxyDownstream, *proxyUpstream, &defaultSessionRecorderFactory{}).close()
 			},
 		},
 		{
@@ -570,7 +570,7 @@ func TestConnPair_CloseErrors(t *testing.T) {
 				require.NoError(t, proxyDownstream.conn.Close())
 				require.NoError(t, proxyUpstream.conn.Close())
 
-				NewConnPair(logger, testSSHContext, *proxyDownstream, *proxyUpstream).close()
+				NewConnPair(logger, testSSHContext, *proxyDownstream, *proxyUpstream, &defaultSessionRecorderFactory{}).close()
 			},
 		},
 		{
@@ -582,7 +582,7 @@ func TestConnPair_CloseErrors(t *testing.T) {
 				downstreamClient, proxyDownstream := sshPipe(t)
 				proxyUpstream, _ := sshPipeWithClose(t, errors.New("close failed"), nil)
 
-				pair := NewConnPair(logger, testSSHContext, *proxyDownstream, *proxyUpstream)
+				pair := NewConnPair(logger, testSSHContext, *proxyDownstream, *proxyUpstream, &defaultSessionRecorderFactory{})
 				done := make(chan struct{})
 
 				go func() {
@@ -605,7 +605,7 @@ func TestConnPair_CloseErrors(t *testing.T) {
 				_, proxyDownstream := sshPipeWithClose(t, nil, errors.New("close failed"))
 				proxyUpstream, upstreamServer := sshPipe(t)
 
-				pair := NewConnPair(logger, testSSHContext, *proxyDownstream, *proxyUpstream)
+				pair := NewConnPair(logger, testSSHContext, *proxyDownstream, *proxyUpstream, &defaultSessionRecorderFactory{})
 				done := make(chan struct{})
 
 				go func() {
@@ -628,7 +628,7 @@ func TestConnPair_CloseErrors(t *testing.T) {
 				proxyUpstream, _ := sshPipe(t)
 				require.NoError(t, proxyUpstream.conn.Close())
 
-				pair := NewConnPair(logger, testSSHContext, connection{}, *proxyUpstream)
+				pair := NewConnPair(logger, testSSHContext, connection{}, *proxyUpstream, &defaultSessionRecorderFactory{})
 				forwardDeadChannel(t, pair, proxyUpstream.conn, "x11")
 			},
 		},
@@ -643,7 +643,7 @@ func TestConnPair_CloseErrors(t *testing.T) {
 				proxyUpstream, _ := sshPipe(t)
 				require.NoError(t, proxyUpstream.conn.Close())
 
-				pair := NewConnPair(logger, testSSHContext, connection{}, *proxyUpstream)
+				pair := NewConnPair(logger, testSSHContext, connection{}, *proxyUpstream, &defaultSessionRecorderFactory{})
 				forwardDeadChannel(t, pair, proxyUpstream.conn, "direct-tcpip")
 			},
 		},
@@ -695,7 +695,7 @@ func newProxyConnsWithLogger(t *testing.T, logger *zap.Logger) *proxyConns {
 	client, proxyDownstream := sshPipe(t)
 	proxyUpstream, server := sshPipe(t)
 
-	pair := NewConnPair(logger, testSSHContext, *proxyDownstream, *proxyUpstream)
+	pair := NewConnPair(logger, testSSHContext, *proxyDownstream, *proxyUpstream, &defaultSessionRecorderFactory{})
 
 	return &proxyConns{pair: pair, client: client, server: server}
 }
