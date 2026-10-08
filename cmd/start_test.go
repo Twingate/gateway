@@ -19,7 +19,6 @@ func TestNewProxy_Success(t *testing.T) {
 	defer viper.Reset()
 
 	viper.Set("config", "../test/data/config.yaml")
-	viper.Set("debug", false)
 
 	p, err := newProxy(zap.NewNop())
 	require.NoError(t, err)

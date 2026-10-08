@@ -67,7 +67,7 @@ var fullConfig = gatewayconfig.Config{
 
 func TestNewProxy_Success(t *testing.T) {
 	registry := prometheus.NewRegistry()
-	logger, err := NewLogger(DefaultLoggerName, false)
+	logger, err := NewLogger(DefaultLoggerName)
 	require.NoError(t, err)
 
 	p, err := NewProxy(&fullConfig, registry, logger)
@@ -90,7 +90,7 @@ func TestNewProxy_HTTPOnly(t *testing.T) {
 	config.WebApp = &gatewayconfig.WebAppConfig{RequestHeaders: map[string]string{}}
 
 	registry := prometheus.NewRegistry()
-	logger, err := NewLogger(DefaultLoggerName, false)
+	logger, err := NewLogger(DefaultLoggerName)
 	require.NoError(t, err)
 
 	p, err := NewProxy(&config, registry, logger)
@@ -108,7 +108,7 @@ func TestNewProxy_SSHOnly(t *testing.T) {
 	config.Kubernetes = nil
 
 	registry := prometheus.NewRegistry()
-	logger, err := NewLogger(DefaultLoggerName, false)
+	logger, err := NewLogger(DefaultLoggerName)
 	require.NoError(t, err)
 
 	p, err := NewProxy(&config, registry, logger)
