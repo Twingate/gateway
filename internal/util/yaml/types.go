@@ -60,8 +60,7 @@ func (d *Duration) UnmarshalText(text []byte) error {
 	return nil
 }
 
-// parseDuration rewrites the leading day string into hours and gives the value to time.ParseDuration.
-// For example, "1.5d" becomes "36h".
+// parseDuration extends time.ParseDuration with an optional leading days component, where a day is 24 hours.
 func parseDuration(text string) (time.Duration, error) {
 	days, rest, found := strings.Cut(text, "d")
 	if !found {
