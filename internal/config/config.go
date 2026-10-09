@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dustin/go-humanize"
 	"github.com/hashicorp/go-retryablehttp"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -54,8 +55,8 @@ const (
 	defaultMetricsPort                        = 9090
 	defaultLogSystemLevel                     = zapcore.InfoLevel
 	defaultSessionRecordingSegmentMaxDuration = time.Minute * 5
-	defaultSessionRecordingSegmentMaxSize     = 64_000  // 64KB in bytes
-	maxSessionRecordingSegmentMaxSize         = 256_000 // 256KB in bytes
+	defaultSessionRecordingSegmentMaxSize     = 64 * humanize.KiByte
+	maxSessionRecordingSegmentMaxSize         = 256 * humanize.KiByte
 	minTLSCertificateTTL                      = time.Minute * 10
 )
 
@@ -462,7 +463,7 @@ func (c *Config) Validate() error {
 
 var (
 	errNegativeDuration    = errors.New("duration must be non-negative")
-	errSizeOutOfRange      = errors.New("size must be greater than 0 and at most 256KB")
+	errSizeOutOfRange      = errors.New("size must be greater than 0 and at most 256KiB")
 	errMultipleOutputs     = errors.New("only one of stderr or stdout may be set")
 	errUnsupportedLogLevel = errors.New("must be debug, info, warn or error")
 )

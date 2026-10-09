@@ -11,7 +11,7 @@ tests:
         sessionRecording:
           segment:
             maxDuration: "10s"
-            maxSize: "200KB"
+            maxSize: "200KiB"
       containerPorts:
         https: 8000
         metrics: 9000
@@ -30,7 +30,7 @@ tests:
               sessionRecording:
                 segment:
                   maxDuration: "10s"
-                  maxSize: "200KB"
+                  maxSize: "200KiB"
 
             tls:
               certificates:
@@ -97,7 +97,7 @@ tests:
               sessionRecording:
                 segment:
                   maxDuration: "5m"
-                  maxSize: "64KB"
+                  maxSize: "64KiB"
 
             tls:
               certificates:
@@ -129,7 +129,7 @@ tests:
               sessionRecording:
                 segment:
                   maxDuration: "5m"
-                  maxSize: "64KB"
+                  maxSize: "64KiB"
 
             tls:
               certificates:
@@ -190,7 +190,7 @@ tests:
               sessionRecording:
                 segment:
                   maxDuration: "5m"
-                  maxSize: "64KB"
+                  maxSize: "64KiB"
 
             tls:
               certificates:
@@ -221,7 +221,7 @@ tests:
               sessionRecording:
                 segment:
                   maxDuration: "5m"
-                  maxSize: "64KB"
+                  maxSize: "64KiB"
 
             tls:
               certificates:
@@ -263,7 +263,7 @@ tests:
               sessionRecording:
                 segment:
                   maxDuration: "5m"
-                  maxSize: "64KB"
+                  maxSize: "64KiB"
 
             tls:
               certificates:
@@ -321,7 +321,7 @@ tests:
               sessionRecording:
                 segment:
                   maxDuration: "5m"
-                  maxSize: "64KB"
+                  maxSize: "64KiB"
 
             tls:
               certificates:
@@ -381,7 +381,7 @@ tests:
               sessionRecording:
                 segment:
                   maxDuration: "5m"
-                  maxSize: "64KB"
+                  maxSize: "64KiB"
 
             tls:
               certificates:
@@ -492,7 +492,7 @@ tests:
               sessionRecording:
                 segment:
                   maxDuration: "5m"
-                  maxSize: "64KB"
+                  maxSize: "64KiB"
 
             tls:
               certificates:
@@ -522,7 +522,7 @@ tests:
               sessionRecording:
                 segment:
                   maxDuration: "5m"
-                  maxSize: "64KB"
+                  maxSize: "64KiB"
 
             tls:
               certificates:
@@ -553,7 +553,7 @@ tests:
               sessionRecording:
                 segment:
                   maxDuration: "5m"
-                  maxSize: "64KB"
+                  maxSize: "64KiB"
 
             tls:
               certificates:
@@ -602,7 +602,7 @@ tests:
               sessionRecording:
                 segment:
                   maxDuration: "5m"
-                  maxSize: "64KB"
+                  maxSize: "64KiB"
 
             tls:
               automation:
@@ -735,7 +735,7 @@ tests:
               sessionRecording:
                 segment:
                   maxDuration: "5m"
-                  maxSize: "64KB"
+                  maxSize: "64KiB"
 
             tls:
               automation:
@@ -826,7 +826,7 @@ tests:
               sessionRecording:
                 segment:
                   maxDuration: "5m"
-                  maxSize: "64KB"
+                  maxSize: "64KiB"
 
             tls:
               automation:
@@ -868,7 +868,7 @@ tests:
               sessionRecording:
                 segment:
                   maxDuration: "5m"
-                  maxSize: "64KB"
+                  maxSize: "64KiB"
 
             tls:
               automation:
@@ -991,7 +991,7 @@ tests:
               sessionRecording:
                 segment:
                   maxDuration: "5m"
-                  maxSize: "64KB"
+                  maxSize: "64KiB"
 
             tls:
               automation:
@@ -1120,7 +1120,7 @@ tests:
               sessionRecording:
                 segment:
                   maxDuration: "5m"
-                  maxSize: "64KB"
+                  maxSize: "64KiB"
 
             tls:
               certificates:
