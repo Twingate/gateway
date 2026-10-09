@@ -56,7 +56,7 @@ func (w writers) newLogger(name string, output config.LogOutputConfig, level zap
 	}
 
 	core := zapcore.NewCore(zapcore.NewJSONEncoder(encoderConfig), w.open(output), level)
-	logger := zap.New(core, zap.WithCaller(!disableCaller), zap.AddStacktrace(zapcore.ErrorLevel))
+	logger := zap.New(core, zap.WithCaller(!disableCaller))
 
 	return logger.Named(name).With(zap.String("version", version.Version))
 }
