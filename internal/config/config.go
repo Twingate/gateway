@@ -57,8 +57,8 @@ const (
 	defaultMetricsPort                        = 9090
 	defaultLogSystemLevel                     = zapcore.InfoLevel
 	defaultSessionRecordingSegmentMaxDuration = time.Minute * 5
-	defaultSessionRecordingSegmentMaxSize     = 64_000               // 64KB in bytes
-	maxSessionRecordingSegmentMaxSize         = 256_000              // 256KB in bytes
+	defaultSessionRecordingSegmentMaxSize     = 64 * humanize.KiByte
+	maxSessionRecordingSegmentMaxSize         = 256 * humanize.KiByte
 	maxLogFileRotationMaxBackupAge            = 365 * 24 * time.Hour // 1 year
 	maxLogFileRotationMaxSize                 = 1 * humanize.GiByte
 	minTLSCertificateTTL                      = time.Minute * 10
@@ -495,7 +495,7 @@ func (c *Config) Validate() error {
 
 var (
 	errNegativeDuration     = errors.New("duration must be non-negative")
-	errSizeOutOfRange       = errors.New("size must be greater than 0 and at most 256KB")
+	errSizeOutOfRange       = errors.New("size must be greater than 0 and at most 256KiB")
 	errMultipleOutputs      = errors.New("only one of stderr, stdout or file may be set")
 	errUnsupportedLogLevel  = errors.New("must be debug, info, warn or error")
 	errDuplicateLogFilePath = errors.New("duplicate log file path")
