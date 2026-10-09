@@ -192,6 +192,7 @@ func TestWriters_Open(t *testing.T) {
 
 		file, err := w.open(config.LogOutputConfig{File: &config.LogFileOutputConfig{Path: "stdout"}})
 		require.NoError(t, err)
+		t.Cleanup(func() { _ = Logger{writers: w}.Close() })
 
 		assert.NotSame(t, stdout, file)
 		assert.FileExists(t, "stdout")

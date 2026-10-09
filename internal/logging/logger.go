@@ -35,30 +35,30 @@ type Logger struct {
 // share one writer.
 func New(cfg config.LogConfig) (Logger, error) {
 	w := writers{}
+	logger := Logger{writers: w}
 
 	var err error
 
-	system, err := w.newLogger(SystemLoggerName, cfg.System.Output, cfg.System.Level, false)
+	logger.System, err = w.newLogger(SystemLoggerName, cfg.System.Output, cfg.System.Level, false)
 	if err != nil {
 		return Logger{}, err
 	}
 
-	audit, err := w.newLogger(AuditLoggerName, cfg.Audit.Output, zapcore.InfoLevel, true)
+	logger.Audit, err = w.newLogger(AuditLoggerName, cfg.Audit.Output, zapcore.InfoLevel, true)
 	if err != nil {
+		_ = logger.Close()
+
 		return Logger{}, err
 	}
 
-	session, err := w.newLogger(SessionLoggerName, cfg.SessionRecording.Output, zapcore.InfoLevel, false)
+	logger.Session, err = w.newLogger(SessionLoggerName, cfg.SessionRecording.Output, zapcore.InfoLevel, false)
 	if err != nil {
+		_ = logger.Close()
+
 		return Logger{}, err
 	}
 
-	return Logger{
-		System:  system,
-		Audit:   audit,
-		Session: session,
-		writers: w,
-	}, nil
+	return logger, nil
 }
 
 // Close stops the timberjack writers so an ongoing backup compression for a file can finish.
@@ -148,6 +148,9 @@ func newWriter(output config.LogOutputConfig) (zapcore.WriteSyncer, error) {
 		// timberjack opens the file on the first write, so an empty write opens it now and an
 		// unwritable path fails startup instead of every log line.
 		if _, err := writer.Write(nil); err != nil {
+			// The failed write has already started timberjack's backup cleanup goroutine.
+			_ = writer.Close()
+
 			return nil, err
 		}
 
