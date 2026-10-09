@@ -16,6 +16,7 @@ import (
 	"go.uber.org/zap"
 
 	"gateway/internal/frontend"
+	"gateway/internal/logging"
 	"gateway/internal/metrics"
 	"gateway/internal/token"
 )
@@ -73,7 +74,7 @@ func TestProxy_ForwardRequest(t *testing.T) {
 		Metrics:      metrics.RegisterHTTPMetrics(prometheus.NewRegistry()),
 		ResourceType: metrics.ResourceTypeKubernetes,
 		Handler:      handler,
-		Logger:       zap.NewNop(),
+		Logger:       logging.NewNop(),
 	})
 
 	go func() {
@@ -108,7 +109,7 @@ func TestProxy_Shutdown(t *testing.T) {
 		Metrics:      metrics.RegisterHTTPMetrics(prometheus.NewRegistry()),
 		ResourceType: metrics.ResourceTypeKubernetes,
 		Handler:      handler,
-		Logger:       zap.NewNop(),
+		Logger:       logging.NewNop(),
 	})
 
 	done := make(chan error, 1)

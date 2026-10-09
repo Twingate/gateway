@@ -9,9 +9,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 
 	gatewayconfig "gateway/internal/config"
+	"gateway/internal/logging"
 	"gateway/test/data"
 )
 
@@ -61,7 +61,7 @@ func TestNewConfig(t *testing.T) {
 				},
 			}
 
-			config, err := NewConfig(sessionRecording, sshConfig, zap.NewNop())
+			config, err := NewConfig(sessionRecording, sshConfig, logging.NewNop())
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
 				require.ErrorContains(t, err, tt.wantErrText)
@@ -103,7 +103,7 @@ func TestNewConfig_WithLocalCA(t *testing.T) {
 		},
 	}
 
-	config, err := NewConfig(sessionRecording, sshConfig, zap.NewNop())
+	config, err := NewConfig(sessionRecording, sshConfig, logging.NewNop())
 	require.NoError(t, err)
 	assert.NotNil(t, config)
 }
@@ -125,7 +125,7 @@ func TestNewConfig_InvalidLocalCA(t *testing.T) {
 		},
 	}
 
-	config, err := NewConfig(sessionRecording, sshConfig, zap.NewNop())
+	config, err := NewConfig(sessionRecording, sshConfig, logging.NewNop())
 	require.Error(t, err)
 	assert.Nil(t, config)
 	assert.Contains(t, err.Error(), "failed to create ca")

@@ -22,10 +22,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 
 	"gateway/internal/backend/httpproxy"
 	"gateway/internal/backend/webapp/template"
 	"gateway/internal/frontend"
+	"gateway/internal/logging"
 	"gateway/internal/metrics"
 	"gateway/internal/token"
 	"gateway/test/data"
@@ -59,16 +61,20 @@ func TestNewHandler_PanicsOnRewriteError(t *testing.T) {
 	handler := NewHandler(Config{
 		requestHeaders:      map[string]*template.Template{"X-Bad": unknownKeyTemplate},
 		roundTripperMetrics: metrics.RegisterRoundTripperMetrics(prometheus.NewRegistry()),
-		logger:              zap.NewNop(),
 	})
+
+	core, logs := observer.New(zap.ErrorLevel)
+	logger := logging.Logger{System: zap.NewNop(), Audit: zap.New(core), Session: zap.NewNop()}
 
 	req := httptest.NewRequest(http.MethodGet, "http://test/api", nil)
 	ctx := context.WithValue(req.Context(), httpproxy.ConnContextKey{}, conn)
+	ctx = context.WithValue(ctx, httpproxy.LoggerKey{}, logger)
 	req = req.WithContext(ctx)
 
 	assert.Panics(t, func() {
 		handler.ServeHTTP(httptest.NewRecorder(), req)
 	})
+	assert.Equal(t, 1, logs.FilterMessage("failed to rewrite headers").Len())
 }
 
 func withRequestHeaderRewrites(base *token.GATClaims, rewrites map[string]string) *token.GATClaims {
@@ -252,7 +258,7 @@ func TestRewrite(t *testing.T) {
 			}
 			parsedHeaders := mustParse(t, tt.headers)
 
-			require.NoError(t, rewrite(proxyReq, conn, parsedHeaders))
+			require.NoError(t, rewrite(proxyReq, conn, parsedHeaders, zap.NewNop()))
 
 			for name, wantValue := range tt.wantHeaders {
 				assert.Equal(t, wantValue, proxyReq.Out.Header.Get(name))
@@ -278,7 +284,7 @@ func TestRewrite_PreservesClientHost(t *testing.T) {
 		Out: httptest.NewRequest(http.MethodGet, "http://admin.example.int/path", nil),
 	}
 
-	err := rewrite(proxyReq, conn, nil)
+	err := rewrite(proxyReq, conn, nil, zap.NewNop())
 	require.NoError(t, err)
 
 	assert.Equal(t, "admin.example.int", proxyReq.Out.Host, "client Host must be preserved without the upstream port")
@@ -315,7 +321,7 @@ func TestRewrite_UpstreamScheme(t *testing.T) {
 				Out: httptest.NewRequest(http.MethodGet, "http://admin.example.int/path", nil),
 			}
 
-			err := rewrite(proxyReq, conn, nil)
+			err := rewrite(proxyReq, conn, nil, zap.NewNop())
 			require.NoError(t, err)
 
 			assert.Equal(t, tt.wantScheme, proxyReq.Out.URL.Scheme)
@@ -342,7 +348,7 @@ func TestRewrite_StripsClientIdentityHeaders(t *testing.T) {
 		Out: outReq,
 	}
 
-	err := rewrite(proxyReq, conn, nil)
+	err := rewrite(proxyReq, conn, nil, zap.NewNop())
 	require.NoError(t, err)
 
 	for _, headerName := range clientIdentityHeaders {
@@ -368,7 +374,7 @@ func TestRewrite_SkipsInvalidGATHeaders(t *testing.T) {
 		Out: httptest.NewRequest(http.MethodGet, "http://test/api/resource", nil),
 	}
 
-	err := rewrite(proxyReq, conn, nil)
+	err := rewrite(proxyReq, conn, nil, zap.NewNop())
 	require.NoError(t, err)
 
 	assert.Empty(t, proxyReq.Out.Header.Values("X-Malformed"), "malformed header should not be set")
@@ -607,7 +613,7 @@ func TestRewrite_SetsXForwardedProto(t *testing.T) {
 				Out: outReq,
 			}
 
-			err := rewrite(proxyReq, conn, nil)
+			err := rewrite(proxyReq, conn, nil, zap.NewNop())
 			require.NoError(t, err)
 
 			assert.Equal(t, tt.want, proxyReq.Out.Header.Get("X-Forwarded-Proto"))

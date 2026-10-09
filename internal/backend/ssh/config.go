@@ -14,10 +14,10 @@ import (
 	"sync"
 	"time"
 
-	"go.uber.org/zap"
 	"golang.org/x/crypto/ssh"
 
 	"gateway/internal/config"
+	"gateway/internal/logging"
 	"gateway/internal/token"
 )
 
@@ -65,12 +65,12 @@ type Config struct {
 	gatewayUsername string
 
 	sessionRecording *config.SessionRecordingConfig
-	logger           *zap.Logger
+	logger           logging.Logger
 }
 
 // NewConfig creates an SSH handler config from the config package types.
-func NewConfig(sessionRecordingConfig *config.SessionRecordingConfig, sshCfg *config.SSHConfig, logger *zap.Logger) (*Config, error) {
-	caProvider, err := newCAFromConfig(sshCfg.CA, logger)
+func NewConfig(sessionRecordingConfig *config.SessionRecordingConfig, sshCfg *config.SSHConfig, logger logging.Logger) (*Config, error) {
+	caProvider, err := newCAFromConfig(sshCfg.CA, logger.System)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create ca: %w", err)
 	}
@@ -103,7 +103,7 @@ func NewConfig(sessionRecordingConfig *config.SessionRecordingConfig, sshCfg *co
 
 	return &Config{
 		caProvider:      caProvider,
-		hostCerts:       newHostCertManager(caProvider.gatewayHostCA(), hostPublicKey, hostSigner, hostCertTTL, logger),
+		hostCerts:       newHostCertManager(caProvider.gatewayHostCA(), hostPublicKey, hostSigner, hostCertTTL, logger.System),
 		userSigner:      userSigner,
 		userPublicKey:   userPublicKey,
 		userCertTTL:     userCertTTL,

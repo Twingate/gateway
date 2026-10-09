@@ -10,8 +10,6 @@ import (
 	"os"
 	"slices"
 
-	"go.uber.org/zap"
-
 	"gateway/internal/backend/webapp/template"
 	"gateway/internal/config"
 	"gateway/internal/metrics"
@@ -23,10 +21,9 @@ type Config struct {
 	requestHeaders      map[string]*template.Template
 	caPool              *x509.CertPool
 	roundTripperMetrics *metrics.RoundTripperMetrics
-	logger              *zap.Logger
 }
 
-func NewConfig(configRequestHeaders map[string]string, caBundles []config.UpstreamTrustedCABundle, roundTripperMetrics *metrics.RoundTripperMetrics, logger *zap.Logger) (*Config, error) {
+func NewConfig(configRequestHeaders map[string]string, caBundles []config.UpstreamTrustedCABundle, roundTripperMetrics *metrics.RoundTripperMetrics) (*Config, error) {
 	headers := make(map[string]*template.Template, len(configRequestHeaders))
 
 	for name, value := range configRequestHeaders {
@@ -47,7 +44,7 @@ func NewConfig(configRequestHeaders map[string]string, caBundles []config.Upstre
 		return nil, err
 	}
 
-	return &Config{requestHeaders: headers, caPool: caPool, roundTripperMetrics: roundTripperMetrics, logger: logger}, nil
+	return &Config{requestHeaders: headers, caPool: caPool, roundTripperMetrics: roundTripperMetrics}, nil
 }
 
 // newCAPool merges the configured CAs on top of the system cert pool to verify

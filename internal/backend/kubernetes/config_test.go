@@ -8,7 +8,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 
 	"gateway/internal/config"
 )
@@ -32,7 +31,7 @@ func TestNewConfig(t *testing.T) {
 			},
 		}
 
-		cfg, err := NewConfig(sessionRecordingConfig, k8sConfig, nil, zap.NewNop())
+		cfg, err := NewConfig(sessionRecordingConfig, k8sConfig, nil)
 
 		require.NoError(t, err)
 		assert.Equal(t, "test-token", cfg.bearerToken)
@@ -45,7 +44,7 @@ func TestNewConfig(t *testing.T) {
 
 		k8sConfig := &config.KubernetesConfig{}
 
-		cfg, err := NewConfig(sessionRecordingConfig, k8sConfig, nil, zap.NewNop())
+		cfg, err := NewConfig(sessionRecordingConfig, k8sConfig, nil)
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "unable to load in-cluster configuration")

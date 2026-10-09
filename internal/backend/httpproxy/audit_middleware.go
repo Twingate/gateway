@@ -13,6 +13,8 @@ import (
 
 	"github.com/google/uuid"
 	"go.uber.org/zap"
+
+	"gateway/internal/logging"
 )
 
 var (
@@ -74,12 +76,12 @@ func (rw *responseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 var _ http.Flusher = &responseWriter{}  // Support HTTP streaming
 var _ http.Hijacker = &responseWriter{} // Support WebSocket streaming
 
-type AuditLoggerKey struct{}
+type LoggerKey struct{}
 
-func AuditLoggerFromContext(ctx context.Context) *zap.Logger {
-	logger, ok := ctx.Value(AuditLoggerKey{}).(*zap.Logger)
+func LoggerFromContext(ctx context.Context) logging.Logger {
+	logger, ok := ctx.Value(LoggerKey{}).(logging.Logger)
 	if !ok {
-		panic("audit logger not found in context: caller must use httpproxy server")
+		panic("logger not found in context: caller must use httpproxy server")
 	}
 
 	return logger
@@ -87,24 +89,27 @@ func AuditLoggerFromContext(ctx context.Context) *zap.Logger {
 
 type auditMiddlewareConfig struct {
 	next   http.Handler
-	logger *zap.Logger
+	logger logging.Logger
 }
 
 func auditMiddleware(config auditMiddlewareConfig) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		auditLogger := config.logger.Named("audit").With(
+		conn := ProxyConnFromContext(r.Context())
+
+		fields := []zap.Field{
 			zap.String("request_id", uuid.New().String()),
 			zap.Time("requested_at", time.Now()),
 			zap.String("method", r.Method),
 			zap.String("url", r.URL.String()),
 			zap.String("remote_addr", r.RemoteAddr),
-		)
-		conn := ProxyConnFromContext(r.Context())
-
-		auditLogger = auditLogger.With(
 			zap.Object("user", conn.Claims.User),
 			zap.String("conn_id", conn.ID),
-		)
+		}
+		logger := config.logger
+		logger.Audit = logger.Audit.With(fields...)
+		// Session recordings share the request_id and connection fields with the audit log, so a
+		// recording can be tied back to the request and user that started it.
+		logger.Session = logger.Session.With(fields...)
 
 		rw := &responseWriter{ResponseWriter: w}
 
@@ -114,7 +119,7 @@ func auditMiddleware(config auditMiddlewareConfig) http.Handler {
 			// Check if there was a panic. `http.ErrAbortHandler` is considered
 			// okay e.g. client closes connection during HTTP streaming.
 			if recovered != nil && recovered != http.ErrAbortHandler { //nolint:err113,errorlint
-				auditLogger.Error("API request failed",
+				logger.Audit.Error("API request failed",
 					zap.Any("request", map[string]any{
 						fieldHeaders: r.Header,
 					}),
@@ -125,7 +130,7 @@ func auditMiddleware(config auditMiddlewareConfig) http.Handler {
 					zap.Any("panic", recovered),
 				)
 			} else {
-				auditLogger.Info("API request completed",
+				logger.Audit.Info("API request completed",
 					zap.Any("request", map[string]any{
 						fieldHeaders: r.Header,
 					}),
@@ -142,7 +147,7 @@ func auditMiddleware(config auditMiddlewareConfig) http.Handler {
 			}
 		}()
 
-		ctx := context.WithValue(r.Context(), AuditLoggerKey{}, auditLogger)
+		ctx := context.WithValue(r.Context(), LoggerKey{}, logger)
 		config.next.ServeHTTP(rw, r.WithContext(ctx))
 	})
 }

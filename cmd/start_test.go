@@ -11,7 +11,8 @@ import (
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
+
+	"gateway/internal/logging"
 )
 
 func TestNewProxy_Success(t *testing.T) {
@@ -20,26 +21,29 @@ func TestNewProxy_Success(t *testing.T) {
 
 	viper.Set("config", "../test/data/config.yaml")
 
-	p, err := newProxy(zap.NewNop())
+	cfg, err := loadConfig()
+	require.NoError(t, err)
+
+	p, err := newProxy(cfg, logging.NewNop())
 	require.NoError(t, err)
 
 	assert.NotNil(t, p)
 }
 
-func TestNewProxy_InvalidConfigPath(t *testing.T) {
+func TestLoadConfig_InvalidConfigPath(t *testing.T) {
 	viper.Reset()
 	defer viper.Reset()
 
 	viper.Set("config", "/nonexistent/config.yaml")
 
-	gateway, err := newProxy(zap.NewNop())
+	cfg, err := loadConfig()
 	require.Error(t, err)
 
-	assert.Nil(t, gateway)
+	assert.Nil(t, cfg)
 	assert.Contains(t, err.Error(), "failed to load config")
 }
 
-func TestNewProxy_InvalidConfigContent(t *testing.T) {
+func TestLoadConfig_InvalidConfigContent(t *testing.T) {
 	viper.Reset()
 	defer viper.Reset()
 
@@ -54,9 +58,9 @@ twingate:
 
 	viper.Set("config", invalidConfig)
 
-	gateway, err := newProxy(zap.NewNop())
+	cfg, err := loadConfig()
 	require.Error(t, err)
 
-	assert.Nil(t, gateway)
+	assert.Nil(t, cfg)
 	assert.Contains(t, err.Error(), "failed to validate config")
 }

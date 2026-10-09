@@ -165,7 +165,7 @@ func (l *Listener) Serve(ctx context.Context, listener net.Listener) error {
 			return err
 		}
 
-		l.logger.Debug("Accepted connection", zap.String("remote addr", conn.RemoteAddr().String()))
+		l.logger.Debug("Accepted connection", zap.String("remote_addr", conn.RemoteAddr().String()))
 
 		wg.Go(func() {
 			proxyConn := l.proxyConnFactory(conn, l.tlsConfig, l.connectValidator, l.logger)

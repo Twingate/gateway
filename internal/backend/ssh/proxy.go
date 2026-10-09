@@ -58,7 +58,7 @@ func (p *Proxy) Start(ctx context.Context, listener net.Listener) error {
 		conn, err := listener.Accept()
 		if err != nil {
 			if !errors.Is(err, net.ErrClosed) {
-				p.config.logger.Error("Failed to accept incoming connection", zap.Error(err))
+				p.config.logger.System.Error("Failed to accept incoming connection", zap.Error(err))
 			}
 
 			break
@@ -66,11 +66,11 @@ func (p *Proxy) Start(ctx context.Context, listener net.Listener) error {
 
 		// Serve SSH connection in a separate goroutine
 		go func() {
-			defer closeOnPanic(p.config.logger, func() { _ = conn.Close() })
+			defer closeOnPanic(p.config.logger.System, func() { _ = conn.Close() })
 
 			err := p.serveConn(ctx, conn.(frontend.Conn))
 			if err != nil {
-				p.config.logger.Error("Failed to serve SSH connection", zap.Error(err))
+				p.config.logger.System.Error("Failed to serve SSH connection", zap.Error(err))
 			}
 		}()
 	}
@@ -106,11 +106,15 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 
 	p.mu.Unlock()
 
-	// Setup audit logger for this connection
-	logger := p.config.logger.Named("audit").With(
+	fields := []zap.Field{
 		zap.Object("user", conn.GATClaims().User),
 		zap.String("conn_id", conn.GetID()),
-	)
+	}
+	logger := p.config.logger
+	logger.Audit = logger.Audit.With(fields...)
+	// ChannelPair records shell sessions through this logger but never sees the GAT claims,
+	// so the user and conn_id have to be added here.
+	logger.Session = logger.Session.With(fields...)
 
 	upstream := upstream{
 		address:  conn.GetUpstreamAddress(),
@@ -119,7 +123,7 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 
 	downstreamConfig, err := p.config.GetDownstreamConfig(ctx, conn.GetRequestedHost(), conn.GATClaims().Resource)
 	if err != nil {
-		logger.Error("Failed to build the downstream SSH config", zap.Error(err))
+		logger.Audit.Error("Failed to build the downstream SSH config", zap.Error(err))
 
 		_ = conn.Close()
 
@@ -129,7 +133,7 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 	// Give the proxyconn.ProxyConn TCP connection to the SSH server to start the SSH handshake
 	downstreamSSHConn, downstreamChannels, downstreamRequests, err := ssh.NewServerConn(conn, downstreamConfig)
 	if err != nil {
-		logger.Error("Handshake failed", zap.Error(err))
+		logger.Audit.Error("Handshake failed", zap.Error(err))
 
 		_ = conn.Close()
 
@@ -146,7 +150,7 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 
 	upstreamConfig, err := p.config.GetUpstreamConfig(ctx, upstream)
 	if err != nil {
-		closeDownstreamSSH(downstreamConn, logger, sshCtx)
+		closeDownstreamSSH(downstreamConn, logger.Audit, sshCtx)
 
 		return err
 	}
@@ -154,9 +158,9 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 	// Start connection to upstream SSH server
 	upstreamNetConn, err := net.DialTimeout("tcp", upstream.address, upstreamConnTimeout)
 	if err != nil {
-		logger.Error("Failed to connect to upstream SSH server", zap.Error(err))
+		logger.Audit.Error("Failed to connect to upstream SSH server", zap.Error(err))
 
-		closeDownstreamSSH(downstreamConn, logger, sshCtx)
+		closeDownstreamSSH(downstreamConn, logger.Audit, sshCtx)
 
 		return err
 	}
@@ -166,9 +170,9 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 	// Open the SSH connection to the upstream server
 	upstreamSSHConn, upstreamChannels, upstreamRequests, err := ssh.NewClientConn(upstreamNetConn, upstream.address, upstreamConfig)
 	if err != nil {
-		logger.Error("Failed to connect to upstream SSH server", zap.Error(err))
+		logger.Audit.Error("Failed to connect to upstream SSH server", zap.Error(err))
 
-		closeDownstreamSSH(downstreamConn, logger, sshCtx)
+		closeDownstreamSSH(downstreamConn, logger.Audit, sshCtx)
 
 		return err
 	}
@@ -177,7 +181,7 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 
 	sshCtx.serverVersion = string(upstreamSSHConn.ServerVersion())
 
-	logger.Info("SSH connection established", zap.Any("ssh", sshCtx.baseFields()))
+	logger.Audit.Info("SSH connection established", zap.Any("ssh", sshCtx.baseFields()))
 
 	sshConnPair := NewConnPair(logger, sshCtx, downstreamConn, upstreamConn)
 
@@ -197,7 +201,7 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 
 	sshConnPair.serve()
 
-	logger.Info("SSH connection closed", zap.Any("ssh", sshCtx.withConnectionClose(sshConnPair.ChannelsOpened())))
+	logger.Audit.Info("SSH connection closed", zap.Any("ssh", sshCtx.withConnectionClose(sshConnPair.ChannelsOpened())))
 
 	return nil
 }

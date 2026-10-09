@@ -61,6 +61,10 @@ func New(cfg config.LogConfig) (Logger, error) {
 	return logger, nil
 }
 
+func NewNop() Logger {
+	return Logger{System: zap.NewNop(), Audit: zap.NewNop(), Session: zap.NewNop()}
+}
+
 // Close stops the timberjack writers so an ongoing backup compression for a file can finish.
 // Stdout and stderr are not closers and stay open.
 func (l Logger) Close() error {

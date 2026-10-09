@@ -149,7 +149,7 @@ func (l *localIssuer) load() error {
 		return nil
 	}
 
-	l.logger.Info("Reloaded CA certificate and key files", zap.String("certificateFile", l.certFile))
+	l.logger.Info("Reloaded CA certificate and key files", zap.String("certificate_file", l.certFile))
 
 	// Non-blocking send: a pending notification already covers the latest CA.
 	select {
