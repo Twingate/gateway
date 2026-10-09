@@ -666,30 +666,30 @@ func (r *LogFileRotationConfig) GetMaxSize() int {
 
 // GetMaxBackupFiles returns MaxBackupFiles, defaulting to 3.
 func (r *LogFileRotationConfig) GetMaxBackupFiles() int {
-	if r.MaxBackupFiles != 0 {
-		return r.MaxBackupFiles
+	if r.MaxBackupFiles == 0 {
+		return defaultLogFileRotationMaxBackupFiles
 	}
 
-	return defaultLogFileRotationMaxBackupFiles
+	return r.MaxBackupFiles
 }
 
 // GetMaxBackupAge returns MaxBackupAge in whole days, rounded up, defaulting to 7 days.
 func (r *LogFileRotationConfig) GetMaxBackupAge() int {
-	maxBackupAge := yamlutil.Duration(defaultLogFileRotationMaxBackupAge)
-	if r.MaxBackupAge != nil {
-		maxBackupAge = *r.MaxBackupAge
+	maxBackupAge := r.MaxBackupAge
+	if maxBackupAge == nil {
+		maxBackupAge = new(yamlutil.Duration(defaultLogFileRotationMaxBackupAge))
 	}
 
-	return int(math.Ceil(time.Duration(maxBackupAge).Hours() / 24))
+	return int(math.Ceil(time.Duration(*maxBackupAge).Hours() / 24))
 }
 
 // GetCompression returns Compression, defaulting to "none".
 func (r *LogFileRotationConfig) GetCompression() string {
-	if r.Compression != "" {
-		return r.Compression
+	if r.Compression == "" {
+		return defaultLogFileRotationCompression
 	}
 
-	return defaultLogFileRotationCompression
+	return r.Compression
 }
 
 var (
