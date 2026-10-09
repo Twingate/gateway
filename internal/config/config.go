@@ -57,10 +57,10 @@ const (
 	defaultMetricsPort                        = 9090
 	defaultLogSystemLevel                     = zapcore.InfoLevel
 	defaultSessionRecordingSegmentMaxDuration = time.Minute * 5
-	defaultSessionRecordingSegmentMaxSize     = 64_000                // 64KB in bytes
-	maxSessionRecordingSegmentMaxSize         = 256_000               // 256KB in bytes
-	maxLogFileRotationMaxBackupAge            = 3650 * 24 * time.Hour // 10 years
-	maxLogFileRotationMaxSize                 = 1_073_741_824         // 1GiB in bytes
+	defaultSessionRecordingSegmentMaxSize     = 64_000               // 64KB in bytes
+	maxSessionRecordingSegmentMaxSize         = 256_000              // 256KB in bytes
+	maxLogFileRotationMaxBackupAge            = 365 * 24 * time.Hour // 1 year
+	maxLogFileRotationMaxSize                 = 1 * humanize.GiByte
 	minTLSCertificateTTL                      = time.Minute * 10
 )
 
@@ -143,7 +143,7 @@ type LogFileRotationConfig struct {
 	// MaxBackupAge is how long a backup is kept before it is deleted, such as "7d" or "36h". It is
 	// rounded up to whole days, so "36h" keeps backups for 2 days. 0 keeps backups until
 	// MaxBackupFiles deletes them. When it is omitted, backups are kept for 7 days. It can be kept
-	// at most 3650 days (10 years).
+	// at most 365 days (1 year).
 	MaxBackupAge *yamlutil.Duration `yaml:"maxBackupAge"`
 	// Compression compresses each backup after rotation using the selected compression algorithm:
 	// "none", "gzip" or "zstd". When it is omitted, backups are not compressed.
@@ -610,7 +610,7 @@ func (o *LogOutputConfig) Validate() error {
 var (
 	errLogFileSizeOutOfRange  = errors.New("size must be non-negative and at most 1GiB")
 	errNegativeCount          = errors.New("count must be non-negative")
-	errDurationTooLong        = errors.New("duration must be at most 3650 days")
+	errDurationTooLong        = errors.New("duration must be at most 365 days")
 	errUnsupportedCompression = errors.New("must be none, gzip or zstd")
 )
 
@@ -648,7 +648,7 @@ func (r *LogFileRotationConfig) Validate() error {
 }
 
 const (
-	defaultLogFileRotationMaxSize        = 104_857_600 // 100MiB in bytes
+	defaultLogFileRotationMaxSize        = 100 * humanize.MiByte
 	defaultLogFileRotationMaxBackupFiles = 3
 	defaultLogFileRotationMaxBackupAge   = 7 * 24 * time.Hour
 	defaultLogFileRotationCompression    = "none"

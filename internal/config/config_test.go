@@ -1286,11 +1286,11 @@ func TestLogFileRotationConfig_Validate(t *testing.T) {
 		},
 		{
 			name:     "maxBackupAge at the upper bound",
-			rotation: LogFileRotationConfig{MaxBackupAge: new(yamlutil.Duration(3650 * 24 * time.Hour))},
+			rotation: LogFileRotationConfig{MaxBackupAge: new(yamlutil.Duration(365 * 24 * time.Hour))},
 		},
 		{
 			name:        "maxBackupAge above the upper bound",
-			rotation:    LogFileRotationConfig{MaxBackupAge: new(yamlutil.Duration(3650*24*time.Hour + 1))},
+			rotation:    LogFileRotationConfig{MaxBackupAge: new(yamlutil.Duration(365*24*time.Hour + 1))},
 			wantErr:     errDurationTooLong,
 			errContains: "maxBackupAge",
 		},
