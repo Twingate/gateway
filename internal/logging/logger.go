@@ -35,30 +35,30 @@ type Logger struct {
 // share one writer.
 func New(cfg config.LogConfig) (Logger, error) {
 	w := writers{}
+	logger := Logger{writers: w}
 
 	var err error
 
-	system, err := w.newLogger(SystemLoggerName, cfg.System.Output, cfg.System.Level, false)
+	logger.System, err = w.newLogger(SystemLoggerName, cfg.System.Output, cfg.System.Level, false, true)
 	if err != nil {
 		return Logger{}, err
 	}
 
-	audit, err := w.newLogger(AuditLoggerName, cfg.Audit.Output, zapcore.InfoLevel, true)
+	logger.Audit, err = w.newLogger(AuditLoggerName, cfg.Audit.Output, zapcore.InfoLevel, true, false)
 	if err != nil {
+		_ = logger.Close()
+
 		return Logger{}, err
 	}
 
-	session, err := w.newLogger(SessionLoggerName, cfg.SessionRecording.Output, zapcore.InfoLevel, false)
+	logger.Session, err = w.newLogger(SessionLoggerName, cfg.SessionRecording.Output, zapcore.InfoLevel, false, false)
 	if err != nil {
+		_ = logger.Close()
+
 		return Logger{}, err
 	}
 
-	return Logger{
-		System:  system,
-		Audit:   audit,
-		Session: session,
-		writers: w,
-	}, nil
+	return logger, nil
 }
 
 func NewNop() Logger {
@@ -83,13 +83,14 @@ func (l Logger) Close() error {
 // Loggers configured with the same output share one writer.
 type writers map[string]zapcore.WriteSyncer
 
-func (w writers) newLogger(name string, output config.LogOutputConfig, level zapcore.Level, disableCaller bool) (*zap.Logger, error) {
+func (w writers) newLogger(name string, output config.LogOutputConfig, level zapcore.Level, disableCaller bool, addStacktrace bool) (*zap.Logger, error) {
 	encoderConfig := zapcore.EncoderConfig{
 		TimeKey:        "ts",
 		LevelKey:       "levelname",
 		NameKey:        "logger",
 		CallerKey:      "caller",
 		MessageKey:     "message",
+		StacktraceKey:  "stacktrace",
 		LineEnding:     zapcore.DefaultLineEnding,
 		EncodeLevel:    zapcore.LowercaseLevelEncoder,
 		EncodeTime:     zapcore.ISO8601TimeEncoder,
@@ -102,8 +103,13 @@ func (w writers) newLogger(name string, output config.LogOutputConfig, level zap
 		return nil, fmt.Errorf("%s: %w", name, err)
 	}
 
+	opts := []zap.Option{zap.WithCaller(!disableCaller)}
+	if addStacktrace {
+		opts = append(opts, zap.AddStacktrace(zapcore.ErrorLevel))
+	}
+
 	core := zapcore.NewCore(zapcore.NewJSONEncoder(encoderConfig), writer, level)
-	logger := zap.New(core, zap.WithCaller(!disableCaller), zap.AddStacktrace(zapcore.ErrorLevel))
+	logger := zap.New(core, opts...)
 
 	return logger.Named(name).With(zap.String("version", version.Version)), nil
 }
@@ -145,13 +151,16 @@ func newWriter(output config.LogOutputConfig) (zapcore.WriteSyncer, error) {
 			Filename:    output.File.Path,
 			MaxSize:     output.File.Rotation.GetMaxSize(),
 			MaxBackups:  output.File.Rotation.GetMaxBackupFiles(),
-			MaxAge:      output.File.Rotation.GetMaxAge(),
+			MaxAge:      output.File.Rotation.GetMaxBackupAge(),
 			Compression: output.File.Rotation.GetCompression(),
 		}
 
 		// timberjack opens the file on the first write, so an empty write opens it now and an
 		// unwritable path fails startup instead of every log line.
 		if _, err := writer.Write(nil); err != nil {
+			// The failed write has already started timberjack's backup cleanup goroutine.
+			_ = writer.Close()
+
 			return nil, err
 		}
 
