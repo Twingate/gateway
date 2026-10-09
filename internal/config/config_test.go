@@ -1155,6 +1155,13 @@ func TestSessionRecordingSegmentConfig_Validate(t *testing.T) {
 }
 
 func TestLogFileOutputConfig_Validate(t *testing.T) {
+	dir := t.TempDir()
+	regularFile := filepath.Join(dir, "audit.log")
+	require.NoError(t, os.WriteFile(regularFile, nil, 0600))
+
+	symlink := filepath.Join(dir, "symlink.log")
+	require.NoError(t, os.Symlink(regularFile, symlink))
+
 	tests := []struct {
 		name        string
 		file        LogFileOutputConfig
@@ -1164,6 +1171,28 @@ func TestLogFileOutputConfig_Validate(t *testing.T) {
 		{
 			name: "valid",
 			file: LogFileOutputConfig{Path: "/var/log/gateway/audit.log"},
+		},
+		{
+			name: "existing regular file",
+			file: LogFileOutputConfig{Path: regularFile},
+		},
+		{
+			name:        "directory",
+			file:        LogFileOutputConfig{Path: dir},
+			wantErr:     errNotRegularFile,
+			errContains: "path",
+		},
+		{
+			name:        "device",
+			file:        LogFileOutputConfig{Path: os.DevNull},
+			wantErr:     errNotRegularFile,
+			errContains: "path",
+		},
+		{
+			name:        "symlink to a regular file",
+			file:        LogFileOutputConfig{Path: symlink},
+			wantErr:     errNotRegularFile,
+			errContains: "path",
 		},
 		{
 			name:        "missing path",

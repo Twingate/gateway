@@ -126,6 +126,8 @@ type LogStandardOutputConfig struct{}
 
 // LogFileOutputConfig appends the logs to the file at Path and rotates it.
 type LogFileOutputConfig struct {
+	// Path is the log file. If it already exists, it must be a regular file, not a directory,
+	// device or symlink.
 	Path     string                `yaml:"path"`
 	Rotation LogFileRotationConfig `yaml:"rotation"`
 }
@@ -611,11 +613,20 @@ var (
 	errNegativeCount          = errors.New("count must be non-negative")
 	errDurationTooLong        = errors.New("duration must be at most 365 days")
 	errUnsupportedCompression = errors.New("must be none, gzip or zstd")
+	errNotRegularFile         = errors.New("must be a regular file")
 )
 
 func (f *LogFileOutputConfig) Validate() error {
 	if f.Path == "" {
 		return fmt.Errorf("%w: path", ErrRequired)
+	}
+
+	// timberjack renames whatever exists at the path when it cannot append to it, so a
+	// directory would be silently renamed, and a device such as /dev/null fails to rotate.
+	// Lstat also rejects a symlink: rotation renames the link rather than its target, so logs
+	// written after the first rotation never reach the target.
+	if info, err := os.Lstat(f.Path); err == nil && !info.Mode().IsRegular() {
+		return fmt.Errorf("%w: path", errNotRegularFile)
 	}
 
 	if err := f.Rotation.Validate(); err != nil {
