@@ -14,15 +14,17 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
+
+	gatewayconfig "gateway/internal/config"
 )
 
-func TestRecorder_NewRecorder(t *testing.T) {
-	r := NewRecorder(zap.NewNop()).(*asciicastRecorder)
-	assert.NotNil(t, r, "NewRecorder should return a non-nil recording")
+func TestNew(t *testing.T) {
+	r := New(zap.NewNop(), gatewayconfig.SessionRecordingSegmentConfig{}).(*asciicastRecorder)
+	assert.NotNil(t, r, "New should return a non-nil recording")
 }
 
 func TestRecorder_WriteOutputEvent(t *testing.T) {
-	r := NewRecorder(zap.NewNop()).(*asciicastRecorder)
+	r := New(zap.NewNop(), gatewayconfig.SessionRecordingSegmentConfig{}).(*asciicastRecorder)
 
 	err := r.WriteOutputEvent([]byte("test output"))
 	require.NoError(t, err, "WriteOutputEvent should not return an error")
@@ -47,7 +49,7 @@ func TestRecorder_WriteOutputEvent(t *testing.T) {
 }
 
 func TestRecorder_WriteResizeEvent(t *testing.T) {
-	r := NewRecorder(zap.NewNop()).(*asciicastRecorder)
+	r := New(zap.NewNop(), gatewayconfig.SessionRecordingSegmentConfig{}).(*asciicastRecorder)
 
 	err := r.WriteResizeEvent(80, 24)
 	require.NoError(t, err, "WriteResizeEvent should not return an error")
@@ -72,7 +74,7 @@ func TestRecorder_WriteResizeEvent(t *testing.T) {
 }
 
 func TestRecorder_WriteHeader(t *testing.T) {
-	r := NewRecorder(zap.NewNop()).(*asciicastRecorder)
+	r := New(zap.NewNop(), gatewayconfig.SessionRecordingSegmentConfig{}).(*asciicastRecorder)
 
 	header := AsciicastHeader{
 		Version:   2,
@@ -94,7 +96,7 @@ func TestRecorder_WriteHeader(t *testing.T) {
 }
 
 func TestRecorder_MultipleEvents(t *testing.T) {
-	r := NewRecorder(zap.NewNop()).(*asciicastRecorder)
+	r := New(zap.NewNop(), gatewayconfig.SessionRecordingSegmentConfig{}).(*asciicastRecorder)
 
 	header := AsciicastHeader{
 		Version: 2,
@@ -131,7 +133,7 @@ func TestRecorder_Stop(t *testing.T) {
 	RegisterRecordedSessionMetrics("test", testRegistry)
 
 	core, logs := observer.New(zap.DebugLevel)
-	r := NewRecorder(zap.New(core)).(*asciicastRecorder)
+	r := New(zap.New(core), gatewayconfig.SessionRecordingSegmentConfig{}).(*asciicastRecorder)
 
 	// Write an event
 	require.NoError(t, r.WriteOutputEvent([]byte("test")))
@@ -172,7 +174,7 @@ func TestRecorder_PeriodicFlush(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		core, logs := observer.New(zap.DebugLevel)
 
-		r := NewRecorder(zap.New(core), WithSegmentMaxDuration(time.Minute)).(*asciicastRecorder)
+		r := New(zap.New(core), gatewayconfig.SessionRecordingSegmentConfig{MaxDuration: time.Minute}).(*asciicastRecorder)
 		defer r.Stop()
 
 		r.header = "header"
@@ -224,7 +226,7 @@ func TestRecorderFlow(t *testing.T) {
 	RegisterRecordedSessionMetrics("test", testRegistry)
 
 	synctest.Test(t, func(t *testing.T) {
-		r := NewRecorder(zap.NewNop()).(*asciicastRecorder)
+		r := New(zap.NewNop(), gatewayconfig.SessionRecordingSegmentConfig{}).(*asciicastRecorder)
 
 		// Verify start time is recent
 		start := time.Now()
@@ -277,7 +279,7 @@ func TestRecorder_WriteJSON_NoFlushWhenSegmentMaxSizeIsZero(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		core, logs := observer.New(zap.DebugLevel)
 
-		r := NewRecorder(zap.New(core)).(*asciicastRecorder)
+		r := New(zap.New(core), gatewayconfig.SessionRecordingSegmentConfig{}).(*asciicastRecorder)
 		defer r.Stop()
 
 		r.config.segmentMaxSize = 0
@@ -297,7 +299,7 @@ func TestRecorder_WriteJSON_FlushLogsWhenExceedingSegmentMaxSize(t *testing.T) {
 
 	synctest.Test(t, func(t *testing.T) {
 		core, logs := observer.New(zap.DebugLevel)
-		r := NewRecorder(zap.New(core)).(*asciicastRecorder)
+		r := New(zap.New(core), gatewayconfig.SessionRecordingSegmentConfig{}).(*asciicastRecorder)
 
 		r.config.segmentMaxSize = 15
 		r.header = "header"
@@ -339,7 +341,7 @@ func TestRecorder_WriteJSON_FlushLogsWhenExceedingSegmentMaxSize(t *testing.T) {
 }
 
 func TestRecorder_WriteJSON_Error(t *testing.T) {
-	r := NewRecorder(zap.NewNop()).(*asciicastRecorder)
+	r := New(zap.NewNop(), gatewayconfig.SessionRecordingSegmentConfig{}).(*asciicastRecorder)
 
 	// Create a value that cannot be marshaled to JSON, a function
 	badValue := struct {
@@ -358,7 +360,7 @@ func TestRecorder_StoreEvent_Error(t *testing.T) {
 	testRegistry := prometheus.NewRegistry()
 	RegisterRecordedSessionMetrics("test", testRegistry)
 
-	r := NewRecorder(zap.NewNop()).(*asciicastRecorder)
+	r := New(zap.NewNop(), gatewayconfig.SessionRecordingSegmentConfig{}).(*asciicastRecorder)
 	r.Stop()
 
 	err := r.storeEvent("test event")

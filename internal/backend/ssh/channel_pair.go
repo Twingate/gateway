@@ -28,11 +28,7 @@ type defaultSessionRecorderFactory struct {
 }
 
 func (f *defaultSessionRecorderFactory) newRecorder(logger *zap.Logger) sessionrecorder.Recorder {
-	return sessionrecorder.NewRecorder(
-		logger,
-		sessionrecorder.WithSegmentMaxSize(f.segment.MaxSize),
-		sessionrecorder.WithSegmentMaxDuration(f.segment.MaxDuration),
-	)
+	return sessionrecorder.New(logger, f.segment)
 }
 
 // TerminalOutputRecorder is used for tapping into the raw output of a channel.

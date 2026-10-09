@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
+	"gateway/internal/config"
 	"gateway/internal/sessionrecorder"
 )
 
@@ -78,7 +79,7 @@ func mockNewConn(conn net.Conn, _ sessionrecorder.Recorder, _ sessionrecorder.As
 }
 
 func mockNewRecorder() sessionrecorder.Recorder {
-	return sessionrecorder.NewRecorder(zap.NewNop())
+	return sessionrecorder.New(zap.NewNop(), config.SessionRecordingSegmentConfig{})
 }
 
 func TestHijacker_New(t *testing.T) {

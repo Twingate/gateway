@@ -14,6 +14,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
 
+	gatewayconfig "gateway/internal/config"
 	yamlutil "gateway/internal/util/yaml"
 )
 
@@ -93,19 +94,17 @@ type asciicastRecorder struct {
 	mu sync.Mutex
 }
 
-func NewRecorder(logger *zap.Logger, opts ...RecorderOption) Recorder {
+func New(logger *zap.Logger, segment gatewayconfig.SessionRecordingSegmentConfig) Recorder {
 	r := &asciicastRecorder{
 		start:         time.Now(),
 		recordedLines: []string{},
 		config: config{
-			logger: logger,
+			logger:             logger,
+			segmentMaxSize:     segment.MaxSize,
+			segmentMaxDuration: segment.MaxDuration,
 		},
 		flushCount: 0,
 		flushCh:    make(chan struct{}, 1),
-	}
-
-	for _, opt := range opts {
-		opt(r)
 	}
 
 	if r.config.segmentMaxDuration > 0 {
@@ -117,20 +116,6 @@ func NewRecorder(logger *zap.Logger, opts ...RecorderOption) Recorder {
 	go r.flushLoop()
 
 	return r
-}
-
-type RecorderOption func(*asciicastRecorder)
-
-func WithSegmentMaxSize(size yamlutil.ByteSize) RecorderOption {
-	return func(r *asciicastRecorder) {
-		r.config.segmentMaxSize = size
-	}
-}
-
-func WithSegmentMaxDuration(duration time.Duration) RecorderOption {
-	return func(r *asciicastRecorder) {
-		r.config.segmentMaxDuration = duration
-	}
 }
 
 func (r *asciicastRecorder) WriteHeader(h AsciicastHeader) error {
