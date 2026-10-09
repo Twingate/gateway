@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dustin/go-humanize"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -176,7 +177,7 @@ log:
       file:
         path: /var/log/gateway/audit.log
         rotation:
-          maxSize: 10MB
+          maxSize: 10MiB
           maxBackupFiles: 5
           maxBackupAge: 36h
           compression: gzip
@@ -202,7 +203,7 @@ kubernetes: {}
 	assert.Equal(t, LogOutputConfig{File: &LogFileOutputConfig{
 		Path: "/var/log/gateway/audit.log",
 		Rotation: LogFileRotationConfig{
-			MaxSize:        10_000_000,
+			MaxSize:        10 * humanize.MiByte,
 			MaxBackupFiles: 5,
 			MaxBackupAge:   yamlutil.Duration(36 * time.Hour),
 			Compression:    "gzip",
@@ -1236,7 +1237,7 @@ func TestLogFileRotationConfig_Validate(t *testing.T) {
 		},
 		{
 			name:     "valid",
-			rotation: LogFileRotationConfig{MaxSize: 100_000_000, MaxBackupFiles: 3, MaxBackupAge: yamlutil.Duration(7 * 24 * time.Hour), Compression: "none"},
+			rotation: LogFileRotationConfig{MaxSize: 100 * humanize.MiByte, MaxBackupFiles: 3, MaxBackupAge: yamlutil.Duration(7 * 24 * time.Hour), Compression: "none"},
 		},
 		{
 			name:     "gzip compression",
@@ -1254,11 +1255,11 @@ func TestLogFileRotationConfig_Validate(t *testing.T) {
 		},
 		{
 			name:     "maxSize at the upper bound",
-			rotation: LogFileRotationConfig{MaxSize: 1_073_741_824},
+			rotation: LogFileRotationConfig{MaxSize: 1 * humanize.GiByte},
 		},
 		{
 			name:        "maxSize above the upper bound",
-			rotation:    LogFileRotationConfig{MaxSize: 1_073_741_825},
+			rotation:    LogFileRotationConfig{MaxSize: 1*humanize.GiByte + 1},
 			wantErr:     errLogFileSizeOutOfRange,
 			errContains: "maxSize",
 		},
@@ -1308,8 +1309,8 @@ func TestLogFileRotationConfig_GetMaxSize(t *testing.T) {
 		want    int
 	}{
 		{name: "omitted uses the 100MiB default", maxSize: 0, want: 100},
-		{name: "1MiB is 1", maxSize: 1_048_576, want: 1},
-		{name: "just over 1MiB rounds up to 2", maxSize: 1_048_577, want: 2},
+		{name: "1MiB is 1", maxSize: 1 * humanize.MiByte, want: 1},
+		{name: "just over 1MiB rounds up to 2", maxSize: 1*humanize.MiByte + 1, want: 2},
 	}
 
 	for _, tt := range tests {
