@@ -24,7 +24,7 @@ var startCmd = &cobra.Command{
 }
 
 func start() error {
-	logger, err := proxy.NewLogger(proxy.DefaultLoggerName, viper.GetBool("debug"))
+	logger, err := proxy.NewLogger(proxy.DefaultLoggerName)
 	if err != nil {
 		return err
 	}
@@ -67,8 +67,6 @@ func init() { //nolint:gochecknoinits
 
 	flags := startCmd.Flags()
 	flags.String("config", "", "Path to the configuration file")
-
-	flags.BoolP("debug", "d", false, "Run in debug mode")
 
 	if err := viper.BindPFlags(flags); err != nil {
 		panic(fmt.Sprintf("failed to bind flags: %v", err))

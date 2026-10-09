@@ -17,32 +17,11 @@ import (
 )
 
 func TestNewLogger(t *testing.T) {
-	tests := []struct {
-		name      string
-		debug     bool
-		wantLevel zapcore.Level
-	}{
-		{
-			name:      "info level when debug is false",
-			debug:     false,
-			wantLevel: zapcore.InfoLevel,
-		},
-		{
-			name:      "debug level when debug is true",
-			debug:     true,
-			wantLevel: zapcore.DebugLevel,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			logger, err := NewLogger("test-logger", tt.debug)
-			require.NoError(t, err)
-			require.NotNil(t, logger)
-			assert.Equal(t, "test-logger", logger.Name())
-			assert.Equal(t, tt.wantLevel, logger.Level())
-		})
-	}
+	logger, err := NewLogger("test-logger")
+	require.NoError(t, err)
+	require.NotNil(t, logger)
+	assert.Equal(t, "test-logger", logger.Name())
+	assert.Equal(t, zapcore.InfoLevel, logger.Level())
 }
 
 func TestNewLogger_OutputFormat(t *testing.T) {
@@ -56,7 +35,7 @@ func TestNewLogger_OutputFormat(t *testing.T) {
 		os.Stderr = origStderr
 	})
 
-	logger, err := NewLogger("test-logger", false)
+	logger, err := NewLogger("test-logger")
 	require.NoError(t, err)
 
 	logger.Info("hello world", zap.String("foo", "bar"))
@@ -77,7 +56,7 @@ func TestNewLogger_OutputFormat(t *testing.T) {
 	delete(payload, "ts")
 
 	assert.Equal(t, map[string]any{
-		"caller":    "proxy/logger_test.go:62",
+		"caller":    "proxy/logger_test.go:41",
 		"logger":    "test-logger",
 		"version":   "dev",
 		"levelname": "info",

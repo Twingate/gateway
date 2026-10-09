@@ -12,8 +12,8 @@ import (
 
 const DefaultLoggerName = "gateway"
 
-func NewLogger(name string, debug bool) (*zap.Logger, error) {
-	logger, err := logConfig(debug).Build()
+func NewLogger(name string) (*zap.Logger, error) {
+	logger, err := logConfig().Build()
 	if err != nil {
 		return nil, err
 	}
@@ -23,7 +23,7 @@ func NewLogger(name string, debug bool) (*zap.Logger, error) {
 	return logger, nil
 }
 
-func logConfig(debug bool) zap.Config {
+func logConfig() zap.Config {
 	encoderConfig := zapcore.EncoderConfig{
 		TimeKey:        "ts",
 		LevelKey:       "levelname",
@@ -37,13 +37,8 @@ func logConfig(debug bool) zap.Config {
 		EncodeCaller:   zapcore.ShortCallerEncoder,
 	}
 
-	logLevel := zap.InfoLevel
-	if debug {
-		logLevel = zap.DebugLevel
-	}
-
 	config := zap.Config{
-		Level:            zap.NewAtomicLevelAt(logLevel),
+		Level:            zap.NewAtomicLevelAt(zap.InfoLevel),
 		Development:      false,
 		Encoding:         "json",
 		EncoderConfig:    encoderConfig,
