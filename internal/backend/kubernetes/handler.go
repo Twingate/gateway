@@ -56,7 +56,7 @@ func NewHandler(cfg Config) (*Handler, error) {
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	auditLogger := httpproxy.AuditLoggerFromContext(r.Context())
+	logger := httpproxy.LoggerFromContext(r.Context())
 
 	conn := httpproxy.ProxyConnFromContext(r.Context())
 
@@ -64,7 +64,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case wsstream.IsWebSocketRequest(r) && !shouldSkipWebSocketRequest(r):
 		// Audit Websocket streaming session
 		recorderFactory := func() sessionrecorder.Recorder {
-			return sessionrecorder.New(auditLogger, h.sessionRecording.Segment)
+			return sessionrecorder.New(logger.Session, h.sessionRecording.Segment)
 		}
 		wsHijacker := wshijacker.NewHijacker(r, w, conn.Claims.User.Username, recorderFactory, wshijacker.NewConn)
 		h.proxy.ServeHTTP(wsHijacker, r)

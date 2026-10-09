@@ -31,7 +31,7 @@ func setupSSHServer(logger *zap.Logger) error {
 	}
 
 	if string(output) == sshContainerName+"\n" {
-		logger.Info("SSH server already exists", zap.String("containerName", sshContainerName))
+		logger.Info("SSH server already exists", zap.String("container_name", sshContainerName))
 
 		return nil
 	}

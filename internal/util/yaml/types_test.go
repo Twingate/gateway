@@ -5,6 +5,7 @@ package yaml
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -46,6 +47,46 @@ func TestByteSize_UnmarshalText(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, size.Bytes())
+		})
+	}
+}
+
+func TestDuration_UnmarshalText(t *testing.T) {
+	tests := []struct {
+		name        string
+		text        string
+		want        time.Duration
+		errContains string
+	}{
+		{name: "go duration", text: "36h", want: 36 * time.Hour},
+		{name: "days", text: "7d", want: 7 * 24 * time.Hour},
+		{name: "fraction of a day", text: "1.5d", want: 36 * time.Hour},
+		{name: "days followed by hours", text: "1d12h", want: 36 * time.Hour},
+		{name: "zero", text: "0", want: 0},
+		{name: "negative", text: "-1d", errContains: "must be non-negative"},
+		{name: "infinite days", text: "infd", errContains: "invalid duration"},
+		{name: "not a number of days", text: "nand", errContains: "invalid duration"},
+		{name: "too many days", text: "1e300d", errContains: "invalid duration"},
+		{name: "missing unit", text: "7", errContains: "invalid duration"},
+		{name: "not a duration", text: "week", errContains: "invalid duration"},
+		{name: "unit without a number", text: "d", errContains: "invalid duration"},
+		{name: "days followed by garbage", text: "1dx", errContains: "invalid duration"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var duration Duration
+
+			err := duration.UnmarshalText([]byte(tt.text))
+			if tt.errContains != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errContains)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, time.Duration(duration))
 		})
 	}
 }

@@ -27,6 +27,7 @@ import (
 
 	gatewayconfig "gateway/internal/config"
 	"gateway/internal/frontend"
+	"gateway/internal/logging"
 	"gateway/internal/token"
 	"gateway/internal/vault"
 )
@@ -98,7 +99,8 @@ func TestProxy_StartFailure(t *testing.T) {
 func TestProxy_AcceptError(t *testing.T) {
 	// A non-ErrClosed accept error is logged and stops the loop.
 	core, logs := observer.New(zap.ErrorLevel)
-	sshProxy := newTestProxyWithLogger(t, zap.New(core))
+	logger := logging.Logger{System: zap.New(core), Audit: zap.NewNop(), Session: zap.NewNop()}
+	sshProxy := newTestProxyWithLogger(t, logger)
 
 	listener := newTestListener(t, "unused:22")
 
@@ -454,12 +456,12 @@ func newFakeCAProvider(current caProvider) *fakeCAProvider {
 func newTestProxy(t *testing.T) *Proxy {
 	t.Helper()
 
-	return newTestProxyWithLogger(t, zap.NewNop())
+	return newTestProxyWithLogger(t, logging.NewNop())
 }
 
 // newTestProxyWithLogger is newTestProxy logging to the given logger, so a test can assert on
 // log output.
-func newTestProxyWithLogger(t *testing.T, logger *zap.Logger) *Proxy {
+func newTestProxyWithLogger(t *testing.T, logger logging.Logger) *Proxy {
 	t.Helper()
 
 	config, err := NewConfig(&gatewayconfig.SessionRecordingConfig{}, &gatewayconfig.SSHConfig{

@@ -15,8 +15,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zaptest/observer"
 
 	gatewayconfig "gateway/internal/config"
 	"gateway/internal/proxy"
@@ -63,8 +61,7 @@ func TestWebApp(t *testing.T) {
 		},
 	}
 
-	core, logs := observer.New(zap.DebugLevel)
-	logger := zap.New(core).Named("test")
+	logger, logs := testutil.NewObservedLogger()
 
 	p, err := proxy.NewProxy(&config, prometheus.NewRegistry(), logger)
 	require.NoError(t, err, "failed to create proxy")

@@ -12,6 +12,7 @@ import (
 	"go.uber.org/zap"
 
 	"gateway/internal/config"
+	"gateway/internal/logging"
 	"gateway/internal/proxy"
 )
 
@@ -24,12 +25,20 @@ var startCmd = &cobra.Command{
 }
 
 func start() error {
-	logger, err := proxy.NewLogger(proxy.DefaultLoggerName, viper.GetBool("debug"))
+	cfg, err := loadConfig()
 	if err != nil {
 		return err
 	}
 
-	p, err := newProxy(logger)
+	logger, err := logging.New(cfg.Log)
+	if err != nil {
+		return fmt.Errorf("failed to create logger %w", err)
+	}
+
+	// Closing waits for a backup compression still running, so a stop does not leave it half written.
+	defer logger.Close()
+
+	p, err := newProxy(cfg, logger)
 	if err != nil {
 		return err
 	}
@@ -37,9 +46,7 @@ func start() error {
 	return p.Start()
 }
 
-func newProxy(logger *zap.Logger) (*proxy.Proxy, error) {
-	logger.Debug("Gateway start called", zap.Any("config", viper.AllSettings()))
-
+func loadConfig() (*config.Config, error) {
 	cfg, err := config.Load(viper.GetString("config"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to load config %w", err)
@@ -49,7 +56,13 @@ func newProxy(logger *zap.Logger) (*proxy.Proxy, error) {
 		return nil, fmt.Errorf("failed to validate config %w", err)
 	}
 
-	cfg.ResolveTwingateHost(logger)
+	return cfg, nil
+}
+
+func newProxy(cfg *config.Config, logger logging.Logger) (*proxy.Proxy, error) {
+	logger.System.Debug("Gateway start called", zap.Any("config", viper.AllSettings()))
+
+	cfg.ResolveTwingateHost(logger.System)
 
 	registry := prometheus.NewRegistry()
 
@@ -67,8 +80,6 @@ func init() { //nolint:gochecknoinits
 
 	flags := startCmd.Flags()
 	flags.String("config", "", "Path to the configuration file")
-
-	flags.BoolP("debug", "d", false, "Run in debug mode")
 
 	if err := viper.BindPFlags(flags); err != nil {
 		panic(fmt.Sprintf("failed to bind flags: %v", err))

@@ -13,7 +13,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 
 	"gateway/internal/backend/webapp/template"
 	"gateway/internal/config"
@@ -60,7 +59,7 @@ func TestNewConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cfg, err := NewConfig(tt.headers, nil, nil, zap.NewNop())
+			cfg, err := NewConfig(tt.headers, nil, nil)
 
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
@@ -75,7 +74,7 @@ func TestNewConfig(t *testing.T) {
 }
 
 func TestNewConfig_CAPoolAddsCustomCA(t *testing.T) {
-	cfg, err := NewConfig(nil, []config.UpstreamTrustedCABundle{{File: "../../../test/data/proxy/tls.crt"}}, metrics.RegisterRoundTripperMetrics(prometheus.NewRegistry()), zap.NewNop())
+	cfg, err := NewConfig(nil, []config.UpstreamTrustedCABundle{{File: "../../../test/data/proxy/tls.crt"}}, metrics.RegisterRoundTripperMetrics(prometheus.NewRegistry()))
 	require.NoError(t, err)
 
 	block, _ := pem.Decode(data.ProxyCert)
@@ -119,7 +118,7 @@ func TestNewConfig_CAPool(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cfg, err := NewConfig(nil, tt.caBundles, metrics.RegisterRoundTripperMetrics(prometheus.NewRegistry()), zap.NewNop())
+			cfg, err := NewConfig(nil, tt.caBundles, metrics.RegisterRoundTripperMetrics(prometheus.NewRegistry()))
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.errContains)

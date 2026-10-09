@@ -75,8 +75,7 @@ func TestConcurrentUsers(t *testing.T) {
 		},
 	}
 
-	core, logs := observer.New(zap.DebugLevel)
-	logger := zap.New(core).Named("test")
+	logger, logs := testutil.NewObservedLogger()
 
 	p, err := proxy.NewProxy(&config, prometheus.NewRegistry(), logger)
 	require.NoError(t, err, "failed to create proxy")

@@ -11,8 +11,11 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap/zaptest"
 	"go.uber.org/zap/zaptest/observer"
 	"golang.org/x/crypto/ssh"
+
+	"gateway/internal/logging"
 )
 
 // testTimeout bounds every blocking wait in these tests.
@@ -24,6 +27,16 @@ var testSSHContext = &sshContext{
 	username:      "testuser",
 	clientVersion: "SSH-2.0-client",
 	serverVersion: "SSH-2.0-server",
+}
+
+// newTestLogger routes every category to the test's log, so a failing test shows what the
+// proxy logged.
+func newTestLogger(t *testing.T) logging.Logger {
+	t.Helper()
+
+	logger := zaptest.NewLogger(t)
+
+	return logging.Logger{System: logger.Named(logging.SystemLoggerName), Audit: logger.Named(logging.AuditLoggerName), Session: logger.Named(logging.SessionLoggerName)}
 }
 
 // testSigner generates an ed25519 host/user key for test SSH endpoints.

@@ -6,14 +6,18 @@ package config
 import (
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
 
+	"github.com/dustin/go-humanize"
 	"github.com/hashicorp/go-retryablehttp"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"go.yaml.in/yaml/v4"
 	"golang.org/x/crypto/ssh"
 
@@ -51,9 +55,12 @@ const (
 	defaultTwingateHost                       = "twingate.com"
 	defaultPort                               = 8443
 	defaultMetricsPort                        = 9090
+	defaultLogSystemLevel                     = zapcore.InfoLevel
 	defaultSessionRecordingSegmentMaxDuration = time.Minute * 5
-	defaultSessionRecordingSegmentMaxSize     = 64_000  // 64KB in bytes
-	maxSessionRecordingSegmentMaxSize         = 256_000 // 256KB in bytes
+	defaultSessionRecordingSegmentMaxSize     = 64 * humanize.KiByte
+	maxSessionRecordingSegmentMaxSize         = 256 * humanize.KiByte
+	maxLogFileRotationMaxBackupAge            = 365 * 24 * time.Hour // 1 year
+	maxLogFileRotationMaxSize                 = 1 * humanize.GiByte
 	minTLSCertificateTTL                      = time.Minute * 10
 )
 
@@ -85,12 +92,63 @@ func (t TwingateConfig) Issuer() string {
 }
 
 type LogConfig struct {
+	System           LogSystemConfig        `yaml:"system"`
+	Audit            LogAuditConfig         `yaml:"audit"`
 	SessionRecording SessionRecordingConfig `yaml:"sessionRecording"`
+}
+
+type LogSystemConfig struct {
+	Level  zapcore.Level   `yaml:"level"`
+	Output LogOutputConfig `yaml:"output"`
+}
+
+type LogAuditConfig struct {
+	Output LogOutputConfig `yaml:"output"`
 }
 
 // SessionRecordingConfig represents the recording configuration for interactive sessions.
 type SessionRecordingConfig struct {
 	Segment SessionRecordingSegmentConfig `yaml:"segment"`
+	Output  LogOutputConfig               `yaml:"output"`
+}
+
+type LogOutputConfig struct {
+	Stderr *LogStandardErrorConfig  `yaml:"stderr,omitempty"`
+	Stdout *LogStandardOutputConfig `yaml:"stdout,omitempty"`
+	File   *LogFileOutputConfig     `yaml:"file,omitempty"`
+}
+
+// LogStandardErrorConfig configures the process's stderr stream.
+type LogStandardErrorConfig struct{}
+
+// LogStandardOutputConfig configures the process's stdout stream.
+type LogStandardOutputConfig struct{}
+
+// LogFileOutputConfig appends the logs to the file at Path and rotates it.
+type LogFileOutputConfig struct {
+	// Path is the log file. If it already exists, it must be a regular file, not a directory,
+	// device or symlink.
+	Path     string                `yaml:"path"`
+	Rotation LogFileRotationConfig `yaml:"rotation"`
+}
+
+// LogFileRotationConfig sets when the active log file is renamed to a backup and how long the
+// backups are kept. Every field is optional.
+type LogFileRotationConfig struct {
+	// MaxSize is the file size at which the active file is rotated, such as "100MiB". It is
+	// rounded up to whole mebibytes (1MiB is 1,048,576 bytes). When it is omitted or 0, the file
+	// rotates at 100MiB. It can be at most 1GiB.
+	MaxSize yamlutil.ByteSize `yaml:"maxSize"`
+	// MaxBackupFiles is how many backups are kept; the oldest is deleted beyond that. When it is
+	// omitted or 0, 3 backups are kept.
+	MaxBackupFiles int `yaml:"maxBackupFiles"`
+	// MaxBackupAge is how long a backup is kept before it is deleted, such as "7d" or "36h". It is
+	// rounded up to whole days, so "36h" keeps backups for 2 days. When it is omitted or 0, backups
+	// are kept until MaxBackupFiles deletes them. It can be at most 365 days (1 year).
+	MaxBackupAge yamlutil.Duration `yaml:"maxBackupAge"`
+	// Compression compresses each backup after rotation using the selected compression algorithm:
+	// "none", "gzip" or "zstd". When it is omitted, backups are not compressed.
+	Compression string `yaml:"compression"`
 }
 
 // SessionRecordingSegmentConfig sets the limits at which a recording is split into a new segment.
@@ -297,6 +355,9 @@ func newDefaultConfig() *Config {
 			Host: defaultTwingateHost,
 		},
 		Log: LogConfig{
+			System: LogSystemConfig{
+				Level: defaultLogSystemLevel,
+			},
 			SessionRecording: SessionRecordingConfig{
 				Segment: SessionRecordingSegmentConfig{
 					MaxDuration: defaultSessionRecordingSegmentMaxDuration,
@@ -328,7 +389,7 @@ func stripNetworkPrefix(hostname, network string) string {
 }
 
 func resolveTwingateHostname(targetURL, defaultHost string, retryMax int, logger *zap.Logger) string {
-	logger = logger.With(zap.String("url", targetURL), zap.String("defaultHost", defaultHost))
+	logger = logger.With(zap.String("url", targetURL), zap.String("default_host", defaultHost))
 
 	client := retryablehttp.NewClient()
 	client.HTTPClient.Transport = useragent.Transport{Base: client.HTTPClient.Transport}
@@ -348,7 +409,7 @@ func resolveTwingateHostname(targetURL, defaultHost string, retryMax int, logger
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusPermanentRedirect {
-		logger.Warn("No redirect received", zap.Int("statusCode", resp.StatusCode))
+		logger.Warn("No redirect received", zap.Int("status_code", resp.StatusCode))
 
 		return defaultHost
 	}
@@ -363,7 +424,7 @@ func resolveTwingateHostname(targetURL, defaultHost string, retryMax int, logger
 	resolved := location.Hostname()
 	if err := validateHost(resolved); err != nil {
 		logger.Warn("Resolved Twingate host failed validation, keeping configured host",
-			zap.String("resolvedHost", resolved), zap.Error(err))
+			zap.String("resolved_host", resolved), zap.Error(err))
 
 		return defaultHost
 	}
@@ -433,13 +494,69 @@ func (c *Config) Validate() error {
 }
 
 var (
-	errNegativeDuration = errors.New("duration must be non-negative")
-	errSizeOutOfRange   = errors.New("size must be greater than 0 and at most 256KB")
+	errNegativeDuration     = errors.New("duration must be non-negative")
+	errSizeOutOfRange       = errors.New("size must be greater than 0 and at most 256KiB")
+	errMultipleOutputs      = errors.New("only one of stderr, stdout or file may be set")
+	errUnsupportedLogLevel  = errors.New("must be debug, info, warn or error")
+	errDuplicateLogFilePath = errors.New("duplicate log file path")
 )
 
 func (l *LogConfig) Validate() error {
+	if err := l.System.Validate(); err != nil {
+		return fmt.Errorf("system: %w", err)
+	}
+
+	if err := l.Audit.Validate(); err != nil {
+		return fmt.Errorf("audit: %w", err)
+	}
+
 	if err := l.SessionRecording.Validate(); err != nil {
 		return fmt.Errorf("sessionRecording: %w", err)
+	}
+
+	return l.validateUniqueFilePaths()
+}
+
+func (l *LogConfig) validateUniqueFilePaths() error {
+	paths := map[string]bool{}
+
+	for _, output := range []LogOutputConfig{l.System.Output, l.Audit.Output, l.SessionRecording.Output} {
+		if output.File == nil {
+			continue
+		}
+
+		// Abs also resolves a relative path against the working directory, so two spellings of one file
+		// count as one.
+		path, err := filepath.Abs(output.File.Path)
+		if err != nil {
+			return fmt.Errorf("file path %s: %w", output.File.Path, err)
+		}
+
+		if paths[path] {
+			return fmt.Errorf("%w: %s", errDuplicateLogFilePath, path)
+		}
+
+		paths[path] = true
+	}
+
+	return nil
+}
+
+func (s *LogSystemConfig) Validate() error {
+	if s.Level < zapcore.DebugLevel || s.Level > zapcore.ErrorLevel {
+		return fmt.Errorf("%w: level", errUnsupportedLogLevel)
+	}
+
+	if err := s.Output.Validate(); err != nil {
+		return fmt.Errorf("output: %w", err)
+	}
+
+	return nil
+}
+
+func (a *LogAuditConfig) Validate() error {
+	if err := a.Output.Validate(); err != nil {
+		return fmt.Errorf("output: %w", err)
 	}
 
 	return nil
@@ -448,6 +565,10 @@ func (l *LogConfig) Validate() error {
 func (s *SessionRecordingConfig) Validate() error {
 	if err := s.Segment.Validate(); err != nil {
 		return fmt.Errorf("segment: %w", err)
+	}
+
+	if err := s.Output.Validate(); err != nil {
+		return fmt.Errorf("output: %w", err)
 	}
 
 	return nil
@@ -463,6 +584,116 @@ func (s *SessionRecordingSegmentConfig) Validate() error {
 	}
 
 	return nil
+}
+
+func (o *LogOutputConfig) Validate() error {
+	outputs := 0
+
+	for _, set := range []bool{o.Stderr != nil, o.Stdout != nil, o.File != nil} {
+		if set {
+			outputs++
+		}
+	}
+
+	if outputs > 1 {
+		return errMultipleOutputs
+	}
+
+	if o.File != nil {
+		if err := o.File.Validate(); err != nil {
+			return fmt.Errorf("file: %w", err)
+		}
+	}
+
+	return nil
+}
+
+var (
+	errLogFileSizeOutOfRange  = errors.New("size must be non-negative and at most 1GiB")
+	errNegativeCount          = errors.New("count must be non-negative")
+	errDurationTooLong        = errors.New("duration must be at most 365 days")
+	errUnsupportedCompression = errors.New("must be none, gzip or zstd")
+	errNotRegularFile         = errors.New("must be a regular file")
+)
+
+func (f *LogFileOutputConfig) Validate() error {
+	if f.Path == "" {
+		return fmt.Errorf("%w: path", ErrRequired)
+	}
+
+	// timberjack renames whatever exists at the path when it cannot append to it, so a
+	// directory would be silently renamed, and a device such as /dev/null fails to rotate.
+	// Lstat also rejects a symlink: rotation renames the link rather than its target, so logs
+	// written after the first rotation never reach the target.
+	if info, err := os.Lstat(f.Path); err == nil && !info.Mode().IsRegular() {
+		return fmt.Errorf("%w: path", errNotRegularFile)
+	}
+
+	if err := f.Rotation.Validate(); err != nil {
+		return fmt.Errorf("rotation: %w", err)
+	}
+
+	return nil
+}
+
+func (r *LogFileRotationConfig) Validate() error {
+	if r.MaxSize < 0 || r.MaxSize > maxLogFileRotationMaxSize {
+		return fmt.Errorf("%w: maxSize", errLogFileSizeOutOfRange)
+	}
+
+	if r.MaxBackupFiles < 0 {
+		return fmt.Errorf("%w: maxBackupFiles", errNegativeCount)
+	}
+
+	if time.Duration(r.MaxBackupAge) > maxLogFileRotationMaxBackupAge {
+		return fmt.Errorf("%w: maxBackupAge", errDurationTooLong)
+	}
+
+	switch r.Compression {
+	case "", "none", "gzip", "zstd":
+		return nil
+	default:
+		return fmt.Errorf("%w: compression", errUnsupportedCompression)
+	}
+}
+
+const (
+	defaultLogFileRotationMaxSize        = 100 * humanize.MiByte
+	defaultLogFileRotationMaxBackupFiles = 3
+	defaultLogFileRotationCompression    = "none"
+)
+
+// GetMaxSize returns MaxSize in whole mebibytes, rounded up, defaulting to 100MiB.
+func (r *LogFileRotationConfig) GetMaxSize() int {
+	maxSize := r.MaxSize
+	if maxSize == 0 {
+		maxSize = defaultLogFileRotationMaxSize
+	}
+
+	return int(math.Ceil(float64(maxSize.Bytes()) / humanize.MiByte))
+}
+
+// GetMaxBackupFiles returns MaxBackupFiles, defaulting to 3.
+func (r *LogFileRotationConfig) GetMaxBackupFiles() int {
+	if r.MaxBackupFiles == 0 {
+		return defaultLogFileRotationMaxBackupFiles
+	}
+
+	return r.MaxBackupFiles
+}
+
+// GetMaxBackupAge returns MaxBackupAge in whole days, rounded up, defaulting to 0 (no limit).
+func (r *LogFileRotationConfig) GetMaxBackupAge() int {
+	return int((time.Duration(r.MaxBackupAge) + humanize.Day - 1) / humanize.Day)
+}
+
+// GetCompression returns Compression, defaulting to "none".
+func (r *LogFileRotationConfig) GetCompression() string {
+	if r.Compression == "" {
+		return defaultLogFileRotationCompression
+	}
+
+	return r.Compression
 }
 
 var (

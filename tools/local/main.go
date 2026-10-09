@@ -184,7 +184,7 @@ func main() {
 
 	_, sshClientPort, _ := net.SplitHostPort(sshClient.Address)
 
-	gatewayRunCmd := "go run main.go start --debug --config " + gatewayConfigFile
+	gatewayRunCmd := "go run main.go start --config " + gatewayConfigFile
 
 	outputMsg := fmt.Sprintf(`
 =====================================================

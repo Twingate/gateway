@@ -11,7 +11,19 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
+
+	"gateway/internal/logging"
 )
+
+// NewObservedLogger returns a Gateway logger whose categories all record into one observer.
+func NewObservedLogger() (logging.Logger, *observer.ObservedLogs) {
+	core, logs := observer.New(zap.DebugLevel)
+	logger := zap.New(core)
+
+	return logging.Logger{System: logger.Named(logging.SystemLoggerName), Audit: logger.Named(logging.AuditLoggerName), Session: logger.Named(logging.SessionLoggerName)}, logs
+}
 
 func GatewayHealthCheck(t *testing.T, port int) {
 	t.Helper()

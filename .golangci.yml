@@ -66,6 +66,8 @@ linters:
         - PublicKey
         - NewChannel
         - Channel
+        # go.uber.org/zap/zapcore
+        - WriteSyncer
     nolintlint:
       # Workaround for golangci-lint cache bug that causes false "unused nolint" reports.
       # See: https://github.com/golangci/golangci-lint/issues/3228

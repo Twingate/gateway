@@ -13,13 +13,13 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 
 	"gateway/internal/backend/httpproxy"
 	"gateway/internal/backend/kubernetes"
 	"gateway/internal/backend/ssh"
 	gatewayconfig "gateway/internal/config"
 	"gateway/internal/frontend"
+	"gateway/internal/logging"
 	"gateway/internal/metrics"
 	"gateway/internal/token"
 )
@@ -67,8 +67,7 @@ var fullConfig = gatewayconfig.Config{
 
 func TestNewProxy_Success(t *testing.T) {
 	registry := prometheus.NewRegistry()
-	logger, err := NewLogger(DefaultLoggerName, false)
-	require.NoError(t, err)
+	logger := logging.NewNop()
 
 	p, err := NewProxy(&fullConfig, registry, logger)
 
@@ -90,8 +89,7 @@ func TestNewProxy_HTTPOnly(t *testing.T) {
 	config.WebApp = &gatewayconfig.WebAppConfig{RequestHeaders: map[string]string{}}
 
 	registry := prometheus.NewRegistry()
-	logger, err := NewLogger(DefaultLoggerName, false)
-	require.NoError(t, err)
+	logger := logging.NewNop()
 
 	p, err := NewProxy(&config, registry, logger)
 
@@ -108,8 +106,7 @@ func TestNewProxy_SSHOnly(t *testing.T) {
 	config.Kubernetes = nil
 
 	registry := prometheus.NewRegistry()
-	logger, err := NewLogger(DefaultLoggerName, false)
-	require.NoError(t, err)
+	logger := logging.NewNop()
 
 	p, err := NewProxy(&config, registry, logger)
 
@@ -135,7 +132,7 @@ func createTestProxy(t *testing.T) (*Proxy, net.Listener) {
 	})
 
 	return &Proxy{
-		logger:        zap.NewNop(),
+		logger:        logging.NewNop(),
 		listener:      listener,
 		metricsServer: metricsServer,
 	}, metricsListener
@@ -147,7 +144,7 @@ func TestShutdown_ClosesAllComponents(t *testing.T) {
 	// Create and attach a real HTTP proxy
 	registry := prometheus.NewRegistry()
 
-	k8sConfig, err := kubernetes.NewConfig(&gatewayconfig.SessionRecordingConfig{}, fullConfig.Kubernetes, metrics.RegisterRoundTripperMetrics(registry), zap.NewNop())
+	k8sConfig, err := kubernetes.NewConfig(&gatewayconfig.SessionRecordingConfig{}, fullConfig.Kubernetes, metrics.RegisterRoundTripperMetrics(registry))
 	require.NoError(t, err)
 
 	k8sHandler, err := kubernetes.NewHandler(*k8sConfig)
@@ -157,7 +154,7 @@ func TestShutdown_ClosesAllComponents(t *testing.T) {
 		Handler:      k8sHandler,
 		Metrics:      metrics.RegisterHTTPMetrics(registry),
 		ResourceType: metrics.ResourceTypeKubernetes,
-		Logger:       zap.NewNop(),
+		Logger:       logging.NewNop(),
 	})
 
 	p.httpProxies = map[token.ResourceType]*httpproxy.Proxy{
@@ -178,7 +175,7 @@ func TestShutdown_ClosesAllComponents(t *testing.T) {
 	sshConfig, err := ssh.NewConfig(
 		&gatewayconfig.SessionRecordingConfig{},
 		fullConfig.SSH,
-		zap.NewNop(),
+		logging.NewNop(),
 	)
 	require.NoError(t, err)
 
@@ -245,7 +242,7 @@ func TestShutdown_NilComponents(t *testing.T) {
 	}()
 
 	p := &Proxy{
-		logger:        zap.NewNop(),
+		logger:        logging.NewNop(),
 		listener:      nil,
 		httpProxies:   nil,
 		sshProxy:      nil,

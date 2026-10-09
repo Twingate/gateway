@@ -93,7 +93,7 @@ func NewClient(user *token.User, geoIPLocation token.GeoIPLocation, proxyAddress
 
 	downstreamPort, ok := downstreamPorts[resourceType]
 	if !ok {
-		logger.Fatal("Unknown resource type", zap.String("resourceType", string(resourceType)))
+		logger.Fatal("Unknown resource type", zap.String("resource_type", string(resourceType)))
 
 		return nil
 	}
@@ -259,7 +259,7 @@ func (c *Client) handleConnection(ctx context.Context, clientConn net.Conn, gat 
 	}
 	defer connectResp.Body.Close()
 
-	c.logger.Info("Connect response", zap.Int("status code", connectResp.StatusCode))
+	c.logger.Info("Connect response", zap.Int("status_code", connectResp.StatusCode))
 
 	// Set up bidirectional copy
 	copyCtx, cancel := context.WithCancel(ctx)

@@ -11,9 +11,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
-	"go.uber.org/zap/zaptest"
 	"go.uber.org/zap/zaptest/observer"
 	"golang.org/x/crypto/ssh"
+
+	"gateway/internal/logging"
 )
 
 func TestConnPair_ForwardsChannels(t *testing.T) {
@@ -97,7 +98,8 @@ func TestConnPair_LogsChannelForwardingDetails(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			core, logs := observer.New(zap.DebugLevel)
-			conns := newProxyConnsWithLogger(t, zap.New(core))
+			logger := logging.Logger{System: zap.NewNop(), Audit: zap.New(core), Session: zap.NewNop()}
+			conns := newProxyConnsWithLogger(t, logger)
 			done := conns.serve(t)
 
 			opener, acceptor := conns.client, conns.server
@@ -208,7 +210,9 @@ func TestConnPair_SourceAcceptFailure(t *testing.T) {
 	target := acceptChannel(t, upstreamServer)
 
 	core, logs := observer.New(zap.DebugLevel)
-	pair := NewConnPair(zap.New(core), testSSHContext, connection{}, *proxyUpstream, &defaultSessionRecorderFactory{})
+
+	logger := logging.Logger{System: zap.NewNop(), Audit: zap.New(core), Session: zap.NewNop()}
+	pair := NewConnPair(logger, testSSHContext, connection{}, *proxyUpstream, &defaultSessionRecorderFactory{})
 	forwardDeadChannel(t, pair, proxyUpstream.conn, "direct-tcpip")
 
 	// The already-opened target channel is closed again.
@@ -360,7 +364,8 @@ func TestConnPair_LogsGlobalRequestForwardingDetails(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			core, logs := observer.New(zap.DebugLevel)
-			conns := newProxyConnsWithLogger(t, zap.New(core))
+			logger := logging.Logger{System: zap.NewNop(), Audit: zap.New(core), Session: zap.NewNop()}
+			conns := newProxyConnsWithLogger(t, logger)
 			done := conns.serve(t)
 
 			awaitReply := sendGlobalRequest(conns.client.conn, tt.reqType, true, tt.payload)
@@ -395,7 +400,8 @@ func TestConnPair_LogsGlobalRequestForwardingDetails(t *testing.T) {
 
 func TestConnPair_LogsRejectedGlobalRequestDetails(t *testing.T) {
 	core, logs := observer.New(zap.DebugLevel)
-	conns := newProxyConnsWithLogger(t, zap.New(core))
+	logger := logging.Logger{System: zap.NewNop(), Audit: zap.New(core), Session: zap.NewNop()}
+	conns := newProxyConnsWithLogger(t, logger)
 	done := conns.serve(t)
 
 	payload := ssh.Marshal(&tcpipForwardReq{BindAddr: "0.0.0.0", BindPort: 8080})
@@ -465,7 +471,9 @@ func TestConnPair_GlobalRequestSendError(t *testing.T) {
 	close(requests)
 
 	core, logs := observer.New(zap.DebugLevel)
-	pair := NewConnPair(zap.New(core), testSSHContext, *proxyDownstream, *proxyUpstream, &defaultSessionRecorderFactory{})
+
+	logger := logging.Logger{System: zap.NewNop(), Audit: zap.New(core), Session: zap.NewNop()}
+	pair := NewConnPair(logger, testSSHContext, *proxyDownstream, *proxyUpstream, &defaultSessionRecorderFactory{})
 	pair.handleGlobalRequests(requests, proxyUpstream.conn, nil, labelDownstream, labelUpstream)
 
 	// The failed forward is logged and the origin gets a failure reply.
@@ -514,7 +522,7 @@ func TestConnPair_ServePanicClosesConnections(t *testing.T) {
 	channels <- panickingNewChannel{}
 
 	downstream := connection{conn: proxyDownstream.conn, channels: channels, requests: proxyDownstream.requests}
-	pair := NewConnPair(zaptest.NewLogger(t), testSSHContext, downstream, *proxyUpstream, &defaultSessionRecorderFactory{})
+	pair := NewConnPair(newTestLogger(t), testSSHContext, downstream, *proxyUpstream, &defaultSessionRecorderFactory{})
 
 	done := make(chan struct{})
 
@@ -533,12 +541,12 @@ func TestConnPair_CloseErrors(t *testing.T) {
 		name string
 		// wantMsg is the log the run must produce; empty asserts nothing is logged.
 		wantMsg string
-		run     func(t *testing.T, logger *zap.Logger)
+		run     func(t *testing.T, logger logging.Logger)
 	}{
 		{
 			name:    "logs downstream close error",
 			wantMsg: "Failed to close downstream connection",
-			run: func(t *testing.T, logger *zap.Logger) {
+			run: func(t *testing.T, logger logging.Logger) {
 				t.Helper()
 
 				_, proxyDownstream := sshPipeWithClose(t, nil, errors.New("close failed"))
@@ -550,7 +558,7 @@ func TestConnPair_CloseErrors(t *testing.T) {
 		{
 			name:    "logs upstream close error",
 			wantMsg: "Failed to close upstream connection",
-			run: func(t *testing.T, logger *zap.Logger) {
+			run: func(t *testing.T, logger logging.Logger) {
 				t.Helper()
 
 				_, proxyDownstream := sshPipe(t)
@@ -561,7 +569,7 @@ func TestConnPair_CloseErrors(t *testing.T) {
 		},
 		{
 			name: "ignores ErrClosed on already-closed connections",
-			run: func(t *testing.T, logger *zap.Logger) {
+			run: func(t *testing.T, logger logging.Logger) {
 				t.Helper()
 
 				_, proxyDownstream := sshPipe(t)
@@ -576,7 +584,7 @@ func TestConnPair_CloseErrors(t *testing.T) {
 		{
 			name:    "cross-close logs upstream close error",
 			wantMsg: "Failed to close upstream connection",
-			run: func(t *testing.T, logger *zap.Logger) {
+			run: func(t *testing.T, logger logging.Logger) {
 				t.Helper()
 
 				downstreamClient, proxyDownstream := sshPipe(t)
@@ -599,7 +607,7 @@ func TestConnPair_CloseErrors(t *testing.T) {
 		{
 			name:    "cross-close logs downstream close error",
 			wantMsg: "Failed to close downstream connection",
-			run: func(t *testing.T, logger *zap.Logger) {
+			run: func(t *testing.T, logger logging.Logger) {
 				t.Helper()
 
 				_, proxyDownstream := sshPipeWithClose(t, nil, errors.New("close failed"))
@@ -622,7 +630,7 @@ func TestConnPair_CloseErrors(t *testing.T) {
 		{
 			name:    "reject of a disallowed channel on a dead source",
 			wantMsg: "Failed to reject channel",
-			run: func(t *testing.T, logger *zap.Logger) {
+			run: func(t *testing.T, logger logging.Logger) {
 				t.Helper()
 
 				proxyUpstream, _ := sshPipe(t)
@@ -635,7 +643,7 @@ func TestConnPair_CloseErrors(t *testing.T) {
 		{
 			name:    "reject after target open failure on a dead source",
 			wantMsg: "Failed to reject source channel",
-			run: func(t *testing.T, logger *zap.Logger) {
+			run: func(t *testing.T, logger logging.Logger) {
 				t.Helper()
 
 				// The closed target connection fails the open, then the reject of the dead
@@ -652,8 +660,9 @@ func TestConnPair_CloseErrors(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			core, logs := observer.New(zap.DebugLevel)
+			logger := logging.Logger{System: zap.NewNop(), Audit: zap.New(core), Session: zap.NewNop()}
 
-			tt.run(t, zap.New(core))
+			tt.run(t, logger)
 
 			if tt.wantMsg == "" {
 				assert.Empty(t, logs.All(), "an expected close error must not be logged")
@@ -684,12 +693,12 @@ type proxyConns struct {
 func newProxyConns(t *testing.T) *proxyConns {
 	t.Helper()
 
-	return newProxyConnsWithLogger(t, zaptest.NewLogger(t))
+	return newProxyConnsWithLogger(t, newTestLogger(t))
 }
 
 // newProxyConnsWithLogger is newProxyConns with a caller-supplied logger, for tests asserting
 // the pair's log output.
-func newProxyConnsWithLogger(t *testing.T, logger *zap.Logger) *proxyConns {
+func newProxyConnsWithLogger(t *testing.T, logger logging.Logger) *proxyConns {
 	t.Helper()
 
 	client, proxyDownstream := sshPipe(t)
