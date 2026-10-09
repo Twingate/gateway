@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dustin/go-humanize"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -216,7 +217,7 @@ log:
   sessionRecording:
     segment:
       maxDuration: "30s"
-      maxSize: "128KB"
+      maxSize: "128KiB"
 tls:
   certificates:
     files:
@@ -238,7 +239,7 @@ kubernetes: {}
 	assert.Equal(t, 8443, cfg.Port)
 	assert.Equal(t, 9090, cfg.MetricsPort)
 	assert.Equal(t, time.Second*30, cfg.Log.SessionRecording.Segment.MaxDuration)
-	assert.Equal(t, 128_000, cfg.Log.SessionRecording.Segment.MaxSize.Bytes())
+	assert.Equal(t, 128*humanize.KiByte, cfg.Log.SessionRecording.Segment.MaxSize.Bytes())
 
 	require.NotNil(t, cfg.Kubernetes)
 	assert.Empty(t, cfg.Kubernetes.Upstreams)
@@ -363,7 +364,7 @@ kubernetes: {}
 	assert.Equal(t, 8443, cfg.Port)
 	assert.Equal(t, 9090, cfg.MetricsPort)
 	assert.Equal(t, time.Minute*5, cfg.Log.SessionRecording.Segment.MaxDuration)
-	assert.Equal(t, 64_000, cfg.Log.SessionRecording.Segment.MaxSize.Bytes())
+	assert.Equal(t, 64*humanize.KiByte, cfg.Log.SessionRecording.Segment.MaxSize.Bytes())
 	assert.Equal(t, "twingate.com", cfg.Twingate.Host)
 }
 
@@ -439,7 +440,7 @@ func TestConfig_Validate(t *testing.T) {
 				MetricsPort: 9090,
 				Log: LogConfig{
 					SessionRecording: SessionRecordingConfig{
-						Segment: SessionRecordingSegmentConfig{MaxSize: 256_001},
+						Segment: SessionRecordingSegmentConfig{MaxSize: 256*humanize.KiByte + 1},
 					},
 				},
 				TLS: TLSConfig{
@@ -849,15 +850,15 @@ func TestSessionRecordingSegmentConfig_Validate(t *testing.T) {
 	}{
 		{
 			name:    "valid",
-			segment: SessionRecordingSegmentConfig{MaxDuration: 5 * time.Minute, MaxSize: 64_000},
+			segment: SessionRecordingSegmentConfig{MaxDuration: 5 * time.Minute, MaxSize: 64 * humanize.KiByte},
 		},
 		{
 			name:    "maxSize at the upper bound",
-			segment: SessionRecordingSegmentConfig{MaxSize: 256_000},
+			segment: SessionRecordingSegmentConfig{MaxSize: 256 * humanize.KiByte},
 		},
 		{
 			name:        "negative maxDuration",
-			segment:     SessionRecordingSegmentConfig{MaxDuration: -1 * time.Minute, MaxSize: 64_000},
+			segment:     SessionRecordingSegmentConfig{MaxDuration: -1 * time.Minute, MaxSize: 64 * humanize.KiByte},
 			wantErr:     errNegativeDuration,
 			errContains: "maxDuration",
 		},
@@ -869,7 +870,7 @@ func TestSessionRecordingSegmentConfig_Validate(t *testing.T) {
 		},
 		{
 			name:        "maxSize above the upper bound",
-			segment:     SessionRecordingSegmentConfig{MaxDuration: 5 * time.Minute, MaxSize: 256_001},
+			segment:     SessionRecordingSegmentConfig{MaxDuration: 5 * time.Minute, MaxSize: 256*humanize.KiByte + 1},
 			wantErr:     errSizeOutOfRange,
 			errContains: "maxSize",
 		},
