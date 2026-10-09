@@ -15,6 +15,7 @@ import (
 	"github.com/dustin/go-humanize"
 	"github.com/hashicorp/go-retryablehttp"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"go.yaml.in/yaml/v4"
 	"golang.org/x/crypto/ssh"
 
@@ -52,6 +53,7 @@ const (
 	defaultTwingateHost                       = "twingate.com"
 	defaultPort                               = 8443
 	defaultMetricsPort                        = 9090
+	defaultLogSystemLevel                     = zapcore.InfoLevel
 	defaultSessionRecordingSegmentMaxDuration = time.Minute * 5
 	defaultSessionRecordingSegmentMaxSize     = 64 * humanize.KiByte
 	maxSessionRecordingSegmentMaxSize         = 256 * humanize.KiByte
@@ -86,13 +88,36 @@ func (t TwingateConfig) Issuer() string {
 }
 
 type LogConfig struct {
+	System           LogSystemConfig        `yaml:"system"`
+	Audit            LogAuditConfig         `yaml:"audit"`
 	SessionRecording SessionRecordingConfig `yaml:"sessionRecording"`
+}
+
+type LogSystemConfig struct {
+	Level  zapcore.Level   `yaml:"level"`
+	Output LogOutputConfig `yaml:"output"`
+}
+
+type LogAuditConfig struct {
+	Output LogOutputConfig `yaml:"output"`
 }
 
 // SessionRecordingConfig represents the recording configuration for interactive sessions.
 type SessionRecordingConfig struct {
 	Segment SessionRecordingSegmentConfig `yaml:"segment"`
+	Output  LogOutputConfig               `yaml:"output"`
 }
+
+type LogOutputConfig struct {
+	Stderr *LogStandardErrorConfig  `yaml:"stderr,omitempty"`
+	Stdout *LogStandardOutputConfig `yaml:"stdout,omitempty"`
+}
+
+// LogStandardErrorConfig configures the process's stderr stream.
+type LogStandardErrorConfig struct{}
+
+// LogStandardOutputConfig configures the process's stdout stream.
+type LogStandardOutputConfig struct{}
 
 // SessionRecordingSegmentConfig sets the limits at which a recording is split into a new segment.
 type SessionRecordingSegmentConfig struct {
@@ -298,6 +323,9 @@ func newDefaultConfig() *Config {
 			Host: defaultTwingateHost,
 		},
 		Log: LogConfig{
+			System: LogSystemConfig{
+				Level: defaultLogSystemLevel,
+			},
 			SessionRecording: SessionRecordingConfig{
 				Segment: SessionRecordingSegmentConfig{
 					MaxDuration: defaultSessionRecordingSegmentMaxDuration,
@@ -434,13 +462,43 @@ func (c *Config) Validate() error {
 }
 
 var (
-	errNegativeDuration = errors.New("duration must be non-negative")
-	errSizeOutOfRange   = errors.New("size must be greater than 0 and at most 256KiB")
+	errNegativeDuration    = errors.New("duration must be non-negative")
+	errSizeOutOfRange      = errors.New("size must be greater than 0 and at most 256KiB")
+	errMultipleOutputs     = errors.New("only one of stderr or stdout may be set")
+	errUnsupportedLogLevel = errors.New("must be debug, info, warn or error")
 )
 
 func (l *LogConfig) Validate() error {
+	if err := l.System.Validate(); err != nil {
+		return fmt.Errorf("system: %w", err)
+	}
+
+	if err := l.Audit.Validate(); err != nil {
+		return fmt.Errorf("audit: %w", err)
+	}
+
 	if err := l.SessionRecording.Validate(); err != nil {
 		return fmt.Errorf("sessionRecording: %w", err)
+	}
+
+	return nil
+}
+
+func (s *LogSystemConfig) Validate() error {
+	if s.Level < zapcore.DebugLevel || s.Level > zapcore.ErrorLevel {
+		return fmt.Errorf("%w: level", errUnsupportedLogLevel)
+	}
+
+	if err := s.Output.Validate(); err != nil {
+		return fmt.Errorf("output: %w", err)
+	}
+
+	return nil
+}
+
+func (a *LogAuditConfig) Validate() error {
+	if err := a.Output.Validate(); err != nil {
+		return fmt.Errorf("output: %w", err)
 	}
 
 	return nil
@@ -449,6 +507,10 @@ func (l *LogConfig) Validate() error {
 func (s *SessionRecordingConfig) Validate() error {
 	if err := s.Segment.Validate(); err != nil {
 		return fmt.Errorf("segment: %w", err)
+	}
+
+	if err := s.Output.Validate(); err != nil {
+		return fmt.Errorf("output: %w", err)
 	}
 
 	return nil
@@ -461,6 +523,14 @@ func (s *SessionRecordingSegmentConfig) Validate() error {
 
 	if s.MaxSize <= 0 || s.MaxSize > maxSessionRecordingSegmentMaxSize {
 		return fmt.Errorf("%w: maxSize", errSizeOutOfRange)
+	}
+
+	return nil
+}
+
+func (o *LogOutputConfig) Validate() error {
+	if o.Stderr != nil && o.Stdout != nil {
+		return errMultipleOutputs
 	}
 
 	return nil

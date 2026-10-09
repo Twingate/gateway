@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 func TestStripNetworkPrefix(t *testing.T) {
@@ -158,6 +159,41 @@ func TestResolveTwingateHostname(t *testing.T) {
 
 		assert.Equal(t, "twingate.com", result)
 	})
+}
+
+func TestLoad_Log(t *testing.T) {
+	yaml := `
+twingate:
+  network: "acme"
+log:
+  system:
+    level: debug
+    output:
+      stdout: {}
+  audit:
+    output:
+      stderr: {}
+  sessionRecording:
+    output:
+      stdout: {}
+tls:
+  certificates:
+    files:
+      - certificateFile: "tls.crt"
+        privateKeyFile: "tls.key"
+kubernetes: {}
+`
+
+	tmpFile := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(tmpFile, []byte(yaml), 0600))
+
+	cfg, err := Load(tmpFile)
+	require.NoError(t, err)
+
+	assert.Equal(t, zapcore.DebugLevel, cfg.Log.System.Level)
+	assert.Equal(t, LogOutputConfig{Stdout: &LogStandardOutputConfig{}}, cfg.Log.System.Output)
+	assert.Equal(t, LogOutputConfig{Stderr: &LogStandardErrorConfig{}}, cfg.Log.Audit.Output)
+	assert.Equal(t, LogOutputConfig{Stdout: &LogStandardOutputConfig{}}, cfg.Log.SessionRecording.Output)
 }
 
 func TestLoad_TLSAutomation(t *testing.T) {
@@ -365,6 +401,7 @@ kubernetes: {}
 	assert.Equal(t, 9090, cfg.MetricsPort)
 	assert.Equal(t, time.Minute*5, cfg.Log.SessionRecording.Segment.MaxDuration)
 	assert.Equal(t, 64*humanize.KiByte, cfg.Log.SessionRecording.Segment.MaxSize.Bytes())
+	assert.Equal(t, zapcore.InfoLevel, cfg.Log.System.Level)
 	assert.Equal(t, "twingate.com", cfg.Twingate.Host)
 }
 
@@ -837,6 +874,183 @@ func TestConfig_Validate(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 			}
+		})
+	}
+}
+
+func TestLogConfig_Validate(t *testing.T) {
+	segment := SessionRecordingSegmentConfig{MaxSize: defaultSessionRecordingSegmentMaxSize}
+	twoOutputs := LogOutputConfig{Stderr: &LogStandardErrorConfig{}, Stdout: &LogStandardOutputConfig{}}
+
+	tests := []struct {
+		name        string
+		log         LogConfig
+		wantErr     error
+		errContains string
+	}{
+		{
+			name: "no output set",
+			log:  LogConfig{SessionRecording: SessionRecordingConfig{Segment: segment}},
+		},
+		{
+			name: "one output per category",
+			log: LogConfig{
+				System:           LogSystemConfig{Output: LogOutputConfig{Stdout: &LogStandardOutputConfig{}}},
+				Audit:            LogAuditConfig{Output: LogOutputConfig{Stderr: &LogStandardErrorConfig{}}},
+				SessionRecording: SessionRecordingConfig{Segment: segment, Output: LogOutputConfig{Stdout: &LogStandardOutputConfig{}}},
+			},
+		},
+		{
+			name:        "two system outputs",
+			log:         LogConfig{System: LogSystemConfig{Output: twoOutputs}, SessionRecording: SessionRecordingConfig{Segment: segment}},
+			wantErr:     errMultipleOutputs,
+			errContains: "system: output",
+		},
+		{
+			name:        "two audit outputs",
+			log:         LogConfig{Audit: LogAuditConfig{Output: twoOutputs}, SessionRecording: SessionRecordingConfig{Segment: segment}},
+			wantErr:     errMultipleOutputs,
+			errContains: "audit: output",
+		},
+		{
+			name:        "two session recording outputs",
+			log:         LogConfig{SessionRecording: SessionRecordingConfig{Segment: segment, Output: twoOutputs}},
+			wantErr:     errMultipleOutputs,
+			errContains: "sessionRecording: output",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.log.Validate()
+			if tt.wantErr == nil {
+				assert.NoError(t, err)
+
+				return
+			}
+
+			require.ErrorIs(t, err, tt.wantErr)
+			assert.Contains(t, err.Error(), tt.errContains)
+		})
+	}
+}
+
+func TestLogSystemConfig_Validate(t *testing.T) {
+	tests := []struct {
+		name        string
+		system      LogSystemConfig
+		wantErr     error
+		errContains string
+	}{
+		{
+			name:   "valid",
+			system: LogSystemConfig{Level: zapcore.DebugLevel, Output: LogOutputConfig{Stdout: &LogStandardOutputConfig{}}},
+		},
+		{
+			name:   "level at the upper bound",
+			system: LogSystemConfig{Level: zapcore.ErrorLevel},
+		},
+		{
+			name:        "level above the upper bound",
+			system:      LogSystemConfig{Level: zapcore.DPanicLevel},
+			wantErr:     errUnsupportedLogLevel,
+			errContains: "level",
+		},
+		{
+			name:        "two outputs",
+			system:      LogSystemConfig{Output: LogOutputConfig{Stderr: &LogStandardErrorConfig{}, Stdout: &LogStandardOutputConfig{}}},
+			wantErr:     errMultipleOutputs,
+			errContains: "output",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.system.Validate()
+			if tt.wantErr == nil {
+				assert.NoError(t, err)
+
+				return
+			}
+
+			require.ErrorIs(t, err, tt.wantErr)
+			assert.Contains(t, err.Error(), tt.errContains)
+		})
+	}
+}
+
+func TestLogAuditConfig_Validate(t *testing.T) {
+	tests := []struct {
+		name        string
+		audit       LogAuditConfig
+		wantErr     error
+		errContains string
+	}{
+		{
+			name:  "valid",
+			audit: LogAuditConfig{Output: LogOutputConfig{Stderr: &LogStandardErrorConfig{}}},
+		},
+		{
+			name:        "two outputs",
+			audit:       LogAuditConfig{Output: LogOutputConfig{Stderr: &LogStandardErrorConfig{}, Stdout: &LogStandardOutputConfig{}}},
+			wantErr:     errMultipleOutputs,
+			errContains: "output",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.audit.Validate()
+			if tt.wantErr == nil {
+				assert.NoError(t, err)
+
+				return
+			}
+
+			require.ErrorIs(t, err, tt.wantErr)
+			assert.Contains(t, err.Error(), tt.errContains)
+		})
+	}
+}
+
+func TestSessionRecordingConfig_Validate(t *testing.T) {
+	segment := SessionRecordingSegmentConfig{MaxSize: defaultSessionRecordingSegmentMaxSize}
+
+	tests := []struct {
+		name             string
+		sessionRecording SessionRecordingConfig
+		wantErr          error
+		errContains      string
+	}{
+		{
+			name:             "valid",
+			sessionRecording: SessionRecordingConfig{Segment: segment, Output: LogOutputConfig{Stdout: &LogStandardOutputConfig{}}},
+		},
+		{
+			name:             "invalid segment",
+			sessionRecording: SessionRecordingConfig{Segment: SessionRecordingSegmentConfig{MaxSize: 0}},
+			wantErr:          errSizeOutOfRange,
+			errContains:      "segment",
+		},
+		{
+			name:             "two outputs",
+			sessionRecording: SessionRecordingConfig{Segment: segment, Output: LogOutputConfig{Stderr: &LogStandardErrorConfig{}, Stdout: &LogStandardOutputConfig{}}},
+			wantErr:          errMultipleOutputs,
+			errContains:      "output",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.sessionRecording.Validate()
+			if tt.wantErr == nil {
+				assert.NoError(t, err)
+
+				return
+			}
+
+			require.ErrorIs(t, err, tt.wantErr)
+			assert.Contains(t, err.Error(), tt.errContains)
 		})
 	}
 }
