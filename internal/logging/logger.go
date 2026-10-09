@@ -141,7 +141,7 @@ func newWriter(output config.LogOutputConfig) (zapcore.WriteSyncer, error) {
 			Filename:    output.File.Path,
 			MaxSize:     output.File.Rotation.GetMaxSize(),
 			MaxBackups:  output.File.Rotation.GetMaxBackupFiles(),
-			MaxAge:      output.File.Rotation.GetMaxAge(),
+			MaxAge:      output.File.Rotation.GetMaxBackupAge(),
 			Compression: output.File.Rotation.GetCompression(),
 		}
 

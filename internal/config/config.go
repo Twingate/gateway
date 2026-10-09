@@ -59,7 +59,7 @@ const (
 	defaultSessionRecordingSegmentMaxDuration = time.Minute * 5
 	defaultSessionRecordingSegmentMaxSize     = 64_000                // 64KB in bytes
 	maxSessionRecordingSegmentMaxSize         = 256_000               // 256KB in bytes
-	maxLogFileRotationMaxAge                  = 3650 * 24 * time.Hour // 10 years
+	maxLogFileRotationMaxBackupAge            = 3650 * 24 * time.Hour // 10 years
 	maxLogFileRotationMaxSize                 = 1_073_741_824         // 1GiB in bytes
 	minTLSCertificateTTL                      = time.Minute * 10
 )
@@ -140,11 +140,11 @@ type LogFileRotationConfig struct {
 	// MaxBackupFiles is how many backups are kept; the oldest is deleted beyond that. When it is
 	// omitted or 0, 3 backups are kept.
 	MaxBackupFiles int `yaml:"maxBackupFiles"`
-	// MaxAge is how long a backup is kept before it is deleted, such as "7d" or "36h". It is
+	// MaxBackupAge is how long a backup is kept before it is deleted, such as "7d" or "36h". It is
 	// rounded up to whole days, so "36h" keeps backups for 2 days. 0 keeps backups until
 	// MaxBackupFiles deletes them. When it is omitted, backups are kept for 7 days. It can be kept
 	// at most 3650 days (10 years).
-	MaxAge *yamlutil.Duration `yaml:"maxAge"`
+	MaxBackupAge *yamlutil.Duration `yaml:"maxBackupAge"`
 	// Compression compresses each backup after rotation using the selected compression algorithm:
 	// "none", "gzip" or "zstd". When it is omitted, backups are not compressed.
 	Compression string `yaml:"compression"`
@@ -635,8 +635,8 @@ func (r *LogFileRotationConfig) Validate() error {
 		return fmt.Errorf("%w: maxBackupFiles", errNegativeCount)
 	}
 
-	if r.MaxAge != nil && time.Duration(*r.MaxAge) > maxLogFileRotationMaxAge {
-		return fmt.Errorf("%w: maxAge", errDurationTooLong)
+	if r.MaxBackupAge != nil && time.Duration(*r.MaxBackupAge) > maxLogFileRotationMaxBackupAge {
+		return fmt.Errorf("%w: maxBackupAge", errDurationTooLong)
 	}
 
 	switch r.Compression {
@@ -650,7 +650,7 @@ func (r *LogFileRotationConfig) Validate() error {
 const (
 	defaultLogFileRotationMaxSize        = 104_857_600 // 100MiB in bytes
 	defaultLogFileRotationMaxBackupFiles = 3
-	defaultLogFileRotationMaxAge         = 7 * 24 * time.Hour
+	defaultLogFileRotationMaxBackupAge   = 7 * 24 * time.Hour
 	defaultLogFileRotationCompression    = "none"
 )
 
@@ -673,14 +673,14 @@ func (r *LogFileRotationConfig) GetMaxBackupFiles() int {
 	return defaultLogFileRotationMaxBackupFiles
 }
 
-// GetMaxAge returns MaxAge in whole days, rounded up, defaulting to 7 days.
-func (r *LogFileRotationConfig) GetMaxAge() int {
-	maxAge := yamlutil.Duration(defaultLogFileRotationMaxAge)
-	if r.MaxAge != nil {
-		maxAge = *r.MaxAge
+// GetMaxBackupAge returns MaxBackupAge in whole days, rounded up, defaulting to 7 days.
+func (r *LogFileRotationConfig) GetMaxBackupAge() int {
+	maxBackupAge := yamlutil.Duration(defaultLogFileRotationMaxBackupAge)
+	if r.MaxBackupAge != nil {
+		maxBackupAge = *r.MaxBackupAge
 	}
 
-	return int(math.Ceil(time.Duration(maxAge).Hours() / 24))
+	return int(math.Ceil(time.Duration(maxBackupAge).Hours() / 24))
 }
 
 // GetCompression returns Compression, defaulting to "none".
