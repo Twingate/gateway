@@ -25,8 +25,9 @@ func TestNew(t *testing.T) {
 		wantName   string
 		wantLevel  zapcore.Level
 		wantCaller bool
+		wantStack  bool
 	}{
-		{name: "system", logger: logger.System, wantName: "system", wantLevel: zapcore.DebugLevel, wantCaller: true},
+		{name: "system", logger: logger.System, wantName: "system", wantLevel: zapcore.DebugLevel, wantCaller: true, wantStack: true},
 		{name: "audit", logger: logger.Audit, wantName: "audit", wantLevel: zapcore.InfoLevel},
 		{name: "session", logger: logger.Session, wantName: "session", wantLevel: zapcore.InfoLevel, wantCaller: true},
 	}
@@ -36,6 +37,7 @@ func TestNew(t *testing.T) {
 			assert.Equal(t, tt.wantName, tt.logger.Name())
 			assert.Equal(t, tt.wantLevel, tt.logger.Level())
 			assert.Equal(t, tt.wantCaller, tt.logger.Check(zapcore.InfoLevel, "").Caller.Defined)
+			assert.Equal(t, tt.wantStack, tt.logger.Check(zapcore.ErrorLevel, "").Stack != "")
 		})
 	}
 }

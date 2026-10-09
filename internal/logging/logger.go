@@ -31,9 +31,9 @@ func New(cfg config.LogConfig) (Logger, error) {
 	w := writers{}
 
 	return Logger{
-		System:  w.newLogger(SystemLoggerName, cfg.System.Output, cfg.System.Level, false),
-		Audit:   w.newLogger(AuditLoggerName, cfg.Audit.Output, zapcore.InfoLevel, true),
-		Session: w.newLogger(SessionLoggerName, cfg.SessionRecording.Output, zapcore.InfoLevel, false),
+		System:  w.newLogger(SystemLoggerName, cfg.System.Output, cfg.System.Level, false, true),
+		Audit:   w.newLogger(AuditLoggerName, cfg.Audit.Output, zapcore.InfoLevel, true, false),
+		Session: w.newLogger(SessionLoggerName, cfg.SessionRecording.Output, zapcore.InfoLevel, false, false),
 	}, nil
 }
 
@@ -41,13 +41,14 @@ func New(cfg config.LogConfig) (Logger, error) {
 // Loggers configured with the same output share one writer.
 type writers map[string]zapcore.WriteSyncer
 
-func (w writers) newLogger(name string, output config.LogOutputConfig, level zapcore.Level, disableCaller bool) *zap.Logger {
+func (w writers) newLogger(name string, output config.LogOutputConfig, level zapcore.Level, disableCaller bool, addStacktrace bool) *zap.Logger {
 	encoderConfig := zapcore.EncoderConfig{
 		TimeKey:        "ts",
 		LevelKey:       "levelname",
 		NameKey:        "logger",
 		CallerKey:      "caller",
 		MessageKey:     "message",
+		StacktraceKey:  "stacktrace",
 		LineEnding:     zapcore.DefaultLineEnding,
 		EncodeLevel:    zapcore.LowercaseLevelEncoder,
 		EncodeTime:     zapcore.ISO8601TimeEncoder,
@@ -55,8 +56,13 @@ func (w writers) newLogger(name string, output config.LogOutputConfig, level zap
 		EncodeCaller:   zapcore.ShortCallerEncoder,
 	}
 
+	opts := []zap.Option{zap.WithCaller(!disableCaller)}
+	if addStacktrace {
+		opts = append(opts, zap.AddStacktrace(zapcore.ErrorLevel))
+	}
+
 	core := zapcore.NewCore(zapcore.NewJSONEncoder(encoderConfig), w.open(output), level)
-	logger := zap.New(core, zap.WithCaller(!disableCaller))
+	logger := zap.New(core, opts...)
 
 	return logger.Named(name).With(zap.String("version", version.Version))
 }
