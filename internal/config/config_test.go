@@ -204,56 +204,11 @@ kubernetes: {}
 		Rotation: LogFileRotationConfig{
 			MaxSize:        10_000_000,
 			MaxBackupFiles: 5,
-			MaxBackupAge:   new(yamlutil.Duration(36 * time.Hour)),
+			MaxBackupAge:   yamlutil.Duration(36 * time.Hour),
 			Compression:    "gzip",
 		},
 	}}, cfg.Log.Audit.Output)
 	assert.Equal(t, LogOutputConfig{Stderr: &LogStandardErrorConfig{}}, cfg.Log.SessionRecording.Output)
-}
-
-func TestLoad_LogFileRotation(t *testing.T) {
-	tests := []struct {
-		name     string
-		rotation string
-		want     LogFileRotationConfig
-	}{
-		{name: "rotation omitted"},
-		{
-			name: "explicit zero maxBackupAge is kept",
-			rotation: `
-        rotation:
-          maxBackupAge: 0h`,
-			want: LogFileRotationConfig{MaxBackupAge: new(yamlutil.Duration(0))},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			yaml := `
-twingate:
-  network: "acme"
-log:
-  audit:
-    output:
-      file:
-        path: /var/log/gateway/audit.log` + tt.rotation + `
-tls:
-  certificates:
-    files:
-      - certificateFile: "tls.crt"
-        privateKeyFile: "tls.key"
-kubernetes: {}
-`
-
-			tmpFile := filepath.Join(t.TempDir(), "config.yaml")
-			require.NoError(t, os.WriteFile(tmpFile, []byte(yaml), 0600))
-
-			cfg, err := Load(tmpFile)
-			require.NoError(t, err)
-
-			assert.Equal(t, tt.want, cfg.Log.Audit.Output.File.Rotation)
-		})
-	}
 }
 
 func TestLoad_TLSAutomation(t *testing.T) {
@@ -1252,7 +1207,7 @@ func TestLogFileRotationConfig_Validate(t *testing.T) {
 		},
 		{
 			name:     "valid",
-			rotation: LogFileRotationConfig{MaxSize: 100_000_000, MaxBackupFiles: 3, MaxBackupAge: new(yamlutil.Duration(7 * 24 * time.Hour)), Compression: "none"},
+			rotation: LogFileRotationConfig{MaxSize: 100_000_000, MaxBackupFiles: 3, MaxBackupAge: yamlutil.Duration(7 * 24 * time.Hour), Compression: "none"},
 		},
 		{
 			name:     "gzip compression",
@@ -1286,11 +1241,11 @@ func TestLogFileRotationConfig_Validate(t *testing.T) {
 		},
 		{
 			name:     "maxBackupAge at the upper bound",
-			rotation: LogFileRotationConfig{MaxBackupAge: new(yamlutil.Duration(365 * 24 * time.Hour))},
+			rotation: LogFileRotationConfig{MaxBackupAge: yamlutil.Duration(365 * 24 * time.Hour)},
 		},
 		{
 			name:        "maxBackupAge above the upper bound",
-			rotation:    LogFileRotationConfig{MaxBackupAge: new(yamlutil.Duration(365*24*time.Hour + 1))},
+			rotation:    LogFileRotationConfig{MaxBackupAge: yamlutil.Duration(365*24*time.Hour + 1)},
 			wantErr:     errDurationTooLong,
 			errContains: "maxBackupAge",
 		},
@@ -1345,13 +1300,13 @@ func TestLogFileRotationConfig_GetMaxBackupFiles(t *testing.T) {
 func TestLogFileRotationConfig_GetMaxBackupAge(t *testing.T) {
 	tests := []struct {
 		name         string
-		maxBackupAge *yamlutil.Duration
+		maxBackupAge yamlutil.Duration
 		want         int
 	}{
-		{name: "omitted uses the 7-day default", maxBackupAge: nil, want: 7},
-		{name: "explicit zero turns the age limit off", maxBackupAge: new(yamlutil.Duration(0)), want: 0},
-		{name: "36h rounds up to 2 days", maxBackupAge: new(yamlutil.Duration(36 * time.Hour)), want: 2},
-		{name: "whole days are kept", maxBackupAge: new(yamlutil.Duration(7 * 24 * time.Hour)), want: 7},
+		{name: "omitted turns the age limit off", maxBackupAge: 0, want: 0},
+		{name: "zero turns the age limit off", maxBackupAge: yamlutil.Duration(0), want: 0},
+		{name: "36h rounds up to 2 days", maxBackupAge: yamlutil.Duration(36 * time.Hour), want: 2},
+		{name: "whole days are kept", maxBackupAge: yamlutil.Duration(7 * 24 * time.Hour), want: 7},
 	}
 
 	for _, tt := range tests {

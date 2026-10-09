@@ -141,10 +141,9 @@ type LogFileRotationConfig struct {
 	// omitted or 0, 3 backups are kept.
 	MaxBackupFiles int `yaml:"maxBackupFiles"`
 	// MaxBackupAge is how long a backup is kept before it is deleted, such as "7d" or "36h". It is
-	// rounded up to whole days, so "36h" keeps backups for 2 days. 0 keeps backups until
-	// MaxBackupFiles deletes them. When it is omitted, backups are kept for 7 days. It can be kept
-	// at most 365 days (1 year).
-	MaxBackupAge *yamlutil.Duration `yaml:"maxBackupAge"`
+	// rounded up to whole days, so "36h" keeps backups for 2 days. When it is omitted or 0, backups
+	// are kept until MaxBackupFiles deletes them. It can be at most 365 days (1 year).
+	MaxBackupAge yamlutil.Duration `yaml:"maxBackupAge"`
 	// Compression compresses each backup after rotation using the selected compression algorithm:
 	// "none", "gzip" or "zstd". When it is omitted, backups are not compressed.
 	Compression string `yaml:"compression"`
@@ -635,7 +634,7 @@ func (r *LogFileRotationConfig) Validate() error {
 		return fmt.Errorf("%w: maxBackupFiles", errNegativeCount)
 	}
 
-	if r.MaxBackupAge != nil && time.Duration(*r.MaxBackupAge) > maxLogFileRotationMaxBackupAge {
+	if time.Duration(r.MaxBackupAge) > maxLogFileRotationMaxBackupAge {
 		return fmt.Errorf("%w: maxBackupAge", errDurationTooLong)
 	}
 
@@ -650,7 +649,6 @@ func (r *LogFileRotationConfig) Validate() error {
 const (
 	defaultLogFileRotationMaxSize        = 100 * humanize.MiByte
 	defaultLogFileRotationMaxBackupFiles = 3
-	defaultLogFileRotationMaxBackupAge   = 7 * 24 * time.Hour
 	defaultLogFileRotationCompression    = "none"
 )
 
@@ -673,14 +671,9 @@ func (r *LogFileRotationConfig) GetMaxBackupFiles() int {
 	return r.MaxBackupFiles
 }
 
-// GetMaxBackupAge returns MaxBackupAge in whole days, rounded up, defaulting to 7 days.
+// GetMaxBackupAge returns MaxBackupAge in whole days, rounded up, defaulting to 0 (no limit).
 func (r *LogFileRotationConfig) GetMaxBackupAge() int {
-	maxBackupAge := r.MaxBackupAge
-	if maxBackupAge == nil {
-		maxBackupAge = new(yamlutil.Duration(defaultLogFileRotationMaxBackupAge))
-	}
-
-	return int(math.Ceil(time.Duration(*maxBackupAge).Hours() / 24))
+	return int(math.Ceil(time.Duration(r.MaxBackupAge).Hours() / 24))
 }
 
 // GetCompression returns Compression, defaulting to "none".
