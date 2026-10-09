@@ -1335,8 +1335,10 @@ func TestLogFileRotationConfig_GetMaxBackupAge(t *testing.T) {
 	}{
 		{name: "omitted turns the age limit off", maxBackupAge: 0, want: 0},
 		{name: "zero turns the age limit off", maxBackupAge: yamlutil.Duration(0), want: 0},
+		{name: "1ns rounds up to 1 day", maxBackupAge: yamlutil.Duration(1), want: 1},
 		{name: "36h rounds up to 2 days", maxBackupAge: yamlutil.Duration(36 * time.Hour), want: 2},
 		{name: "whole days are kept", maxBackupAge: yamlutil.Duration(7 * 24 * time.Hour), want: 7},
+		{name: "just over 364 days rounds up to 365", maxBackupAge: yamlutil.Duration(364*24*time.Hour + 1), want: 365},
 	}
 
 	for _, tt := range tests {
