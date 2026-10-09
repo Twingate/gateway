@@ -684,7 +684,7 @@ func (r *LogFileRotationConfig) GetMaxBackupFiles() int {
 
 // GetMaxBackupAge returns MaxBackupAge in whole days, rounded up, defaulting to 0 (no limit).
 func (r *LogFileRotationConfig) GetMaxBackupAge() int {
-	return int(math.Ceil(time.Duration(r.MaxBackupAge).Hours() / 24))
+	return int((time.Duration(r.MaxBackupAge) + humanize.Day - 1) / humanize.Day)
 }
 
 // GetCompression returns Compression, defaulting to "none".
