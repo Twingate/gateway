@@ -845,8 +845,8 @@ func (p *proxyChannels) newPair(t *testing.T) *ChannelPair {
 		"testuser",
 		p.proxySource,
 		p.proxyTarget,
+		&fakeRecorderFactory{recorder: p.recorder},
 	)
-	pair.recorderFactory = &fakeRecorderFactory{recorder: p.recorder}
 
 	if p.sessionStartTimeout != 0 {
 		pair.sessionStartTimeout = p.sessionStartTimeout
@@ -1101,12 +1101,12 @@ func (r *fakeRecorder) state() recorderState {
 	}
 }
 
-// fakeRecorderFactory implements SessionRecorderFactory by handing out the fixture's fakeRecorder.
+// fakeRecorderFactory implements sessionRecorderFactory by handing out the fixture's fakeRecorder.
 type fakeRecorderFactory struct {
 	recorder *fakeRecorder
 }
 
-func (f *fakeRecorderFactory) NewRecorder(logger *zap.Logger) sessionrecorder.Recorder {
+func (f *fakeRecorderFactory) newRecorder(logger *zap.Logger) sessionrecorder.Recorder {
 	f.recorder.mu.Lock()
 	defer f.recorder.mu.Unlock()
 

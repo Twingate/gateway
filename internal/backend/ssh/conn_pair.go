@@ -112,6 +112,8 @@ type ConnPair struct {
 	downstream connection
 	upstream   connection
 
+	recorderFactory sessionRecorderFactory
+
 	// Counter for opened channels
 	channelCount atomic.Int32
 
@@ -119,12 +121,13 @@ type ConnPair struct {
 	wg sync.WaitGroup
 }
 
-func NewConnPair(logger logging.Logger, sshCtx *sshContext, downstream, upstream connection) *ConnPair {
+func NewConnPair(logger logging.Logger, sshCtx *sshContext, downstream, upstream connection, recorderFactory sessionRecorderFactory) *ConnPair {
 	return &ConnPair{
-		logger:     logger,
-		sshCtx:     sshCtx,
-		downstream: downstream,
-		upstream:   upstream,
+		logger:          logger,
+		sshCtx:          sshCtx,
+		downstream:      downstream,
+		upstream:        upstream,
+		recorderFactory: recorderFactory,
 	}
 }
 
@@ -239,6 +242,7 @@ func (c *ConnPair) forwardChannels(channels <-chan ssh.NewChannel, targetConn ss
 			c.upstream.conn.User(),
 			channel{ch: sourceChannel, requests: sourceRequests},
 			channel{ch: targetChannel, requests: targetRequests},
+			c.recorderFactory,
 		)
 
 		c.wg.Go(func() {

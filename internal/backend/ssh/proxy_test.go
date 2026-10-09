@@ -464,7 +464,7 @@ func newTestProxy(t *testing.T) *Proxy {
 func newTestProxyWithLogger(t *testing.T, logger logging.Logger) *Proxy {
 	t.Helper()
 
-	config, err := NewConfig(nil, &gatewayconfig.SSHConfig{
+	config, err := NewConfig(&gatewayconfig.SessionRecordingConfig{}, &gatewayconfig.SSHConfig{
 		CA: gatewayconfig.SSHCAConfig{
 			Local: &gatewayconfig.SSHCALocalConfig{PrivateKeyFile: "../../../test/data/ssh/ca/ca"},
 		},
