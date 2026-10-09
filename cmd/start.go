@@ -81,8 +81,6 @@ func init() { //nolint:gochecknoinits
 	flags := startCmd.Flags()
 	flags.String("config", "", "Path to the configuration file")
 
-	flags.BoolP("debug", "d", false, "Run in debug mode")
-
 	if err := viper.BindPFlags(flags); err != nil {
 		panic(fmt.Sprintf("failed to bind flags: %v", err))
 	}

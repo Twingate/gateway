@@ -26,13 +26,13 @@ func TestRootCmd_StartCommandArgs(t *testing.T) {
 
 	cmd.SetArgs([]string{
 		"start",
-		"--debug",
+		"--config", "../test/data/config.yaml",
 	})
 
 	err := cmd.Execute()
 	if assert.NoError(t, err) {
 		assert.True(t, startMockCalled)
 
-		assert.True(t, viper.GetBool("debug"))
+		assert.Equal(t, "../test/data/config.yaml", viper.GetString("config"))
 	}
 }

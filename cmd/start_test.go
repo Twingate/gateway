@@ -20,7 +20,6 @@ func TestNewProxy_Success(t *testing.T) {
 	defer viper.Reset()
 
 	viper.Set("config", "../test/data/config.yaml")
-	viper.Set("debug", false)
 
 	cfg, err := loadConfig()
 	require.NoError(t, err)
