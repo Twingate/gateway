@@ -61,6 +61,7 @@ func TestNewHandler_PanicsOnRewriteError(t *testing.T) {
 	handler := NewHandler(Config{
 		requestHeaders:      map[string]*template.Template{"X-Bad": unknownKeyTemplate},
 		roundTripperMetrics: metrics.RegisterRoundTripperMetrics(prometheus.NewRegistry()),
+		logger:              logging.NewNop(),
 	})
 
 	core, logs := observer.New(zap.ErrorLevel)

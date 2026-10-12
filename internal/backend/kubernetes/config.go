@@ -7,6 +7,7 @@ import (
 	"k8s.io/client-go/rest"
 
 	"gateway/internal/config"
+	"gateway/internal/logging"
 	"gateway/internal/metrics"
 )
 
@@ -17,12 +18,15 @@ type Config struct {
 	bearerToken     string
 	bearerTokenFile string
 	caFile          string
+
+	logger logging.Logger
 }
 
-func NewConfig(sessionRecordingConfig *config.SessionRecordingConfig, k8sConfig *config.KubernetesConfig, roundTripperMetrics *metrics.RoundTripperMetrics) (*Config, error) {
+func NewConfig(sessionRecordingConfig *config.SessionRecordingConfig, k8sConfig *config.KubernetesConfig, roundTripperMetrics *metrics.RoundTripperMetrics, logger logging.Logger) (*Config, error) {
 	cfg := &Config{
 		sessionRecording:    sessionRecordingConfig,
 		roundTripperMetrics: roundTripperMetrics,
+		logger:              logger,
 	}
 
 	if len(k8sConfig.Upstreams) == 0 {

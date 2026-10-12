@@ -144,7 +144,7 @@ func TestShutdown_ClosesAllComponents(t *testing.T) {
 	// Create and attach a real HTTP proxy
 	registry := prometheus.NewRegistry()
 
-	k8sConfig, err := kubernetes.NewConfig(&gatewayconfig.SessionRecordingConfig{}, fullConfig.Kubernetes, metrics.RegisterRoundTripperMetrics(registry))
+	k8sConfig, err := kubernetes.NewConfig(&gatewayconfig.SessionRecordingConfig{}, fullConfig.Kubernetes, metrics.RegisterRoundTripperMetrics(registry), logging.NewNop())
 	require.NoError(t, err)
 
 	k8sHandler, err := kubernetes.NewHandler(*k8sConfig)

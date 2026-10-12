@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"gateway/internal/config"
+	"gateway/internal/logging"
 )
 
 func TestNewConfig(t *testing.T) {
@@ -31,7 +32,7 @@ func TestNewConfig(t *testing.T) {
 			},
 		}
 
-		cfg, err := NewConfig(sessionRecordingConfig, k8sConfig, nil)
+		cfg, err := NewConfig(sessionRecordingConfig, k8sConfig, nil, logging.NewNop())
 
 		require.NoError(t, err)
 		assert.Equal(t, "test-token", cfg.bearerToken)
@@ -44,7 +45,7 @@ func TestNewConfig(t *testing.T) {
 
 		k8sConfig := &config.KubernetesConfig{}
 
-		cfg, err := NewConfig(sessionRecordingConfig, k8sConfig, nil)
+		cfg, err := NewConfig(sessionRecordingConfig, k8sConfig, nil, logging.NewNop())
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "unable to load in-cluster configuration")

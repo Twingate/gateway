@@ -59,7 +59,7 @@ func NewProxy(config *gatewayconfig.Config, registry *prometheus.Registry, logge
 	}
 
 	if config.Kubernetes != nil {
-		k8sConfig, err := kubernetes.NewConfig(&config.Log.SessionRecording, config.Kubernetes, roundTripperMetrics)
+		k8sConfig, err := kubernetes.NewConfig(&config.Log.SessionRecording, config.Kubernetes, roundTripperMetrics, logger)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create Kubernetes config: %w", err)
 		}
@@ -78,7 +78,7 @@ func NewProxy(config *gatewayconfig.Config, registry *prometheus.Registry, logge
 	}
 
 	if config.WebApp != nil {
-		webAppCfg, err := webapp.NewConfig(config.WebApp.RequestHeaders, config.UpstreamTrustedCABundles, roundTripperMetrics)
+		webAppCfg, err := webapp.NewConfig(config.WebApp.RequestHeaders, config.UpstreamTrustedCABundles, roundTripperMetrics, logger)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create web app config: %w", err)
 		}
