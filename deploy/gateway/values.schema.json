@@ -79,20 +79,16 @@
     },
     "log": {
       "type": "object",
-      "description": "Logging configuration for how the Gateway writes its system logs, audit logs and session recordings.",
+      "description": "How the Gateway writes its system logs, audit logs and session recordings.",
+      "required": ["system", "audit", "sessionRecording"],
       "properties": {
         "system": {
           "type": "object",
           "properties": {
             "level": {
               "type": "string",
-              "enum": [
-                "debug",
-                "info",
-                "warn",
-                "error"
-              ],
-              "description": "The lowest severity at which the Gateway writes to its system log.",
+              "enum": ["debug", "info", "warn", "error"],
+              "description": "Lowest severity at which the Gateway writes its system log.",
               "default": "info"
             },
             "output": {
@@ -112,9 +108,7 @@
                 "file": {
                   "type": "object",
                   "description": "Write to a file.",
-                  "required": [
-                    "path"
-                  ],
+                  "required": ["path"],
                   "properties": {
                     "path": {
                       "type": "string",
@@ -127,7 +121,7 @@
                       "properties": {
                         "maxSize": {
                           "type": "string",
-                          "description": "Size limit at which the file is rotated (e.g., 100MiB). Fractional values are rounded up to the next whole mebibyte. Must be greater than 0 and at most 1GiB.",
+                          "description": "Size limit at which the file is rotated (e.g., 100MiB). Fractional values are rounded up to the next whole mebibyte. Must be non-negative and at most 1GiB. Defaults to 100MiB when 0.",
                           "default": "100MiB"
                         },
                         "maxBackupFiles": {
@@ -143,12 +137,8 @@
                         },
                         "compression": {
                           "type": "string",
-                          "enum": [
-                            "none",
-                            "gzip",
-                            "zstd"
-                          ],
-                          "description": "Compression algorithm for the rotated file.",
+                          "enum": ["none", "gzip", "zstd"],
+                          "description": "Compression algorithm when compressing the rotated file.",
                           "default": "none"
                         }
                       },
@@ -184,9 +174,7 @@
                 "file": {
                   "type": "object",
                   "description": "Write to a file.",
-                  "required": [
-                    "path"
-                  ],
+                  "required": ["path"],
                   "properties": {
                     "path": {
                       "type": "string",
@@ -199,7 +187,7 @@
                       "properties": {
                         "maxSize": {
                           "type": "string",
-                          "description": "Size limit at which the file is rotated (e.g., 100MiB). Fractional values are rounded up to the next whole mebibyte. Must be greater than 0 and at most 1GiB.",
+                          "description": "Size limit at which the file is rotated (e.g., 100MiB). Fractional values are rounded up to the next whole mebibyte. Must be non-negative and at most 1GiB. Defaults to 100MiB when 0.",
                           "default": "100MiB"
                         },
                         "maxBackupFiles": {
@@ -215,12 +203,8 @@
                         },
                         "compression": {
                           "type": "string",
-                          "enum": [
-                            "none",
-                            "gzip",
-                            "zstd"
-                          ],
-                          "description": "Compression algorithm for the rotated file.",
+                          "enum": ["none", "gzip", "zstd"],
+                          "description": "Compression algorithm when compressing the rotated file.",
                           "default": "none"
                         }
                       },
@@ -272,9 +256,7 @@
                 "file": {
                   "type": "object",
                   "description": "Write to a file.",
-                  "required": [
-                    "path"
-                  ],
+                  "required": ["path"],
                   "properties": {
                     "path": {
                       "type": "string",
@@ -287,7 +269,7 @@
                       "properties": {
                         "maxSize": {
                           "type": "string",
-                          "description": "Size limit at which the file is rotated (e.g., 100MiB). Fractional values are rounded up to the next whole mebibyte. Must be greater than 0 and at most 1GiB.",
+                          "description": "Size limit at which the file is rotated (e.g., 100MiB). Fractional values are rounded up to the next whole mebibyte. Must be non-negative and at most 1GiB. Defaults to 100MiB when 0.",
                           "default": "100MiB"
                         },
                         "maxBackupFiles": {
@@ -303,12 +285,8 @@
                         },
                         "compression": {
                           "type": "string",
-                          "enum": [
-                            "none",
-                            "gzip",
-                            "zstd"
-                          ],
-                          "description": "Compression algorithm for the rotated file.",
+                          "enum": ["none", "gzip", "zstd"],
+                          "description": "Compression algorithm when compressing the rotated file.",
                           "default": "none"
                         }
                       },

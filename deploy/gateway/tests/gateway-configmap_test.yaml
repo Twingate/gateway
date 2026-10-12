@@ -1355,7 +1355,7 @@ tests:
               rotation:
                 maxSize: "50MiB"
                 maxBackupFiles: 5
-                maxBackupAge: "0"
+                maxBackupAge: "7d"
                 compression: gzip
     asserts:
       - matchRegex:
@@ -1379,7 +1379,7 @@ tests:
                     rotation:
                       maxSize: "50MiB"
                       maxBackupFiles: 5
-                      maxBackupAge: "0"
+                      maxBackupAge: "7d"
                       compression: "gzip"
   - it: should render when omit rotation configuration
     set:
@@ -1492,3 +1492,10 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "at '/log/audit/output': additional properties 'syslog' not allowed"
+  - it: should error when a category is null
+    set:
+      log:
+        audit: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/log': missing property 'audit'"

@@ -58,7 +58,7 @@ log:
       # directory with `volumeMounts`.
       # file:
       #   path: /var/log/gateway/system.log
-      #   # Rotation setting is optional; the values shown are the defaults.
+      #   # Rotation configuration is optional
       #   rotation:
       #     maxSize: "100MiB"
       #     maxBackupFiles: 3
@@ -234,16 +234,8 @@ volumes: []
 # Additional volumeMounts on the output Deployment definition.
 volumeMounts: []
 
-# Init containers to add to the Gateway pod. One with `restartPolicy: Always` runs alongside
-# the Gateway, such as a log shipper.
+# Additional initContainers to add to the Gateway pod. For example, a log shipper sidecar.
 initContainers: []
-  # - name: log-shipper
-  #   image: cr.fluentbit.io/fluent/fluent-bit:5.1.3
-  #   restartPolicy: Always
-  #   args: [-i, tail, -p, path=/var/log/gateway/audit.log, -p, read_from_head=true, -o, stdout]
-  #   volumeMounts:
-  #     - name: logs
-  #       mountPath: /var/log/gateway
 
 nodeSelector: {}
 
