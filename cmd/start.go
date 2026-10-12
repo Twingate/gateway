@@ -38,7 +38,7 @@ func start() error {
 	// Closing waits for a backup compression still running, so a stop does not leave it half written.
 	defer logger.Close()
 
-	// Packages such as net/http write errors through the standard library logger.
+	// A fallback for packages that write through the standard library logger.
 	restoreStdLog := zap.RedirectStdLog(logger.System)
 	defer restoreStdLog()
 
