@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 
 	"gateway/internal/config"
 	"gateway/internal/logging"
@@ -39,7 +40,7 @@ func start() error {
 	defer logger.Close()
 
 	// Packages such as net/http write errors through the standard library logger.
-	restoreStdLog := zap.RedirectStdLog(logger.System)
+	restoreStdLog, _ := zap.RedirectStdLogAt(logger.System, zapcore.ErrorLevel)
 	defer restoreStdLog()
 
 	p, err := newProxy(cfg, logger)
