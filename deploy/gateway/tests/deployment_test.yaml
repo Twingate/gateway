@@ -93,6 +93,17 @@ tests:
           content:
             name: FOO
             value: "bar"
+  - it: should add init containers
+    set:
+      initContainers:
+        - name: init
+          image: busybox
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers
+          value:
+            - name: init
+              image: busybox
   - it: should not mount TLS Vault volumes when not enabled
     set:
       twingate:

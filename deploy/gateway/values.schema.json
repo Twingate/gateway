@@ -79,7 +79,161 @@
     },
     "log": {
       "type": "object",
+      "description": "Logging configuration for how the Gateway writes its system logs, audit logs and session recordings.",
       "properties": {
+        "system": {
+          "type": "object",
+          "properties": {
+            "level": {
+              "type": "string",
+              "enum": [
+                "debug",
+                "info",
+                "warn",
+                "error"
+              ],
+              "description": "The lowest severity at which the Gateway writes to its system log.",
+              "default": "info"
+            },
+            "output": {
+              "type": "object",
+              "description": "Output configuration of how the Gateway writes its system logs. Set at most one of stderr, stdout or file. Defaults to stderr.",
+              "properties": {
+                "stderr": {
+                  "type": "object",
+                  "description": "Write to the container's standard error.",
+                  "additionalProperties": false
+                },
+                "stdout": {
+                  "type": "object",
+                  "description": "Write to the container's standard output.",
+                  "additionalProperties": false
+                },
+                "file": {
+                  "type": "object",
+                  "description": "Write to a file.",
+                  "required": [
+                    "path"
+                  ],
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "description": "Path of the log file."
+                    },
+                    "rotation": {
+                      "type": "object",
+                      "description": "File rotation configuration.",
+                      "properties": {
+                        "maxSize": {
+                          "type": "string",
+                          "description": "Size limit at which the file is rotated (e.g., 100MiB). Fractional values are rounded up to the next whole mebibyte. Must be greater than 0 and at most 1GiB.",
+                          "default": "100MiB"
+                        },
+                        "maxBackupFiles": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "description": "Maximum number of rotated files to keep.",
+                          "default": 3
+                        },
+                        "maxBackupAge": {
+                          "type": "string",
+                          "description": "Age limit at which the rotated file is deleted (e.g., 7d). Fractional values are rounded up to the next whole day. Must be at most 1 year. \"0\" means no age limit.",
+                          "default": "0"
+                        },
+                        "compression": {
+                          "type": "string",
+                          "enum": [
+                            "none",
+                            "gzip",
+                            "zstd"
+                          ],
+                          "description": "Compression algorithm for the rotated file.",
+                          "default": "none"
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "maxProperties": 1,
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "audit": {
+          "type": "object",
+          "properties": {
+            "output": {
+              "type": "object",
+              "description": "Output configuration of how the Gateway writes its audit logs. Set at most one of stderr, stdout or file. Defaults to stderr.",
+              "properties": {
+                "stderr": {
+                  "type": "object",
+                  "description": "Write to the container's standard error.",
+                  "additionalProperties": false
+                },
+                "stdout": {
+                  "type": "object",
+                  "description": "Write to the container's standard output.",
+                  "additionalProperties": false
+                },
+                "file": {
+                  "type": "object",
+                  "description": "Write to a file.",
+                  "required": [
+                    "path"
+                  ],
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "description": "Path of the log file."
+                    },
+                    "rotation": {
+                      "type": "object",
+                      "description": "File rotation configuration.",
+                      "properties": {
+                        "maxSize": {
+                          "type": "string",
+                          "description": "Size limit at which the file is rotated (e.g., 100MiB). Fractional values are rounded up to the next whole mebibyte. Must be greater than 0 and at most 1GiB.",
+                          "default": "100MiB"
+                        },
+                        "maxBackupFiles": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "description": "Maximum number of rotated files to keep.",
+                          "default": 3
+                        },
+                        "maxBackupAge": {
+                          "type": "string",
+                          "description": "Age limit at which the rotated file is deleted (e.g., 7d). Fractional values are rounded up to the next whole day. Must be at most 1 year. \"0\" means no age limit.",
+                          "default": "0"
+                        },
+                        "compression": {
+                          "type": "string",
+                          "enum": [
+                            "none",
+                            "gzip",
+                            "zstd"
+                          ],
+                          "description": "Compression algorithm for the rotated file.",
+                          "default": "none"
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "maxProperties": 1,
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
         "sessionRecording": {
           "type": "object",
           "properties": {
@@ -97,6 +251,71 @@
                   "default": "64KiB"
                 }
               },
+              "additionalProperties": false
+            },
+            "output": {
+              "type": "object",
+              "description": "Output configuration of how the Gateway writes its session recordings. Set at most one of stderr, stdout or file. Defaults to stderr.",
+              "properties": {
+                "stderr": {
+                  "type": "object",
+                  "description": "Write to the container's standard error.",
+                  "additionalProperties": false
+                },
+                "stdout": {
+                  "type": "object",
+                  "description": "Write to the container's standard output.",
+                  "additionalProperties": false
+                },
+                "file": {
+                  "type": "object",
+                  "description": "Write to a file.",
+                  "required": [
+                    "path"
+                  ],
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "description": "Path of the log file."
+                    },
+                    "rotation": {
+                      "type": "object",
+                      "description": "File rotation configuration.",
+                      "properties": {
+                        "maxSize": {
+                          "type": "string",
+                          "description": "Size limit at which the file is rotated (e.g., 100MiB). Fractional values are rounded up to the next whole mebibyte. Must be greater than 0 and at most 1GiB.",
+                          "default": "100MiB"
+                        },
+                        "maxBackupFiles": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "description": "Maximum number of rotated files to keep.",
+                          "default": 3
+                        },
+                        "maxBackupAge": {
+                          "type": "string",
+                          "description": "Age limit at which the rotated file is deleted (e.g., 7d). Fractional values are rounded up to the next whole day. Must be at most 1 year. \"0\" means no age limit.",
+                          "default": "0"
+                        },
+                        "compression": {
+                          "type": "string",
+                          "enum": [
+                            "none",
+                            "gzip",
+                            "zstd"
+                          ],
+                          "description": "Compression algorithm for the rotated file.",
+                          "default": "none"
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "maxProperties": 1,
               "additionalProperties": false
             }
           },

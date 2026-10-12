@@ -46,11 +46,42 @@ twingateOperator:
     # securityPolicyId: "<security policy id>"
 
 log:
+  system:
+    # The lowest severity at which the Gateway writes to its system log.
+    level: info
+    output: {}
+      # Write to the container's standard error.
+      # stderr: {}
+      # Write to the container's standard output.
+      # stdout: {}
+      # Write to a file. Add a writable volume to `volumes` and mount it at the file's
+      # directory with `volumeMounts`.
+      # file:
+      #   path: /var/log/gateway/system.log
+      #   # Rotation setting is optional; the values shown are the defaults.
+      #   rotation:
+      #     maxSize: "100MiB"
+      #     maxBackupFiles: 3
+      #     maxBackupAge: "0"
+      #     compression: none
+
+  audit:
+    output: {}
+      # stderr: {}
+      # stdout: {}
+      # file:
+      #   path: /var/log/gateway/audit.log
+
   sessionRecording:
     # A recording is split into a new segment when it exceeds either of these limits.
     segment:
       maxDuration: 5m
       maxSize: "64KiB"
+    output: {}
+      # stderr: {}
+      # stdout: {}
+      # file:
+      #   path: /var/log/gateway/sessions.log
 
 # CA bundles the Gateway trusts when verifying upstream TLS connections, on top of the
 # system trust store. Each entry is either an existing ConfigMap or an inline PEM bundle.
@@ -202,6 +233,17 @@ volumes: []
 
 # Additional volumeMounts on the output Deployment definition.
 volumeMounts: []
+
+# Init containers to add to the Gateway pod. One with `restartPolicy: Always` runs alongside
+# the Gateway, such as a log shipper.
+initContainers: []
+  # - name: log-shipper
+  #   image: cr.fluentbit.io/fluent/fluent-bit:5.1.3
+  #   restartPolicy: Always
+  #   args: [-i, tail, -p, path=/var/log/gateway/audit.log, -p, read_from_head=true, -o, stdout]
+  #   volumeMounts:
+  #     - name: logs
+  #       mountPath: /var/log/gateway
 
 nodeSelector: {}
 
