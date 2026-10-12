@@ -108,6 +108,7 @@ func NewProxy(config *gatewayconfig.Config, registry *prometheus.Registry, logge
 
 	metricsServer := metrics.NewServer(metrics.Config{
 		Registry: registry,
+		Logger:   logger.System,
 	})
 
 	return &Proxy{

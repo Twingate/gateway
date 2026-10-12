@@ -13,6 +13,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 
 	"gateway/internal/backend/httpproxy"
 	"gateway/internal/backend/kubernetes"
@@ -129,6 +130,7 @@ func createTestProxy(t *testing.T) (*Proxy, net.Listener) {
 	registry := prometheus.NewRegistry()
 	metricsServer := metrics.NewServer(metrics.Config{
 		Registry: registry,
+		Logger:   zap.NewNop(),
 	})
 
 	return &Proxy{
@@ -232,6 +234,7 @@ func TestShutdown_NilComponents(t *testing.T) {
 	registry := prometheus.NewRegistry()
 	metricsServer := metrics.NewServer(metrics.Config{
 		Registry: registry,
+		Logger:   zap.NewNop(),
 	})
 
 	metricsListener, err := net.Listen("tcp", "127.0.0.1:0")

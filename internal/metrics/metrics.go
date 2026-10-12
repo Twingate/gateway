@@ -12,12 +12,15 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 const Namespace = "twingate_gateway"
 
 type Config struct {
 	Registry *prometheus.Registry
+	Logger   *zap.Logger
 }
 
 type Server struct {
@@ -33,11 +36,14 @@ func NewServer(config Config) *Server {
 		promhttp.HandlerFor(config.Registry, promhttp.HandlerOpts{Registry: config.Registry}),
 	))
 
+	errorLog, _ := zap.NewStdLogAt(config.Logger, zapcore.ErrorLevel)
+
 	server := &http.Server{
 		// G112 - Protect against Slowloris attack
 		ReadHeaderTimeout: 5 * time.Second,
 
-		Handler: mux,
+		Handler:  mux,
+		ErrorLog: errorLog,
 	}
 
 	return &Server{server: server}
