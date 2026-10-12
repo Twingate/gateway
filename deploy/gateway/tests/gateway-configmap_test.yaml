@@ -1427,6 +1427,30 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "at '/log/audit/output/file': missing property 'path'"
+  - it: should error when a file path is empty
+    set:
+      log:
+        audit:
+          output:
+            file:
+              path: ""
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/log/audit/output/file/path': minLength: got 0, want 1"
+  - it: should error when two categories write to the same file
+    set:
+      log:
+        audit:
+          output:
+            file:
+              path: /var/log/gateway/audit.log
+        sessionRecording:
+          output:
+            file:
+              path: /var/log/gateway/audit.log/
+    asserts:
+      - failedTemplate:
+          errorMessage: "log.audit.output.file.path and log.sessionRecording.output.file.path both point to /var/log/gateway/audit.log. Give each file output its own path."
   - it: should error when no backup is kept
     set:
       log:

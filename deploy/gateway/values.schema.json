@@ -118,6 +118,7 @@
                   "properties": {
                     "path": {
                       "type": "string",
+                      "minLength": 1,
                       "description": "Path of the log file."
                     },
                     "rotation": {
@@ -189,6 +190,7 @@
                   "properties": {
                     "path": {
                       "type": "string",
+                      "minLength": 1,
                       "description": "Path of the log file."
                     },
                     "rotation": {
@@ -276,6 +278,7 @@
                   "properties": {
                     "path": {
                       "type": "string",
+                      "minLength": 1,
                       "description": "Path of the log file."
                     },
                     "rotation": {

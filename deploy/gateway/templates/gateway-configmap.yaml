@@ -1,3 +1,4 @@
+{{- include "gateway.requireUniqueLogFilePaths" . }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
