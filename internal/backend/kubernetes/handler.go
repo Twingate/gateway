@@ -14,6 +14,8 @@ import (
 	"os"
 	"strings"
 
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"k8s.io/streaming/pkg/httpstream/wsstream"
 
 	k8stransport "k8s.io/client-go/transport"
@@ -39,12 +41,15 @@ func NewHandler(cfg Config) (*Handler, error) {
 		return nil, fmt.Errorf("failed to create kubernetes transport: %w", err)
 	}
 
+	errorLog, _ := zap.NewStdLogAt(cfg.logger.System, zapcore.ErrorLevel)
+
 	proxy := &httputil.ReverseProxy{
 		Rewrite: func(r *httputil.ProxyRequest) {
 			conn := httpproxy.ProxyConnFromContext(r.In.Context())
 			rewrite(r, conn)
 		},
 		Transport: metrics.InstrumentRoundTripper(cfg.roundTripperMetrics, metrics.ResourceTypeKubernetes, transport),
+		ErrorLog:  errorLog,
 	}
 
 	handler := &Handler{

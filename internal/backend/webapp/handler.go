@@ -15,6 +15,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 
 	"gateway/internal/backend/httpproxy"
 	"gateway/internal/backend/webapp/template"
@@ -33,6 +34,8 @@ type Handler struct {
 }
 
 func NewHandler(cfg Config) *Handler {
+	errorLog, _ := zap.NewStdLogAt(cfg.logger.System, zapcore.ErrorLevel)
+
 	proxy := &httputil.ReverseProxy{
 		Rewrite: func(r *httputil.ProxyRequest) {
 			conn := httpproxy.ProxyConnFromContext(r.In.Context())
@@ -44,6 +47,7 @@ func NewHandler(cfg Config) *Handler {
 			}
 		},
 		Transport: metrics.InstrumentRoundTripper(cfg.roundTripperMetrics, metrics.ResourceTypeWebApp, createUpstreamRoundTripper(cfg.caPool)),
+		ErrorLog:  errorLog,
 	}
 
 	return &Handler{proxy: proxy}

@@ -9,6 +9,9 @@ import (
 	"net/http"
 	"time"
 
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+
 	"gateway/internal/frontend"
 	"gateway/internal/logging"
 	"gateway/internal/metrics"
@@ -45,10 +48,13 @@ func NewProxy(cfg Config) *Proxy {
 	mux := http.NewServeMux()
 	mux.Handle("/", handler)
 
+	errorLog, _ := zap.NewStdLogAt(cfg.Logger.System, zapcore.ErrorLevel)
+
 	httpServer := &http.Server{
 		// G112 - Protect against Slowloris attack
 		ReadHeaderTimeout: 5 * time.Second,
 		Handler:           mux,
+		ErrorLog:          errorLog,
 		ConnContext: func(ctx context.Context, c net.Conn) context.Context {
 			return context.WithValue(ctx, ConnContextKey{}, c)
 		},

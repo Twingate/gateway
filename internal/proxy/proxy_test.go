@@ -13,6 +13,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 
 	"gateway/internal/backend/httpproxy"
 	"gateway/internal/backend/kubernetes"
@@ -129,6 +130,7 @@ func createTestProxy(t *testing.T) (*Proxy, net.Listener) {
 	registry := prometheus.NewRegistry()
 	metricsServer := metrics.NewServer(metrics.Config{
 		Registry: registry,
+		Logger:   zap.NewNop(),
 	})
 
 	return &Proxy{
@@ -144,7 +146,7 @@ func TestShutdown_ClosesAllComponents(t *testing.T) {
 	// Create and attach a real HTTP proxy
 	registry := prometheus.NewRegistry()
 
-	k8sConfig, err := kubernetes.NewConfig(&gatewayconfig.SessionRecordingConfig{}, fullConfig.Kubernetes, metrics.RegisterRoundTripperMetrics(registry))
+	k8sConfig, err := kubernetes.NewConfig(&gatewayconfig.SessionRecordingConfig{}, fullConfig.Kubernetes, metrics.RegisterRoundTripperMetrics(registry), logging.NewNop())
 	require.NoError(t, err)
 
 	k8sHandler, err := kubernetes.NewHandler(*k8sConfig)
@@ -232,6 +234,7 @@ func TestShutdown_NilComponents(t *testing.T) {
 	registry := prometheus.NewRegistry()
 	metricsServer := metrics.NewServer(metrics.Config{
 		Registry: registry,
+		Logger:   zap.NewNop(),
 	})
 
 	metricsListener, err := net.Listen("tcp", "127.0.0.1:0")
