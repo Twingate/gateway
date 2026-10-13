@@ -51,6 +51,7 @@ type Client struct {
 	upstreamTLSMode       token.TLSClientMode
 	resourceType          token.ResourceType
 	requestHeaderRewrites map[string]string
+	auths                 []token.Auth
 
 	cancel context.CancelFunc
 	wg     *sync.WaitGroup
@@ -63,6 +64,7 @@ var downstreamPorts = map[token.ResourceType]int{
 	token.ResourceTypeKubernetes: 443,
 	token.ResourceTypeSSH:        22,
 	token.ResourceTypeWebApp:     80,
+	token.ResourceTypePostgres:   5432,
 }
 
 // Option configures a Client at construction time.
@@ -72,6 +74,13 @@ type Option func(*Client)
 func WithRequestHeaderRewrites(rewrites map[string]string) Option {
 	return func(c *Client) {
 		c.requestHeaderRewrites = rewrites
+	}
+}
+
+// WithAuths sets the database auths carried in the GAT.
+func WithAuths(auths ...token.Auth) Option {
+	return func(c *Client) {
+		c.auths = auths
 	}
 }
 
@@ -203,9 +212,13 @@ func (c *Client) handleConnection(ctx context.Context, clientConn net.Conn, gat 
 	caCertPool := x509.NewCertPool()
 	caCertPool.AppendCertsFromPEM(caCert)
 
+	// The proxy certificate is issued for the proxy host, not for the
+	// resource the client is asking for.
+	proxyHost, _, _ := net.SplitHostPort(c.proxyAddress)
+
 	tlsConfig := &tls.Config{
 		MinVersion: tls.VersionTLS13,
-		ServerName: c.resourceHostname,
+		ServerName: proxyHost,
 		RootCAs:    caCertPool,
 	}
 
@@ -298,6 +311,7 @@ func (c *Client) fetchGAT() (string, error) {
 				Downstream:            token.Downstream{Port: c.downstreamPort, TLSMode: c.downstreamTLSMode},
 				Upstream:              token.Upstream{Port: c.upstreamPort, TLSMode: c.upstreamTLSMode},
 				RequestHeaderRewrites: c.requestHeaderRewrites,
+				Auths:                 c.auths,
 			},
 		},
 	}

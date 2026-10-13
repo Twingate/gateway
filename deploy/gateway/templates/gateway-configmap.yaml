@@ -196,3 +196,14 @@ data:
     {{ end -}}
     {{ end -}}
     {{ end -}}
+
+    {{ with .Values.postgresql -}}
+    {{ if .enabled -}}
+    postgresql:
+      credentials:
+        {{- range .credentials }}
+        - name: {{ required "postgresql.credentials[].name is required" .name | quote }}
+          passwordFile: "/etc/gateway/postgresql/{{ include "gateway.postgresqlCredentialKey" . }}"
+        {{- end }}
+    {{ end -}}
+    {{ end -}}

@@ -24,8 +24,11 @@ const (
 	gatewayPort       = 8443
 	gatewayHost       = "127.0.0.1"
 	controllerPort    = 8080
+	postgresPort      = 5432
 	defaultUsername   = "alex@acme.com"
 	gatewayConfigFile = "gateway-config.local.yaml"
+
+	localPostgresCredential = "local-postgres" //nolint:gosec // credential name, not a secret
 )
 
 // Before running this local dev client, Caddy must be already running. Run `caddy run` to start Caddy.
@@ -34,6 +37,8 @@ func main() {
 	username := flag.String("username", defaultUsername, "Username to use for authentication")
 	createKubeConfig := flag.Bool("create-kubeconfig", true, "Whether to create kubeConfig. If kubeConfig already exists, it will be overwritten")
 	createKnownHosts := flag.Bool("create-ssh-known-hosts", true, "Whether to create SSH known_hosts. If known_hosts already exists, it will be overwritten")
+	postgresUsername := flag.String("postgres-username", "postgres", "Username the gateway uses to authenticate with local Postgres on :5432")
+	postgresPassword := flag.String("postgres-password", "postgres", "Password the gateway uses to authenticate with local Postgres on :5432")
 
 	flag.Parse()
 
@@ -123,6 +128,20 @@ func main() {
 
 	logger.Info("SSH fake Twingate client is serving at", zap.String("address", sshClient.Address))
 
+	postgresClient := fake.NewClient(
+		user,
+		token.GeoIPLocation{},
+		fmt.Sprintf("%s:%d", gatewayHost, gatewayPort),
+		controller.URL,
+		fmt.Sprintf("%s:%d", gatewayHost, postgresPort),
+		token.ResourceTypePostgres,
+		fake.WithAuths(token.Auth{Type: token.AuthTypePassword, User: *postgresUsername, Credential: localPostgresCredential}),
+	)
+
+	defer postgresClient.Close()
+
+	logger.Info("PostgreSQL fake Twingate client is serving at", zap.String("address", postgresClient.Address))
+
 	if *createKnownHosts {
 		err := createKnownHostsFile()
 		if err != nil {
@@ -175,7 +194,7 @@ func main() {
 
 	logger.Info("Web app HTTPS fake Twingate client is serving at", zap.String("address", webAppTLSClient.Address))
 
-	err = createLocalGatewayConfig(kindBearerToken)
+	err = createLocalGatewayConfig(kindBearerToken, *postgresPassword)
 	if err != nil {
 		logger.Error("Failed to create local gateway config", zap.Error(err))
 
@@ -183,6 +202,7 @@ func main() {
 	}
 
 	_, sshClientPort, _ := net.SplitHostPort(sshClient.Address)
+	_, postgresClientPort, _ := net.SplitHostPort(postgresClient.Address)
 
 	gatewayRunCmd := "go run main.go start --config " + gatewayConfigFile
 
@@ -197,6 +217,7 @@ Twingate local dev environment running!
   Client (SSH):            %s
   Client (Web App HTTP):   %s
   Client (Web App HTTPS):  %s
+  Client (PostgreSQL):     %s
 
 -----------------------------------------------------
 1. Start the Gateway (in a separate terminal):
@@ -229,15 +250,24 @@ Twingate local dev environment running!
   curl --cacert ./test/data/proxy/tls.crt https://%s
 
 -----------------------------------------------------
+5. Connect to PostgreSQL (requires a local Postgres on :%d):
+
+  psql "host=127.0.0.1 port=%s dbname=postgres user=irrelevant sslmode=disable" -c 'select 1'
+
+  The gateway overrides 'user' with the user from the GAT auth
+  (%q by default; override with -postgres-username / -postgres-password).
+
+-----------------------------------------------------
 Press Ctrl+C to stop
 =====================================================
-`, controller.URL, user.Username, kubernetesClient.Address, sshClient.Address, webAppClient.Address, webAppTLSClient.Address,
+`, controller.URL, user.Username, kubernetesClient.Address, sshClient.Address, webAppClient.Address, webAppTLSClient.Address, postgresClient.Address,
 		gatewayRunCmd,
 		kubeConfigFile,
 		kubeConfigFile, kindClusterName,
 		sshClientPort, sshKnownHostFile,
 		webAppClient.Address,
 		webAppTLSClient.Address,
+		postgresPort, postgresClientPort, *postgresUsername,
 	)
 
 	//nolint:forbidigo
@@ -247,7 +277,7 @@ Press Ctrl+C to stop
 	<-ctx.Done()
 }
 
-func createLocalGatewayConfig(kindBearerToken string) error {
+func createLocalGatewayConfig(kindBearerToken, postgresPassword string) error {
 	configTemplate := `
 twingate:
   network: %s
@@ -284,9 +314,17 @@ webApp:
     X-Twingate-Client-Geo-City: "{{clientGeoCity}}"
     X-Twingate-Client-Geo-Region: "{{clientGeoRegion}}"
     X-Twingate-Client-Geo-Country: "{{clientGeoCountry}}"
+postgresql:
+  credentials:
+    - name: %s
+      password: %s
 `
 
-	config := fmt.Sprintf(configTemplate, network, gatewayPort, kindBearerToken, sshUsername)
+	config := fmt.Sprintf(
+		configTemplate,
+		network, gatewayPort, kindBearerToken, sshUsername,
+		localPostgresCredential, postgresPassword,
+	)
 
 	err := os.WriteFile(gatewayConfigFile, []byte(config), 0600)
 	if err != nil {

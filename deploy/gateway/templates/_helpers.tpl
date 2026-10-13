@@ -428,6 +428,21 @@ Create the existing alternative names hash of the TLS secret
 {{- end }}
 
 {{/*
+Create the name of the PostgreSQL passwords secret to use
+*/}}
+{{- define "gateway.postgresqlPasswordsSecretName" -}}
+{{- printf "%s-postgresql-passwords" (include "gateway.fullname" .) }}
+{{- end }}
+
+{{/*
+Normalize a PostgreSQL upstream name for use as a Secret key / file name.
+Lowercases and replaces non-alphanumeric characters with '-'.
+*/}}
+{{- define "gateway.postgresqlCredentialKey" -}}
+{{- regexReplaceAll "[^A-Za-z0-9_.-]+" (lower .name) "-" }}
+{{- end }}
+
+{{/*
 Create the Twingate host
 */}}
 {{- define "gateway.twingate.host" -}}

@@ -7,6 +7,7 @@
 {{- $tlsSecretNames := include "gateway.tlsSecretNames" . | fromJsonArray -}}
 {{- $tlsLocalIssuerEnabled := and .Values.tls.automation.enabled .Values.tls.automation.issuer.local -}}
 {{- $upstreamTrustedCABundles := include "gateway.upstreamTrustedCABundleSources" . | fromJsonArray -}}
+{{- $postgresqlEnabled := and .Values.postgresql .Values.postgresql.enabled .Values.postgresql.credentials -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -112,6 +113,11 @@ spec:
               readOnly: true
             {{- end }}
             {{- end }}
+            {{- if $postgresqlEnabled }}
+            - name: postgresql-passwords
+              mountPath: /etc/gateway/postgresql
+              readOnly: true
+            {{- end }}
           {{- with .Values.volumeMounts }}
             {{- toYaml . | nindent 12 }}
           {{- end }}
@@ -163,6 +169,11 @@ spec:
           secret:
             secretName: {{ include "gateway.sshVaultAppRoleSecretIdSecretName" . }}
         {{- end }}
+        {{- end }}
+        {{- if $postgresqlEnabled }}
+        - name: postgresql-passwords
+          secret:
+            secretName: {{ include "gateway.postgresqlPasswordsSecretName" . }}
         {{- end }}
       {{- with .Values.volumes }}
         {{- toYaml . | nindent 8 }}

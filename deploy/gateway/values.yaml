@@ -173,6 +173,19 @@ webApp:
   # Custom HTTP headers to inject into proxied requests.
   requestHeaders: {}
 
+postgresql:
+  enabled: false
+
+  # Credentials that PostgreSQL Resources reference by name for the password
+  # authentication method. The database user and upstream address come from the Resource.
+  credentials: []
+    # - name: "prod-viewer"
+    #   # Inline password (the chart renders a managed Secret).
+    #   # The password is mounted read-only into the pod at
+    #   # /etc/gateway/postgresql/<name> and referenced from the Gateway
+    #   # config via passwordFile; it is never written into the ConfigMap.
+    #   password: ""
+
 clusterDomain: cluster.local
 
 # Gateway deployment

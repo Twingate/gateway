@@ -122,7 +122,7 @@ func (p GATClaims) ShouldUpgradeTLS() bool {
 		return true
 	case ResourceTypeWebApp:
 		return p.Resource.GatewayMetadata.Downstream.TLSMode == TLSServerModeTLS13
-	case ResourceTypeSSH:
+	case ResourceTypeSSH, ResourceTypePostgres:
 		return false
 	}
 
@@ -168,6 +168,7 @@ const (
 	ResourceTypeKubernetes ResourceType = "KUBERNETES"
 	ResourceTypeSSH        ResourceType = "SSH"
 	ResourceTypeWebApp     ResourceType = "WEB_APP"
+	ResourceTypePostgres   ResourceType = "POSTGRESQL"
 )
 
 type Resource struct {
@@ -182,6 +183,7 @@ type GatewayMetadata struct {
 	Downstream            Downstream        `json:"downstream"`
 	Upstream              Upstream          `json:"upstream"`
 	RequestHeaderRewrites map[string]string `json:"request_header_rewrites,omitempty"` //nolint:tagliatelle // GAT wire format from the controller uses snake_case
+	Auths                 []Auth            `json:"auths,omitempty"`
 }
 
 // Downstream describes the connection between the protocol client and the Gateway.
@@ -225,6 +227,31 @@ const (
 )
 
 var TLSClientModes = []TLSClientMode{TLSClientModeVerifyFull, TLSClientModeVerifyCA, TLSClientModeInsecure, TLSClientModeNone}
+
+type AuthType string
+
+const (
+	AuthTypePassword AuthType = "password"
+	AuthTypeAWSIAM   AuthType = "aws_iam"
+	AuthTypeGCPIAM   AuthType = "gcp_iam"
+)
+
+// Auth is a database user the Twingate user is entitled to connect as, and how the Gateway
+// authenticates to the upstream as that user. Fields beyond Type and User depend on Type.
+type Auth struct {
+	Type AuthType `json:"type"`
+	User string   `json:"user"`
+
+	// Credential names a credential defined in the Gateway config. Set for AuthTypePassword.
+	Credential string `json:"credential,omitempty"`
+
+	// Region and AssumeRoleARN are set for AuthTypeAWSIAM.
+	Region        string `json:"region,omitempty"`
+	AssumeRoleARN string `json:"assume_role_arn,omitempty"` //nolint:tagliatelle // GAT wire format from the controller uses snake_case
+
+	// ImpersonateServiceAccount is set for AuthTypeGCPIAM.
+	ImpersonateServiceAccount string `json:"impersonate_service_account,omitempty"` //nolint:tagliatelle // GAT wire format from the controller uses snake_case
+}
 
 // PublicKey is a wrapper for ecdsa.PublicKey that adds support for JSON
 // marshaling and unmarshaling. It uses PEM encoding followed by base64 encoding

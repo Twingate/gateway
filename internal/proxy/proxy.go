@@ -20,6 +20,7 @@ import (
 
 	"gateway/internal/backend/httpproxy"
 	"gateway/internal/backend/kubernetes"
+	"gateway/internal/backend/postgres"
 	"gateway/internal/backend/ssh"
 	"gateway/internal/backend/webapp"
 	gatewayconfig "gateway/internal/config"
@@ -39,6 +40,7 @@ type Proxy struct {
 
 	httpProxies   map[token.ResourceType]*httpproxy.Proxy
 	sshProxy      *ssh.Proxy
+	pgProxy       *postgres.Proxy
 	metricsServer *metrics.Server
 
 	listener     net.Listener
@@ -104,6 +106,17 @@ func NewProxy(config *gatewayconfig.Config, registry *prometheus.Registry, logge
 		sshProxy = ssh.NewProxy(*sshConfig)
 	}
 
+	var pgProxy *postgres.Proxy
+
+	if config.PostgreSQL != nil {
+		pgConfig, err := postgres.NewConfig(config.PostgreSQL, logger)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create PostgreSQL config: %w", err)
+		}
+
+		pgProxy = postgres.NewProxy(*pgConfig)
+	}
+
 	sessionrecorder.RegisterRecordedSessionMetrics(metrics.Namespace, registry)
 
 	metricsServer := metrics.NewServer(metrics.Config{
@@ -118,6 +131,7 @@ func NewProxy(config *gatewayconfig.Config, registry *prometheus.Registry, logge
 
 		httpProxies:   httpProxies,
 		sshProxy:      sshProxy,
+		pgProxy:       pgProxy,
 		metricsServer: metricsServer,
 	}, nil
 }
@@ -135,20 +149,20 @@ func (p *Proxy) Start() error {
 
 	channels := make(map[token.ResourceType]chan<- frontend.Conn)
 
-	var sshListener *frontend.ProtocolListener
+	var sshListener, pgListener *frontend.ProtocolListener
 
 	if p.sshProxy != nil {
-		sshChannel := make(chan frontend.Conn)
-		channels[token.ResourceTypeSSH] = sshChannel
-		sshListener = frontend.NewProtocolListener(sshChannel, listener.Addr())
+		sshListener = protocolListener(channels, token.ResourceTypeSSH, listener.Addr())
+	}
+
+	if p.pgProxy != nil {
+		pgListener = protocolListener(channels, token.ResourceTypePostgres, listener.Addr())
 	}
 
 	httpListeners := make(map[token.ResourceType]*frontend.ProtocolListener)
 
 	for resourceType := range p.httpProxies {
-		ch := make(chan frontend.Conn)
-		channels[resourceType] = ch
-		httpListeners[resourceType] = frontend.NewProtocolListener(ch, listener.Addr())
+		httpListeners[resourceType] = protocolListener(channels, resourceType, listener.Addr())
 	}
 
 	connectListener, err := frontend.NewListener(
@@ -177,16 +191,7 @@ func (p *Proxy) Start() error {
 	})
 
 	if p.sshProxy != nil {
-		g.Go(func() error {
-			p.logger.System.Info("Starting SSH proxy")
-
-			err := p.sshProxy.Start(gCtx, sshListener)
-			if err != nil {
-				p.logger.System.Error("SSH proxy stopped with error", zap.Error(err))
-			}
-
-			return err
-		})
+		p.goServe(gCtx, g, "SSH", sshListener, p.sshProxy.Start)
 	}
 
 	for resourceType, proxy := range p.httpProxies {
@@ -206,6 +211,10 @@ func (p *Proxy) Start() error {
 
 			return err
 		})
+	}
+
+	if p.pgProxy != nil {
+		p.goServe(gCtx, g, "PostgreSQL", pgListener, p.pgProxy.Start)
 	}
 
 	metricsListener, err := net.Listen("tcp", fmt.Sprintf(":%d", p.config.MetricsPort))
@@ -243,6 +252,40 @@ func (p *Proxy) Start() error {
 	return err
 }
 
+// protocolListener registers a channel for resourceType so the connect listener
+// can dispatch matching connections into it, and wraps it in a net.Listener the
+// handler for that protocol accepts from.
+func protocolListener(
+	channels map[token.ResourceType]chan<- frontend.Conn,
+	resourceType token.ResourceType,
+	addr net.Addr,
+) *frontend.ProtocolListener {
+	ch := make(chan frontend.Conn)
+	channels[resourceType] = ch
+
+	return frontend.NewProtocolListener(ch, addr)
+}
+
+// goServe runs a protocol handler's accept loop in g, logging where it stopped.
+func (p *Proxy) goServe(
+	ctx context.Context,
+	g *errgroup.Group,
+	name string,
+	listener net.Listener,
+	start func(context.Context, net.Listener) error,
+) {
+	g.Go(func() error {
+		p.logger.System.Info("Starting " + name + " proxy")
+
+		err := start(ctx, listener)
+		if err != nil {
+			p.logger.System.Error(name+" proxy stopped with error", zap.Error(err))
+		}
+
+		return err
+	})
+}
+
 func (p *Proxy) shutdown() {
 	p.shutdownOnce.Do(func() {
 		p.logger.System.Info("Starting graceful shutdown")
@@ -266,6 +309,10 @@ func (p *Proxy) shutdown() {
 
 		if p.sshProxy != nil {
 			p.sshProxy.Shutdown(ctx)
+		}
+
+		if p.pgProxy != nil {
+			p.pgProxy.Shutdown(ctx)
 		}
 
 		if err := p.metricsServer.Shutdown(ctx); err != nil {

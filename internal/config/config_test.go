@@ -2544,3 +2544,158 @@ func TestVaultAWSConfig_Validate(t *testing.T) {
 		})
 	}
 }
+
+func TestLoad_PostgreSQL(t *testing.T) {
+	yaml := `
+twingate:
+  network: "acme"
+port: 8443
+metricsPort: 9090
+tls:
+  certificates:
+    files:
+      - certificateFile: "tls.crt"
+        privateKeyFile: "tls.key"
+postgresql:
+  credentials:
+    - name: "prod-viewer"
+      password: "s3cret"
+    - name: "prod-editor"
+      passwordFile: "/etc/gateway/postgresql/prod-editor"
+`
+
+	tmpFile := filepath.Join(t.TempDir(), "config.yaml")
+	err := os.WriteFile(tmpFile, []byte(yaml), 0600)
+	require.NoError(t, err)
+
+	cfg, err := Load(tmpFile)
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+
+	assert.Nil(t, cfg.Kubernetes)
+	assert.Nil(t, cfg.SSH)
+	require.NotNil(t, cfg.PostgreSQL)
+	assert.Equal(t, []PostgreSQLCredential{
+		{Name: "prod-viewer", Password: "s3cret"},
+		{Name: "prod-editor", PasswordFile: "/etc/gateway/postgresql/prod-editor"}, //nolint:gosec // fixture path, not a secret
+	}, cfg.PostgreSQL.Credentials)
+}
+
+func TestPostgreSQLConfig_Validate(t *testing.T) {
+	validCredential := PostgreSQLCredential{Name: "prod-viewer", Password: "s3cret"}
+
+	tests := []struct {
+		name    string
+		cfg     PostgreSQLConfig
+		wantErr error
+	}{
+		{
+			name: "valid single credential",
+			cfg:  PostgreSQLConfig{Credentials: []PostgreSQLCredential{validCredential}},
+		},
+		{
+			name: "no credentials",
+			cfg:  PostgreSQLConfig{},
+		},
+		{
+			name:    "duplicate credential names",
+			cfg:     PostgreSQLConfig{Credentials: []PostgreSQLCredential{validCredential, validCredential}},
+			wantErr: ErrDuplicateCredential,
+		},
+		{
+			name:    "invalid credential propagates",
+			cfg:     PostgreSQLConfig{Credentials: []PostgreSQLCredential{{Name: "prod-viewer"}}},
+			wantErr: ErrRequired,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.cfg.Validate()
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestPostgreSQLCredential_Validate(t *testing.T) {
+	tests := []struct {
+		name        string
+		credential  PostgreSQLCredential
+		wantErr     error
+		errContains string
+	}{
+		{
+			name:       "valid inline password",
+			credential: PostgreSQLCredential{Name: "prod-viewer", Password: "s3cret"},
+		},
+		{
+			name:       "valid with passwordFile",
+			credential: PostgreSQLCredential{Name: "prod-viewer", PasswordFile: "/etc/gateway/postgresql/prod-viewer"}, //nolint:gosec // fixture path, not a secret
+		},
+		{
+			name:        "missing name",
+			credential:  PostgreSQLCredential{Password: "s3cret"},
+			wantErr:     ErrRequired,
+			errContains: "name",
+		},
+		{
+			name:        "missing password",
+			credential:  PostgreSQLCredential{Name: "prod-viewer"},
+			wantErr:     ErrRequired,
+			errContains: "either password or passwordFile",
+		},
+		{
+			name: "both password and passwordFile",
+			credential: PostgreSQLCredential{ //nolint:gosec // fixture path, not a secret
+				Name:         "prod-viewer",
+				Password:     "s3cret",
+				PasswordFile: "/etc/gateway/postgresql/prod-viewer",
+			},
+			wantErr: ErrConflictingPassword,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.credential.Validate()
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+				assert.Contains(t, err.Error(), tt.errContains)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestConfig_Validate_PostgreSQLOnly(t *testing.T) {
+	cfg := &Config{
+		Twingate:    TwingateConfig{Network: "test", Host: "twingate.com"},
+		Port:        8443,
+		MetricsPort: 9090,
+		Log: LogConfig{
+			SessionRecording: SessionRecordingConfig{
+				Segment: SessionRecordingSegmentConfig{MaxSize: defaultSessionRecordingSegmentMaxSize},
+			},
+		},
+		TLS: TLSConfig{
+			Certificates: &TLSCertificateSources{
+				Files: []TLSCertificateFileKeyPair{
+					{
+						CertificateFile: "tls.crt",
+						PrivateKeyFile:  "tls.key",
+					},
+				},
+			},
+		},
+		PostgreSQL: &PostgreSQLConfig{
+			Credentials: []PostgreSQLCredential{{Name: "prod-viewer", Password: "s3cret"}},
+		},
+	}
+
+	require.NoError(t, cfg.Validate())
+}
