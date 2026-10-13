@@ -1447,7 +1447,7 @@ tests:
         sessionRecording:
           output:
             file:
-              path: /var/log/gateway/audit.log/
+              path: var/log/gateway/audit.log/
     asserts:
       - failedTemplate:
           errorMessage: "log.audit.output.file.path and log.sessionRecording.output.file.path both point to /var/log/gateway/audit.log. Give each file output its own path."

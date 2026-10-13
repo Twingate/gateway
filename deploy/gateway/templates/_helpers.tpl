@@ -398,7 +398,7 @@ Fail when two log categories write to the same file.
 {{- range $category := list "system" "audit" "sessionRecording" }}
 {{- $output := (get $.Values.log $category).output | default dict }}
 {{- if hasKey $output "file" }}
-{{- $path := clean $output.file.path }}
+{{- $path := clean (printf "/%s" $output.file.path) }}
 {{- with get $categories $path }}
 {{- fail (printf "log.%s.output.file.path and log.%s.output.file.path both point to %s. Give each file output its own path." . $category $path) }}
 {{- end }}
