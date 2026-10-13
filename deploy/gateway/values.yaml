@@ -49,16 +49,17 @@ log:
   system:
     # The lowest severity at which the Gateway writes to its system log.
     level: info
+    # When no output is set, the Gateway writes to the container's standard error.
     output: {}
       # Write to the container's standard error.
       # stderr: {}
       # Write to the container's standard output.
       # stdout: {}
-      # Write to a file. Add a writable volume to `volumes` and mount it at the file's
-      # directory with `volumeMounts`.
+      # Write to a file. The container's root filesystem is read-only, so the file's
+      # directory must be on a writable volume, such as an `emptyDir` shared with a log shipper.
       # file:
       #   path: /var/log/gateway/system.log
-      #   # Rotation configuration is optional
+      #   # Optional. Omitted fields use the defaults shown below.
       #   rotation:
       #     maxSize: "100MiB"
       #     maxBackupFiles: 3
