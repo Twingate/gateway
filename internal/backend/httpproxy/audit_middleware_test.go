@@ -51,9 +51,9 @@ func TestAuditMiddleware(t *testing.T) {
 		name               string
 		handler            http.Handler
 		expectedLogMessage string
-		expectedLogLevel   zapcore.Level
+		expectedOutcome    string
+		expectedReason     string
 		expectedStatusCode int
-		expectedPanic      string
 	}{
 		{
 			name: "Normal handler",
@@ -62,9 +62,8 @@ func TestAuditMiddleware(t *testing.T) {
 				_, _ = w.Write([]byte("Accepted"))
 			}),
 			expectedLogMessage: "API request completed",
-			expectedLogLevel:   zapcore.InfoLevel,
+			expectedOutcome:    "success",
 			expectedStatusCode: http.StatusAccepted,
-			expectedPanic:      "",
 		},
 		{
 			name: "Handler without explicitly setting response header",
@@ -72,9 +71,8 @@ func TestAuditMiddleware(t *testing.T) {
 				_, _ = w.Write([]byte("Response"))
 			}),
 			expectedLogMessage: "API request completed",
-			expectedLogLevel:   zapcore.InfoLevel,
+			expectedOutcome:    "success",
 			expectedStatusCode: http.StatusOK,
-			expectedPanic:      "",
 		},
 		{
 			name: "Handler being hijacked",
@@ -83,9 +81,8 @@ func TestAuditMiddleware(t *testing.T) {
 				_, _, _ = hijacker.Hijack()
 			}),
 			expectedLogMessage: "API request completed",
-			expectedLogLevel:   zapcore.InfoLevel,
+			expectedOutcome:    "success",
 			expectedStatusCode: http.StatusSwitchingProtocols,
-			expectedPanic:      "",
 		},
 		{
 			name: "Handler panics with http.ErrAbortHandler",
@@ -95,9 +92,8 @@ func TestAuditMiddleware(t *testing.T) {
 				panic(http.ErrAbortHandler)
 			}),
 			expectedLogMessage: "API request completed",
-			expectedLogLevel:   zapcore.InfoLevel,
+			expectedOutcome:    "success",
 			expectedStatusCode: http.StatusOK,
-			expectedPanic:      "",
 		},
 		{
 			name: "Handler panics with other error",
@@ -107,9 +103,9 @@ func TestAuditMiddleware(t *testing.T) {
 				panic("Something went wrong!")
 			}),
 			expectedLogMessage: "API request failed",
-			expectedLogLevel:   zapcore.ErrorLevel,
+			expectedOutcome:    "failure",
+			expectedReason:     "panic",
 			expectedStatusCode: http.StatusOK,
-			expectedPanic:      "Something went wrong!",
 		},
 	}
 
@@ -131,8 +127,7 @@ func TestAuditMiddleware(t *testing.T) {
 			recorder.Header().Set("Audit-Id", "audit-id-1")
 
 			core, logs := observer.New(zap.DebugLevel)
-
-			logger := logging.Logger{System: zap.NewNop(), Audit: zap.New(core), Session: zap.NewNop()}
+			logger := logging.Logger{System: zap.NewNop(), Audit: logging.NewAuditLogger(zap.New(core)), Session: zap.NewNop()}
 
 			func() {
 				defer func() {
@@ -148,11 +143,12 @@ func TestAuditMiddleware(t *testing.T) {
 
 			assert.Len(t, logs.All(), 1)
 			log := logs.All()[0]
-			assert.Equal(t, tt.expectedLogLevel, log.Level)
+			assert.Equal(t, zapcore.InfoLevel, log.Level)
 			assert.Equal(t, tt.expectedLogMessage, log.Message)
 
 			logContext := log.ContextMap()
 			assert.Subset(t, logContext, map[string]any{
+				"outcome":     tt.expectedOutcome,
 				"method":      "GET",
 				"url":         "/api",
 				"remote_addr": request.RemoteAddr,
@@ -169,8 +165,10 @@ func TestAuditMiddleware(t *testing.T) {
 			assert.NotEmpty(t, logContext["request_id"])
 			assert.NotEmpty(t, logContext["requested_at"])
 
-			if tt.expectedPanic != "" {
-				assert.Equal(t, tt.expectedPanic, logContext["panic"])
+			if tt.expectedReason != "" {
+				assert.Equal(t, tt.expectedReason, logContext["reason"])
+			} else {
+				assert.NotContains(t, logContext, "reason")
 			}
 		})
 	}

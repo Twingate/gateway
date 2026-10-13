@@ -6,6 +6,8 @@ package ssh
 import (
 	"go.uber.org/zap"
 	"golang.org/x/crypto/ssh"
+
+	"gateway/internal/logging"
 )
 
 const (
@@ -80,7 +82,7 @@ type windowChangeReq struct {
 // parseRequestPayload unmarshals request payload and logs error if parsing fails.
 func (h *RequestHandler) parseRequestPayload(req *ssh.Request, target any) {
 	if err := ssh.Unmarshal(req.Payload, target); err != nil {
-		h.logger.Error("Failed to parse channel request",
+		h.logger.System.Error("Failed to parse channel request",
 			zap.Any("ssh", h.sshChannelCtx.withRequest(req.Type, nil)),
 			zap.Error(err))
 	}
@@ -92,7 +94,7 @@ func (h *RequestHandler) handleRequest(req *ssh.Request, sessionSignals SessionS
 	// Reply before signaling session start: the signal unblocks serve() and lets upstream
 	// data flow to the client, which must not reach the client before the request reply.
 	if err := req.Reply(accepted, nil); err != nil {
-		h.logger.Error("Failed to reply to channel request",
+		h.logger.System.Error("Failed to reply to channel request",
 			zap.Any("ssh", h.sshChannelCtx.withRequest(req.Type, nil)), zap.Error(err))
 	}
 
@@ -113,10 +115,10 @@ func (h *RequestHandler) forwardRequest(req *ssh.Request) (accepted, startSessio
 	isSessionStartReq := false
 	extra := map[string]any{}
 
-	// logger derives the fields on each call so every log line carries the detail accumulated
-	// in extra so far.
-	logger := func() *zap.Logger {
-		return h.logger.With(zap.Any("ssh", h.sshChannelCtx.withRequest(req.Type, extra)))
+	// sshField is derived on each call so every log line carries the detail accumulated in
+	// extra so far.
+	sshField := func() zap.Field {
+		return zap.Any("ssh", h.sshChannelCtx.withRequest(req.Type, extra))
 	}
 
 	switch req.Type {
@@ -167,14 +169,14 @@ func (h *RequestHandler) forwardRequest(req *ssh.Request) (accepted, startSessio
 	// Reject duplicates without forwarding: signaling a second session start would send on
 	// the already-closed started channel.
 	if isSessionStartReq && h.sessionStarted {
-		logger().Warn("SSH channel request rejected: duplicate session start")
+		h.logger.Audit.Log("SSH channel request rejected: duplicate session start", logging.WithFailure("duplicate_session_start"), sshField())
 
 		return false, false, ""
 	}
 
 	accepted, err := h.targetChannel.SendRequest(req.Type, req.WantReply, req.Payload)
 	if err != nil {
-		logger().Error("Failed to forward channel request", zap.Error(err))
+		h.logger.System.Error("Failed to forward channel request", sshField(), zap.Error(err))
 
 		return false, false, ""
 	}
@@ -184,14 +186,11 @@ func (h *RequestHandler) forwardRequest(req *ssh.Request) (accepted, startSessio
 		extra["accepted"] = accepted
 	}
 
-	level := zap.InfoLevel
-	if auditIgnoredChannelRequests[req.Type] {
-		level = zap.DebugLevel
-	}
-
-	// Check first so withRequest only allocates when the entry is actually written.
-	if ce := h.logger.Check(level, "SSH channel request"); ce != nil {
-		ce.Write(zap.Any("ssh", h.sshChannelCtx.withRequest(req.Type, extra)))
+	if !auditIgnoredChannelRequests[req.Type] {
+		h.logger.Audit.Log("SSH channel request", sshField())
+	} else if ce := h.logger.System.Check(zap.DebugLevel, "SSH channel request"); ce != nil {
+		// Check first so withRequest only allocates when the entry is actually written.
+		ce.Write(sshField())
 	}
 
 	// A session starts only when the target accepted the request; without WantReply there is
@@ -202,7 +201,7 @@ func (h *RequestHandler) forwardRequest(req *ssh.Request) (accepted, startSessio
 }
 
 type RequestHandler struct {
-	logger *zap.Logger
+	logger logging.Logger
 
 	// SSH channel-level audit context for structured logging
 	sshChannelCtx *sshChannelContext
@@ -236,7 +235,7 @@ func (h *RequestHandler) handleRequests() SessionSignals {
 	}
 
 	go func() {
-		defer closeOnPanic(h.logger, func() { _ = h.targetChannel.Close() })
+		defer closeOnPanic(h.logger.System, func() { _ = h.targetChannel.Close() })
 		defer close(sessionSignals.finished)
 
 		for {
@@ -251,7 +250,7 @@ func (h *RequestHandler) handleRequests() SessionSignals {
 
 			case trigger, ok := <-h.flushTrigger:
 				if !ok {
-					h.logger.Error("Flush trigger channel closed prematurely",
+					h.logger.System.Error("Flush trigger channel closed prematurely",
 						zap.Any("ssh", h.sshChannelCtx.baseFields()))
 
 					return

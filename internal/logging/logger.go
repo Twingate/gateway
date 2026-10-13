@@ -25,7 +25,7 @@ const (
 
 type Logger struct {
 	System  *zap.Logger
-	Audit   *zap.Logger
+	Audit   AuditLogger
 	Session *zap.Logger
 
 	writers writers
@@ -39,19 +39,21 @@ func New(cfg config.LogConfig) (Logger, error) {
 
 	var err error
 
-	logger.System, err = w.newLogger(SystemLoggerName, cfg.System.Output, cfg.System.Level, false, true)
+	logger.System, err = w.newLogger(SystemLoggerName, cfg.System.Output, cfg.System.Level, "levelname", false, true)
 	if err != nil {
 		return Logger{}, err
 	}
 
-	logger.Audit, err = w.newLogger(AuditLoggerName, cfg.Audit.Output, zapcore.InfoLevel, true, false)
+	audit, err := w.newLogger(AuditLoggerName, cfg.Audit.Output, zapcore.InfoLevel, zapcore.OmitKey, true, false)
 	if err != nil {
 		_ = logger.Close()
 
 		return Logger{}, err
 	}
 
-	logger.Session, err = w.newLogger(SessionLoggerName, cfg.SessionRecording.Output, zapcore.InfoLevel, false, false)
+	logger.Audit = NewAuditLogger(audit)
+
+	logger.Session, err = w.newLogger(SessionLoggerName, cfg.SessionRecording.Output, zapcore.InfoLevel, zapcore.OmitKey, false, false)
 	if err != nil {
 		_ = logger.Close()
 
@@ -62,7 +64,7 @@ func New(cfg config.LogConfig) (Logger, error) {
 }
 
 func NewNop() Logger {
-	return Logger{System: zap.NewNop(), Audit: zap.NewNop(), Session: zap.NewNop()}
+	return Logger{System: zap.NewNop(), Audit: NewAuditLogger(zap.NewNop()), Session: zap.NewNop()}
 }
 
 // Close stops the timberjack writers so an ongoing backup compression for a file can finish.
@@ -83,10 +85,10 @@ func (l Logger) Close() error {
 // Loggers configured with the same output share one writer.
 type writers map[string]zapcore.WriteSyncer
 
-func (w writers) newLogger(name string, output config.LogOutputConfig, level zapcore.Level, disableCaller bool, addStacktrace bool) (*zap.Logger, error) {
+func (w writers) newLogger(name string, output config.LogOutputConfig, level zapcore.Level, levelKey string, disableCaller bool, addStacktrace bool) (*zap.Logger, error) {
 	encoderConfig := zapcore.EncoderConfig{
 		TimeKey:        "ts",
-		LevelKey:       "levelname",
+		LevelKey:       levelKey,
 		NameKey:        "logger",
 		CallerKey:      "caller",
 		MessageKey:     "message",

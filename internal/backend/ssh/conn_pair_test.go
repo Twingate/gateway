@@ -98,7 +98,7 @@ func TestConnPair_LogsChannelForwardingDetails(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			core, logs := observer.New(zap.DebugLevel)
-			logger := logging.Logger{System: zap.NewNop(), Audit: zap.New(core), Session: zap.NewNop()}
+			logger := logging.Logger{System: zap.New(core), Audit: logging.NewAuditLogger(zap.New(core)), Session: zap.NewNop()}
 			conns := newProxyConnsWithLogger(t, logger)
 			done := conns.serve(t)
 
@@ -211,7 +211,7 @@ func TestConnPair_SourceAcceptFailure(t *testing.T) {
 
 	core, logs := observer.New(zap.DebugLevel)
 
-	logger := logging.Logger{System: zap.NewNop(), Audit: zap.New(core), Session: zap.NewNop()}
+	logger := logging.Logger{System: zap.New(core), Audit: logging.NewAuditLogger(zap.New(core)), Session: zap.NewNop()}
 	pair := NewConnPair(logger, testSSHContext, connection{}, *proxyUpstream, &defaultSessionRecorderFactory{})
 	forwardDeadChannel(t, pair, proxyUpstream.conn, "direct-tcpip")
 
@@ -364,7 +364,7 @@ func TestConnPair_LogsGlobalRequestForwardingDetails(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			core, logs := observer.New(zap.DebugLevel)
-			logger := logging.Logger{System: zap.NewNop(), Audit: zap.New(core), Session: zap.NewNop()}
+			logger := logging.Logger{System: zap.New(core), Audit: logging.NewAuditLogger(zap.New(core)), Session: zap.NewNop()}
 			conns := newProxyConnsWithLogger(t, logger)
 			done := conns.serve(t)
 
@@ -400,7 +400,7 @@ func TestConnPair_LogsGlobalRequestForwardingDetails(t *testing.T) {
 
 func TestConnPair_LogsRejectedGlobalRequestDetails(t *testing.T) {
 	core, logs := observer.New(zap.DebugLevel)
-	logger := logging.Logger{System: zap.NewNop(), Audit: zap.New(core), Session: zap.NewNop()}
+	logger := logging.Logger{System: zap.NewNop(), Audit: logging.NewAuditLogger(zap.New(core)), Session: zap.NewNop()}
 	conns := newProxyConnsWithLogger(t, logger)
 	done := conns.serve(t)
 
@@ -416,6 +416,10 @@ func TestConnPair_LogsRejectedGlobalRequestDetails(t *testing.T) {
 	assert.Subset(t, requestField, map[string]any{
 		"bind_address": "0.0.0.0",
 		"bind_port":    uint32(8080),
+	})
+	assert.Subset(t, logs.FilterMessage("SSH global request rejected").All()[0].ContextMap(), map[string]any{
+		"outcome": "failure",
+		"reason":  "request_type_not_allowed",
 	})
 }
 
@@ -472,7 +476,7 @@ func TestConnPair_GlobalRequestSendError(t *testing.T) {
 
 	core, logs := observer.New(zap.DebugLevel)
 
-	logger := logging.Logger{System: zap.NewNop(), Audit: zap.New(core), Session: zap.NewNop()}
+	logger := logging.Logger{System: zap.New(core), Audit: logging.NewAuditLogger(zap.New(core)), Session: zap.NewNop()}
 	pair := NewConnPair(logger, testSSHContext, *proxyDownstream, *proxyUpstream, &defaultSessionRecorderFactory{})
 	pair.handleGlobalRequests(requests, proxyUpstream.conn, nil, labelDownstream, labelUpstream)
 
@@ -660,7 +664,7 @@ func TestConnPair_CloseErrors(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			core, logs := observer.New(zap.DebugLevel)
-			logger := logging.Logger{System: zap.NewNop(), Audit: zap.New(core), Session: zap.NewNop()}
+			logger := logging.Logger{System: zap.New(core), Audit: logging.NewAuditLogger(zap.New(core)), Session: zap.NewNop()}
 
 			tt.run(t, logger)
 

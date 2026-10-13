@@ -119,7 +119,8 @@ func auditMiddleware(config auditMiddlewareConfig) http.Handler {
 			// Check if there was a panic. `http.ErrAbortHandler` is considered
 			// okay e.g. client closes connection during HTTP streaming.
 			if recovered != nil && recovered != http.ErrAbortHandler { //nolint:err113,errorlint
-				logger.Audit.Error("API request failed",
+				logger.Audit.Log("API request failed",
+					logging.WithFailure("panic"),
 					zap.Any("request", map[string]any{
 						fieldHeaders: r.Header,
 					}),
@@ -127,10 +128,10 @@ func auditMiddleware(config auditMiddlewareConfig) http.Handler {
 						"status_code": rw.statusCode,
 						fieldHeaders:  rw.headers,
 					}),
-					zap.Any("panic", recovered),
 				)
 			} else {
-				logger.Audit.Info("API request completed",
+				logger.Audit.Log("API request completed",
+					logging.WithSuccess(),
 					zap.Any("request", map[string]any{
 						fieldHeaders: r.Header,
 					}),

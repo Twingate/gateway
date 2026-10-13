@@ -36,7 +36,7 @@ func newTestLogger(t *testing.T) logging.Logger {
 
 	logger := zaptest.NewLogger(t)
 
-	return logging.Logger{System: logger.Named(logging.SystemLoggerName), Audit: logger.Named(logging.AuditLoggerName), Session: logger.Named(logging.SessionLoggerName)}
+	return logging.Logger{System: logger.Named(logging.SystemLoggerName), Audit: logging.NewAuditLogger(logger.Named(logging.AuditLoggerName)), Session: logger.Named(logging.SessionLoggerName)}
 }
 
 // testSigner generates an ed25519 host/user key for test SSH endpoints.

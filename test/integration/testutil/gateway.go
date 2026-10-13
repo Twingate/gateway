@@ -22,7 +22,7 @@ func NewObservedLogger() (logging.Logger, *observer.ObservedLogs) {
 	core, logs := observer.New(zap.DebugLevel)
 	logger := zap.New(core)
 
-	return logging.Logger{System: logger.Named(logging.SystemLoggerName), Audit: logger.Named(logging.AuditLoggerName), Session: logger.Named(logging.SessionLoggerName)}, logs
+	return logging.Logger{System: logger.Named(logging.SystemLoggerName), Audit: logging.NewAuditLogger(logger.Named(logging.AuditLoggerName)), Session: logger.Named(logging.SessionLoggerName)}, logs
 }
 
 func GatewayHealthCheck(t *testing.T, port int) {

@@ -124,7 +124,7 @@ func TestChannelPair_RequestLogsCarryChannelExtraBothDirections(t *testing.T) {
 	// The forwarding details parsed at channel open must appear on request logs for both
 	// directions; the target->source handler works on a reversed copy of the channel context.
 	core, logs := observer.New(zap.DebugLevel)
-	logger := logging.Logger{System: zap.NewNop(), Audit: zap.New(core), Session: zap.NewNop()}
+	logger := logging.Logger{System: zap.NewNop(), Audit: logging.NewAuditLogger(zap.New(core)), Session: zap.NewNop()}
 	channels := newProxyChannels(t, channelTypeDirectTCPIP)
 	channels.logger = logger
 	channels.extra = map[string]any{"test-extra": "test-value"}
@@ -158,7 +158,7 @@ func TestChannelPair_SessionRequestLogsAcceptedOnlyWithReply(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			core, logs := observer.New(zap.DebugLevel)
-			logger := logging.Logger{System: zap.NewNop(), Audit: zap.New(core), Session: zap.NewNop()}
+			logger := logging.Logger{System: zap.NewNop(), Audit: logging.NewAuditLogger(zap.New(core)), Session: zap.NewNop()}
 			channels := newProxyChannels(t, channelTypeSession)
 			channels.logger = logger
 			done := channels.serve(t)
@@ -185,21 +185,22 @@ func TestChannelPair_SessionRequestLogsAcceptedOnlyWithReply(t *testing.T) {
 	}
 }
 
-func TestChannelPair_RequestLogLevelByType(t *testing.T) {
+func TestChannelPair_RequestLogCategoryByType(t *testing.T) {
 	tests := []struct {
-		name      string
-		reqType   string
-		payload   []byte
-		wantLevel zapcore.Level
+		name        string
+		reqType     string
+		payload     []byte
+		wantAudited bool
 	}{
-		{name: "unknown custom type", reqType: "probe@example.com", wantLevel: zap.InfoLevel},
-		{name: "terminal mechanic", reqType: requestTypeWindowChange, payload: ssh.Marshal(windowChangeReq{WidthColumns: 80, HeightRows: 24}), wantLevel: zap.DebugLevel},
+		{name: "unknown custom type", reqType: "probe@example.com", wantAudited: true},
+		{name: "terminal mechanic", reqType: requestTypeWindowChange, payload: ssh.Marshal(windowChangeReq{WidthColumns: 80, HeightRows: 24})},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			core, logs := observer.New(zap.DebugLevel)
-			logger := logging.Logger{System: zap.NewNop(), Audit: zap.New(core), Session: zap.NewNop()}
+			systemCore, systemLogs := observer.New(zap.DebugLevel)
+			auditCore, auditLogs := observer.New(zap.DebugLevel)
+			logger := logging.Logger{System: zap.New(systemCore), Audit: logging.NewAuditLogger(zap.New(auditCore)), Session: zap.NewNop()}
 			channels := newProxyChannels(t, channelTypeSession)
 			channels.logger = logger
 			done := channels.serve(t)
@@ -207,9 +208,18 @@ func TestChannelPair_RequestLogLevelByType(t *testing.T) {
 			channels.sendRequestAwaitReply(t, tt.reqType, tt.payload)
 
 			// Assert before the shell below adds a log entry of its own.
-			entries := logs.FilterMessage("SSH channel request").All()
-			require.Len(t, entries, 1)
-			assert.Equal(t, tt.wantLevel, entries[0].Level)
+			audited := auditLogs.FilterMessage("SSH channel request").All()
+			traced := systemLogs.FilterMessage("SSH channel request").All()
+
+			if tt.wantAudited {
+				require.Len(t, audited, 1)
+				assert.Equal(t, zapcore.InfoLevel, audited[0].Level)
+				assert.Empty(t, traced)
+			} else {
+				assert.Empty(t, audited)
+				require.Len(t, traced, 1)
+				assert.Equal(t, zapcore.DebugLevel, traced[0].Level)
+			}
 
 			// Neither request starts the session; without the shell, serve() waits out
 			// sessionStartTimeout.
@@ -250,7 +260,7 @@ func TestChannelPair_RequestLogFieldsByType(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			core, logs := observer.New(zap.DebugLevel)
-			logger := logging.Logger{System: zap.NewNop(), Audit: zap.New(core), Session: zap.NewNop()}
+			logger := logging.Logger{System: zap.NewNop(), Audit: logging.NewAuditLogger(zap.New(core)), Session: zap.NewNop()}
 			channels := newProxyChannels(t, channelTypeSession)
 			channels.logger = logger
 			done := channels.serve(t)
@@ -597,7 +607,7 @@ func TestChannelPair_SessionStartTimeout(t *testing.T) {
 
 func TestChannelPair_SessionShellRecording(t *testing.T) {
 	core, logs := observer.New(zap.DebugLevel)
-	logger := logging.Logger{System: zap.NewNop(), Audit: zap.NewNop(), Session: zap.New(core)}
+	logger := logging.Logger{System: zap.NewNop(), Audit: logging.NewAuditLogger(zap.NewNop()), Session: zap.New(core)}
 	channels := newProxyChannels(t, "session")
 	channels.logger = logger
 	done := channels.serve(t)
@@ -768,7 +778,7 @@ func TestChannelPair_ServePanicClosesChannels(t *testing.T) {
 	// tears the pair down instead of crashing the test goroutine.
 	go func() {
 		defer close(done)
-		defer closeOnPanic(pair.logger.Audit, pair.close)
+		defer closeOnPanic(pair.logger.System, pair.close)
 
 		pair.serve()
 	}()

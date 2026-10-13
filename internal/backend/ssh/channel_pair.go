@@ -110,7 +110,7 @@ func (c *ChannelPair) serve() {
 	// Handle the source channel's requests
 	sourceEOFTrigger := make(chan RequestHandlerFlushTrigger, 1)
 	sourceRequestHandler := &RequestHandler{
-		logger:            c.logger.Audit,
+		logger:            c.logger,
 		sshChannelCtx:     c.sshChannelCtx,
 		flushTrigger:      sourceEOFTrigger,
 		sourceRequestChan: c.source.requests,
@@ -134,7 +134,7 @@ func (c *ChannelPair) serve() {
 			}
 
 			if err := r.WriteResizeEvent(int(req.WidthColumns), int(req.HeightRows)); err != nil {
-				logger.Audit.Error("failed to write resize event", zap.Error(err))
+				logger.Audit.Log("failed to write resize event", logging.WithFailure("resize_event_write_failed"))
 			}
 		},
 	}
@@ -144,7 +144,7 @@ func (c *ChannelPair) serve() {
 	targetEOFTrigger := make(chan RequestHandlerFlushTrigger, 1)
 	targetChannelCtx := c.sshChannelCtx.reversed()
 	targetRequestHandler := &RequestHandler{
-		logger:            c.logger.Audit,
+		logger:            c.logger,
 		sshChannelCtx:     targetChannelCtx,
 		flushTrigger:      targetEOFTrigger,
 		sourceRequestChan: c.target.requests,
@@ -160,10 +160,10 @@ func (c *ChannelPair) serve() {
 		// Wait for session to start from source prior to starting the data copying
 		select {
 		case command = <-sourceSessionSignals.started:
-			logger.Audit.Debug("Source session started", zap.String("command", command))
+			logger.System.Debug("Source session started", zap.String("command", command))
 			asciinemaHeader.Command = command
 		case <-time.After(c.sessionStartTimeout):
-			logger.Audit.Error("Timeout waiting for source session to start")
+			logger.System.Error("Timeout waiting for source session to start")
 
 			return
 		}
@@ -187,16 +187,16 @@ func (c *ChannelPair) serve() {
 		// in the onPtyRequest() callback on the sourceRequestHandler
 		err := rec.WriteHeader(asciinemaHeader)
 		if err != nil {
-			logger.Audit.Error("failed to write asciinema header", zap.Error(err))
+			logger.Audit.Log("failed to write asciinema header", logging.WithFailure("recording_header_write_failed"))
 		}
 
 		processor = &TerminalOutputRecorder{recorder: rec}
 	}
 
 	copier := &BidirectionalCopier{
-		logger: logger.Audit,
+		logger: logger.System,
 		SourceToTarget: ChannelCopyPair{
-			logger:          logger.Audit,
+			logger:          logger.System,
 			Src:             c.source.ch,
 			Dst:             c.target.ch,
 			EOFTriggerCh:    sourceEOFTrigger,
@@ -206,7 +206,7 @@ func (c *ChannelPair) serve() {
 		},
 
 		TargetToSource: ChannelCopyPair{
-			logger:          logger.Audit,
+			logger:          logger.System,
 			Src:             c.target.ch,
 			Dst:             c.source.ch,
 			EOFTriggerCh:    targetEOFTrigger,

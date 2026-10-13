@@ -15,6 +15,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"gateway/internal/frontend"
+	"gateway/internal/logging"
 )
 
 var errShuttingDown = errors.New("shutting down")
@@ -123,7 +124,7 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 
 	downstreamConfig, err := p.config.GetDownstreamConfig(ctx, conn.GetRequestedHost(), conn.GATClaims().Resource)
 	if err != nil {
-		logger.Audit.Error("Failed to build the downstream SSH config", zap.Error(err))
+		logger.System.Error("Failed to build the downstream SSH config", zap.Error(err))
 
 		_ = conn.Close()
 
@@ -133,7 +134,7 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 	// Give the proxyconn.ProxyConn TCP connection to the SSH server to start the SSH handshake
 	downstreamSSHConn, downstreamChannels, downstreamRequests, err := ssh.NewServerConn(conn, downstreamConfig)
 	if err != nil {
-		logger.Audit.Error("Handshake failed", zap.Error(err))
+		logger.Audit.Log("Handshake failed", logging.WithFailure("handshake_failed"))
 
 		_ = conn.Close()
 
@@ -150,7 +151,7 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 
 	upstreamConfig, err := p.config.GetUpstreamConfig(ctx, upstream)
 	if err != nil {
-		closeDownstreamSSH(downstreamConn, logger.Audit, sshCtx)
+		closeDownstreamSSH(downstreamConn, logger, sshCtx)
 
 		return err
 	}
@@ -158,9 +159,9 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 	// Start connection to upstream SSH server
 	upstreamNetConn, err := net.DialTimeout("tcp", upstream.address, upstreamConnTimeout)
 	if err != nil {
-		logger.Audit.Error("Failed to connect to upstream SSH server", zap.Error(err))
+		logger.Audit.Log("Failed to connect to upstream SSH server", logging.WithFailure("upstream_unreachable"))
 
-		closeDownstreamSSH(downstreamConn, logger.Audit, sshCtx)
+		closeDownstreamSSH(downstreamConn, logger, sshCtx)
 
 		return err
 	}
@@ -170,9 +171,9 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 	// Open the SSH connection to the upstream server
 	upstreamSSHConn, upstreamChannels, upstreamRequests, err := ssh.NewClientConn(upstreamNetConn, upstream.address, upstreamConfig)
 	if err != nil {
-		logger.Audit.Error("Failed to connect to upstream SSH server", zap.Error(err))
+		logger.Audit.Log("Failed to connect to upstream SSH server", logging.WithFailure("upstream_handshake_failed"))
 
-		closeDownstreamSSH(downstreamConn, logger.Audit, sshCtx)
+		closeDownstreamSSH(downstreamConn, logger, sshCtx)
 
 		return err
 	}
@@ -181,7 +182,7 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 
 	sshCtx.serverVersion = string(upstreamSSHConn.ServerVersion())
 
-	logger.Audit.Info("SSH connection established", zap.Any("ssh", sshCtx.baseFields()))
+	logger.Audit.Log("SSH connection established", logging.WithSuccess(), zap.Any("ssh", sshCtx.baseFields()))
 
 	recorderFactory := &defaultSessionRecorderFactory{segment: p.config.sessionRecording.Segment}
 
@@ -203,7 +204,7 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 
 	sshConnPair.serve()
 
-	logger.Audit.Info("SSH connection closed", zap.Any("ssh", sshCtx.withConnectionClose(sshConnPair.ChannelsOpened())))
+	logger.Audit.Log("SSH connection closed", zap.Any("ssh", sshCtx.withConnectionClose(sshConnPair.ChannelsOpened())))
 
 	return nil
 }
@@ -226,16 +227,15 @@ func closeOnPanic(logger *zap.Logger, closeFn func()) {
 }
 
 // closeDownstreamSSH closes the connection and rejects any queued channels.
-func closeDownstreamSSH(downstream connection, logger *zap.Logger, sshCtx *sshContext) {
+func closeDownstreamSSH(downstream connection, logger logging.Logger, sshCtx *sshContext) {
 	_ = downstream.conn.Close()
 
 	for newChannel := range downstream.channels {
 		chCtx := newSSHChannelContext(sshCtx, newChannel.ChannelType(), labelDownstream, labelUpstream, nil)
-		chLogger := logger.With(zap.Any("ssh", chCtx.baseFields()))
-		chLogger.Debug("Rejecting channel")
+		logger.Audit.Log("SSH channel rejected", logging.WithFailure("upstream_connection_failed"), zap.Any("ssh", chCtx.baseFields()))
 
 		if err := newChannel.Reject(ssh.ConnectionFailed, "upstream connection failed"); err != nil {
-			chLogger.Error("Failed to reject channel", zap.Error(err))
+			logger.System.Error("Failed to reject channel", zap.Error(err))
 		}
 	}
 }

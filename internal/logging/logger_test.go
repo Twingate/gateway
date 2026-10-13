@@ -29,7 +29,7 @@ func TestNew(t *testing.T) {
 		wantStack  bool
 	}{
 		{name: "system", logger: logger.System, wantName: "system", wantLevel: zapcore.DebugLevel, wantCaller: true, wantStack: true},
-		{name: "audit", logger: logger.Audit, wantName: "audit", wantLevel: zapcore.InfoLevel},
+		{name: "audit", logger: logger.Audit.logger, wantName: "audit", wantLevel: zapcore.InfoLevel},
 		{name: "session", logger: logger.Session, wantName: "session", wantLevel: zapcore.InfoLevel, wantCaller: true},
 	}
 
