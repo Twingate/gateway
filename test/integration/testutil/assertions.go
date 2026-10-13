@@ -18,6 +18,7 @@ import (
 	authv1 "k8s.io/api/authentication/v1"
 	corev1 "k8s.io/api/core/v1"
 
+	"gateway/internal/logging"
 	"gateway/internal/sessionrecorder"
 )
 
@@ -100,7 +101,10 @@ func AssertLogsForSSHChannelRequests(t *testing.T, logs *observer.ObservedLogs, 
 	actualRequests := make([]SSHChannelRequestLog, 0, len(requestLogs))
 
 	for _, log := range requestLogs {
-		assert.Equal(t, expectedUser, log.ContextMap()["user"])
+		// Only audit events carry the user; the request types traced on the system logger do not.
+		if log.LoggerName == logging.AuditLoggerName {
+			assert.Equal(t, expectedUser, log.ContextMap()["user"])
+		}
 
 		sshField, ok := log.ContextMap()["ssh"].(map[string]any)
 		require.True(t, ok, "ssh field should be a map")
