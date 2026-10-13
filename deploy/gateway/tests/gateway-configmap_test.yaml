@@ -27,10 +27,19 @@ tests:
             metricsPort: 9000
 
             log:
+              system:
+                level: "info"
+                output:
+                  stderr: {}
+              audit:
+                output:
+                  stderr: {}
               sessionRecording:
                 segment:
                   maxDuration: "10s"
                   maxSize: "200KiB"
+                output:
+                  stderr: {}
 
             tls:
               certificates:
@@ -94,10 +103,19 @@ tests:
             metricsPort: 9090
 
             log:
+              system:
+                level: "info"
+                output:
+                  stderr: {}
+              audit:
+                output:
+                  stderr: {}
               sessionRecording:
                 segment:
                   maxDuration: "5m"
                   maxSize: "64KiB"
+                output:
+                  stderr: {}
 
             tls:
               certificates:
@@ -126,10 +144,19 @@ tests:
             metricsPort: 9090
 
             log:
+              system:
+                level: "info"
+                output:
+                  stderr: {}
+              audit:
+                output:
+                  stderr: {}
               sessionRecording:
                 segment:
                   maxDuration: "5m"
                   maxSize: "64KiB"
+                output:
+                  stderr: {}
 
             tls:
               certificates:
@@ -187,10 +214,19 @@ tests:
             metricsPort: 9090
 
             log:
+              system:
+                level: "info"
+                output:
+                  stderr: {}
+              audit:
+                output:
+                  stderr: {}
               sessionRecording:
                 segment:
                   maxDuration: "5m"
                   maxSize: "64KiB"
+                output:
+                  stderr: {}
 
             tls:
               certificates:
@@ -218,10 +254,19 @@ tests:
             metricsPort: 9090
 
             log:
+              system:
+                level: "info"
+                output:
+                  stderr: {}
+              audit:
+                output:
+                  stderr: {}
               sessionRecording:
                 segment:
                   maxDuration: "5m"
                   maxSize: "64KiB"
+                output:
+                  stderr: {}
 
             tls:
               certificates:
@@ -260,10 +305,19 @@ tests:
             metricsPort: 9090
 
             log:
+              system:
+                level: "info"
+                output:
+                  stderr: {}
+              audit:
+                output:
+                  stderr: {}
               sessionRecording:
                 segment:
                   maxDuration: "5m"
                   maxSize: "64KiB"
+                output:
+                  stderr: {}
 
             tls:
               certificates:
@@ -318,10 +372,19 @@ tests:
             metricsPort: 9090
 
             log:
+              system:
+                level: "info"
+                output:
+                  stderr: {}
+              audit:
+                output:
+                  stderr: {}
               sessionRecording:
                 segment:
                   maxDuration: "5m"
                   maxSize: "64KiB"
+                output:
+                  stderr: {}
 
             tls:
               certificates:
@@ -378,10 +441,19 @@ tests:
             metricsPort: 9090
 
             log:
+              system:
+                level: "info"
+                output:
+                  stderr: {}
+              audit:
+                output:
+                  stderr: {}
               sessionRecording:
                 segment:
                   maxDuration: "5m"
                   maxSize: "64KiB"
+                output:
+                  stderr: {}
 
             tls:
               certificates:
@@ -489,10 +561,19 @@ tests:
             metricsPort: 9090
 
             log:
+              system:
+                level: "info"
+                output:
+                  stderr: {}
+              audit:
+                output:
+                  stderr: {}
               sessionRecording:
                 segment:
                   maxDuration: "5m"
                   maxSize: "64KiB"
+                output:
+                  stderr: {}
 
             tls:
               certificates:
@@ -519,10 +600,19 @@ tests:
             metricsPort: 9090
 
             log:
+              system:
+                level: "info"
+                output:
+                  stderr: {}
+              audit:
+                output:
+                  stderr: {}
               sessionRecording:
                 segment:
                   maxDuration: "5m"
                   maxSize: "64KiB"
+                output:
+                  stderr: {}
 
             tls:
               certificates:
@@ -550,10 +640,19 @@ tests:
             metricsPort: 9090
 
             log:
+              system:
+                level: "info"
+                output:
+                  stderr: {}
+              audit:
+                output:
+                  stderr: {}
               sessionRecording:
                 segment:
                   maxDuration: "5m"
                   maxSize: "64KiB"
+                output:
+                  stderr: {}
 
             tls:
               certificates:
@@ -599,10 +698,19 @@ tests:
             metricsPort: 9090
 
             log:
+              system:
+                level: "info"
+                output:
+                  stderr: {}
+              audit:
+                output:
+                  stderr: {}
               sessionRecording:
                 segment:
                   maxDuration: "5m"
                   maxSize: "64KiB"
+                output:
+                  stderr: {}
 
             tls:
               automation:
@@ -732,10 +840,19 @@ tests:
             metricsPort: 9090
 
             log:
+              system:
+                level: "info"
+                output:
+                  stderr: {}
+              audit:
+                output:
+                  stderr: {}
               sessionRecording:
                 segment:
                   maxDuration: "5m"
                   maxSize: "64KiB"
+                output:
+                  stderr: {}
 
             tls:
               automation:
@@ -823,10 +940,19 @@ tests:
             metricsPort: 9090
 
             log:
+              system:
+                level: "info"
+                output:
+                  stderr: {}
+              audit:
+                output:
+                  stderr: {}
               sessionRecording:
                 segment:
                   maxDuration: "5m"
                   maxSize: "64KiB"
+                output:
+                  stderr: {}
 
             tls:
               automation:
@@ -865,10 +991,19 @@ tests:
             metricsPort: 9090
 
             log:
+              system:
+                level: "info"
+                output:
+                  stderr: {}
+              audit:
+                output:
+                  stderr: {}
               sessionRecording:
                 segment:
                   maxDuration: "5m"
                   maxSize: "64KiB"
+                output:
+                  stderr: {}
 
             tls:
               automation:
@@ -988,10 +1123,19 @@ tests:
             metricsPort: 9090
 
             log:
+              system:
+                level: "info"
+                output:
+                  stderr: {}
+              audit:
+                output:
+                  stderr: {}
               sessionRecording:
                 segment:
                   maxDuration: "5m"
                   maxSize: "64KiB"
+                output:
+                  stderr: {}
 
             tls:
               automation:
@@ -1117,10 +1261,19 @@ tests:
             metricsPort: 9090
 
             log:
+              system:
+                level: "info"
+                output:
+                  stderr: {}
+              audit:
+                output:
+                  stderr: {}
               sessionRecording:
                 segment:
                   maxDuration: "5m"
                   maxSize: "64KiB"
+                output:
+                  stderr: {}
 
             tls:
               certificates:
@@ -1177,3 +1330,172 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "at '/upstreamTrustedCABundles/0': additional properties 'invalid' not allowed"
+---
+suite: Gateway configmap with log outputs
+templates:
+  - gateway-configmap.yaml
+set:
+  twingate:
+    network: "acme"
+tests:
+  - it: should write each category to its selected output
+    set:
+      log:
+        system:
+          level: debug
+          output:
+            stderr: {}
+        audit:
+          output:
+            stdout: {}
+        sessionRecording:
+          output:
+            file:
+              path: /var/log/gateway/sessions.log
+              rotation:
+                maxSize: "50MiB"
+                maxBackupFiles: 5
+                maxBackupAge: "7d"
+                compression: gzip
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: |-
+            log:
+              system:
+                level: "debug"
+                output:
+                  stderr: {}
+              audit:
+                output:
+                  stdout: {}
+              sessionRecording:
+                segment:
+                  maxDuration: "5m"
+                  maxSize: "64KiB"
+                output:
+                  file:
+                    path: "/var/log/gateway/sessions.log"
+                    rotation:
+                      maxSize: "50MiB"
+                      maxBackupFiles: 5
+                      maxBackupAge: "7d"
+                      compression: "gzip"
+  - it: should render when omit rotation configuration
+    set:
+      log:
+        sessionRecording:
+          output:
+            file:
+              path: /var/log/gateway/sessions.log
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: |-
+            log:
+              system:
+                level: "info"
+                output:
+                  stderr: {}
+              audit:
+                output:
+                  stderr: {}
+              sessionRecording:
+                segment:
+                  maxDuration: "5m"
+                  maxSize: "64KiB"
+                output:
+                  file:
+                    path: "/var/log/gateway/sessions.log"
+  - it: should error when a category sets two outputs
+    set:
+      log:
+        audit:
+          output:
+            stdout: {}
+            file:
+              path: /var/log/gateway/audit.log
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/log/audit/output': maxProperties: got 2, want 1"
+  - it: should error when a file output has no path
+    set:
+      log:
+        audit:
+          output:
+            file: {}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/log/audit/output/file': missing property 'path'"
+  - it: should error when a file path is empty
+    set:
+      log:
+        audit:
+          output:
+            file:
+              path: ""
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/log/audit/output/file/path': minLength: got 0, want 1"
+  - it: should error when two categories write to the same file
+    set:
+      log:
+        audit:
+          output:
+            file:
+              path: /var/log/gateway/audit.log
+        sessionRecording:
+          output:
+            file:
+              path: var/log/gateway/audit.log/
+    asserts:
+      - failedTemplate:
+          errorMessage: "log.audit.output.file.path and log.sessionRecording.output.file.path both point to /var/log/gateway/audit.log. Give each file output its own path."
+  - it: should error when no backup is kept
+    set:
+      log:
+        audit:
+          output:
+            file:
+              path: /var/log/gateway/audit.log
+              rotation:
+                maxBackupFiles: 0
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/log/audit/output/file/rotation/maxBackupFiles': minimum: got 0, want 1"
+  - it: should error when the compression is unknown
+    set:
+      log:
+        audit:
+          output:
+            file:
+              path: /var/log/gateway/audit.log
+              rotation:
+                compression: lz4
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/log/audit/output/file/rotation/compression': value must be one of 'none', 'gzip', 'zstd'"
+  - it: should error when the system log level is unknown
+    set:
+      log:
+        system:
+          level: trace
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/log/system/level': value must be one of 'debug', 'info', 'warn', 'error'"
+  - it: should error when an output kind is unknown
+    set:
+      log:
+        audit:
+          output:
+            syslog: {}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/log/audit/output': additional properties 'syslog' not allowed"
+  - it: should error when a category is null
+    set:
+      log:
+        audit: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/log': missing property 'audit'"

@@ -751,6 +751,10 @@ func newDeadChannel(t *testing.T, channelType string) ssh.NewChannel {
 	case newChannel := <-server.channels:
 		require.NoError(t, server.conn.Close())
 
+		// Close returns before the transport notices, and until it does x/crypto reports a
+		// failed write as sent, so wait for the shutdown before the caller accepts or rejects.
+		assertConnClosed(t, server.conn)
+
 		return newChannel
 	case <-time.After(testTimeout):
 		t.Fatal("timed out waiting for the channel open")

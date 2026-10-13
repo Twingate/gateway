@@ -359,6 +359,55 @@ Fail when no TLS certificate or automation is configured.
 {{- end }}
 
 {{/*
+Render the log `output` for config.yaml, falling back to stderr when none is set.
+*/}}
+{{- define "gateway.logOutput" -}}
+{{- $output := . | default dict }}
+{{- if hasKey $output "stderr" -}}
+stderr: {}
+{{- else if hasKey $output "stdout" -}}
+stdout: {}
+{{- else if hasKey $output "file" -}}
+file:
+  path: {{ $output.file.path | quote }}
+  {{- with $output.file.rotation }}
+  rotation:
+    {{- with .maxSize }}
+    maxSize: {{ . | quote }}
+    {{- end }}
+    {{- with .maxBackupFiles }}
+    maxBackupFiles: {{ . }}
+    {{- end }}
+    {{- with .maxBackupAge }}
+    maxBackupAge: {{ . | quote }}
+    {{- end }}
+    {{- with .compression }}
+    compression: {{ . | quote }}
+    {{- end }}
+  {{- end }}
+{{- else -}}
+stderr: {}
+{{- end }}
+{{- end }}
+
+{{/*
+Fail when two log categories write to the same file.
+*/}}
+{{- define "gateway.requireUniqueLogFilePaths" -}}
+{{- $categories := dict }}
+{{- range $category := list "system" "audit" "sessionRecording" }}
+{{- $output := (get $.Values.log $category).output | default dict }}
+{{- if hasKey $output "file" }}
+{{- $path := clean (printf "/%s" $output.file.path) }}
+{{- with get $categories $path }}
+{{- fail (printf "log.%s.output.file.path and log.%s.output.file.path both point to %s. Give each file output its own path." . $category $path) }}
+{{- end }}
+{{- $_ := set $categories $path $category }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{/*
 Create the alternative names hash of the TLS secret
 */}}
 {{- define "gateway.alternativeNamesHash" -}}
