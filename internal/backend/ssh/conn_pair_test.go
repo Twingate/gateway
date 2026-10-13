@@ -752,7 +752,7 @@ func newDeadChannel(t *testing.T, channelType string) ssh.NewChannel {
 		require.NoError(t, server.conn.Close())
 
 		// Close returns before the transport notices, and until it does x/crypto reports a
-		// failed write as sent, so wait for the shutdown before the caller rejects.
+		// failed write as sent, so wait for the shutdown before the caller accepts or rejects.
 		assertConnClosed(t, server.conn)
 
 		return newChannel
