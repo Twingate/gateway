@@ -1,3 +1,4 @@
+{{- include "gateway.requireUniqueLogFilePaths" . }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -15,13 +16,22 @@ data:
     metricsPort: {{ .metrics }}
     {{- end }}
 
-    {{ with .Values.log.sessionRecording.segment -}}
     log:
+      system:
+        level: {{ .Values.log.system.level | quote }}
+        output:
+          {{- include "gateway.logOutput" .Values.log.system.output | nindent 10 }}
+      audit:
+        output:
+          {{- include "gateway.logOutput" .Values.log.audit.output | nindent 10 }}
       sessionRecording:
+        {{- with .Values.log.sessionRecording.segment }}
         segment:
           maxDuration: {{ .maxDuration | quote }}
           maxSize: {{ .maxSize | quote }}
-    {{- end }}
+        {{- end }}
+        output:
+          {{- include "gateway.logOutput" .Values.log.sessionRecording.output | nindent 10 }}
 
     tls:
       {{- with (include "gateway.tlsSecretNames" . | fromJsonArray) }}
