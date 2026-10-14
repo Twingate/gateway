@@ -20,7 +20,7 @@ import (
 const (
 	SystemLoggerName  = "system"
 	AuditLoggerName   = "audit"
-	SessionLoggerName = "session"
+	SessionLoggerName = "session_recording"
 )
 
 type Logger struct {

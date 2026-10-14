@@ -29,7 +29,7 @@ func TestNew(t *testing.T) {
 	}{
 		{name: "system", logger: logger.System, wantName: "system", wantLevel: zapcore.DebugLevel, wantCaller: true},
 		{name: "audit", logger: logger.Audit, wantName: "audit", wantLevel: zapcore.InfoLevel},
-		{name: "session", logger: logger.Session, wantName: "session", wantLevel: zapcore.InfoLevel, wantCaller: true},
+		{name: "session_recording", logger: logger.Session, wantName: "session_recording", wantLevel: zapcore.InfoLevel, wantCaller: true},
 	}
 
 	for _, tt := range tests {
