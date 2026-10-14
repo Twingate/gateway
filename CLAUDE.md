@@ -170,7 +170,7 @@ Versions tracked in `.tool-versions`.
 
 From `master` branch only:
 
-- Dev: `make cut-release-dev` → `v1.2.3-dev-abc1234`
+- Dev: `make cut-release-dev` → `v1.2.3-dev-abc1234-20260101120000` (short SHA, then UTC build time)
 - Prod: `make cut-release-prod` → `v1.2.4`
 
 Uses `svu` for version calculation based on conventional commits.

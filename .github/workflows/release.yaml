@@ -72,8 +72,7 @@ jobs:
         env:
           REGISTRY: ghcr.io
         run: |
-          CURRENT_VERSION=$(go tool svu current)
-          CHART_VERSION="${CURRENT_VERSION:1}"
+          CHART_VERSION="${GITHUB_REF_NAME#v}"
           echo "🚀 Publishing helm chart version $CHART_VERSION"
           echo ${{ secrets.GITHUB_TOKEN }} | helm registry login -u twingate --password-stdin $REGISTRY
           helm package deploy/gateway --version $CHART_VERSION --app-version $CHART_VERSION
