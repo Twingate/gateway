@@ -128,6 +128,7 @@ func auditMiddleware(config auditMiddlewareConfig) http.Handler {
 						fieldHeaders:  rw.headers,
 					}),
 					zap.Any("panic", recovered),
+					zap.Stack("stacktrace"),
 				)
 			} else {
 				logger.Audit.Info("API request completed",

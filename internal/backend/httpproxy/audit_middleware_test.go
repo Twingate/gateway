@@ -171,6 +171,7 @@ func TestAuditMiddleware(t *testing.T) {
 
 			if tt.expectedPanic != "" {
 				assert.Equal(t, tt.expectedPanic, logContext["panic"])
+				assert.Contains(t, logContext["stacktrace"], "auditMiddleware")
 			}
 		})
 	}
