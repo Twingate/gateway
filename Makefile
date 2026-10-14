@@ -148,5 +148,5 @@ cut-release-dev: ##@release Cut a development pre-release (create a version tag 
 		exit 1; \
 	fi
 	echo "🚀 Cutting a new development pre-release - $(shell go tool svu next)"
-	git tag "$(shell go tool svu next --prerelease dev-$(shell git rev-parse --short HEAD))"
+	git tag "$(shell go tool svu next --prerelease dev-$(shell git rev-parse --short HEAD)-$(shell date -u +%Y%m%d%H%M%S))"
 	git push --tags
