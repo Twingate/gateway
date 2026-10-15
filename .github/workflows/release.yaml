@@ -58,6 +58,11 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Set previous tag for production release notes
+        if: ${{ !contains(github.ref_name, '-') }}
+        # Without this, GoReleaser diffs against the latest dev pre-release tag.
+        run: echo "GORELEASER_PREVIOUS_TAG=$(git describe --tags --abbrev=0 --exclude '*-*' "${GITHUB_REF_NAME}^")" >> "$GITHUB_ENV"
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         with:
