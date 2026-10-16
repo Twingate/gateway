@@ -33,7 +33,14 @@ Secure access to SSH servers with certificate-based authentication, CA managemen
 - [Overview](https://github.com/Twingate/gateway/wiki/SSH-Overview)
 - [Quick Start Guide](https://github.com/Twingate/gateway/wiki/SSH-Quick-Start-Guide)
 
-### Web App *(Coming Soon)*
+### Web App
+
+Secure access to internal web applications with identity propagation through injected request headers and auditing of HTTP requests.
+
+- [Overview](https://github.com/Twingate/gateway/wiki/Web-App-Overview)
+- [Quick Start Guide](https://github.com/Twingate/gateway/wiki/Web-App-Quick-Start-Guide)
+
+### Databases *(Coming Soon)*
 
 ## Support
 
