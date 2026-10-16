@@ -173,18 +173,21 @@ changelog:
     exclude:
       - "^docs:"
   groups:
-    - title: "✨ Features"
-      regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
+    - title: "💥 Breaking changes"
+      regexp: '^.*?[[:word:]]+(\([^)]+\))??!:.+$'
       order: 0
-    - title: "🐛 Bug fixes"
-      regexp: '^.*?bug(\([[:word:]]+\))??!?:.+$'
+    - title: "✨ Features"
+      regexp: '^.*?feat(\([^)]+\))??!?:.+$'
       order: 1
-    - title: "✅ Tests"
-      regexp: '^.*?test(\([[:word:]]+\))??!?:.+$'
+    - title: "🐛 Bug fixes"
+      regexp: '^.*?fix(\([^)]+\))??!?:.+$'
       order: 2
-    - title: "🔧 Chores"
-      regexp: '^.*?chore(\([[:word:]]+\))??!?:.+$'
+    - title: "✅ Tests"
+      regexp: '^.*?test(\([^)]+\))??!?:.+$'
       order: 3
+    - title: "🔧 Chores"
+      regexp: '^.*?chore(\([^)]+\))??!?:.+$'
+      order: 4
     - title: Others
       order: 999
 
