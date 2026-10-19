@@ -40,20 +40,20 @@ type Proxy struct {
 }
 
 func NewProxy(cfg Config) *Proxy {
+	mux := http.NewServeMux()
+	mux.Handle("/", cfg.Handler)
+
 	handler := metrics.HTTPMiddleware(cfg.Metrics, cfg.ResourceType, auditMiddleware(auditMiddlewareConfig{
-		next:   cfg.Handler,
+		next:   mux,
 		logger: cfg.Logger,
 	}))
-
-	mux := http.NewServeMux()
-	mux.Handle("/", handler)
 
 	errorLog, _ := zap.NewStdLogAt(cfg.Logger.System, zapcore.ErrorLevel)
 
 	httpServer := &http.Server{
 		// G112 - Protect against Slowloris attack
 		ReadHeaderTimeout: 5 * time.Second,
-		Handler:           mux,
+		Handler:           handler,
 		ErrorLog:          errorLog,
 		ConnContext: func(ctx context.Context, c net.Conn) context.Context {
 			return context.WithValue(ctx, ConnContextKey{}, c)
