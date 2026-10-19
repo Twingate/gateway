@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 
 	"gateway/internal/frontend"
 	"gateway/internal/logging"
@@ -95,6 +96,47 @@ func TestProxy_ForwardRequest(t *testing.T) {
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 	assert.Equal(t, "OK", string(body))
+}
+
+func TestProxy_AuditRedirectedRequest(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+
+	core, logs := observer.New(zap.DebugLevel)
+
+	proxy := NewProxy(Config{
+		Metrics:      metrics.RegisterHTTPMetrics(prometheus.NewRegistry()),
+		ResourceType: metrics.ResourceTypeKubernetes,
+		Handler:      http.NotFoundHandler(),
+		Logger:       logging.Logger{System: zap.NewNop(), Audit: zap.New(core), Session: zap.NewNop()},
+	})
+
+	go func() {
+		_ = proxy.Start(&mockConnListener{Listener: listener})
+	}()
+
+	defer func() {
+		_ = proxy.Shutdown(context.Background())
+	}()
+
+	client := &http.Client{
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	resp, err := client.Get("http://" + listener.Addr().String() + "/test//path")
+	require.NoError(t, err)
+
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusTemporaryRedirect, resp.StatusCode)
+	assert.Equal(t, "/test/path", resp.Header.Get("Location"))
+
+	require.Len(t, logs.All(), 1)
+	logContext := logs.All()[0].ContextMap()
+	assert.Equal(t, "/test//path", logContext["url"])
+	assert.Equal(t, http.StatusTemporaryRedirect, logContext["response"].(map[string]any)["status_code"])
 }
 
 func TestProxy_Shutdown(t *testing.T) {
