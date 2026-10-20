@@ -5,6 +5,7 @@ package sessionrecorder
 
 import (
 	"encoding/json"
+	"sync"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
 
 	gatewayconfig "gateway/internal/config"
@@ -366,4 +368,100 @@ func TestRecorder_StoreEvent_Error(t *testing.T) {
 	err := r.storeEvent("test event")
 	require.Error(t, err, "storeEvent should return error when recording is finished")
 	assert.Equal(t, errAlreadyFinished, err)
+}
+
+func TestRecorder_FlushFormat(t *testing.T) {
+	testRegistry := prometheus.NewRegistry()
+	RegisterRecordedSessionMetrics("test", testRegistry)
+
+	synctest.Test(t, func(t *testing.T) {
+		core, logs := observer.New(zap.DebugLevel)
+		r := New(zap.New(core), gatewayconfig.SessionRecordingSegmentConfig{}).(*asciicastRecorder)
+
+		require.NoError(t, r.WriteHeader(AsciicastHeader{Version: 2, Width: 80, Height: 24, User: "alice"}))
+		require.NoError(t, r.WriteOutputEvent([]byte("\x1b[1m\"hi\"\r\n")))
+		time.Sleep(1500 * time.Millisecond)
+		require.NoError(t, r.WriteResizeEvent(100, 40))
+
+		r.Stop()
+
+		require.Equal(t, 1, logs.Len())
+		assert.Equal(t,
+			`{"version":2,"width":80,"height":24,"timestamp":0,"user":"alice"}`+"\n"+
+				`[0,"o","\u001b[1m\"hi\"\r\n"]`+"\n"+
+				`[1.5,"r","100x40"]`,
+			logs.All()[0].ContextMap()["asciicast"],
+		)
+	})
+}
+
+func TestRecorder_FlushResetsSegmentSize(t *testing.T) {
+	testRegistry := prometheus.NewRegistry()
+	RegisterRecordedSessionMetrics("test", testRegistry)
+
+	synctest.Test(t, func(t *testing.T) {
+		r := New(zap.NewNop(), gatewayconfig.SessionRecordingSegmentConfig{MaxSize: 1024}).(*asciicastRecorder)
+		defer r.Stop()
+
+		require.NoError(t, r.WriteHeader(AsciicastHeader{Version: 2}))
+		require.NoError(t, r.WriteOutputEvent([]byte("a")))
+		assert.Positive(t, r.recordedSize)
+
+		r.flush(false)
+
+		assert.Empty(t, r.recordedLines)
+		assert.Zero(t, r.recordedSize)
+	})
+}
+
+// blockingWriteSyncer signals entered on its first write, then blocks every write until
+// release is closed.
+type blockingWriteSyncer struct {
+	entered     chan struct{}
+	enteredOnce sync.Once
+	release     chan struct{}
+}
+
+func (w *blockingWriteSyncer) Write(p []byte) (int, error) {
+	w.enteredOnce.Do(func() { close(w.entered) })
+	<-w.release
+
+	return len(p), nil
+}
+
+func (w *blockingWriteSyncer) Sync() error { return nil }
+
+// This test uses real time rather than synctest: a goroutine waiting on a sync.Mutex is not
+// durably blocked, so synctest can't detect the deadlock and the test would hang instead of failing.
+func TestRecorder_WritesDoNotWaitForFlushLogging(t *testing.T) {
+	testRegistry := prometheus.NewRegistry()
+	RegisterRecordedSessionMetrics("test", testRegistry)
+
+	writer := &blockingWriteSyncer{entered: make(chan struct{}), release: make(chan struct{})}
+	logger := zap.New(zapcore.NewCore(zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig()), writer, zapcore.InfoLevel))
+
+	r := New(logger, gatewayconfig.SessionRecordingSegmentConfig{MaxSize: 1}).(*asciicastRecorder)
+	require.NoError(t, r.WriteHeader(AsciicastHeader{Version: 2}))
+
+	defer func() {
+		close(writer.release)
+		r.Stop()
+	}()
+
+	// Exceeds the segment size, so the flush loop starts logging and blocks in the writer.
+	require.NoError(t, r.WriteOutputEvent([]byte("first")))
+	<-writer.entered
+
+	written := make(chan error, 1)
+
+	go func() {
+		written <- r.WriteOutputEvent([]byte("second"))
+	}()
+
+	select {
+	case err := <-written:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("WriteOutputEvent blocked while a flush was logging")
+	}
 }

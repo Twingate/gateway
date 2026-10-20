@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -79,6 +80,8 @@ type asciicastRecorder struct {
 	start         time.Time
 	header        string
 	recordedLines []string
+	// total length of recordedLines, kept so storeEvent doesn't re-sum the segment on every event
+	recordedSize int
 
 	// number of flushes
 	flushCount int
@@ -132,11 +135,22 @@ func (r *asciicastRecorder) WriteHeader(h AsciicastHeader) error {
 	return nil
 }
 
+// WriteOutputEvent records data as an asciicast output event: [<seconds>, "o", <data>].
+// It runs inline in the proxied data path, so it encodes the event by hand rather than
+// through reflection.
 func (r *asciicastRecorder) WriteOutputEvent(data []byte) error {
-	return r.writeJSON([]any{
-		time.Since(r.start).Seconds(),
-		"o",
-		string(data)})
+	event := make([]byte, 0, len(data)+32)
+	event = append(event, '[')
+	event = strconv.AppendFloat(event, time.Since(r.start).Seconds(), 'f', -1, 64)
+	event = append(event, `,"o",`...)
+	event = appendJSONString(event, data)
+	event = append(event, ']')
+
+	if err := r.storeEvent(string(event)); err != nil {
+		return fmt.Errorf("%w: %w", errFailedToWriteEvent, err)
+	}
+
+	return nil
 }
 
 func (r *asciicastRecorder) WriteResizeEvent(width int, height int) (err error) {
@@ -198,13 +212,9 @@ func (r *asciicastRecorder) storeEvent(event string) error {
 	}
 
 	r.recordedLines = append(r.recordedLines, event)
-	totalSize := 0
+	r.recordedSize += len(event)
 
-	for _, line := range r.recordedLines {
-		totalSize += len(line)
-	}
-
-	if r.config.segmentMaxSize > 0 && totalSize >= r.config.segmentMaxSize.Bytes() {
+	if r.config.segmentMaxSize > 0 && r.recordedSize >= r.config.segmentMaxSize.Bytes() {
 		// Send a flush signal if there is no pending flush
 		select {
 		case r.flushCh <- struct{}{}:
@@ -241,15 +251,29 @@ func (r *asciicastRecorder) flushLoop() {
 	}
 }
 
+// flush logs the buffered segment. Only the flush loop and, after it exits, Stop call flush, so
+// segments are logged in sequence order. The segment is taken under the lock but encoded and
+// logged outside it, so writers aren't blocked on log I/O.
 func (r *asciicastRecorder) flush(isFinal bool) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 
 	// Always flush final logs. Otherwise, flush if there is a header and some events.
 	shouldFlush := isFinal || (len(r.recordedLines) > 0 && r.header != "")
 	if !shouldFlush {
+		r.mu.Unlock()
+
 		return
 	}
+
+	header := r.header
+	lines := r.recordedLines
+	size := r.recordedSize
+	r.recordedLines = make([]string, 0, len(lines))
+	r.recordedSize = 0
+	r.flushCount++
+	sequenceNum := r.flushCount
+
+	r.mu.Unlock()
 
 	var message string
 	if isFinal {
@@ -258,11 +282,19 @@ func (r *asciicastRecorder) flush(isFinal bool) {
 		message = "session recording"
 	}
 
-	r.flushCount++
-	r.config.logger.Info(message,
-		zap.String("asciicast", strings.Join(append([]string{r.header}, r.recordedLines...), "\n")),
-		zap.Int("asciicast_sequence_num", r.flushCount),
-	)
+	var asciicast strings.Builder
 
-	r.recordedLines = r.recordedLines[:0]
+	asciicast.Grow(len(header) + size + len(lines))
+	// strings.Builder writes always return a nil error.
+	_, _ = asciicast.WriteString(header)
+
+	for _, line := range lines {
+		_ = asciicast.WriteByte('\n')
+		_, _ = asciicast.WriteString(line)
+	}
+
+	r.config.logger.Info(message,
+		zap.String("asciicast", asciicast.String()),
+		zap.Int("asciicast_sequence_num", sequenceNum),
+	)
 }
