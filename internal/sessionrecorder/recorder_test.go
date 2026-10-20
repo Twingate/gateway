@@ -5,6 +5,7 @@ package sessionrecorder
 
 import (
 	"encoding/json"
+	"sync"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -413,12 +414,16 @@ func TestRecorder_FlushResetsSegmentSize(t *testing.T) {
 	})
 }
 
-// blockingWriteSyncer blocks every write until release is closed.
+// blockingWriteSyncer signals entered on its first write, then blocks every write until
+// release is closed.
 type blockingWriteSyncer struct {
-	release chan struct{}
+	entered     chan struct{}
+	enteredOnce sync.Once
+	release     chan struct{}
 }
 
 func (w *blockingWriteSyncer) Write(p []byte) (int, error) {
+	w.enteredOnce.Do(func() { close(w.entered) })
 	<-w.release
 
 	return len(p), nil
@@ -426,25 +431,37 @@ func (w *blockingWriteSyncer) Write(p []byte) (int, error) {
 
 func (w *blockingWriteSyncer) Sync() error { return nil }
 
+// This test uses real time rather than synctest: a goroutine waiting on a sync.Mutex is not
+// durably blocked, so synctest can't detect the deadlock and the test would hang instead of failing.
 func TestRecorder_WritesDoNotWaitForFlushLogging(t *testing.T) {
 	testRegistry := prometheus.NewRegistry()
 	RegisterRecordedSessionMetrics("test", testRegistry)
 
-	synctest.Test(t, func(t *testing.T) {
-		writer := &blockingWriteSyncer{release: make(chan struct{})}
-		logger := zap.New(zapcore.NewCore(zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig()), writer, zapcore.InfoLevel))
+	writer := &blockingWriteSyncer{entered: make(chan struct{}), release: make(chan struct{})}
+	logger := zap.New(zapcore.NewCore(zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig()), writer, zapcore.InfoLevel))
 
-		r := New(logger, gatewayconfig.SessionRecordingSegmentConfig{MaxSize: 1}).(*asciicastRecorder)
-		require.NoError(t, r.WriteHeader(AsciicastHeader{Version: 2}))
+	r := New(logger, gatewayconfig.SessionRecordingSegmentConfig{MaxSize: 1}).(*asciicastRecorder)
+	require.NoError(t, r.WriteHeader(AsciicastHeader{Version: 2}))
 
-		// Exceeds the segment size, so the flush loop starts logging and blocks in the writer.
-		require.NoError(t, r.WriteOutputEvent([]byte("first")))
-		synctest.Wait()
-
-		// If flush still held the lock while logging, this would deadlock the bubble.
-		require.NoError(t, r.WriteOutputEvent([]byte("second")))
-
+	defer func() {
 		close(writer.release)
 		r.Stop()
-	})
+	}()
+
+	// Exceeds the segment size, so the flush loop starts logging and blocks in the writer.
+	require.NoError(t, r.WriteOutputEvent([]byte("first")))
+	<-writer.entered
+
+	written := make(chan error, 1)
+
+	go func() {
+		written <- r.WriteOutputEvent([]byte("second"))
+	}()
+
+	select {
+	case err := <-written:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("WriteOutputEvent blocked while a flush was logging")
+	}
 }
