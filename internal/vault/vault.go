@@ -130,9 +130,8 @@ func New(cfg config.VaultConfig, logger *zap.Logger) (*Vault, error) {
 	transport.TLSClientConfig.MinVersion = tls.VersionTLS13
 
 	if cfg.CABundleFile != "" {
-		if err := apiConfig.ConfigureTLS(&vaultapi.TLSConfig{
-			CACert: cfg.CABundleFile,
-		}); err != nil {
+		tlsConfig := &vaultapi.TLSConfig{CACert: cfg.CABundleFile}
+		if err := apiConfig.ConfigureTLS(tlsConfig); err != nil {
 			return nil, fmt.Errorf("failed to configure TLS: %w", err)
 		}
 	}
