@@ -49,7 +49,7 @@ func setupSSHServer(logger *zap.Logger) error {
 	}
 
 	// #nosec G204 -- inputs are from trusted operator configuration
-	if _, err = testutil.RunCommand(exec.Command("docker", "run", "-d",
+	runCmd := exec.Command("docker", "run", "-d",
 		"-p", fmt.Sprintf("%d:2222", sshPort),
 		"--name", sshContainerName,
 		"--rm",
@@ -59,7 +59,8 @@ func setupSSHServer(logger *zap.Logger) error {
 		"--env", "TZ=UTC",
 		"--volume", "./test/data/ssh/sshd_test.conf:/config/sshd/sshd_config.d/sshd_test.conf",
 		"lscr.io/linuxserver/openssh-server:latest",
-	)); err != nil {
+	)
+	if _, err = testutil.RunCommand(runCmd); err != nil {
 		return fmt.Errorf("failed to create OpenSSH server docker container: %w", err)
 	}
 

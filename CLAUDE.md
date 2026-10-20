@@ -8,7 +8,7 @@ Zero-trust access gateway bridging Twingate with L7 resources such as Kubernetes
 - **Repository**: <https://github.com/Twingate/gateway>
 - **Language**: Go 1.27.3
 - **Build**: goreleaser, Docker buildx, kind (testing)
-- **Linting**: golangci-lint v2.13.1
+- **Linting**: golangci-lint v2.15.0
 - **Testing**: testify, helm-unittest
 
 **Key Features**: TLS 1.3 mutual auth, K8s user impersonation, SSH certificate-based access, session recording, Prometheus metrics
