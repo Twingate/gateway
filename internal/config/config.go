@@ -65,9 +65,11 @@ const (
 )
 
 type Config struct {
-	Twingate                 TwingateConfig            `yaml:"twingate"`
-	Port                     int                       `yaml:"port"`
-	MetricsPort              int                       `yaml:"metricsPort"`
+	Twingate    TwingateConfig `yaml:"twingate"`
+	Port        int            `yaml:"port"`
+	MetricsPort int            `yaml:"metricsPort"`
+	// Pprof serves the net/http/pprof profiling endpoints on the metrics port under /debug/pprof/.
+	Pprof                    bool                      `yaml:"pprof,omitempty"`
 	Log                      LogConfig                 `yaml:"log"`
 	TLS                      TLSConfig                 `yaml:"tls"`
 	UpstreamTrustedCABundles []UpstreamTrustedCABundle `yaml:"upstreamTrustedCABundles,omitempty"`
