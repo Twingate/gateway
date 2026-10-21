@@ -53,6 +53,12 @@ func TestGATClaims_ShouldUpgradeTLS(t *testing.T) {
 			downstreamTLSMode: TLSServerModeTLS13,
 			expected:          true,
 		},
+		{
+			name:              "PostgreSQL should not upgrade TLS",
+			resourceType:      ResourceTypePostgreSQL,
+			downstreamTLSMode: TLSServerModeTLS13,
+			expected:          false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -132,6 +138,16 @@ func TestGATTokenClaims_Validate(t *testing.T) {
 			assert.NoError(t, claims.Validate())
 		})
 	}
+
+	t.Run("Valid PostgreSQL claims", func(t *testing.T) {
+		claims := validClaims
+		claims.Resource.Type = ResourceTypePostgreSQL
+		claims.Resource.GatewayMetadata.Downstream.TLSMode = TLSServerModeNone
+		claims.Resource.GatewayMetadata.Upstream.TLSMode = TLSClientModeVerifyFull
+		claims.Resource.GatewayMetadata.Auths = Auths{{Type: AuthTypePassword, User: "viewer", Credential: "prod-viewer"}}
+
+		assert.NoError(t, claims.Validate())
+	})
 
 	tests := []struct {
 		name                 string
@@ -307,6 +323,34 @@ func TestGATTokenClaims_Validate(t *testing.T) {
 			expectedError:        errInvalidTLSMode,
 			expectedErrorMessage: "invalid TLS mode \"resource.gateway_metadata.upstream.tls_mode\": \"VERIFY_NONE\"",
 		},
+		{
+			name: "Missing PostgreSQL downstream TLS mode",
+			setupFn: func(claims *GATClaims) {
+				claims.Resource.Type = ResourceTypePostgreSQL
+				claims.Resource.GatewayMetadata.Upstream.TLSMode = TLSClientModeVerifyFull
+			},
+			expectedError:        errInvalidTLSMode,
+			expectedErrorMessage: "invalid TLS mode \"resource.gateway_metadata.downstream.tls_mode\": \"\"",
+		},
+		{
+			name: "Missing PostgreSQL upstream TLS mode",
+			setupFn: func(claims *GATClaims) {
+				claims.Resource.Type = ResourceTypePostgreSQL
+				claims.Resource.GatewayMetadata.Downstream.TLSMode = TLSServerModeNone
+			},
+			expectedError:        errInvalidTLSMode,
+			expectedErrorMessage: "invalid TLS mode \"resource.gateway_metadata.upstream.tls_mode\": \"\"",
+		},
+		{
+			name: "Missing PostgreSQL auths",
+			setupFn: func(claims *GATClaims) {
+				claims.Resource.Type = ResourceTypePostgreSQL
+				claims.Resource.GatewayMetadata.Downstream.TLSMode = TLSServerModeNone
+				claims.Resource.GatewayMetadata.Upstream.TLSMode = TLSClientModeVerifyFull
+			},
+			expectedError:        jwt.ErrTokenRequiredClaimMissing,
+			expectedErrorMessage: "\"resource.gateway_metadata.auths\"",
+		},
 	}
 
 	for _, tt := range tests {
@@ -315,6 +359,132 @@ func TestGATTokenClaims_Validate(t *testing.T) {
 			tt.setupFn(&claims)
 
 			err := claims.Validate()
+
+			require.ErrorIs(t, err, tt.expectedError)
+			require.ErrorContains(t, err, tt.expectedErrorMessage)
+		})
+	}
+}
+
+func TestAuths_Validate(t *testing.T) {
+	validAuth := Auth{Type: AuthTypePassword, User: "viewer", Credential: "prod-viewer"}
+
+	t.Run("Valid auths", func(t *testing.T) {
+		assert.NoError(t, Auths{validAuth}.Validate(TLSClientModeVerifyFull))
+	})
+
+	tests := []struct {
+		name                 string
+		auths                Auths
+		expectedError        error
+		expectedErrorMessage string
+	}{
+		{
+			name:                 "Missing auths",
+			expectedError:        jwt.ErrTokenRequiredClaimMissing,
+			expectedErrorMessage: "\"resource.gateway_metadata.auths\"",
+		},
+		{
+			name:                 "Invalid auth",
+			auths:                Auths{{Type: AuthTypePassword, User: "editor"}},
+			expectedError:        jwt.ErrTokenRequiredClaimMissing,
+			expectedErrorMessage: "resource.gateway_metadata.auths[0]: token is missing required claim \"credential\"",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.auths.Validate(TLSClientModeVerifyFull)
+
+			require.ErrorIs(t, err, tt.expectedError)
+			require.ErrorContains(t, err, tt.expectedErrorMessage)
+		})
+	}
+}
+
+func TestAuth_Validate(t *testing.T) {
+	validAuths := []struct {
+		name            string
+		upstreamTLSMode TLSClientMode
+		auth            Auth
+	}{
+		{
+			name:            "password with upstream NONE",
+			upstreamTLSMode: TLSClientModeNone,
+			auth:            Auth{Type: AuthTypePassword, User: "viewer", Credential: "prod-viewer"},
+		},
+		{
+			name:            "AWS IAM with upstream VERIFY_FULL",
+			upstreamTLSMode: TLSClientModeVerifyFull,
+			auth:            Auth{Type: AuthTypeAWSIAM, User: "analytics", Region: "us-east-1"},
+		},
+		{
+			name:            "GCP IAM with upstream VERIFY_CA",
+			upstreamTLSMode: TLSClientModeVerifyCA,
+			auth:            Auth{Type: AuthTypeGCPIAM, User: "db@my-project.iam"},
+		},
+	}
+
+	for _, tt := range validAuths {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.NoError(t, tt.auth.Validate(tt.upstreamTLSMode))
+		})
+	}
+
+	tests := []struct {
+		name                 string
+		upstreamTLSMode      TLSClientMode
+		auth                 Auth
+		expectedError        error
+		expectedErrorMessage string
+	}{
+		{
+			name:                 "Missing user",
+			upstreamTLSMode:      TLSClientModeVerifyFull,
+			auth:                 Auth{Type: AuthTypeGCPIAM},
+			expectedError:        jwt.ErrTokenRequiredClaimMissing,
+			expectedErrorMessage: "\"user\"",
+		},
+		{
+			name:                 "Invalid type",
+			upstreamTLSMode:      TLSClientModeVerifyFull,
+			auth:                 Auth{Type: "md5", User: "viewer"},
+			expectedError:        errInvalidAuthType,
+			expectedErrorMessage: "invalid auth type \"md5\"",
+		},
+		{
+			name:                 "Password without credential",
+			upstreamTLSMode:      TLSClientModeVerifyFull,
+			auth:                 Auth{Type: AuthTypePassword, User: "viewer"},
+			expectedError:        jwt.ErrTokenRequiredClaimMissing,
+			expectedErrorMessage: "\"credential\"",
+		},
+		{
+			name:                 "AWS IAM without region",
+			upstreamTLSMode:      TLSClientModeVerifyFull,
+			auth:                 Auth{Type: AuthTypeAWSIAM, User: "analytics"},
+			expectedError:        jwt.ErrTokenRequiredClaimMissing,
+			expectedErrorMessage: "\"region\"",
+		},
+		{
+			name:                 "AWS IAM with upstream INSECURE",
+			upstreamTLSMode:      TLSClientModeInsecure,
+			auth:                 Auth{Type: AuthTypeAWSIAM, User: "analytics", Region: "us-east-1"},
+			expectedError:        errUnverifiedIAMUpstream,
+			expectedErrorMessage: "\"resource.gateway_metadata.upstream.tls_mode\": \"INSECURE\"",
+		},
+		{
+			name:                 "GCP IAM with upstream NONE",
+			upstreamTLSMode:      TLSClientModeNone,
+			auth:                 Auth{Type: AuthTypeGCPIAM, User: "db@my-project.iam"},
+			expectedError:        errUnverifiedIAMUpstream,
+			expectedErrorMessage: "\"resource.gateway_metadata.upstream.tls_mode\": \"NONE\"",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.auth.Validate(tt.upstreamTLSMode)
 
 			require.ErrorIs(t, err, tt.expectedError)
 			require.ErrorContains(t, err, tt.expectedErrorMessage)
@@ -424,4 +594,22 @@ func TestGatewayMetadata_UnmarshalTLSModes(t *testing.T) {
 
 	assert.Equal(t, TLSServerModeTLS13, metadata.Downstream.TLSMode)
 	assert.Equal(t, TLSClientModeVerifyCA, metadata.Upstream.TLSMode)
+}
+
+func TestGatewayMetadata_UnmarshalAuths(t *testing.T) {
+	var metadata GatewayMetadata
+
+	err := json.Unmarshal([]byte(`{"auths": [
+		{"type": "password", "user": "viewer", "credential": "prod-viewer"},
+		{"type": "aws_iam", "user": "analytics", "region": "us-east-1", "assume_role_arn": "arn:aws:iam::123456789012:role/gateway-db"},
+		{"type": "gcp_iam", "user": "db@my-project.iam", "impersonate_service_account": "db@my-project.iam.gserviceaccount.com"}
+	]}`), &metadata)
+	require.NoError(t, err)
+
+	want := Auths{
+		{Type: AuthTypePassword, User: "viewer", Credential: "prod-viewer"},
+		{Type: AuthTypeAWSIAM, User: "analytics", Region: "us-east-1", AssumeRoleARN: "arn:aws:iam::123456789012:role/gateway-db"},
+		{Type: AuthTypeGCPIAM, User: "db@my-project.iam", ImpersonateServiceAccount: "db@my-project.iam.gserviceaccount.com"},
+	}
+	assert.Equal(t, want, metadata.Auths)
 }
