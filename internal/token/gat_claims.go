@@ -257,17 +257,65 @@ func (a Auths) Validate(upstreamTLSMode TLSClientMode) error {
 
 // Auth is the authentication method that the Gateway uses to connect to the upstream database as User.
 type Auth struct {
-	Type AuthType `json:"type"`
-	User string   `json:"user"`
-	// Credential is the name of the Gateway-configured credential that holds the password, for AuthTypePassword.
-	Credential string `json:"credential,omitempty"`
-	// Region signs the RDS auth token, for AuthTypeAWSIAM.
-	Region string `json:"region,omitempty"`
-	// AssumeRoleARN is the role the Gateway assumes before signing the RDS auth token, for AuthTypeAWSIAM.
+	Type     AuthType      `json:"type"`
+	User     string        `json:"user"`
+	Password *PasswordAuth `json:"-"`
+	AWSIAM   *AWSIAMAuth   `json:"-"`
+	GCPIAM   *GCPIAMAuth   `json:"-"`
+}
+
+type PasswordAuth struct {
+	// Credential is the name of the Gateway-configured credential that holds the password.
+	Credential string `json:"credential"`
+}
+
+type AWSIAMAuth struct {
+	// Region signs the RDS auth token.
+	Region string `json:"region"`
+	// AssumeRoleARN is the role the Gateway assumes before signing the RDS auth token.
 	AssumeRoleARN string `json:"assume_role_arn,omitempty"` //nolint:tagliatelle // GAT wire format from the controller uses snake_case
+}
+
+type GCPIAMAuth struct {
 	// ImpersonateServiceAccount is the service account the Gateway impersonates before fetching the
-	// Cloud SQL token, for AuthTypeGCPIAM.
+	// Cloud SQL token.
 	ImpersonateServiceAccount string `json:"impersonate_service_account,omitempty"` //nolint:tagliatelle // GAT wire format from the controller uses snake_case
+}
+
+func (a Auth) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		*PasswordAuth
+		*AWSIAMAuth
+		*GCPIAMAuth
+
+		Type AuthType `json:"type"`
+		User string   `json:"user"`
+	}{a.Password, a.AWSIAM, a.GCPIAM, a.Type, a.User})
+}
+
+func (a *Auth) UnmarshalJSON(data []byte) error {
+	type auth Auth
+
+	if err := json.Unmarshal(data, (*auth)(a)); err != nil {
+		return err
+	}
+
+	switch a.Type {
+	case AuthTypePassword:
+		a.Password = &PasswordAuth{}
+
+		return json.Unmarshal(data, a.Password)
+	case AuthTypeAWSIAM:
+		a.AWSIAM = &AWSIAMAuth{}
+
+		return json.Unmarshal(data, a.AWSIAM)
+	case AuthTypeGCPIAM:
+		a.GCPIAM = &GCPIAMAuth{}
+
+		return json.Unmarshal(data, a.GCPIAM)
+	}
+
+	return nil
 }
 
 func (a Auth) Validate(upstreamTLSMode TLSClientMode) error {
@@ -277,13 +325,13 @@ func (a Auth) Validate(upstreamTLSMode TLSClientMode) error {
 
 	switch a.Type {
 	case AuthTypePassword:
-		if a.Credential == "" {
+		if a.Password.Credential == "" {
 			return fmt.Errorf("%w \"credential\"", jwt.ErrTokenRequiredClaimMissing)
 		}
 
 		return nil
 	case AuthTypeAWSIAM:
-		if a.Region == "" {
+		if a.AWSIAM.Region == "" {
 			return fmt.Errorf("%w \"region\"", jwt.ErrTokenRequiredClaimMissing)
 		}
 

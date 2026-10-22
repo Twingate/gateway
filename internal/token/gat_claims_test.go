@@ -144,7 +144,7 @@ func TestGATTokenClaims_Validate(t *testing.T) {
 		claims.Resource.Type = ResourceTypePostgreSQL
 		claims.Resource.GatewayMetadata.Downstream.TLSMode = TLSServerModeNone
 		claims.Resource.GatewayMetadata.Upstream.TLSMode = TLSClientModeVerifyFull
-		claims.Resource.GatewayMetadata.Auths = Auths{{Type: AuthTypePassword, User: "viewer", Credential: "prod-viewer"}}
+		claims.Resource.GatewayMetadata.Auths = Auths{{Type: AuthTypePassword, User: "viewer", Password: &PasswordAuth{Credential: "prod-viewer"}}}
 
 		assert.NoError(t, claims.Validate())
 	})
@@ -367,7 +367,7 @@ func TestGATTokenClaims_Validate(t *testing.T) {
 }
 
 func TestAuths_Validate(t *testing.T) {
-	validAuth := Auth{Type: AuthTypePassword, User: "viewer", Credential: "prod-viewer"}
+	validAuth := Auth{Type: AuthTypePassword, User: "viewer", Password: &PasswordAuth{Credential: "prod-viewer"}}
 
 	t.Run("Valid auths", func(t *testing.T) {
 		assert.NoError(t, Auths{validAuth}.Validate(TLSClientModeVerifyFull))
@@ -386,7 +386,7 @@ func TestAuths_Validate(t *testing.T) {
 		},
 		{
 			name:                 "Invalid auth",
-			auths:                Auths{{Type: AuthTypePassword, User: "editor"}},
+			auths:                Auths{{Type: AuthTypePassword, User: "editor", Password: &PasswordAuth{}}},
 			expectedError:        jwt.ErrTokenRequiredClaimMissing,
 			expectedErrorMessage: "resource.gateway_metadata.auths[0]: token is missing required claim \"credential\"",
 		},
@@ -411,17 +411,17 @@ func TestAuth_Validate(t *testing.T) {
 		{
 			name:            "password with upstream NONE",
 			upstreamTLSMode: TLSClientModeNone,
-			auth:            Auth{Type: AuthTypePassword, User: "viewer", Credential: "prod-viewer"},
+			auth:            Auth{Type: AuthTypePassword, User: "viewer", Password: &PasswordAuth{Credential: "prod-viewer"}},
 		},
 		{
 			name:            "AWS IAM with upstream VERIFY_FULL",
 			upstreamTLSMode: TLSClientModeVerifyFull,
-			auth:            Auth{Type: AuthTypeAWSIAM, User: "analytics", Region: "us-east-1"},
+			auth:            Auth{Type: AuthTypeAWSIAM, User: "analytics", AWSIAM: &AWSIAMAuth{Region: "us-east-1"}},
 		},
 		{
 			name:            "GCP IAM with upstream VERIFY_CA",
 			upstreamTLSMode: TLSClientModeVerifyCA,
-			auth:            Auth{Type: AuthTypeGCPIAM, User: "db@my-project.iam"},
+			auth:            Auth{Type: AuthTypeGCPIAM, User: "db@my-project.iam", GCPIAM: &GCPIAMAuth{}},
 		},
 	}
 
@@ -441,7 +441,7 @@ func TestAuth_Validate(t *testing.T) {
 		{
 			name:                 "Missing user",
 			upstreamTLSMode:      TLSClientModeVerifyFull,
-			auth:                 Auth{Type: AuthTypeGCPIAM},
+			auth:                 Auth{Type: AuthTypeGCPIAM, GCPIAM: &GCPIAMAuth{}},
 			expectedError:        jwt.ErrTokenRequiredClaimMissing,
 			expectedErrorMessage: "\"user\"",
 		},
@@ -455,28 +455,28 @@ func TestAuth_Validate(t *testing.T) {
 		{
 			name:                 "Password without credential",
 			upstreamTLSMode:      TLSClientModeVerifyFull,
-			auth:                 Auth{Type: AuthTypePassword, User: "viewer"},
+			auth:                 Auth{Type: AuthTypePassword, User: "viewer", Password: &PasswordAuth{}},
 			expectedError:        jwt.ErrTokenRequiredClaimMissing,
 			expectedErrorMessage: "\"credential\"",
 		},
 		{
 			name:                 "AWS IAM without region",
 			upstreamTLSMode:      TLSClientModeVerifyFull,
-			auth:                 Auth{Type: AuthTypeAWSIAM, User: "analytics"},
+			auth:                 Auth{Type: AuthTypeAWSIAM, User: "analytics", AWSIAM: &AWSIAMAuth{}},
 			expectedError:        jwt.ErrTokenRequiredClaimMissing,
 			expectedErrorMessage: "\"region\"",
 		},
 		{
 			name:                 "AWS IAM with upstream INSECURE",
 			upstreamTLSMode:      TLSClientModeInsecure,
-			auth:                 Auth{Type: AuthTypeAWSIAM, User: "analytics", Region: "us-east-1"},
+			auth:                 Auth{Type: AuthTypeAWSIAM, User: "analytics", AWSIAM: &AWSIAMAuth{Region: "us-east-1"}},
 			expectedError:        errUnverifiedIAMUpstream,
 			expectedErrorMessage: "\"resource.gateway_metadata.upstream.tls_mode\": \"INSECURE\"",
 		},
 		{
 			name:                 "GCP IAM with upstream NONE",
 			upstreamTLSMode:      TLSClientModeNone,
-			auth:                 Auth{Type: AuthTypeGCPIAM, User: "db@my-project.iam"},
+			auth:                 Auth{Type: AuthTypeGCPIAM, User: "db@my-project.iam", GCPIAM: &GCPIAMAuth{}},
 			expectedError:        errUnverifiedIAMUpstream,
 			expectedErrorMessage: "\"resource.gateway_metadata.upstream.tls_mode\": \"NONE\"",
 		},
@@ -596,20 +596,55 @@ func TestGatewayMetadata_UnmarshalTLSModes(t *testing.T) {
 	assert.Equal(t, TLSClientModeVerifyCA, metadata.Upstream.TLSMode)
 }
 
-func TestGatewayMetadata_UnmarshalAuths(t *testing.T) {
-	var metadata GatewayMetadata
-
-	err := json.Unmarshal([]byte(`{"auths": [
-		{"type": "password", "user": "viewer", "credential": "prod-viewer"},
-		{"type": "aws_iam", "user": "analytics", "region": "us-east-1", "assume_role_arn": "arn:aws:iam::123456789012:role/gateway-db"},
-		{"type": "gcp_iam", "user": "db@my-project.iam", "impersonate_service_account": "db@my-project.iam.gserviceaccount.com"}
-	]}`), &metadata)
-	require.NoError(t, err)
-
-	want := Auths{
-		{Type: AuthTypePassword, User: "viewer", Credential: "prod-viewer"},
-		{Type: AuthTypeAWSIAM, User: "analytics", Region: "us-east-1", AssumeRoleARN: "arn:aws:iam::123456789012:role/gateway-db"},
-		{Type: AuthTypeGCPIAM, User: "db@my-project.iam", ImpersonateServiceAccount: "db@my-project.iam.gserviceaccount.com"},
+func TestAuth_JSONRoundTrip(t *testing.T) {
+	tests := []struct {
+		name string
+		json string
+		want Auth
+	}{
+		{
+			name: "Password",
+			json: `{"type": "password", "user": "viewer", "credential": "prod-viewer"}`,
+			want: Auth{Type: AuthTypePassword, User: "viewer", Password: &PasswordAuth{Credential: "prod-viewer"}},
+		},
+		{
+			name: "AWS IAM",
+			json: `{"type": "aws_iam", "user": "analytics", "region": "us-east-1", "assume_role_arn": "arn:aws:iam::123456789012:role/gateway-db"}`,
+			want: Auth{Type: AuthTypeAWSIAM, User: "analytics", AWSIAM: &AWSIAMAuth{Region: "us-east-1", AssumeRoleARN: "arn:aws:iam::123456789012:role/gateway-db"}},
+		},
+		{
+			name: "GCP IAM",
+			json: `{"type": "gcp_iam", "user": "db@my-project.iam", "impersonate_service_account": "db@my-project.iam.gserviceaccount.com"}`,
+			want: Auth{Type: AuthTypeGCPIAM, User: "db@my-project.iam", GCPIAM: &GCPIAMAuth{ImpersonateServiceAccount: "db@my-project.iam.gserviceaccount.com"}},
+		},
+		{
+			name: "Unknown type",
+			json: `{"type": "md5", "user": "viewer"}`,
+			want: Auth{Type: "md5", User: "viewer"},
+		},
 	}
-	assert.Equal(t, want, metadata.Auths)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var auth Auth
+
+			err := json.Unmarshal([]byte(tt.json), &auth)
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.want, auth)
+
+			jsonBytes, err := json.Marshal(auth)
+			require.NoError(t, err)
+
+			assert.JSONEq(t, tt.json, string(jsonBytes))
+		})
+	}
+
+	t.Run("Invalid JSON value", func(t *testing.T) {
+		var auth Auth
+
+		err := json.Unmarshal([]byte(`3`), &auth)
+
+		require.ErrorContains(t, err, "cannot unmarshal number")
+	})
 }
