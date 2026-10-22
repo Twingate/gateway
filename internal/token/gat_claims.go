@@ -34,6 +34,7 @@ var (
 	errInvalidTLSMode        = errors.New("invalid TLS mode")
 	errInvalidAuthType       = errors.New("invalid auth type")
 	errUnverifiedIAMUpstream = errors.New("IAM auth requires upstream TLS mode VERIFY_FULL or VERIFY_CA")
+	errUnsupportedTLS        = errors.New("downstream TLS is not supported")
 )
 
 type GATClaims struct {
@@ -100,6 +101,11 @@ func (p GATClaims) Validate() error {
 	}
 
 	if p.Resource.Type == ResourceTypePostgreSQL {
+		// Don't support TLS with downstream PostgreSQL clients.
+		if err := rejectDownstreamTLSMode(p.Resource.GatewayMetadata.Downstream.TLSMode); err != nil {
+			return err
+		}
+
 		return p.Resource.GatewayMetadata.Auths.Validate(p.Resource.GatewayMetadata.Upstream.TLSMode)
 	}
 
@@ -121,6 +127,14 @@ func validatePort(port int, fieldName string) error {
 func validateTLSMode[T ~string](mode T, validModes []T, fieldName string) error {
 	if !slices.Contains(validModes, mode) {
 		return fmt.Errorf("%w: %w %q: %q", jwt.ErrTokenInvalidClaims, errInvalidTLSMode, fieldName, mode)
+	}
+
+	return nil
+}
+
+func rejectDownstreamTLSMode(mode TLSServerMode) error {
+	if mode != TLSServerModeNone {
+		return fmt.Errorf("%w: %w %q: %q", jwt.ErrTokenInvalidClaims, errUnsupportedTLS, "resource.gateway_metadata.downstream.tls_mode", mode)
 	}
 
 	return nil
