@@ -27,11 +27,13 @@ const (
 )
 
 var (
-	errInvalidPublicKey   = errors.New("not a valid public key")
-	errInvalidTokenType   = errors.New("token type is invalid")
-	errUnsupportedVersion = errors.New("unsupported version")
-	errInvalidPort        = errors.New("invalid port")
-	errInvalidTLSMode     = errors.New("invalid TLS mode")
+	errInvalidPublicKey      = errors.New("not a valid public key")
+	errInvalidTokenType      = errors.New("token type is invalid")
+	errUnsupportedVersion    = errors.New("unsupported version")
+	errInvalidPort           = errors.New("invalid port")
+	errInvalidTLSMode        = errors.New("invalid TLS mode")
+	errInvalidAuthType       = errors.New("invalid auth type")
+	errUnverifiedIAMUpstream = errors.New("IAM auth requires upstream TLS mode VERIFY_FULL or VERIFY_CA")
 )
 
 type GATClaims struct {
@@ -83,9 +85,9 @@ func (p GATClaims) Validate() error {
 		return err
 	}
 
-	// The Controller sends TLS modes only for Web App resources. Kubernetes always uses TLS and SSH
-	// never does, so their GATs carry no tls_mode.
-	if p.Resource.Type != ResourceTypeWebApp {
+	// The Controller sends TLS modes only for Web App and PostgreSQL resources. Kubernetes always
+	// uses TLS and SSH never does, so their GATs carry no tls_mode.
+	if p.Resource.Type != ResourceTypeWebApp && p.Resource.Type != ResourceTypePostgreSQL {
 		return nil
 	}
 
@@ -93,7 +95,15 @@ func (p GATClaims) Validate() error {
 		return err
 	}
 
-	return validateTLSMode(p.Resource.GatewayMetadata.Upstream.TLSMode, TLSClientModes, "resource.gateway_metadata.upstream.tls_mode")
+	if err := validateTLSMode(p.Resource.GatewayMetadata.Upstream.TLSMode, TLSClientModes, "resource.gateway_metadata.upstream.tls_mode"); err != nil {
+		return err
+	}
+
+	if p.Resource.Type == ResourceTypePostgreSQL {
+		return p.Resource.GatewayMetadata.Auths.Validate(p.Resource.GatewayMetadata.Upstream.TLSMode)
+	}
+
+	return nil
 }
 
 // validatePort ensures a GAT-provided port is within the valid TCP range. A missing port (zero)
@@ -122,7 +132,7 @@ func (p GATClaims) ShouldUpgradeTLS() bool {
 		return true
 	case ResourceTypeWebApp:
 		return p.Resource.GatewayMetadata.Downstream.TLSMode == TLSServerModeTLS13
-	case ResourceTypeSSH:
+	case ResourceTypeSSH, ResourceTypePostgreSQL:
 		return false
 	}
 
@@ -168,6 +178,7 @@ const (
 	ResourceTypeKubernetes ResourceType = "KUBERNETES"
 	ResourceTypeSSH        ResourceType = "SSH"
 	ResourceTypeWebApp     ResourceType = "WEB_APP"
+	ResourceTypePostgreSQL ResourceType = "POSTGRESQL"
 )
 
 type Resource struct {
@@ -182,6 +193,7 @@ type GatewayMetadata struct {
 	Downstream            Downstream        `json:"downstream"`
 	Upstream              Upstream          `json:"upstream"`
 	RequestHeaderRewrites map[string]string `json:"request_header_rewrites,omitempty"` //nolint:tagliatelle // GAT wire format from the controller uses snake_case
+	Auths                 Auths             `json:"auths,omitempty"`
 }
 
 // Downstream describes the connection between the protocol client and the Gateway.
@@ -225,6 +237,130 @@ const (
 )
 
 var TLSClientModes = []TLSClientMode{TLSClientModeVerifyFull, TLSClientModeVerifyCA, TLSClientModeInsecure, TLSClientModeNone}
+
+type AuthType string
+
+const (
+	// AuthTypePassword authenticates with the password of a credential configured on the Gateway.
+	AuthTypePassword AuthType = "password"
+	// AuthTypeAWSIAM authenticates with an AWS RDS IAM auth token.
+	AuthTypeAWSIAM AuthType = "aws_iam"
+	// AuthTypeGCPIAM authenticates with a Google Cloud SQL IAM access token.
+	AuthTypeGCPIAM AuthType = "gcp_iam"
+)
+
+// Auths is a list of authentication methods that the Gateway can use to connect to the upstream database.
+type Auths []Auth
+
+func (a Auths) Validate(upstreamTLSMode TLSClientMode) error {
+	if len(a) == 0 {
+		return fmt.Errorf("%w \"%s\"", jwt.ErrTokenRequiredClaimMissing, "resource.gateway_metadata.auths")
+	}
+
+	for i, auth := range a {
+		if err := auth.Validate(upstreamTLSMode); err != nil {
+			return fmt.Errorf("resource.gateway_metadata.auths[%d]: %w", i, err)
+		}
+	}
+
+	return nil
+}
+
+// Auth is the authentication method that the Gateway uses to connect to the upstream database as User.
+type Auth struct {
+	Type     AuthType      `json:"type"`
+	User     string        `json:"user"`
+	Password *PasswordAuth `json:"-"`
+	AWSIAM   *AWSIAMAuth   `json:"-"`
+	GCPIAM   *GCPIAMAuth   `json:"-"`
+}
+
+type PasswordAuth struct {
+	// Credential is the name of the Gateway-configured credential that holds the password.
+	Credential string `json:"credential"`
+}
+
+type AWSIAMAuth struct {
+	// Region signs the RDS auth token.
+	Region string `json:"region"`
+	// AssumeRoleARN is the role the Gateway assumes before signing the RDS auth token.
+	AssumeRoleARN string `json:"assume_role_arn,omitempty"` //nolint:tagliatelle // GAT wire format from the controller uses snake_case
+}
+
+type GCPIAMAuth struct {
+	// ImpersonateServiceAccount is the service account the Gateway impersonates before fetching the
+	// Cloud SQL token.
+	ImpersonateServiceAccount string `json:"impersonate_service_account,omitempty"` //nolint:tagliatelle // GAT wire format from the controller uses snake_case
+}
+
+func (a Auth) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		*PasswordAuth
+		*AWSIAMAuth
+		*GCPIAMAuth
+
+		Type AuthType `json:"type"`
+		User string   `json:"user"`
+	}{a.Password, a.AWSIAM, a.GCPIAM, a.Type, a.User})
+}
+
+func (a *Auth) UnmarshalJSON(data []byte) error {
+	type auth Auth
+
+	if err := json.Unmarshal(data, (*auth)(a)); err != nil {
+		return err
+	}
+
+	switch a.Type {
+	case AuthTypePassword:
+		a.Password = &PasswordAuth{}
+
+		return json.Unmarshal(data, a.Password)
+	case AuthTypeAWSIAM:
+		a.AWSIAM = &AWSIAMAuth{}
+
+		return json.Unmarshal(data, a.AWSIAM)
+	case AuthTypeGCPIAM:
+		a.GCPIAM = &GCPIAMAuth{}
+
+		return json.Unmarshal(data, a.GCPIAM)
+	}
+
+	return nil
+}
+
+func (a Auth) Validate(upstreamTLSMode TLSClientMode) error {
+	if a.User == "" {
+		return fmt.Errorf("%w \"user\"", jwt.ErrTokenRequiredClaimMissing)
+	}
+
+	switch a.Type {
+	case AuthTypePassword:
+		if a.Password.Credential == "" {
+			return fmt.Errorf("%w \"credential\"", jwt.ErrTokenRequiredClaimMissing)
+		}
+
+		return nil
+	case AuthTypeAWSIAM:
+		if a.AWSIAM.Region == "" {
+			return fmt.Errorf("%w \"region\"", jwt.ErrTokenRequiredClaimMissing)
+		}
+
+		return validateIAMUpstreamTLSMode(upstreamTLSMode)
+	case AuthTypeGCPIAM:
+		return validateIAMUpstreamTLSMode(upstreamTLSMode)
+	}
+
+	return fmt.Errorf("%w: %w %q", jwt.ErrTokenInvalidClaims, errInvalidAuthType, a.Type)
+}
+
+func validateIAMUpstreamTLSMode(mode TLSClientMode) error {
+	if mode != TLSClientModeVerifyFull && mode != TLSClientModeVerifyCA {
+		return fmt.Errorf("%w: %w %q: %q", jwt.ErrTokenInvalidClaims, errUnverifiedIAMUpstream, "resource.gateway_metadata.upstream.tls_mode", mode)
+	}
+
+	return nil
+}
 
 // PublicKey is a wrapper for ecdsa.PublicKey that adds support for JSON
 // marshaling and unmarshaling. It uses PEM encoding followed by base64 encoding

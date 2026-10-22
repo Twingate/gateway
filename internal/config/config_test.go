@@ -393,6 +393,47 @@ ssh:
 	assert.Equal(t, "ssh-upstream-host", v.GetUpstreamHostCAMount())
 }
 
+func TestLoad_PostgreSQL(t *testing.T) {
+	yaml := `
+twingate:
+  network: "acme"
+tls:
+  certificates:
+    files:
+      - certificateFile: "tls.crt"
+        privateKeyFile: "tls.key"
+postgresql:
+  credentials:
+    - name: "prod-viewer"
+      password: "viewer-password"
+    - name: "prod-editor"
+      passwordFile: "/path/to/password"
+      clientCertificateFile: "/path/to/tls.crt"
+      clientPrivateKeyFile: "/path/to/tls.key"
+`
+
+	tmpFile := filepath.Join(t.TempDir(), "config.yaml")
+	err := os.WriteFile(tmpFile, []byte(yaml), 0600)
+	require.NoError(t, err)
+
+	cfg, err := Load(tmpFile)
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+
+	want := &PostgreSQLConfig{
+		Credentials: []PostgreSQLCredential{
+			{Name: "prod-viewer", Password: "viewer-password"},
+			{
+				Name:                  "prod-editor",
+				PasswordFile:          "/path/to/password",
+				ClientCertificateFile: "/path/to/tls.crt",
+				ClientPrivateKeyFile:  "/path/to/tls.key",
+			},
+		},
+	}
+	assert.Equal(t, want, cfg.PostgreSQL)
+}
+
 func TestLoad_UseDefaultValues(t *testing.T) {
 	yaml := `
 twingate:
@@ -531,6 +572,30 @@ func TestConfig_Validate(t *testing.T) {
 			},
 			wantErr:     true,
 			errContains: "upstreamTrustedCABundles config",
+		},
+		{
+			name: "invalid postgresql credential",
+			config: &Config{
+				Twingate:    TwingateConfig{Network: "test", Host: "twingate.com"},
+				Port:        8443,
+				MetricsPort: 9090,
+				Log: LogConfig{
+					SessionRecording: SessionRecordingConfig{
+						Segment: SessionRecordingSegmentConfig{MaxSize: defaultSessionRecordingSegmentMaxSize},
+					},
+				},
+				TLS: TLSConfig{
+					Certificates: &TLSCertificateSources{
+						Files: []TLSCertificateFileKeyPair{
+							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+						},
+					},
+				},
+				Kubernetes: &KubernetesConfig{},
+				PostgreSQL: &PostgreSQLConfig{Credentials: []PostgreSQLCredential{{}}},
+			},
+			wantErr:     true,
+			errContains: "postgresql config",
 		},
 		{
 			name: "missing Twingate network",
@@ -2535,6 +2600,142 @@ func TestVaultAWSConfig_Validate(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := tt.cfg.Validate()
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errContains)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestPostgreSQLConfig_Validate(t *testing.T) {
+	tests := []struct {
+		name        string
+		postgresql  PostgreSQLConfig
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name: "valid credentials",
+			postgresql: PostgreSQLConfig{
+				Credentials: []PostgreSQLCredential{
+					{Name: "prod-viewer", PasswordFile: "/path/to/viewer"},
+					{Name: "prod-editor", PasswordFile: "/path/to/editor"},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name:       "no credentials is allowed (IAM logins need none)",
+			postgresql: PostgreSQLConfig{},
+			wantErr:    false,
+		},
+		{
+			name: "invalid credential",
+			postgresql: PostgreSQLConfig{
+				Credentials: []PostgreSQLCredential{{Name: "prod-viewer"}},
+			},
+			wantErr:     true,
+			errContains: "credentials[0] (name: \"prod-viewer\")",
+		},
+		{
+			name: "duplicate credential names",
+			postgresql: PostgreSQLConfig{
+				Credentials: []PostgreSQLCredential{
+					{Name: "prod-viewer", PasswordFile: "/path/to/viewer"},
+					{Name: "prod-viewer", Password: "viewer-password"},
+				},
+			},
+			wantErr:     true,
+			errContains: "duplicate credential name: \"prod-viewer\"",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.postgresql.Validate()
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errContains)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestPostgreSQLCredential_Validate(t *testing.T) {
+	tests := []struct {
+		name        string
+		credential  PostgreSQLCredential
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:       "valid with password",
+			credential: PostgreSQLCredential{Name: "prod-viewer", Password: "viewer-password"},
+			wantErr:    false,
+		},
+		{
+			name:       "valid with password file",
+			credential: PostgreSQLCredential{Name: "prod-viewer", PasswordFile: "/path/to/password"},
+			wantErr:    false,
+		},
+		{
+			name: "valid with client certificate",
+			credential: PostgreSQLCredential{
+				Name:                  "prod-editor",
+				PasswordFile:          "/path/to/password",
+				ClientCertificateFile: "/path/to/tls.crt",
+				ClientPrivateKeyFile:  "/path/to/tls.key",
+			},
+			wantErr: false,
+		},
+		{
+			name:        "missing name",
+			credential:  PostgreSQLCredential{Password: "viewer-password"},
+			wantErr:     true,
+			errContains: "name",
+		},
+		{
+			name:        "missing password",
+			credential:  PostgreSQLCredential{Name: "prod-viewer"},
+			wantErr:     true,
+			errContains: "either 'password' or 'passwordFile' is required",
+		},
+		{
+			name:        "conflicting password and password file",
+			credential:  PostgreSQLCredential{Name: "prod-viewer", Password: "viewer-password", PasswordFile: "/path/to/password"},
+			wantErr:     true,
+			errContains: "only one of 'password' or 'passwordFile' can be specified",
+		},
+		{
+			name: "client certificate without private key",
+			credential: PostgreSQLCredential{
+				Name:                  "prod-editor",
+				PasswordFile:          "/path/to/password",
+				ClientCertificateFile: "/path/to/tls.crt",
+			},
+			wantErr:     true,
+			errContains: "both 'clientCertificateFile' and 'clientPrivateKeyFile' are required when either is set",
+		},
+		{
+			name: "client private key without certificate",
+			credential: PostgreSQLCredential{
+				Name:                 "prod-editor",
+				PasswordFile:         "/path/to/password",
+				ClientPrivateKeyFile: "/path/to/tls.key",
+			},
+			wantErr:     true,
+			errContains: "both 'clientCertificateFile' and 'clientPrivateKeyFile' are required when either is set",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.credential.Validate()
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.errContains)
