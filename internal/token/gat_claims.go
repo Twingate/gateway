@@ -238,6 +238,17 @@ const (
 
 var TLSClientModes = []TLSClientMode{TLSClientModeVerifyFull, TLSClientModeVerifyCA, TLSClientModeInsecure, TLSClientModeNone}
 
+type AuthType string
+
+const (
+	// AuthTypePassword authenticates with the password of a credential configured on the Gateway.
+	AuthTypePassword AuthType = "password"
+	// AuthTypeAWSIAM authenticates with an AWS RDS IAM auth token.
+	AuthTypeAWSIAM AuthType = "aws_iam"
+	// AuthTypeGCPIAM authenticates with a Google Cloud SQL IAM access token.
+	AuthTypeGCPIAM AuthType = "gcp_iam"
+)
+
 // Auths is a list of authentication methods that the Gateway can use to connect to the upstream database.
 type Auths []Auth
 
@@ -350,17 +361,6 @@ func validateIAMUpstreamTLSMode(mode TLSClientMode) error {
 
 	return nil
 }
-
-type AuthType string
-
-const (
-	// AuthTypePassword authenticates with the password of a credential configured on the Gateway.
-	AuthTypePassword AuthType = "password"
-	// AuthTypeAWSIAM authenticates with an AWS RDS IAM auth token.
-	AuthTypeAWSIAM AuthType = "aws_iam"
-	// AuthTypeGCPIAM authenticates with a Google Cloud SQL IAM access token.
-	AuthTypeGCPIAM AuthType = "gcp_iam"
-)
 
 // PublicKey is a wrapper for ecdsa.PublicKey that adds support for JSON
 // marshaling and unmarshaling. It uses PEM encoding followed by base64 encoding
