@@ -74,6 +74,7 @@ type Config struct {
 	Kubernetes               *KubernetesConfig         `yaml:"kubernetes,omitempty"`
 	SSH                      *SSHConfig                `yaml:"ssh,omitempty"`
 	WebApp                   *WebAppConfig             `yaml:"webApp,omitempty"`
+	PostgreSQL               *PostgreSQLConfig         `yaml:"postgresql,omitempty"`
 }
 
 type TwingateConfig struct {
@@ -347,6 +348,21 @@ type WebAppConfig struct {
 	RequestHeaders map[string]string `yaml:"requestHeaders,omitempty"`
 }
 
+type PostgreSQLConfig struct {
+	Credentials []PostgreSQLCredential `yaml:"credentials"`
+}
+
+// PostgreSQLCredential is the credential that the Gateway uses to authenticate to the database.
+type PostgreSQLCredential struct {
+	Name         string `yaml:"name"`
+	Password     string `yaml:"password,omitempty"`
+	PasswordFile string `yaml:"passwordFile,omitempty"`
+	// The Gateway's own certificate and key, presented when the database asks for a client
+	// certificate during the TLS handshake.
+	ClientCertificateFile string `yaml:"clientCertificateFile,omitempty"`
+	ClientPrivateKeyFile  string `yaml:"clientPrivateKeyFile,omitempty"`
+}
+
 func newDefaultConfig() *Config {
 	return &Config{
 		Port:        defaultPort,
@@ -482,6 +498,12 @@ func (c *Config) Validate() error {
 	if c.SSH != nil {
 		if err := c.SSH.Validate(); err != nil {
 			return fmt.Errorf("ssh config: %w", err)
+		}
+	}
+
+	if c.PostgreSQL != nil {
+		if err := c.PostgreSQL.Validate(); err != nil {
+			return fmt.Errorf("postgresql config: %w", err)
 		}
 	}
 
@@ -1314,6 +1336,49 @@ func (v *SSHCAVaultConfig) GetUpstreamHostCAMount() string {
 	}
 
 	return defaultVaultSSHMount
+}
+
+var (
+	errDuplicateCredential       = errors.New("duplicate credential name")
+	errConflictingPasswordConfig = errors.New("only one of 'password' or 'passwordFile' can be specified")
+)
+
+func (p *PostgreSQLConfig) Validate() error {
+	credentialNames := make(map[string]struct{})
+
+	for i, credential := range p.Credentials {
+		if err := credential.Validate(); err != nil {
+			return fmt.Errorf("credentials[%d] (name: %q): %w", i, credential.Name, err)
+		}
+
+		if _, exists := credentialNames[credential.Name]; exists {
+			return fmt.Errorf("%w: %q", errDuplicateCredential, credential.Name)
+		}
+
+		credentialNames[credential.Name] = struct{}{}
+	}
+
+	return nil
+}
+
+func (c *PostgreSQLCredential) Validate() error {
+	if c.Name == "" {
+		return fmt.Errorf("%w: name", ErrRequired)
+	}
+
+	if c.Password != "" && c.PasswordFile != "" {
+		return errConflictingPasswordConfig
+	}
+
+	if c.Password == "" && c.PasswordFile == "" {
+		return fmt.Errorf("%w: either 'password' or 'passwordFile' is required", ErrRequired)
+	}
+
+	if (c.ClientCertificateFile == "") != (c.ClientPrivateKeyFile == "") {
+		return fmt.Errorf("%w: both 'clientCertificateFile' and 'clientPrivateKeyFile' are required when either is set", ErrRequired)
+	}
+
+	return nil
 }
 
 // validateHost checks host is a well-formed hostname for a trusted Twingate controller domain.
