@@ -4,7 +4,6 @@
 package testutil
 
 import (
-	"fmt"
 	"net"
 
 	"gateway/internal/token"
@@ -19,11 +18,11 @@ type User struct {
 	client  *fake.Client
 }
 
-func NewUser(user *token.User, gatewayPort int, kindAddress, controllerURL string) (*User, error) {
+func NewUser(user *token.User, gatewayAddress, kindAddress, controllerURL string) (*User, error) {
 	client := fake.NewClient(
 		user,
 		token.GeoIPLocation{},
-		fmt.Sprintf("127.0.0.1:%d", gatewayPort),
+		gatewayAddress,
 		controllerURL,
 		kindAddress,
 		token.ResourceTypeKubernetes,
@@ -55,11 +54,11 @@ type SSHUser struct {
 	client *fake.Client
 }
 
-func NewSSHUser(user *token.User, gatewayPort int, sshServerAddress, controllerURL, knownHostsFile string) (*SSHUser, error) {
+func NewSSHUser(user *token.User, gatewayAddress, sshServerAddress, controllerURL, knownHostsFile string) (*SSHUser, error) {
 	client := fake.NewClient(
 		user,
 		token.GeoIPLocation{},
-		fmt.Sprintf("127.0.0.1:%d", gatewayPort),
+		gatewayAddress,
 		controllerURL,
 		sshServerAddress,
 		token.ResourceTypeSSH,
@@ -89,11 +88,11 @@ type WebAppUser struct {
 	client *fake.Client
 }
 
-func NewWebAppUser(user *token.User, geoIPLocation token.GeoIPLocation, gatewayPort int, upstreamAddress, controllerURL string, requestHeaderRewrites map[string]string) *WebAppUser {
+func NewWebAppUser(user *token.User, geoIPLocation token.GeoIPLocation, gatewayAddress, upstreamAddress, controllerURL string, requestHeaderRewrites map[string]string) *WebAppUser {
 	client := fake.NewClient(
 		user,
 		geoIPLocation,
-		fmt.Sprintf("127.0.0.1:%d", gatewayPort),
+		gatewayAddress,
 		controllerURL,
 		upstreamAddress,
 		token.ResourceTypeWebApp,
