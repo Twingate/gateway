@@ -86,6 +86,11 @@ test: ##@test Run unit tests
 	@echo "Running unit tests..."
 	go test -race -v $(UNIT_TEST_PACKAGES)
 
+.PHONY: bench
+bench: ##@test Run Go benchmarks (compare runs with benchstat)
+	@echo "Running benchmarks..."
+	go test -run '^$$' -bench . -benchmem -count 6 $(UNIT_TEST_PACKAGES)
+
 .PHONY: test-with-coverage
 test-with-coverage: ##@test Run unit tests with coverage
 	@echo "Running unit tests with coverage..."
