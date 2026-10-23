@@ -130,7 +130,7 @@ func TestRecorder_MultipleEvents(t *testing.T) {
 
 func TestRecorder_Stop(t *testing.T) {
 	testRegistry := prometheus.NewRegistry()
-	RegisterRecordedSessionMetrics("test", testRegistry)
+	RegisterRecordedSessionMetrics(testRegistry)
 
 	core, logs := observer.New(zap.DebugLevel)
 	r := New(zap.New(core), gatewayconfig.SessionRecordingSegmentConfig{}).(*asciicastRecorder)
@@ -156,7 +156,7 @@ func TestRecorder_Stop(t *testing.T) {
 	metricFamilies, err := testRegistry.Gather()
 	require.NoError(t, err)
 	assert.Len(t, metricFamilies, 1)
-	assert.Equal(t, "test_recorded_session_duration_seconds", metricFamilies[0].GetName())
+	assert.Equal(t, "twingate_gateway_recorded_session_duration_seconds", metricFamilies[0].GetName())
 
 	// Try to write after stop
 	err = r.WriteOutputEvent([]byte("should fail"))
@@ -169,7 +169,7 @@ func TestRecorder_Stop(t *testing.T) {
 
 func TestRecorder_PeriodicFlush(t *testing.T) {
 	testRegistry := prometheus.NewRegistry()
-	RegisterRecordedSessionMetrics("test", testRegistry)
+	RegisterRecordedSessionMetrics(testRegistry)
 
 	synctest.Test(t, func(t *testing.T) {
 		core, logs := observer.New(zap.DebugLevel)
@@ -223,7 +223,7 @@ func TestRecorder_PeriodicFlush(t *testing.T) {
 
 func TestRecorderFlow(t *testing.T) {
 	testRegistry := prometheus.NewRegistry()
-	RegisterRecordedSessionMetrics("test", testRegistry)
+	RegisterRecordedSessionMetrics(testRegistry)
 
 	synctest.Test(t, func(t *testing.T) {
 		r := New(zap.NewNop(), gatewayconfig.SessionRecordingSegmentConfig{}).(*asciicastRecorder)
@@ -274,7 +274,7 @@ func TestRecorderFlow(t *testing.T) {
 
 func TestRecorder_WriteJSON_NoFlushWhenSegmentMaxSizeIsZero(t *testing.T) {
 	testRegistry := prometheus.NewRegistry()
-	RegisterRecordedSessionMetrics("test", testRegistry)
+	RegisterRecordedSessionMetrics(testRegistry)
 
 	synctest.Test(t, func(t *testing.T) {
 		core, logs := observer.New(zap.DebugLevel)
@@ -295,7 +295,7 @@ func TestRecorder_WriteJSON_NoFlushWhenSegmentMaxSizeIsZero(t *testing.T) {
 
 func TestRecorder_WriteJSON_FlushLogsWhenExceedingSegmentMaxSize(t *testing.T) {
 	testRegistry := prometheus.NewRegistry()
-	RegisterRecordedSessionMetrics("test", testRegistry)
+	RegisterRecordedSessionMetrics(testRegistry)
 
 	synctest.Test(t, func(t *testing.T) {
 		core, logs := observer.New(zap.DebugLevel)
@@ -358,7 +358,7 @@ func TestRecorder_WriteJSON_Error(t *testing.T) {
 
 func TestRecorder_StoreEvent_Error(t *testing.T) {
 	testRegistry := prometheus.NewRegistry()
-	RegisterRecordedSessionMetrics("test", testRegistry)
+	RegisterRecordedSessionMetrics(testRegistry)
 
 	r := New(zap.NewNop(), gatewayconfig.SessionRecordingSegmentConfig{}).(*asciicastRecorder)
 	r.Stop()

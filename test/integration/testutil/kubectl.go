@@ -11,12 +11,13 @@ import (
 )
 
 type KubectlOptions struct {
+	Kubeconfig               string
 	Context                  string
 	ServerURL                string
 	CertificateAuthorityFile string
 }
 
-// Kubectl contains context or server info to run kubectl commands.
+// Kubectl contains kubeconfig, context or server info to run kubectl commands.
 type Kubectl struct {
 	Options KubectlOptions
 }
@@ -37,9 +38,13 @@ func (k *Kubectl) CommandContext(ctx context.Context, cmdOptions ...string) ([]b
 
 func (k *Kubectl) executeKubectl(ctx context.Context, stdIn io.Reader, cmdOptions ...string) ([]byte, error) {
 	var options []string
-	if k.Options.Context != "" {
+
+	switch {
+	case k.Options.Kubeconfig != "":
+		options = []string{"--kubeconfig", k.Options.Kubeconfig}
+	case k.Options.Context != "":
 		options = []string{"--context", k.Options.Context}
-	} else {
+	default:
 		options = []string{
 			"--server", k.Options.ServerURL,
 			"--certificate-authority", k.Options.CertificateAuthorityFile,

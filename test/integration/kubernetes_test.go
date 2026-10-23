@@ -5,6 +5,7 @@ package integration
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"net/url"
 	"os/exec"
@@ -19,37 +20,26 @@ import (
 	"gateway/internal/proxy"
 	"gateway/internal/sessionrecorder"
 	"gateway/internal/token"
-	"gateway/test/fake"
 	"gateway/test/integration/testutil"
 )
-
-const network = "acme"
-const host = "test"
 
 // TestKubernetes tests the following properties:
 // - User's identity is correctly forwarded to the Kubernetes API server and logged.
 // - REST API request and response are audited.
 // - Streaming API request and its session recording are audited.
 func TestKubernetes(t *testing.T) {
-	const gatewayPort = 8443
+	t.Parallel()
 
 	kindKubectl, kindKubeConfig, kindBearerToken := testutil.SetupKinD(t)
 
 	kindURL, err := url.Parse(kindKubeConfig.Host)
 	require.NoError(t, err, "failed to parse API server URL")
 
-	// Start the Controller
-	controller := fake.NewController(network, 8080)
-	defer controller.Close()
-
-	t.Log("Controller is serving at", controller.URL)
-
 	config := gatewayconfig.Config{
 		Twingate: gatewayconfig.TwingateConfig{
 			Network: network,
 			Host:    host,
 		},
-		Port:        gatewayPort,
 		MetricsPort: 0,
 		TLS: gatewayconfig.TLSConfig{
 			Certificates: &gatewayconfig.TLSCertificateSources{
@@ -77,13 +67,17 @@ func TestKubernetes(t *testing.T) {
 	p, err := proxy.NewProxy(&config, prometheus.NewRegistry(), logger)
 	require.NoError(t, err, "failed to create proxy")
 
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err, "failed to listen")
+
 	// Start the Gateway
 	go func() {
-		err := p.Start()
+		err := p.Start(listener)
 		t.Logf("Failed to start Gateway: %v", err)
 	}()
 
-	testutil.GatewayHealthCheck(t, gatewayPort)
+	gatewayAddress := listener.Addr().String()
+	testutil.GatewayHealthCheck(t, gatewayAddress)
 
 	// Create a user
 	user, err := testutil.NewUser(
@@ -92,9 +86,9 @@ func TestKubernetes(t *testing.T) {
 			Username: "alex@acme.com",
 			Groups:   []string{"OnCall", "Engineering"},
 		},
-		gatewayPort,
+		gatewayAddress,
 		kindURL.Host,
-		controller.URL,
+		controllerURL,
 	)
 	require.NoError(t, err, "failed to create user")
 
