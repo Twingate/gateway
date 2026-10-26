@@ -87,7 +87,7 @@ jobs:
 
       # Integration tests
       - name: Setup Docker
-        uses: docker/setup-docker-action@2bf61fb9464cc67f0cbdeabed6aa0380accd1c70 # v5.5.0
+        uses: docker/setup-docker-action@7ec28a010822b4626af4874f9448a4b05ac6f3e5 # v5.6.0
       - name: Install Caddy
         run: |
           curl -fsSL https://github.com/caddyserver/caddy/releases/download/v${{ env.CADDY_VERSION }}/caddy_${{ env.CADDY_VERSION }}_linux_amd64.tar.gz | tar -xzv
@@ -157,7 +157,7 @@ jobs:
         go-version: ${{ env.GOLANG_VERSION }}
 
     - name: Log in to the Container registry
-      uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+      uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
       with:
         registry: ${{ env.REGISTRY }}
         username: ${{ github.actor }}
@@ -212,7 +212,7 @@ jobs:
       run: go install sigs.k8s.io/kind
 
     - name: Setup Docker
-      uses: docker/setup-docker-action@2bf61fb9464cc67f0cbdeabed6aa0380accd1c70 # v5.5.0
+      uses: docker/setup-docker-action@7ec28a010822b4626af4874f9448a4b05ac6f3e5 # v5.6.0
 
     - name: Download docker images
       uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
