@@ -101,7 +101,6 @@ func (p GATClaims) Validate() error {
 	}
 
 	if p.Resource.Type == ResourceTypePostgreSQL {
-		// Don't support TLS with downstream PostgreSQL clients.
 		if err := rejectDownstreamTLSMode(p.Resource.GatewayMetadata.Downstream.TLSMode); err != nil {
 			return err
 		}
