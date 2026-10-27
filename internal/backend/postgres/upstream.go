@@ -30,6 +30,7 @@ const sslAccepted = 'S'
 
 var (
 	errUnsupportedAuthType       = errors.New("unsupported auth type")
+	errEmptyPassword             = errors.New("empty password")
 	errFailedToConnectUpstream   = errors.New("failed to connect to upstream")
 	errFailedToTakeOverUpstream  = errors.New("failed to take over the upstream connection")
 	errTLSRejected               = errors.New("TLS rejected")
@@ -128,6 +129,11 @@ func connectUpstream(ctx context.Context, cfg upstreamConfig) (*pgconn.HijackedC
 
 // newConnectConfig is the pgconn config that authenticates to the upstream database.
 func newConnectConfig(cfg upstreamConfig) (*pgconn.Config, error) {
+	// ParseConfig falls back to the gateway host's ~/.pgpass when the password is empty.
+	if cfg.password == "" {
+		return nil, errEmptyPassword
+	}
+
 	// `sslmode=disable` prevents ParseConfig from building a TLS config and a plaintext fallback.
 	// Set the TLS config explicitly below.
 	connString := (&url.URL{
@@ -144,7 +150,10 @@ func newConnectConfig(cfg upstreamConfig) (*pgconn.Config, error) {
 
 	// The database stays out of the URL, since parsing the URL path drops a leading slash from the name.
 	config.Database = cfg.database
-	config.ConnectTimeout = defaultTimeout
+	if config.ConnectTimeout == 0 {
+		config.ConnectTimeout = defaultTimeout
+	}
+
 	config.TLSConfig = cfg.tlsConfig
 	config.RuntimeParams = cfg.runtimeParams
 	// ParseConfig also reads the PG* environment variables. Pin these values, since letting an environment variable

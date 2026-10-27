@@ -10,6 +10,7 @@ import (
 	"net"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgproto3"
@@ -105,7 +106,6 @@ func TestNewConnectConfig(t *testing.T) {
 		"PGUSER":               "env-user",
 		"PGPASSWORD":           "env-secret",
 		"PGDATABASE":           "env-db",
-		"PGCONNECT_TIMEOUT":    "1",
 		"PGSSLNEGOTIATION":     "direct",
 		"PGMINPROTOCOLVERSION": "3.2",
 		"PGMAXPROTOCOLVERSION": "3.2",
@@ -157,6 +157,11 @@ func TestNewConnectConfig(t *testing.T) {
 			wantErr:  errUnsupportedAuthType,
 		},
 		{
+			name:     "empty password",
+			setupCfg: func(cfg *upstreamConfig) { cfg.password = "" },
+			wantErr:  errEmptyPassword,
+		},
+		{
 			name:     "port out of range",
 			setupCfg: func(cfg *upstreamConfig) { cfg.address = "db.acme.int:65536" },
 			wantErr:  errFailedToConnectUpstream,
@@ -184,7 +189,6 @@ func TestNewConnectConfig(t *testing.T) {
 			assert.EqualValues(t, 5432, config.Port)
 			assert.Equal(t, upstream.database, config.Database)
 			assert.Empty(t, config.Fallbacks)
-			assert.Equal(t, defaultTimeout, config.ConnectTimeout)
 			assert.Same(t, upstream.tlsConfig, config.TLSConfig)
 			assert.Equal(t, upstream.runtimeParams, config.RuntimeParams)
 			assert.Equal(t, "postgres", config.SSLNegotiation)
@@ -192,6 +196,45 @@ func TestNewConnectConfig(t *testing.T) {
 			assert.Equal(t, "3.0", config.MaxProtocolVersion)
 			assert.Equal(t, "prefer", config.ChannelBinding)
 			assert.Equal(t, tt.wantRequireAuth, config.RequireAuth)
+		})
+	}
+}
+
+func TestNewConnectConfig_ConnectTimeout(t *testing.T) {
+	tests := []struct {
+		name              string
+		connectTimeoutEnv string
+		want              time.Duration
+	}{
+		{
+			name: "default when unset",
+			want: defaultTimeout,
+		},
+		{
+			name:              "PGCONNECT_TIMEOUT overrides the default",
+			connectTimeoutEnv: "30",
+			want:              30 * time.Second,
+		},
+		{
+			name:              "zero falls back to the default",
+			connectTimeoutEnv: "0",
+			want:              defaultTimeout,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("PGCONNECT_TIMEOUT", tt.connectTimeoutEnv)
+
+			config, err := newConnectConfig(upstreamConfig{
+				address:  "db.acme.int:5432",
+				authType: token.AuthTypePassword,
+				user:     testDatabaseUser,
+				password: "secret",
+			})
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, config.ConnectTimeout)
 		})
 	}
 }
@@ -355,7 +398,7 @@ func TestConnectUpstream_Error(t *testing.T) {
 		listener, address := newUpstreamListener(t)
 		require.NoError(t, listener.Close())
 
-		cfg := upstreamConfig{address: address, authType: token.AuthTypePassword, user: testDatabaseUser}
+		cfg := upstreamConfig{address: address, authType: token.AuthTypePassword, user: testDatabaseUser, password: "secret"}
 
 		_, err := connectUpstream(t.Context(), cfg)
 
@@ -363,7 +406,7 @@ func TestConnectUpstream_Error(t *testing.T) {
 	})
 
 	t.Run("unsupported auth type", func(t *testing.T) {
-		cfg := upstreamConfig{address: "db.acme.int:5432", authType: "kerberos", user: testDatabaseUser}
+		cfg := upstreamConfig{address: "db.acme.int:5432", authType: "kerberos", user: testDatabaseUser, password: "secret"}
 
 		_, err := connectUpstream(t.Context(), cfg)
 
