@@ -134,7 +134,6 @@ func newConnectConfig(cfg upstreamConfig) (*pgconn.Config, error) {
 		Scheme:   "postgres",
 		User:     url.UserPassword(cfg.user, cfg.password),
 		Host:     cfg.address,
-		Path:     cfg.database,
 		RawQuery: "sslmode=disable",
 	}).String()
 
@@ -143,11 +142,13 @@ func newConnectConfig(cfg upstreamConfig) (*pgconn.Config, error) {
 		return nil, fmt.Errorf("%w: %w", errFailedToConnectUpstream, err)
 	}
 
+	// The database stays out of the URL, since parsing the URL path drops a leading slash from the name.
+	config.Database = cfg.database
 	config.ConnectTimeout = defaultTimeout
 	config.TLSConfig = cfg.tlsConfig
 	config.RuntimeParams = cfg.runtimeParams
 	// ParseConfig also reads the PG* environment variables. Pin these values, since letting an environment variable
-	// change them can lead to behaviour we do not support.
+	// change them can lead to behavior we do not support.
 	config.SSLNegotiation = "postgres"
 	config.MinProtocolVersion = "3.0"
 	config.MaxProtocolVersion = "3.0"

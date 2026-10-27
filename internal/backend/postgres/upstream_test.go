@@ -139,7 +139,7 @@ func TestNewConnectConfig(t *testing.T) {
 			setupCfg: func(cfg *upstreamConfig) {
 				cfg.user = "app@acme"
 				cfg.password = "p@ss:w/rd?#%"
-				cfg.database = "app/db?x"
+				cfg.database = "/app/db?x"
 			},
 			wantRequireAuth: "scram-sha-256",
 		},
