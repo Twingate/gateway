@@ -23,6 +23,23 @@ type credential struct {
 	certificate *tls.Certificate
 }
 
+type credentialProvider interface {
+	credential(ctx context.Context) (credential, error)
+}
+
+// newCredentialProvider builds the provider for the auth entry's type, holding what it needs to
+// produce the database credential.
+func newCredentialProvider(auth token.Auth, passwords passwordCredentials) (credentialProvider, error) {
+	switch auth.Type {
+	case token.AuthTypePassword:
+		return newPasswordCredential(passwords, auth.Password)
+	case token.AuthTypeAWSIAM, token.AuthTypeGCPIAM:
+		fallthrough
+	default:
+		return nil, fmt.Errorf("%w: %s", errUnsupportedAuthType, auth.Type)
+	}
+}
+
 type passwordCredentials map[string]config.PostgreSQLCredential
 
 func newPasswordCredentials(credentials []config.PostgreSQLCredential) passwordCredentials {
@@ -35,15 +52,25 @@ func newPasswordCredentials(credentials []config.PostgreSQLCredential) passwordC
 	return byName
 }
 
-func (c passwordCredentials) credential(_ context.Context, auth token.Auth) (credential, error) {
-	cfg, ok := c[auth.Password.Credential]
+// passwordCredential is the credential provider for the password auth type: a credential
+// configured on the Gateway.
+type passwordCredential struct {
+	cfg config.PostgreSQLCredential
+}
+
+func newPasswordCredential(passwords passwordCredentials, auth *token.PasswordAuth) (*passwordCredential, error) {
+	cfg, ok := passwords[auth.Credential]
 	if !ok {
-		return credential{}, fmt.Errorf("%w: %q", errUnknownCredential, auth.Password.Credential)
+		return nil, fmt.Errorf("%w: %q", errUnknownCredential, auth.Credential)
 	}
 
-	cred, err := loadCredential(cfg)
+	return &passwordCredential{cfg: cfg}, nil
+}
+
+func (c *passwordCredential) credential(_ context.Context) (credential, error) {
+	cred, err := loadCredential(c.cfg)
 	if err != nil {
-		return credential{}, fmt.Errorf("credential %q: %w", cfg.Name, err)
+		return credential{}, fmt.Errorf("credential %q: %w", c.cfg.Name, err)
 	}
 
 	return cred, nil
