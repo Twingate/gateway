@@ -393,6 +393,37 @@ ssh:
 	assert.Equal(t, "ssh-upstream-host", v.GetUpstreamHostCAMount())
 }
 
+func TestLoad_WebApp(t *testing.T) {
+	yaml := `
+twingate:
+  network: "acme"
+tls:
+  certificates:
+    files:
+      - certificateFile: "tls.crt"
+        privateKeyFile: "tls.key"
+webApp:
+  tls:
+    certificates:
+      files:
+        - certificateFile: "public.crt"
+          privateKeyFile: "public.key"
+`
+
+	tmpFile := filepath.Join(t.TempDir(), "config.yaml")
+	err := os.WriteFile(tmpFile, []byte(yaml), 0600)
+	require.NoError(t, err)
+
+	cfg, err := Load(tmpFile)
+	require.NoError(t, err)
+	require.NotNil(t, cfg.WebApp)
+	require.NotNil(t, cfg.WebApp.TLS)
+
+	assert.Equal(t, []TLSCertificateFileKeyPair{{CertificateFile: "public.crt", PrivateKeyFile: "public.key"}}, cfg.WebApp.TLS.Certificates.Files)
+
+	assert.NoError(t, cfg.Validate())
+}
+
 func TestLoad_UseDefaultValues(t *testing.T) {
 	yaml := `
 twingate:
@@ -856,6 +887,30 @@ func TestConfig_Validate(t *testing.T) {
 			},
 			wantErr:     true,
 			errContains: "metricsPort must be between",
+		},
+		{
+			name: "invalid webApp config",
+			config: &Config{
+				Twingate:    TwingateConfig{Network: "test", Host: "twingate.com"},
+				Port:        8443,
+				MetricsPort: 9090,
+				Log: LogConfig{
+					SessionRecording: SessionRecordingConfig{
+						Segment: SessionRecordingSegmentConfig{MaxSize: defaultSessionRecordingSegmentMaxSize},
+					},
+				},
+				TLS: TLSConfig{
+					Certificates: &TLSCertificateSources{
+						Files: []TLSCertificateFileKeyPair{
+							{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"},
+						},
+					},
+				},
+				Kubernetes: &KubernetesConfig{},
+				WebApp:     &WebAppConfig{TLS: &WebAppTLSConfig{}},
+			},
+			wantErr:     true,
+			errContains: "webApp config: tls: certificates: required field is missing: files",
 		},
 		{
 			name: "no protocols configured",
