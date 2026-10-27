@@ -15,6 +15,9 @@ import (
 	"gateway/internal/token"
 )
 
+// awsIAMPlaceholder is the password the aws_iam provider returns until it signs an RDS auth token.
+const awsIAMPlaceholder = "aws-iam-token"
+
 var errUnknownCredential = errors.New("unknown credential")
 
 type credential struct {
@@ -33,7 +36,9 @@ func newCredentialProvider(auth token.Auth, passwords passwordCredentials) (cred
 	switch auth.Type {
 	case token.AuthTypePassword:
 		return newPasswordCredential(passwords, auth.Password)
-	case token.AuthTypeAWSIAM, token.AuthTypeGCPIAM:
+	case token.AuthTypeAWSIAM:
+		return newAWSIAMCredential()
+	case token.AuthTypeGCPIAM:
 		fallthrough
 	default:
 		return nil, fmt.Errorf("%w: %s", errUnsupportedAuthType, auth.Type)
@@ -98,4 +103,14 @@ func loadCredential(cfg config.PostgreSQLCredential) (credential, error) {
 	}
 
 	return cred, nil
+}
+
+type awsIAMCredential struct{}
+
+func newAWSIAMCredential() (*awsIAMCredential, error) {
+	return &awsIAMCredential{}, nil
+}
+
+func (c *awsIAMCredential) credential(_ context.Context) (credential, error) {
+	return credential{password: awsIAMPlaceholder}, nil
 }
