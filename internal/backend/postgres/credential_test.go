@@ -21,14 +21,51 @@ const (
 	testPrivateKeyFile  = "../../../test/data/proxy/tls.key"
 )
 
-func TestPasswordCredentials_Credential(t *testing.T) {
+func TestNewCredentialProvider(t *testing.T) {
+	passwords := newPasswordCredentials([]gatewayconfig.PostgreSQLCredential{{Name: testCredential, Password: "secret"}})
+
+	got, err := newCredentialProvider(passwordAuth, passwords)
+	require.NoError(t, err)
+
+	assert.Equal(t, &passwordCredential{cfg: passwords[testCredential]}, got)
+}
+
+func TestNewCredentialProvider_Error(t *testing.T) {
+	passwords := newPasswordCredentials([]gatewayconfig.PostgreSQLCredential{{Name: testCredential, Password: "secret"}})
+
+	tests := []struct {
+		name    string
+		auth    token.Auth
+		wantErr error
+	}{
+		{
+			name:    "unknown credential",
+			auth:    token.Auth{Type: token.AuthTypePassword, Password: &token.PasswordAuth{Credential: "other"}},
+			wantErr: errUnknownCredential,
+		},
+		{
+			name:    "unsupported auth type",
+			auth:    token.Auth{Type: token.AuthTypeGCPIAM},
+			wantErr: errUnsupportedAuthType,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := newCredentialProvider(tt.auth, passwords)
+
+			require.ErrorIs(t, err, tt.wantErr)
+		})
+	}
+}
+
+func TestPasswordCredential_Credential(t *testing.T) {
 	passwordFile := filepath.Join(t.TempDir(), "password")
 	require.NoError(t, os.WriteFile(passwordFile, []byte("from file\n"), 0o600))
 
 	tests := []struct {
 		name            string
 		configured      gatewayconfig.PostgreSQLCredential
-		credential      string
 		wantPassword    string
 		wantCertificate bool
 		wantErrContains string
@@ -36,53 +73,39 @@ func TestPasswordCredentials_Credential(t *testing.T) {
 		{
 			name:         "inline password",
 			configured:   gatewayconfig.PostgreSQLCredential{Name: testCredential, Password: "secret"},
-			credential:   testCredential,
 			wantPassword: "secret",
 		},
 		{
 			name:         "password from file",
 			configured:   gatewayconfig.PostgreSQLCredential{Name: testCredential, PasswordFile: passwordFile},
-			credential:   testCredential,
 			wantPassword: "from file",
 		},
 		{
 			name:            "client certificate",
 			configured:      gatewayconfig.PostgreSQLCredential{Name: testCredential, Password: "secret", ClientCertificateFile: testCertificateFile, ClientPrivateKeyFile: testPrivateKeyFile},
-			credential:      testCredential,
 			wantPassword:    "secret",
 			wantCertificate: true,
 		},
 		{
-			name:            "unknown credential",
-			configured:      gatewayconfig.PostgreSQLCredential{Name: testCredential, Password: "secret"},
-			credential:      "other",
-			wantErrContains: `unknown credential: "other"`,
-		},
-		{
 			name:            "missing password file",
 			configured:      gatewayconfig.PostgreSQLCredential{Name: testCredential, PasswordFile: filepath.Join(t.TempDir(), "missing")},
-			credential:      testCredential,
 			wantErrContains: "failed to read password file",
 		},
 		{
 			name:            "unreadable client certificate",
 			configured:      gatewayconfig.PostgreSQLCredential{Name: testCredential, Password: "secret", ClientCertificateFile: filepath.Join(t.TempDir(), "missing.crt"), ClientPrivateKeyFile: testPrivateKeyFile},
-			credential:      testCredential,
 			wantErrContains: "failed to load client certificate",
 		},
 		{
 			name:            "invalid client certificate pair",
 			configured:      gatewayconfig.PostgreSQLCredential{Name: testCredential, Password: "secret", ClientCertificateFile: testCertificateFile, ClientPrivateKeyFile: testCertificateFile},
-			credential:      testCredential,
 			wantErrContains: "failed to load client certificate",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			credentials := newPasswordCredentials([]gatewayconfig.PostgreSQLCredential{tt.configured})
-
-			got, err := credentials.credential(t.Context(), token.Auth{Password: &token.PasswordAuth{Credential: tt.credential}})
+			got, err := (&passwordCredential{cfg: tt.configured}).credential(t.Context())
 
 			if tt.wantErrContains != "" {
 				require.ErrorContains(t, err, tt.wantErrContains)
