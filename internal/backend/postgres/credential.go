@@ -24,7 +24,7 @@ type credential struct {
 }
 
 type credentialProvider interface {
-	credential(ctx context.Context) (credential, error)
+	retrieve(ctx context.Context) (credential, error)
 }
 
 // newCredentialProvider builds the provider for the auth entry's type, holding what it needs to
@@ -67,7 +67,7 @@ func newPasswordCredential(passwords passwordCredentials, auth *token.PasswordAu
 	return &passwordCredential{cfg: cfg}, nil
 }
 
-func (c *passwordCredential) credential(_ context.Context) (credential, error) {
+func (c *passwordCredential) retrieve(_ context.Context) (credential, error) {
 	cred, err := loadCredential(c.cfg)
 	if err != nil {
 		return credential{}, fmt.Errorf("credential %q: %w", c.cfg.Name, err)
