@@ -59,7 +59,7 @@ func TestNewCredentialProvider_Error(t *testing.T) {
 	}
 }
 
-func TestPasswordCredential_Credential(t *testing.T) {
+func TestPasswordCredential_Retrieve(t *testing.T) {
 	passwordFile := filepath.Join(t.TempDir(), "password")
 	require.NoError(t, os.WriteFile(passwordFile, []byte("from file\n"), 0o600))
 
@@ -105,7 +105,7 @@ func TestPasswordCredential_Credential(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := (&passwordCredential{cfg: tt.configured}).credential(t.Context())
+			got, err := (&passwordCredential{cfg: tt.configured}).retrieve(t.Context())
 
 			if tt.wantErrContains != "" {
 				require.ErrorContains(t, err, tt.wantErrContains)
