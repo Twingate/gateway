@@ -96,7 +96,9 @@ func acceptAuthentication(t *testing.T, conn net.Conn) *pgproto3.Backend {
 
 	msg, err := backend.Receive()
 	require.NoError(t, err)
-	assert.Equal(t, &pgproto3.PasswordMessage{Password: awsIAMPlaceholder}, msg)
+	password, ok := msg.(*pgproto3.PasswordMessage)
+	require.True(t, ok, "expected a PasswordMessage, got %T", msg)
+	assert.Contains(t, password.Password, "DBUser="+testDatabaseUser)
 
 	backend.Send(&pgproto3.AuthenticationOk{})
 	backend.Send(&pgproto3.ParameterStatus{Name: "server_version", Value: "17.0"})
@@ -126,6 +128,8 @@ var awsIAMAuth = token.Auth{
 // serveSession authenticate with the cleartext password aws_iam auth type, which the fake upstream accepts in cleartext.
 func serveSession(t *testing.T, tlsMode token.TLSClientMode) *testSession {
 	t.Helper()
+
+	setStaticAWSCredentials(t)
 
 	listener, address := newUpstreamListener(t)
 	session := startServe(t, address, tlsMode, awsIAMAuth)
@@ -376,6 +380,8 @@ func TestProxy_ServeConn_NegotiateProtocolFails(t *testing.T) {
 
 // The client hangs up right after its StartupMessage, and net.Pipe fails the proxy's next write.
 func TestProxy_ServeConn_AcceptFails(t *testing.T) {
+	setStaticAWSCredentials(t)
+
 	listener, address := newUpstreamListener(t)
 	proxy := newTestProxy(t)
 	clientConn, serverConn := net.Pipe()

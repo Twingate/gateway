@@ -140,7 +140,7 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 
 	auth := conn.GATClaims().Resource.GatewayMetadata.Auths[0]
 
-	provider, err := newCredentialProvider(auth, p.config.passwords)
+	provider, err := newCredentialProvider(conn.GetUpstreamAddress(), auth, p.config.passwords)
 	if err != nil {
 		logger.System.Error("Failed to get the database credential", zap.Error(err))
 
