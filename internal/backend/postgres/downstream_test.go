@@ -4,6 +4,7 @@
 package postgres
 
 import (
+	"fmt"
 	"io"
 	"net"
 	"testing"
@@ -214,4 +215,45 @@ func TestDownstreamConn_Accept(t *testing.T) {
 
 func TestDownstreamConn_Accept_SendFails(t *testing.T) {
 	require.ErrorIs(t, newDownstreamConn(failingConn{}).accept(&pgconn.HijackedConn{}), errFailedToCompleteLogin)
+}
+
+func TestDownstreamConn_Reject(t *testing.T) {
+	clientConn, serverConn := tcpPipe(t)()
+	t.Cleanup(func() { _ = clientConn.Close() })
+
+	require.ErrorIs(t, newDownstreamConn(serverConn).reject(errUnknownCredential), errUnknownCredential)
+
+	got, err := pgproto3.NewFrontend(clientConn, clientConn).Receive()
+	require.NoError(t, err)
+	assert.Equal(t, newErrorResponse(errUnknownCredential), got)
+
+	_, err = clientConn.Read(make([]byte, 1))
+	assert.ErrorIs(t, err, io.EOF)
+}
+
+func TestNewErrorResponse(t *testing.T) {
+	pgErr := &pgconn.PgError{Severity: "FATAL", Code: "3D000", Message: `database "app" does not exist`, Detail: "detail"}
+
+	tests := []struct {
+		name string
+		err  error
+		want *pgproto3.ErrorResponse
+	}{
+		{
+			name: "database error",
+			err:  fmt.Errorf("%w: %w", errFailedToConnectUpstream, pgErr),
+			want: &pgproto3.ErrorResponse{Severity: "FATAL", Code: "3D000", Message: `database "app" does not exist`, Detail: "detail"},
+		},
+		{
+			name: "gateway error",
+			err:  errUnknownCredential,
+			want: &pgproto3.ErrorResponse{Severity: "FATAL", SeverityUnlocalized: "FATAL", Message: "unknown credential"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, newErrorResponse(tt.err))
+		})
+	}
 }
