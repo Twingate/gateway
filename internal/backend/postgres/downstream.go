@@ -12,8 +12,12 @@ import (
 	"github.com/jackc/pgx/v5/pgproto3"
 )
 
-// sslNotSupported answers an SSLRequest or GSSENCRequest.
-const sslNotSupported = 'N'
+const (
+	// sslNotSupported answers an SSLRequest or GSSENCRequest.
+	sslNotSupported = 'N'
+
+	severityFatal = "FATAL"
+)
 
 var (
 	errUnsupportedStartupRequest    = errors.New("unsupported startup request")
@@ -106,4 +110,32 @@ func (c *downstreamConn) accept(upstream *pgconn.HijackedConn) error {
 	}
 
 	return nil
+}
+
+// reject tells the client why its connection failed, closes the connection, and returns err. A
+// failed write is ignored, since the connection is closed either way.
+func (c *downstreamConn) reject(err error) error {
+	c.backend.Send(newErrorResponse(err))
+	_ = c.backend.Flush()
+	_ = c.conn.Close()
+
+	return err
+}
+
+func newErrorResponse(err error) *pgproto3.ErrorResponse {
+	pgErr, ok := errors.AsType[*pgconn.PgError](err)
+	if ok {
+		return &pgproto3.ErrorResponse{
+			Severity: pgErr.Severity,
+			Code:     pgErr.Code,
+			Message:  pgErr.Message,
+			Detail:   pgErr.Detail,
+		}
+	}
+
+	return &pgproto3.ErrorResponse{
+		Severity:            severityFatal,
+		SeverityUnlocalized: severityFatal,
+		Message:             err.Error(),
+	}
 }
