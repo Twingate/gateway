@@ -96,7 +96,9 @@ func acceptAuthentication(t *testing.T, conn net.Conn) *pgproto3.Backend {
 
 	msg, err := backend.Receive()
 	require.NoError(t, err)
-	assert.Equal(t, &pgproto3.PasswordMessage{Password: awsIAMPlaceholder}, msg)
+	password, ok := msg.(*pgproto3.PasswordMessage)
+	require.True(t, ok, "expected a PasswordMessage, got %T", msg)
+	assert.Contains(t, password.Password, "DBUser="+testDatabaseUser)
 
 	for _, msg := range loginMessages {
 		backend.Send(msg)
@@ -128,6 +130,8 @@ var awsIAMAuth = token.Auth{
 // as a cleartext password that the fake database accepts.
 func newEstablishedSession(t *testing.T, tlsMode token.TLSClientMode) *testSession {
 	t.Helper()
+
+	setStaticAWSCredentials(t)
 
 	listener, address := newUpstreamListener(t)
 	session := newSession(t, address, tlsMode, awsIAMAuth)
