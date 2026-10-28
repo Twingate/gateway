@@ -111,6 +111,6 @@ func newAWSIAMCredential() (*awsIAMCredential, error) {
 	return &awsIAMCredential{}, nil
 }
 
-func (c *awsIAMCredential) credential(_ context.Context) (credential, error) {
+func (c *awsIAMCredential) retrieve(_ context.Context) (credential, error) {
 	return credential{password: awsIAMPlaceholder}, nil
 }
