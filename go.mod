@@ -3,6 +3,7 @@ module gateway
 go 1.27.0
 
 require (
+	cloud.google.com/go/auth v0.24.1
 	cloud.google.com/go/security v1.28.0
 	github.com/DeRuina/timberjack v1.4.9
 	github.com/MicahParks/jwkset v0.11.3
@@ -31,7 +32,6 @@ require (
 	go.yaml.in/yaml/v4 v4.0.0-rc.6
 	golang.org/x/crypto v0.58.0
 	golang.org/x/net v0.61.0
-	golang.org/x/oauth2 v0.37.0
 	golang.org/x/sync v0.24.0
 	google.golang.org/api v0.304.0
 	google.golang.org/grpc v1.84.0
@@ -48,7 +48,6 @@ require (
 	charm.land/fang/v2 v2.0.1 // indirect
 	charm.land/lipgloss/v2 v2.0.6 // indirect
 	cloud.google.com/go v0.123.0 // indirect
-	cloud.google.com/go/auth v0.24.1 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.3.0 // indirect
 	cloud.google.com/go/compute/metadata v0.10.0 // indirect
 	cloud.google.com/go/iam v1.14.0 // indirect
@@ -138,6 +137,7 @@ require (
 	github.com/spf13/afero v1.15.0 // indirect
 	github.com/spf13/cast v1.10.0 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
+	github.com/stretchr/objx v0.5.3 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/xo/terminfo v1.2.0 // indirect
@@ -151,6 +151,7 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.4 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
+	golang.org/x/oauth2 v0.37.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/term v0.47.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
