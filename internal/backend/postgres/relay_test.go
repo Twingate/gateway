@@ -5,8 +5,10 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -31,7 +33,7 @@ type testRelay struct {
 	serverConn net.Conn
 }
 
-func newTestRelay(t *testing.T) *testRelay {
+func newTestRelay(t *testing.T, observers ...observer) *testRelay {
 	t.Helper()
 
 	pipe := tcpPipe(t)
@@ -51,6 +53,7 @@ func newTestRelay(t *testing.T) *testRelay {
 				Conn:     relayUpstreamConn,
 				Frontend: pgproto3.NewFrontend(relayUpstreamConn, relayUpstreamConn),
 			},
+			observers,
 		),
 		client:     pgproto3.NewFrontend(clientConn, clientConn),
 		clientConn: clientConn,
@@ -154,6 +157,33 @@ func (unknownMessage) Decode(_ []byte) error { return nil }
 
 func (unknownMessage) Encode(dst []byte) ([]byte, error) {
 	return append(dst, 'z', 0, 0, 0, 4), nil
+}
+
+type recordingObserver struct {
+	mu   sync.Mutex
+	seen []string
+}
+
+func (o *recordingObserver) onDownstreamMessage(msg pgproto3.FrontendMessage) {
+	o.record(fmt.Sprintf("downstream %T", msg))
+}
+
+func (o *recordingObserver) onUpstreamMessage(msg pgproto3.BackendMessage) {
+	o.record(fmt.Sprintf("upstream %T", msg))
+}
+
+func (o *recordingObserver) record(event string) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	o.seen = append(o.seen, event)
+}
+
+func (o *recordingObserver) events() []string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	return o.seen
 }
 
 func TestRelay_Forward(t *testing.T) {
@@ -290,6 +320,35 @@ func TestRelay_BufferedMessages(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, &pgproto3.Sync{}, got)
 	})
+}
+
+func TestRelay_Observers(t *testing.T) {
+	first, second := &recordingObserver{}, &recordingObserver{}
+	r := newTestRelay(t, first, second)
+	r.serve(t.Context(), t)
+
+	for _, msg := range []pgproto3.FrontendMessage{&pgproto3.Parse{}, &pgproto3.Sync{}} {
+		r.sendFromClient(t, msg)
+
+		_, err := r.server.Receive()
+		require.NoError(t, err)
+	}
+
+	for _, msg := range []pgproto3.BackendMessage{&pgproto3.ParseComplete{}, &pgproto3.ReadyForQuery{TxStatus: 'I'}} {
+		r.sendFromServer(t, msg)
+
+		_, err := r.client.Receive()
+		require.NoError(t, err)
+	}
+
+	want := []string{
+		"downstream *pgproto3.Parse",
+		"downstream *pgproto3.Sync",
+		"upstream *pgproto3.ParseComplete",
+		"upstream *pgproto3.ReadyForQuery",
+	}
+	assert.Equal(t, want, first.events())
+	assert.Equal(t, want, second.events())
 }
 
 func TestRelay_Error(t *testing.T) {

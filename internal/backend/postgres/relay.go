@@ -11,6 +11,7 @@ import (
 	"net"
 
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgproto3"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 
@@ -24,15 +25,24 @@ var (
 	errFailedToForwardUpstreamMessage   = errors.New("failed to forward upstream message")
 )
 
+// observer sees every message before the relay forwards it. The relay calls onDownstreamMessage and
+// onUpstreamMessage from separate goroutines, so the two can run at the same time. It must not
+// retain, modify or block a message.
+type observer interface {
+	onDownstreamMessage(msg pgproto3.FrontendMessage)
+	onUpstreamMessage(msg pgproto3.BackendMessage)
+}
+
 // relay forwards messages between the downstream and upstream until either side closes.
 type relay struct {
 	logger     logging.Logger
 	downstream *downstreamConn
 	upstream   *pgconn.HijackedConn
+	observers  []observer
 }
 
-func newRelay(logger logging.Logger, downstream *downstreamConn, upstream *pgconn.HijackedConn) *relay {
-	return &relay{logger: logger, downstream: downstream, upstream: upstream}
+func newRelay(logger logging.Logger, downstream *downstreamConn, upstream *pgconn.HijackedConn, observers []observer) *relay {
+	return &relay{logger: logger, downstream: downstream, upstream: upstream, observers: observers}
 }
 
 // serve returns nil when the session ended normally: When either side closed after a Terminate message,
@@ -84,6 +94,10 @@ func (r *relay) forwardDownstreamMessages() error {
 			return fmt.Errorf("%w: %w", errFailedToReceiveDownstreamMessage, err)
 		}
 
+		for _, observer := range r.observers {
+			observer.onDownstreamMessage(msg)
+		}
+
 		r.upstream.Frontend.Send(msg)
 
 		if err := r.upstream.Frontend.Flush(); err != nil {
@@ -97,6 +111,10 @@ func (r *relay) forwardUpstreamMessages() error {
 		msg, err := r.upstream.Frontend.Receive()
 		if err != nil {
 			return fmt.Errorf("%w: %w", errFailedToReceiveUpstreamMessage, err)
+		}
+
+		for _, observer := range r.observers {
+			observer.onUpstreamMessage(msg)
 		}
 
 		r.downstream.backend.Send(msg)
