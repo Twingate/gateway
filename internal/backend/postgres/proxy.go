@@ -197,7 +197,7 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 		),
 	)
 
-	relay := newRelay(logger.System, downstream, dbConn)
+	relay := newRelay(logger.System, downstream, dbConn, []observer{newAuditObserver(logger.Audit)})
 
 	err = relay.serve(ctx)
 
