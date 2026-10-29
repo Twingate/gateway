@@ -13,8 +13,10 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/oauth2"
+
+	googleauth "cloud.google.com/go/auth"
 
 	gatewayconfig "gateway/internal/config"
 	"gateway/internal/token"
@@ -239,12 +241,17 @@ func TestAWSIAMCredential_Retrieve_Error(t *testing.T) {
 	}
 }
 
-var errTokenSource = errors.New("token source failed")
+var errTokenProvider = errors.New("token provider failed")
 
-type failingTokenSource struct{}
+type mockTokenProvider struct {
+	mock.Mock
+}
 
-func (failingTokenSource) Token() (*oauth2.Token, error) {
-	return nil, errTokenSource
+func (m *mockTokenProvider) Token(ctx context.Context) (*googleauth.Token, error) {
+	args := m.Called(ctx)
+	gcpToken, _ := args.Get(0).(*googleauth.Token)
+
+	return gcpToken, args.Error(1)
 }
 
 func TestGCPIAMCredential_Retrieve(t *testing.T) {
@@ -260,8 +267,11 @@ func TestGCPIAMCredential_Retrieve(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			creds := newGCPIAMCredential("db@acme-int.iam", &token.GCPIAMAuth{ImpersonateServiceAccount: tt.impersonate})
-			creds.newTokenSource = func(_ context.Context, serviceAccount string) (oauth2.TokenSource, error) {
-				return oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "token-for-" + serviceAccount}), nil
+			creds.newTokenProvider = func(serviceAccount string) (googleauth.TokenProvider, error) {
+				provider := &mockTokenProvider{}
+				provider.On("Token", t.Context()).Return(&googleauth.Token{Value: "token-for-" + serviceAccount}, nil)
+
+				return provider, nil
 			}
 
 			got, err := creds.retrieve(t.Context())
@@ -276,26 +286,31 @@ func TestGCPIAMCredential_Retrieve_Error(t *testing.T) {
 	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", filepath.Join(t.TempDir(), "missing.json"))
 
 	tests := []struct {
-		name           string
-		newTokenSource func(context.Context, string) (oauth2.TokenSource, error)
-		wantErr        error
+		name             string
+		newTokenProvider func(string) (googleauth.TokenProvider, error)
+		wantErr          error
 	}{
 		{
 			name:    "credentials not found",
 			wantErr: errFailedToLoadGCPCredentials,
 		},
 		{
-			name:           "token fetch fails",
-			newTokenSource: func(context.Context, string) (oauth2.TokenSource, error) { return failingTokenSource{}, nil },
-			wantErr:        errFailedToFetchGCPToken,
+			name: "token fetch fails",
+			newTokenProvider: func(string) (googleauth.TokenProvider, error) {
+				provider := &mockTokenProvider{}
+				provider.On("Token", mock.Anything).Return(nil, errTokenProvider)
+
+				return provider, nil
+			},
+			wantErr: errFailedToFetchGCPToken,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			creds := newGCPIAMCredential("db@acme-int.iam", &token.GCPIAMAuth{})
-			if tt.newTokenSource != nil {
-				creds.newTokenSource = tt.newTokenSource
+			if tt.newTokenProvider != nil {
+				creds.newTokenProvider = tt.newTokenProvider
 			}
 
 			_, err := creds.retrieve(t.Context())

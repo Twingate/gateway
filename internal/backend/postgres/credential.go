@@ -11,11 +11,11 @@ import (
 	"os"
 	"strings"
 
+	"cloud.google.com/go/auth/credentials/impersonate"
 	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
-	"golang.org/x/oauth2"
-	"google.golang.org/api/impersonate"
 
+	googleauth "cloud.google.com/go/auth"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	rdsauth "github.com/aws/aws-sdk-go-v2/feature/rds/auth"
 
@@ -112,7 +112,7 @@ func loadCredential(cfg config.PostgreSQLCredential) (credential, error) {
 
 var (
 	errFailedToLoadAWSConfig = errors.New("failed to load AWS config")
-	errFailedToBuildRDSToken = errors.New("failed to build RDS auth token")
+	errFailedToBuildRDSToken = errors.New("failed to build AWS RDS auth token")
 )
 
 // awsIAMCredential is the credential provider for the aws_iam auth type: an RDS auth token, which
@@ -149,7 +149,7 @@ func (c *awsIAMCredential) retrieve(ctx context.Context) (credential, error) {
 const (
 	// cloudSQLLoginScope limits the access token to logging in to Cloud SQL.
 	cloudSQLLoginScope = "https://www.googleapis.com/auth/sqlservice.login"
-	// serviceAccountSuffix is dropped from a service account's email in its Cloud SQL database username.
+	// serviceAccountSuffix the GCP service account's email suffix.
 	serviceAccountSuffix = ".gserviceaccount.com"
 )
 
@@ -161,8 +161,8 @@ var (
 // gcpIAMCredential is the credential provider for the gcp_iam auth type: a service account's
 // access token, which Cloud SQL takes as the password.
 type gcpIAMCredential struct {
-	serviceAccount string
-	newTokenSource func(ctx context.Context, serviceAccount string) (oauth2.TokenSource, error)
+	serviceAccount   string
+	newTokenProvider func(serviceAccount string) (googleauth.TokenProvider, error)
 }
 
 func newGCPIAMCredential(user string, auth *token.GCPIAMAuth) *gcpIAMCredential {
@@ -171,26 +171,26 @@ func newGCPIAMCredential(user string, auth *token.GCPIAMAuth) *gcpIAMCredential 
 		serviceAccount = user + serviceAccountSuffix
 	}
 
-	return &gcpIAMCredential{serviceAccount: serviceAccount, newTokenSource: newGCPTokenSource}
+	return &gcpIAMCredential{serviceAccount: serviceAccount, newTokenProvider: newGCPTokenProvider}
 }
 
-func newGCPTokenSource(ctx context.Context, serviceAccount string) (oauth2.TokenSource, error) {
-	return impersonate.CredentialsTokenSource(ctx, impersonate.CredentialsConfig{
+func newGCPTokenProvider(serviceAccount string) (googleauth.TokenProvider, error) {
+	return impersonate.NewCredentials(&impersonate.CredentialsOptions{
 		TargetPrincipal: serviceAccount,
 		Scopes:          []string{cloudSQLLoginScope},
 	})
 }
 
 func (c *gcpIAMCredential) retrieve(ctx context.Context) (credential, error) {
-	source, err := c.newTokenSource(ctx, c.serviceAccount)
+	provider, err := c.newTokenProvider(c.serviceAccount)
 	if err != nil {
 		return credential{}, fmt.Errorf("%w: %w", errFailedToLoadGCPCredentials, err)
 	}
 
-	gcpToken, err := source.Token()
+	gcpToken, err := provider.Token(ctx)
 	if err != nil {
 		return credential{}, fmt.Errorf("%w: %w", errFailedToFetchGCPToken, err)
 	}
 
-	return credential{password: gcpToken.AccessToken}, nil
+	return credential{password: gcpToken.Value}, nil
 }
