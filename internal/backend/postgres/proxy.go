@@ -166,7 +166,7 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 		zap.String("database", upstream.Config.Database),
 	)
 
-	session := newRelay(logger, downstream, upstream)
+	session := newRelay(logger, downstream, upstream, []observer{newAuditObserver(logger.Audit)})
 
 	p.wg.Add(1)
 	defer p.wg.Done()
