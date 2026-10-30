@@ -17,6 +17,9 @@ const (
 	sslNotSupported = 'N'
 
 	severityFatal = "FATAL"
+
+	// maxMessageBodyLen follows PostgreSQL's own 1 GiB message limit.
+	maxMessageBodyLen = 0x3fffffff - 1
 )
 
 var (
@@ -33,7 +36,12 @@ type downstreamConn struct {
 }
 
 func newDownstreamConn(conn net.Conn) *downstreamConn {
-	return &downstreamConn{conn: conn, backend: pgproto3.NewBackend(conn, conn)}
+	backend := pgproto3.NewBackend(conn, conn)
+
+	// Protects against malicious clients that send large messages.
+	backend.SetMaxBodyLen(maxMessageBodyLen)
+
+	return &downstreamConn{conn: conn, backend: backend}
 }
 
 // receiveStartupRequest answers SSLRequest and GSSENCRequest, then returns the
