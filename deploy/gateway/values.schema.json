@@ -901,6 +901,16 @@
             }
           }
         },
+        "pprof": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Serve the Go pprof profiling endpoints on the metrics port under /debug/pprof/.",
+              "default": false
+            }
+          }
+        },
         "prometheusRule": {
           "type": "object",
           "properties": {
