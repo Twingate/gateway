@@ -18,17 +18,23 @@ var ErrNoCertificates = errors.New("no certificate could be loaded")
 
 // Manager returns the certificate served on a downstream TLS handshake.
 type Manager struct {
-	certs      *reloader
-	automation *automation
+	certs       *reloader
+	webAppCerts *reloader
+	automation  *automation
 }
 
-func NewManager(tlsCfg config.TLSConfig, logger *zap.Logger) (*Manager, error) {
+func NewManager(tlsCfg config.TLSConfig, webAppCfg *config.WebAppConfig, logger *zap.Logger) (*Manager, error) {
 	var keyPairs []config.TLSCertificateFileKeyPair
 	if tlsCfg.Certificates != nil {
 		keyPairs = tlsCfg.Certificates.Files
 	}
 
-	manager := &Manager{certs: newReloader(keyPairs, logger)}
+	var webAppKeyPairs []config.TLSCertificateFileKeyPair
+	if webAppCfg != nil && webAppCfg.TLS != nil {
+		webAppKeyPairs = webAppCfg.TLS.Certificates.Files
+	}
+
+	manager := &Manager{certs: newReloader(keyPairs, logger), webAppCerts: newReloader(webAppKeyPairs, logger)}
 
 	if tlsCfg.Automation != nil {
 		automation, err := newAutomation(tlsCfg.Automation, logger)
@@ -44,6 +50,7 @@ func NewManager(tlsCfg config.TLSConfig, logger *zap.Logger) (*Manager, error) {
 
 func (m *Manager) Run(ctx context.Context) error {
 	m.certs.run(ctx)
+	m.webAppCerts.run(ctx)
 
 	if m.automation != nil {
 		if err := m.automation.run(ctx); err != nil {
@@ -69,4 +76,16 @@ func (m *Manager) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, 
 	}
 
 	return nil, ErrNoCertificates
+}
+
+// GetWebAppCertificate returns the certificate for the downstream TLS handshake of a Web App.
+func (m *Manager) GetWebAppCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+	// Without SNI, SupportsCertificate checks no name, so every Web App certificate would match.
+	if hello.ServerName != "" {
+		if cert := m.webAppCerts.match(hello); cert != nil {
+			return cert, nil
+		}
+	}
+
+	return m.GetCertificate(hello)
 }

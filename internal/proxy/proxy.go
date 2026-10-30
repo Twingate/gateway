@@ -155,6 +155,7 @@ func (p *Proxy) Start() error {
 		ctx,
 		p.config.Twingate,
 		p.config.TLS,
+		p.config.WebApp,
 		channels,
 		p.registry,
 		p.logger.System,
