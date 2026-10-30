@@ -5,18 +5,15 @@ package webapp
 
 import (
 	"crypto/x509"
-	"errors"
 	"fmt"
-	"os"
 	"slices"
 
+	backendtls "gateway/internal/backend/tls"
 	"gateway/internal/backend/webapp/template"
 	"gateway/internal/config"
 	"gateway/internal/logging"
 	"gateway/internal/metrics"
 )
-
-var errInvalidCACert = errors.New("failed to parse CA certificate")
 
 type Config struct {
 	requestHeaders      map[string]*template.Template
@@ -41,32 +38,10 @@ func NewConfig(configRequestHeaders map[string]string, caBundles []config.Upstre
 		headers[name] = tmpl
 	}
 
-	caPool, err := newCAPool(caBundles)
+	caPool, err := backendtls.NewCAPool(caBundles)
 	if err != nil {
 		return nil, err
 	}
 
 	return &Config{requestHeaders: headers, caPool: caPool, roundTripperMetrics: roundTripperMetrics, logger: logger}, nil
-}
-
-// newCAPool merges the configured CAs on top of the system cert pool to verify
-// upstream TLS connections, so publicly-signed upstreams work without configuration.
-func newCAPool(caBundles []config.UpstreamTrustedCABundle) (*x509.CertPool, error) {
-	pool, err := x509.SystemCertPool()
-	if err != nil {
-		return nil, fmt.Errorf("load system cert pool: %w", err)
-	}
-
-	for _, caBundle := range caBundles {
-		caCerts, err := os.ReadFile(caBundle.File) //nolint:gosec // The CA bundle file is provided by the operator
-		if err != nil {
-			return nil, fmt.Errorf("ca %q: %w", caBundle.File, err)
-		}
-
-		if ok := pool.AppendCertsFromPEM(caCerts); !ok {
-			return nil, fmt.Errorf("ca %q: %w", caBundle.File, errInvalidCACert)
-		}
-	}
-
-	return pool, nil
 }
