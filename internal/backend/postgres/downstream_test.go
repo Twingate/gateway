@@ -4,6 +4,7 @@
 package postgres
 
 import (
+	"encoding/binary"
 	"fmt"
 	"io"
 	"net"
@@ -215,6 +216,22 @@ func TestDownstreamConn_Accept(t *testing.T) {
 
 func TestDownstreamConn_Accept_SendFails(t *testing.T) {
 	require.ErrorIs(t, newDownstreamConn(failingConn{}).accept(&pgconn.HijackedConn{}), errFailedToCompleteLogin)
+}
+
+func TestDownstreamConn_MessageTooLong(t *testing.T) {
+	clientConn, serverConn := tcpPipe(t)()
+	t.Cleanup(func() {
+		_ = clientConn.Close()
+		_ = serverConn.Close()
+	})
+
+	_, err := clientConn.Write(binary.BigEndian.AppendUint32([]byte{'Q'}, maxMessageBodyLen+5))
+	require.NoError(t, err)
+
+	_, err = newDownstreamConn(serverConn).backend.Receive()
+
+	var tooLong *pgproto3.ExceededMaxBodyLenErr
+	require.ErrorAs(t, err, &tooLong)
 }
 
 func TestDownstreamConn_Reject(t *testing.T) {
