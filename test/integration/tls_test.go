@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"testing"
 	"time"
@@ -19,7 +20,6 @@ import (
 	gatewayconfig "gateway/internal/config"
 	"gateway/internal/logging"
 	"gateway/internal/proxy"
-	"gateway/test/fake"
 	"gateway/test/integration/testutil"
 )
 
@@ -27,7 +27,7 @@ import (
 // secrets engine: the Gateway completes a handshake with a certificate that
 // chains to the Vault CA and covers the dialed host.
 func TestTLSVault(t *testing.T) {
-	const gatewayPort = 8452
+	t.Parallel()
 
 	vaultContainerID, vaultPort := testutil.SetupVaultPKI(t)
 	vaultAddress := fmt.Sprintf("http://127.0.0.1:%d", vaultPort)
@@ -65,19 +65,15 @@ func TestTLSVault(t *testing.T) {
 		},
 	}
 
-	for i, tt := range tests {
+	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			port := gatewayPort + i
-
-			controller := fake.NewController(network, 8080)
-			t.Cleanup(controller.Close)
+			t.Parallel()
 
 			config := gatewayconfig.Config{
 				Twingate: gatewayconfig.TwingateConfig{
 					Network: network,
 					Host:    host,
 				},
-				Port:        port,
 				MetricsPort: 0,
 				TLS: gatewayconfig.TLSConfig{
 					Automation: &gatewayconfig.TLSAutomationConfig{
@@ -96,16 +92,19 @@ func TestTLSVault(t *testing.T) {
 			p, err := proxy.NewProxy(&config, prometheus.NewRegistry(), logging.NewNop())
 			require.NoError(t, err, "failed to create proxy")
 
+			listener, err := net.Listen("tcp", "127.0.0.1:0")
+			require.NoError(t, err, "failed to listen")
+
 			go func() {
-				err := p.Start()
+				err := p.Start(listener)
 				t.Logf("Failed to start Gateway: %v", err)
 			}()
 
 			// The health check dials without SNI, so readiness already proves
 			// Vault signs a request that asks for no names.
-			testutil.GatewayHealthCheck(t, port)
+			testutil.GatewayHealthCheck(t, listener.Addr().String())
 
-			conn, err := tls.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", port), &tls.Config{
+			conn, err := tls.Dial("tcp", listener.Addr().String(), &tls.Config{
 				ServerName: "app.acme.int",
 				RootCAs:    rootCAs,
 				MinVersion: tls.VersionTLS13,

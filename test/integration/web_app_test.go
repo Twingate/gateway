@@ -6,6 +6,7 @@ package integration
 import (
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"testing"
@@ -19,25 +20,20 @@ import (
 	gatewayconfig "gateway/internal/config"
 	"gateway/internal/proxy"
 	"gateway/internal/token"
-	"gateway/test/fake"
 	"gateway/test/integration/testutil"
 )
 
 func TestWebApp(t *testing.T) {
-	const gatewayPort = 8450
+	t.Parallel()
 
 	echoServer := testutil.SetupHTTPEchoServer(t)
 	upstreamAddress := echoServer.Listener.Addr().String()
-
-	controller := fake.NewController(network, 8080)
-	defer controller.Close()
 
 	config := gatewayconfig.Config{
 		Twingate: gatewayconfig.TwingateConfig{
 			Network: network,
 			Host:    host,
 		},
-		Port:        gatewayPort,
 		MetricsPort: 0,
 		TLS: gatewayconfig.TLSConfig{
 			Certificates: &gatewayconfig.TLSCertificateSources{
@@ -66,12 +62,16 @@ func TestWebApp(t *testing.T) {
 	p, err := proxy.NewProxy(&config, prometheus.NewRegistry(), logger)
 	require.NoError(t, err, "failed to create proxy")
 
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err, "failed to listen")
+
 	go func() {
-		err := p.Start()
+		err := p.Start(listener)
 		t.Logf("Failed to start Gateway: %v", err)
 	}()
 
-	testutil.GatewayHealthCheck(t, gatewayPort)
+	gatewayAddress := listener.Addr().String()
+	testutil.GatewayHealthCheck(t, gatewayAddress)
 
 	user := testutil.NewWebAppUser(
 		&token.User{
@@ -86,9 +86,9 @@ func TestWebApp(t *testing.T) {
 			Region:  "CA",
 			City:    "San Mateo",
 		},
-		gatewayPort,
+		gatewayAddress,
 		upstreamAddress,
-		controller.URL,
+		controllerURL,
 		map[string]string{
 			"X-Twingate-Username": "{{username}}",
 		},

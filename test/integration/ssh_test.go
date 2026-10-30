@@ -26,7 +26,6 @@ import (
 	"gateway/internal/proxy"
 	"gateway/internal/token"
 	"gateway/test/data"
-	"gateway/test/fake"
 	"gateway/test/integration/testutil"
 )
 
@@ -38,22 +37,17 @@ type sshTestEnv struct {
 	logs        *observer.ObservedLogs
 }
 
-func setupSSHGateway(t *testing.T, user *token.User, sshCAConfig gatewayconfig.SSHCAConfig, gatewayPort int) *sshTestEnv {
+func setupSSHGateway(t *testing.T, user *token.User, sshCAConfig gatewayconfig.SSHCAConfig) *sshTestEnv {
 	t.Helper()
 
 	containerID, sshServerPort := testutil.SetupSSHServer(t, sshUsername)
 	sshServerAddress := fmt.Sprintf("127.0.0.1:%d", sshServerPort)
-
-	controller := fake.NewController(network, 8080)
-
-	t.Cleanup(func() { controller.Close() })
 
 	config := gatewayconfig.Config{
 		Twingate: gatewayconfig.TwingateConfig{
 			Network: network,
 			Host:    host,
 		},
-		Port:        gatewayPort,
 		MetricsPort: 0,
 		TLS: gatewayconfig.TLSConfig{
 			Certificates: &gatewayconfig.TLSCertificateSources{
@@ -78,12 +72,16 @@ func setupSSHGateway(t *testing.T, user *token.User, sshCAConfig gatewayconfig.S
 	p, err := proxy.NewProxy(&config, prometheus.NewRegistry(), logger)
 	require.NoError(t, err, "failed to create proxy")
 
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err, "failed to listen")
+
 	go func() {
-		err := p.Start()
+		err := p.Start(listener)
 		t.Logf("Failed to start Gateway: %v", err)
 	}()
 
-	testutil.GatewayHealthCheck(t, gatewayPort)
+	gatewayAddress := listener.Addr().String()
+	testutil.GatewayHealthCheck(t, gatewayAddress)
 
 	knownHostsFile := filepath.Join(t.TempDir(), "known_hosts")
 	line := "@cert-authority * " + string(data.SSHCAPublicKey)
@@ -91,9 +89,9 @@ func setupSSHGateway(t *testing.T, user *token.User, sshCAConfig gatewayconfig.S
 
 	sshUser, err := testutil.NewSSHUser(
 		user,
-		gatewayPort,
+		gatewayAddress,
 		sshServerAddress,
-		controller.URL,
+		controllerURL,
 		knownHostsFile,
 	)
 	require.NoError(t, err, "failed to create SSH user")
@@ -112,7 +110,7 @@ func setupSSHGateway(t *testing.T, user *token.User, sshCAConfig gatewayconfig.S
 // - Session recording (asciicast) is properly generated
 // - User can copy file from remote server to host.
 func TestSSH(t *testing.T) {
-	const gatewayPort = 8445
+	t.Parallel()
 
 	env := setupSSHGateway(t, &token.User{
 		ID:       "user-ssh-1",
@@ -122,7 +120,7 @@ func TestSSH(t *testing.T) {
 		Local: &gatewayconfig.SSHCALocalConfig{
 			PrivateKeyFile: "../data/ssh/ca/ca",
 		},
-	}, gatewayPort)
+	})
 
 	// Test `ssh 127.0.0.1 -l admin -p 2222 "whoami"`
 	output, err := env.user.SSH.Command("whoami")
@@ -186,7 +184,7 @@ func TestSSH(t *testing.T) {
 
 // TestSSHVault tests SSH proxying through the gateway using Vault as the CA backend.
 func TestSSHVault(t *testing.T) {
-	const gatewayPort = 8448
+	t.Parallel()
 
 	vaultContainerID, vaultPort := testutil.SetupVaultSSHCA(t)
 	vaultAddress := fmt.Sprintf("http://127.0.0.1:%d", vaultPort)
@@ -222,8 +220,10 @@ func TestSSHVault(t *testing.T) {
 		},
 	}
 
-	for i, tt := range tests {
+	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			auth := tt.authSetup(t)
 			env := setupSSHGateway(t, &token.User{
 				ID:       "user-ssh-1",
@@ -236,7 +236,7 @@ func TestSSHVault(t *testing.T) {
 					Mount:   "ssh",
 					Role:    "gateway-signer",
 				},
-			}, gatewayPort+i)
+			})
 
 			// Test `ssh 127.0.0.1 -l admin -p 2222 "whoami"`
 			output, err := env.user.SSH.Command("whoami")
@@ -250,11 +250,9 @@ func TestSSHVault(t *testing.T) {
 // TestSSHLocalPortForwarding tests that local port forwarding (-L) works through the gateway.
 // This exercises the direct-tcpip channel forwarding in conn_pair.go.
 func TestSSHLocalPortForwarding(t *testing.T) {
-	const (
-		gatewayPort    = 8446
-		echoServerPort = 8888
-		localPort      = 18888
-	)
+	t.Parallel()
+
+	const echoServerPort = 8888
 
 	env := setupSSHGateway(t, &token.User{
 		ID:       "user-ssh-local-fwd",
@@ -264,16 +262,25 @@ func TestSSHLocalPortForwarding(t *testing.T) {
 		Local: &gatewayconfig.SSHCALocalConfig{
 			PrivateKeyFile: "../data/ssh/ca/ca",
 		},
-	}, gatewayPort)
+	})
 
 	testutil.SetupRemoteEchoServer(t, env.containerID, echoServerPort)
+
+	// ssh -L cannot report a port it picks, so forward from a Unix socket instead. The directory comes
+	// from os.MkdirTemp rather than t.TempDir to keep the path within the 104-byte socket limit on macOS.
+	socketDir, err := os.MkdirTemp("", "ssh-fwd") //nolint:usetesting
+	require.NoError(t, err, "failed to create socket directory")
+
+	t.Cleanup(func() { _ = os.RemoveAll(socketDir) })
+
+	localSocket := filepath.Join(socketDir, "fwd.sock")
 
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 
 	var sshStderr bytes.Buffer
 
-	cmd := env.user.SSH.LocalPortForward(ctx, localPort, "127.0.0.1", echoServerPort)
+	cmd := env.user.SSH.LocalPortForward(ctx, localSocket, "127.0.0.1", echoServerPort)
 	cmd.Stderr = &sshStderr
 
 	require.NoError(t, cmd.Start(), "failed to start SSH local port forwarding")
@@ -291,10 +298,10 @@ func TestSSHLocalPortForwarding(t *testing.T) {
 	// Wait for the tunnel to be established by polling the forwarded port
 	var conn net.Conn
 
-	err := wait.PollUntilContextTimeout(ctx, 500*time.Millisecond, 10*time.Second, true, func(_ context.Context) (bool, error) {
+	err = wait.PollUntilContextTimeout(ctx, 500*time.Millisecond, 10*time.Second, true, func(_ context.Context) (bool, error) {
 		var dialErr error
 
-		conn, dialErr = net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", localPort), time.Second)
+		conn, dialErr = net.DialTimeout("unix", localSocket, time.Second)
 		if dialErr != nil {
 			return false, nil //nolint:nilerr
 		}
@@ -311,7 +318,7 @@ func TestSSHLocalPortForwarding(t *testing.T) {
 	_, err = conn.Write([]byte(testData))
 	require.NoError(t, err, "failed to write to forwarded port")
 
-	require.NoError(t, conn.(*net.TCPConn).CloseWrite())
+	require.NoError(t, conn.(*net.UnixConn).CloseWrite())
 
 	response, err := io.ReadAll(conn)
 	require.NoError(t, err, "failed to read from forwarded port")
@@ -335,11 +342,9 @@ func TestSSHLocalPortForwarding(t *testing.T) {
 // TestSSHRemotePortForwarding tests that remote port forwarding (-R) works through the gateway.
 // This exercises the tcpip-forward global request and forwarded-tcpip channel forwarding in conn_pair.go.
 func TestSSHRemotePortForwarding(t *testing.T) {
-	const (
-		gatewayPort   = 8447
-		localEchoPort = 19999
-		remotePort    = 9999
-	)
+	t.Parallel()
+
+	const remotePort = 9999
 
 	env := setupSSHGateway(t, &token.User{
 		ID:       "user-ssh-remote-fwd",
@@ -349,9 +354,9 @@ func TestSSHRemotePortForwarding(t *testing.T) {
 		Local: &gatewayconfig.SSHCALocalConfig{
 			PrivateKeyFile: "../data/ssh/ca/ca",
 		},
-	}, gatewayPort)
+	})
 
-	testutil.SetupLocalEchoServer(t, localEchoPort)
+	localEchoPort := testutil.SetupLocalEchoServer(t)
 
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()

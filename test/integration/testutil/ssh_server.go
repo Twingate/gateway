@@ -41,7 +41,6 @@ func SetupSSHServer(t *testing.T, userName string) (string, int) {
 	// #nosec G204 -- inputs are from trusted operator configuration
 	output, err := RunCommand(exec.Command("docker", "run", "-d",
 		"-p", fmt.Sprintf("0:%d", sshPort),
-		"--name", "gateway-integration-test-ssh-server",
 		"--env", "PUID="+string(uid),
 		"--env", "PGID="+string(gid),
 		"--env", "USER_NAME="+userName,
@@ -112,11 +111,11 @@ func SetupRemoteEchoServer(t *testing.T, containerID string, port int) {
 	require.NoError(t, err, "failed to start echo server in docker container")
 }
 
-// SetupLocalEchoServer starts a TCP echo server on the given port on the host machine.
-func SetupLocalEchoServer(t *testing.T, port int) {
+// SetupLocalEchoServer starts a TCP echo server on the host machine and returns its port.
+func SetupLocalEchoServer(t *testing.T) int {
 	t.Helper()
 
-	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err, "failed to start local echo server")
 
 	t.Cleanup(func() {
@@ -137,4 +136,6 @@ func SetupLocalEchoServer(t *testing.T, port int) {
 			}()
 		}
 	}()
+
+	return listener.Addr().(*net.TCPAddr).Port
 }
