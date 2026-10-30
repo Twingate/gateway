@@ -131,14 +131,14 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 	if err != nil {
 		logger.System.Error("Failed to get the database credential", zap.Error(err))
 
-		return downstream.reject(err)
+		return downstream.reject(errFailedToGetCredential)
 	}
 
 	cred, err := provider.retrieve(ctx)
 	if err != nil {
 		logger.System.Error("Failed to get the database credential", zap.Error(err))
 
-		return downstream.reject(err)
+		return downstream.reject(errFailedToGetCredential)
 	}
 
 	upstream, err := connectUpstream(ctx, newUpstreamConfig(conn, startup, auth, cred, p.config.caPool))

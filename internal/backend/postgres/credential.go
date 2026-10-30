@@ -18,7 +18,10 @@ import (
 // awsIAMPlaceholder is the password the aws_iam provider returns until it signs an RDS auth token.
 const awsIAMPlaceholder = "aws-iam-token"
 
-var errUnknownCredential = errors.New("unknown credential")
+var (
+	errUnknownCredential     = errors.New("unknown credential")
+	errFailedToGetCredential = errors.New("failed to get the database credential")
+)
 
 type credential struct {
 	password string

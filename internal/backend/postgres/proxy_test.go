@@ -6,7 +6,6 @@ package postgres
 import (
 	"crypto/tls"
 	"io"
-	"io/fs"
 	"net"
 	"path/filepath"
 	"testing"
@@ -327,7 +326,7 @@ func TestProxy_ServeConn_NegotiatesProtocolFirst(t *testing.T) {
 	assert.Equal(t, &pgproto3.NegotiateProtocolVersion{NewestMinorProtocol: pgproto3.ProtocolVersion30, UnrecognizedOptions: []string{}}, got)
 
 	err = waitServe(t, session.done)
-	require.ErrorIs(t, err, errUnknownCredential)
+	require.ErrorIs(t, err, errFailedToGetCredential)
 	assertRejected(t, session, err)
 }
 
@@ -372,10 +371,9 @@ func TestProxy_ServeConn_CredentialError(t *testing.T) {
 	tests := []struct {
 		name       string
 		credential string
-		wantErr    error
 	}{
-		{name: "unknown credential", credential: "other", wantErr: errUnknownCredential},
-		{name: "credential fails to load", credential: "unreadable", wantErr: fs.ErrNotExist},
+		{name: "unknown credential", credential: "other"},
+		{name: "credential fails to load", credential: "unreadable"},
 	}
 
 	for _, tt := range tests {
@@ -385,7 +383,7 @@ func TestProxy_ServeConn_CredentialError(t *testing.T) {
 			sendStartup(t, session.client)
 
 			err := waitServe(t, session.done)
-			require.ErrorIs(t, err, tt.wantErr)
+			require.ErrorIs(t, err, errFailedToGetCredential)
 			assertRejected(t, session, err)
 		})
 	}
