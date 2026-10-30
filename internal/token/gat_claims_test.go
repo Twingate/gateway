@@ -342,6 +342,16 @@ func TestGATTokenClaims_Validate(t *testing.T) {
 			expectedErrorMessage: "invalid TLS mode \"resource.gateway_metadata.upstream.tls_mode\": \"\"",
 		},
 		{
+			name: "PostgreSQL downstream TLS13",
+			setupFn: func(claims *GATClaims) {
+				claims.Resource.Type = ResourceTypePostgreSQL
+				claims.Resource.GatewayMetadata.Downstream.TLSMode = TLSServerModeTLS13
+				claims.Resource.GatewayMetadata.Upstream.TLSMode = TLSClientModeVerifyFull
+			},
+			expectedError:        errUnsupportedTLS,
+			expectedErrorMessage: "\"resource.gateway_metadata.downstream.tls_mode\": \"TLS13\"",
+		},
+		{
 			name: "Missing PostgreSQL auths",
 			setupFn: func(claims *GATClaims) {
 				claims.Resource.Type = ResourceTypePostgreSQL
