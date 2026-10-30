@@ -18,16 +18,14 @@ import (
 	"go.uber.org/zap/zapcore"
 
 	"gateway/internal/backend/httpproxy"
+	backendtls "gateway/internal/backend/tls"
 	"gateway/internal/backend/webapp/template"
 	"gateway/internal/frontend"
 	"gateway/internal/metrics"
 	"gateway/internal/token"
 )
 
-var (
-	errNoPeerCertificate  = errors.New("upstream presented no certificate")
-	errUnsupportedTLSMode = errors.New("unsupported upstream TLS mode")
-)
+var errUnsupportedTLSMode = errors.New("unsupported upstream TLS mode")
 
 type Handler struct {
 	proxy http.Handler
@@ -58,7 +56,7 @@ func NewHandler(cfg Config) *Handler {
 func createUpstreamRoundTripper(caPool *x509.CertPool) promhttp.RoundTripperFunc {
 	transports := make(map[token.TLSClientMode]*http.Transport, len(token.TLSClientModes))
 	for _, mode := range token.TLSClientModes {
-		transports[mode] = createTransport(newUpstreamTLSConfig(mode, caPool))
+		transports[mode] = createTransport(backendtls.NewUpstreamTLSConfig(mode, caPool))
 	}
 
 	return func(r *http.Request) (*http.Response, error) {
@@ -80,59 +78,6 @@ func createTransport(tlsConfig *tls.Config) *http.Transport {
 	transport.TLSClientConfig = tlsConfig
 
 	return transport
-}
-
-// newUpstreamTLSConfig returns the TLS client config for connecting to an upstream in the given
-// mode, verifying certificate chains against rootCAs. It returns nil for TLSClientModeNone.
-func newUpstreamTLSConfig(mode token.TLSClientMode, rootCAs *x509.CertPool) *tls.Config {
-	switch mode {
-	case token.TLSClientModeNone:
-		return nil
-	case token.TLSClientModeInsecure:
-		return &tls.Config{
-			MinVersion:         tls.VersionTLS13,
-			InsecureSkipVerify: true, // #nosec G402 -- The resource explicitly opts out of upstream certificate verification
-		}
-	case token.TLSClientModeVerifyCA:
-		// Disable the built-in verification, which always checks the hostname, and verify only the
-		// certificate chain in VerifyConnection.
-		return &tls.Config{
-			MinVersion:         tls.VersionTLS13,
-			InsecureSkipVerify: true, // #nosec G402 -- The certificate chain is verified in VerifyConnection
-			VerifyConnection:   verifyCertificateChain(rootCAs),
-		}
-	case token.TLSClientModeVerifyFull:
-		fallthrough
-	default:
-		return &tls.Config{
-			MinVersion: tls.VersionTLS13,
-			RootCAs:    rootCAs,
-		}
-	}
-}
-
-// verifyCertificateChain returns a VerifyConnection callback that verifies the peer's certificate
-// chain against rootCAs without checking the hostname.
-func verifyCertificateChain(rootCAs *x509.CertPool) func(tls.ConnectionState) error {
-	return func(cs tls.ConnectionState) error {
-		if len(cs.PeerCertificates) == 0 {
-			return errNoPeerCertificate
-		}
-
-		opts := x509.VerifyOptions{
-			Roots:         rootCAs,
-			Intermediates: x509.NewCertPool(),
-		}
-		for _, cert := range cs.PeerCertificates[1:] {
-			opts.Intermediates.AddCert(cert)
-		}
-
-		if _, err := cs.PeerCertificates[0].Verify(opts); err != nil {
-			return fmt.Errorf("verify upstream certificate: %w", err)
-		}
-
-		return nil
-	}
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
