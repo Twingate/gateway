@@ -202,16 +202,17 @@ func TestAuditObserver_ReadyForQuery(t *testing.T) {
 	tests := []struct {
 		name        string
 		txStatus    byte
-		wantPortals map[string]string
+		wantPortals map[string]*portal
 	}{
-		{name: "transaction open", txStatus: 'T', wantPortals: map[string]string{"p1": "s1"}},
-		{name: "transaction ended", txStatus: 'I', wantPortals: map[string]string{}},
+		{name: "transaction open", txStatus: 'T', wantPortals: map[string]*portal{"p1": {statement: "s1", columns: []string{"id"}}}},
+		{name: "transaction ended", txStatus: 'I', wantPortals: map[string]*portal{}},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			o := newTestAuditObserver()
 			o.fromClient(
+				&pgproto3.Parse{Name: "s1", Query: "SELECT"},
 				&pgproto3.Bind{DestinationPortal: "p1", PreparedStatement: "s1"},
 				&pgproto3.Describe{ObjectType: objectTypePortal, Name: "p1"},
 				&pgproto3.Describe{ObjectType: objectTypeStatement, Name: "s1"},
@@ -226,9 +227,90 @@ func TestAuditObserver_ReadyForQuery(t *testing.T) {
 			assert.Equal(t, []auditLine{{"pg completed", map[string]any{"request_id": uint64(1)}}}, o.takeLines(t))
 			assert.True(t, o.startedAt.IsZero())
 			assert.Nil(t, o.columns)
+			assert.Empty(t, o.parses)
 			assert.Empty(t, o.describes)
 			assert.Empty(t, o.executes)
+			assert.Empty(t, o.closes)
 			assert.Equal(t, tt.wantPortals, o.portals)
+		})
+	}
+}
+
+// TestAuditObserver_StatementLifetime checks when a described statement's columns are dropped: the
+// server keeps the statement when its Parse fails or its Close is skipped after an error.
+func TestAuditObserver_StatementLifetime(t *testing.T) {
+	tests := []struct {
+		name           string
+		statement      string
+		client         []pgproto3.FrontendMessage
+		server         []pgproto3.BackendMessage
+		wantStatements map[string][]string
+	}{
+		{
+			name:           "parse succeeds",
+			statement:      "s1",
+			client:         []pgproto3.FrontendMessage{&pgproto3.Parse{Name: "s1", Query: "SELECT"}, &pgproto3.Sync{}},
+			server:         []pgproto3.BackendMessage{&pgproto3.ParseComplete{}},
+			wantStatements: map[string][]string{},
+		},
+		{
+			name:           "parse fails",
+			statement:      "s1",
+			client:         []pgproto3.FrontendMessage{&pgproto3.Parse{Name: "s1", Query: "SELECT"}, &pgproto3.Sync{}},
+			server:         []pgproto3.BackendMessage{&pgproto3.ErrorResponse{Code: "42P05", Message: `prepared statement "s1" already exists`}},
+			wantStatements: map[string][]string{"s1": {"id"}},
+		},
+		{
+			name:      "close completes after a describe in the same batch",
+			statement: "s1",
+			client: []pgproto3.FrontendMessage{
+				&pgproto3.Describe{ObjectType: objectTypeStatement, Name: "s1"},
+				&pgproto3.Close{ObjectType: objectTypeStatement, Name: "s1"},
+				&pgproto3.Sync{},
+			},
+			server: []pgproto3.BackendMessage{
+				&pgproto3.ParameterDescription{},
+				&pgproto3.RowDescription{Fields: []pgproto3.FieldDescription{{Name: []byte("id")}}},
+				&pgproto3.CloseComplete{},
+			},
+			wantStatements: map[string][]string{},
+		},
+		{
+			name:      "close skipped after an error",
+			statement: "s1",
+			client: []pgproto3.FrontendMessage{
+				&pgproto3.Describe{ObjectType: objectTypeStatement, Name: "missing"},
+				&pgproto3.Close{ObjectType: objectTypeStatement, Name: "s1"},
+				&pgproto3.Sync{},
+			},
+			server:         []pgproto3.BackendMessage{&pgproto3.ErrorResponse{Code: "26000", Message: `prepared statement "missing" does not exist`}},
+			wantStatements: map[string][]string{"s1": {"id"}},
+		},
+		{
+			name:           "close of a portal keeps the statement",
+			statement:      "s1",
+			client:         []pgproto3.FrontendMessage{&pgproto3.Close{ObjectType: objectTypePortal, Name: "p1"}, &pgproto3.Sync{}},
+			server:         []pgproto3.BackendMessage{&pgproto3.CloseComplete{}},
+			wantStatements: map[string][]string{"s1": {"id"}},
+		},
+		{
+			name:           "simple query drops the unnamed statement",
+			statement:      "",
+			client:         []pgproto3.FrontendMessage{&pgproto3.Query{String: "SELECT 1"}},
+			server:         []pgproto3.BackendMessage{&pgproto3.CommandComplete{CommandTag: []byte("SELECT 1")}},
+			wantStatements: map[string][]string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			o := newTestAuditObserver()
+			o.prepare(t, tt.statement, "id")
+
+			o.fromClient(tt.client...)
+			o.fromServer(append(tt.server, &pgproto3.ReadyForQuery{TxStatus: 'I'})...)
+
+			assert.Equal(t, tt.wantStatements, o.statements)
 		})
 	}
 }
@@ -305,7 +387,7 @@ func TestAuditObserver_ExtendedQuery(t *testing.T) {
 
 	assert.Equal(t, []auditLine{
 		{"pg execute", map[string]any{"request_id": uint64(2), "portal_name": "C_1", "max_rows": uint32(0)}},
-		{"pg result", map[string]any{"request_id": uint64(2), "command": "SELECT", "row_count": int64(1)}},
+		{"pg result", map[string]any{"request_id": uint64(2), "command": "SELECT", "row_count": int64(1), "columns": []any{"id", "email"}}},
 		{"pg completed", map[string]any{"request_id": uint64(2)}},
 	}, o.takeLines(t))
 }
