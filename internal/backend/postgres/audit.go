@@ -55,25 +55,34 @@ type auditObserver struct {
 
 	requestID uint64
 	startedAt time.Time
-	columns   []string
+	// columns of a simple Query's next result, which no Describe asked for.
+	columns []string
 
 	// statements maps each described prepared statement to its column names. Entries last for the
 	// connection, as the server's own statements do, so a later Execute can find the columns of the
 	// statement it runs.
 	statements map[string][]string
-	// portals maps each portal to the statement it was bound from, so an Execute can find
-	// the statement and its columns. Entries end with a Close or with the transaction, as the
-	// server's own portals do.
-	portals map[string]string
-	// Store Describes and Executes the server has not answered yet. It answers them in the order the
-	// client sent them, so the oldest one is the one each answer belongs to.
-	describes queue[describe]
-	executes  queue[string]
+	// portals maps each portal to the statement it was bound from and its own described columns, so
+	// an Execute can find the columns of the portal it runs. Entries end with a Close or with the
+	// transaction, as the server's own portals do.
+	portals map[string]*portal
+	// Store Parses, Describes, Executes and Closes the server has not answered yet. It answers them
+	// in the order the client sent them, so the oldest one is the one each answer belongs to.
+	parses    queue[string]
+	describes queue[object]
+	executes  queue[*portal]
+	closes    queue[object]
 }
 
-type describe struct {
+type object struct {
 	objectType byte
 	name       string
+	portal     *portal
+}
+
+type portal struct {
+	statement string
+	columns   []string
 }
 
 type queue[T any] []T
@@ -97,7 +106,7 @@ func (q *queue[T]) dequeue() (T, bool) {
 }
 
 func newAuditObserver(logger *zap.Logger) *auditObserver {
-	return &auditObserver{logger: logger, statements: map[string][]string{}, portals: map[string]string{}}
+	return &auditObserver{logger: logger, statements: map[string][]string{}, portals: map[string]*portal{}}
 }
 
 func (o *auditObserver) onDownstreamMessage(msg pgproto3.FrontendMessage) {
@@ -113,9 +122,12 @@ func (o *auditObserver) onDownstreamMessage(msg pgproto3.FrontendMessage) {
 
 	switch msg := msg.(type) {
 	case *pgproto3.Query:
+		// A simple Query destroys the server's unnamed statement before it runs.
+		delete(o.statements, "")
+
 		o.logger.Info("pg query", append(fields, stringFields(fieldSQL, msg.String)...)...)
 	case *pgproto3.Parse:
-		delete(o.statements, msg.Name)
+		o.parses.enqueue(msg.Name)
 
 		fields = slices.Concat(fields, []zap.Field{
 			zap.String(fieldStatementName, msg.Name),
@@ -123,7 +135,7 @@ func (o *auditObserver) onDownstreamMessage(msg pgproto3.FrontendMessage) {
 
 		o.logger.Info("pg parse", fields...)
 	case *pgproto3.Bind:
-		o.portals[msg.DestinationPortal] = msg.PreparedStatement
+		o.portals[msg.DestinationPortal] = &portal{statement: msg.PreparedStatement}
 
 		fields = slices.Concat(fields, []zap.Field{
 			zap.String(fieldStatementName, msg.PreparedStatement),
@@ -132,9 +144,14 @@ func (o *auditObserver) onDownstreamMessage(msg pgproto3.FrontendMessage) {
 
 		o.logger.Info("pg bind", fields...)
 	case *pgproto3.Describe:
-		o.describes.enqueue(describe{objectType: msg.ObjectType, name: msg.Name})
+		target := object{objectType: msg.ObjectType, name: msg.Name}
+		if msg.ObjectType == objectTypePortal {
+			target.portal = o.portal(msg.Name)
+		}
+
+		o.describes.enqueue(target)
 	case *pgproto3.Execute:
-		o.executes.enqueue(o.portals[msg.Portal])
+		o.executes.enqueue(o.portal(msg.Portal))
 
 		fields = append(fields, zap.String(fieldPortalName, msg.Portal), zap.Uint32("max_rows", msg.MaxRows))
 
@@ -146,14 +163,13 @@ func (o *auditObserver) onDownstreamMessage(msg pgproto3.FrontendMessage) {
 
 		o.logger.Info("pg function_call", fields...)
 	case *pgproto3.Close:
-		switch msg.ObjectType {
-		case objectTypeStatement:
-			delete(o.statements, msg.Name)
-		case objectTypePortal:
+		// A statement's columns go on CloseComplete, after any Describe of it in the same batch has
+		// been answered. A portal's pending results hold it by pointer, so its name can go now.
+		if msg.ObjectType == objectTypePortal {
 			delete(o.portals, msg.Name)
-		default:
-			// The server rejects any other object type.
 		}
+
+		o.closes.enqueue(object{objectType: msg.ObjectType, name: msg.Name})
 	default:
 		// Sync, Flush, Terminate and COPY data (CopyData, CopyDone, CopyFail) carry no statement to
 		// audit, and COPY data is never logged.
@@ -165,21 +181,25 @@ func (o *auditObserver) onUpstreamMessage(msg pgproto3.BackendMessage) {
 	defer o.mu.Unlock()
 
 	switch msg := msg.(type) {
+	case *pgproto3.ParseComplete:
+		// A failed Parse leaves the server's statement, and so its columns, in place.
+		if name, ok := o.parses.dequeue(); ok {
+			delete(o.statements, name)
+		}
+	case *pgproto3.CloseComplete:
+		// A Close skipped after an error in its batch leaves the server's statement in place.
+		if target, ok := o.closes.dequeue(); ok && target.objectType == objectTypeStatement {
+			delete(o.statements, target.name)
+		}
 	case *pgproto3.RowDescription:
 		columns := make([]string, len(msg.Fields))
 		for i, field := range msg.Fields {
 			columns[i] = string(field.Name)
 		}
 
-		if statement, ok := o.describedStatement(); ok {
-			o.statements[statement] = columns
-		} else {
-			o.columns = columns
-		}
+		o.setDescribedColumns(columns)
 	case *pgproto3.NoData:
-		if statement, ok := o.describedStatement(); ok {
-			o.statements[statement] = nil
-		}
+		o.setDescribedColumns(nil)
 	case *pgproto3.CommandComplete:
 		command, rowCount, hasRowCount := parseCommandTag(msg.CommandTag)
 		fields := []zap.Field{zap.String("command", command)}
@@ -219,8 +239,8 @@ func (o *auditObserver) onUpstreamMessage(msg pgproto3.BackendMessage) {
 
 		o.reset()
 	default:
-		// DataRow and COPY data are never logged due to privacy and volume reasons. The rest (ParseComplete,
-		// BindComplete, CloseComplete, ParameterDescription, CopyInResponse, CopyOutResponse,
+		// DataRow and COPY data are never logged due to privacy and volume reasons. The rest
+		// (BindComplete, ParameterDescription, CopyInResponse, CopyOutResponse,
 		// FunctionCallResponse, NoticeResponse, NotificationResponse, ParameterStatus) say nothing
 		// about the statement's outcome.
 	}
@@ -230,33 +250,53 @@ func (o *auditObserver) onUpstreamMessage(msg pgproto3.BackendMessage) {
 func (o *auditObserver) reset() {
 	o.startedAt = time.Time{}
 	o.columns = nil
+	o.parses = nil
 	o.describes = nil
 	o.executes = nil
+	o.closes = nil
 }
 
-// describedStatement consumes the oldest unanswered Describe, and returns the statement name with
-// true only when that Describe targeted a prepared statement.
-func (o *auditObserver) describedStatement() (string, bool) {
+// portal returns the portal bound under name. A portal the client never bound was made by the
+// server itself, as DECLARE CURSOR does, and is recorded on first use.
+func (o *auditObserver) portal(name string) *portal {
+	p, ok := o.portals[name]
+	if !ok {
+		p = &portal{}
+		o.portals[name] = p
+	}
+
+	return p
+}
+
+// setDescribedColumns stores the answer to the oldest unanswered Describe against the statement or
+// portal it asked about. Without one, the answer describes a simple Query's next result.
+func (o *auditObserver) setDescribedColumns(columns []string) {
 	target, ok := o.describes.dequeue()
-	if !ok {
-		return "", false
-	}
 
-	return target.name, target.objectType == objectTypeStatement
+	switch {
+	case !ok:
+		o.columns = columns
+	case target.objectType == objectTypePortal:
+		target.portal.columns = columns
+	default:
+		o.statements[target.name] = columns
+	}
 }
 
-// nextResultColumns consumes the oldest unanswered Execute, because every result answers one.
+// nextResultColumns consumes the oldest unanswered Execute, because every result answers one. A
+// driver may describe only the portal, only its statement, or both, so the result takes whichever
+// is known.
 func (o *auditObserver) nextResultColumns() []string {
-	statement, ok := o.executes.dequeue()
+	p, ok := o.executes.dequeue()
 	if !ok {
 		return o.columns
 	}
 
-	if o.columns != nil {
-		return o.columns
+	if p.columns != nil {
+		return p.columns
 	}
 
-	return o.statements[statement]
+	return o.statements[p.statement]
 }
 
 func (o *auditObserver) logResult(fields ...zap.Field) {
