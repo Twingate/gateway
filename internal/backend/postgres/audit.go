@@ -27,8 +27,8 @@ const (
 	fieldTruncated     = "truncated"
 )
 
-// maxAuditValueBytes caps the SQL text, the error message, or the combined parameter bytes of one
-// audit line.
+// maxAuditValueBytes caps the SQL text, the error message, or the combined parameters of one audit
+// line, measured as logged: a binary parameter counts its base64 form.
 const maxAuditValueBytes = 64 * humanize.KiByte
 
 // Object types that Describe and Close messages name.
@@ -302,26 +302,35 @@ func valueFields[F int16 | uint16](name string, formatCodes []F, values [][]byte
 			break
 		}
 
-		// A value that meets an empty remaining cap is dropped rather than logged as an empty value.
-		if remaining == 0 && len(value) > 0 {
-			truncated = true
-
-			break
-		}
-
 		if value == nil {
 			logged = append(logged, nil)
 
 			continue
 		}
 
-		value, truncated = truncate(value, remaining)
-		remaining -= len(value)
+		binary := isBinaryFormat(formatCodes, i)
 
-		if isBinaryFormat(formatCodes, i) {
-			// Binary value logged as base64
-			logged = append(logged, base64.StdEncoding.EncodeToString(value))
+		limit := remaining
+		if binary {
+			// base64 writes 4 bytes for every 3, so fewer raw bytes fit.
+			limit = remaining / 4 * 3
+		}
+
+		// A value that meets an empty remaining cap is dropped rather than logged as an empty value.
+		if limit == 0 && len(value) > 0 {
+			truncated = true
+
+			break
+		}
+
+		value, truncated = truncate(value, limit)
+
+		if binary {
+			encoded := base64.StdEncoding.EncodeToString(value)
+			remaining -= len(encoded)
+			logged = append(logged, encoded)
 		} else {
+			remaining -= len(value)
 			logged = append(logged, string(value))
 		}
 	}
