@@ -535,8 +535,26 @@ func TestValueFields(t *testing.T) {
 		{
 			name:        "over the cap cuts the crossing value and drops the rest",
 			formatCodes: []int16{pgtype.TextFormatCode, pgtype.BinaryFormatCode, pgtype.TextFormatCode},
-			values:      [][]byte{bytes.Repeat([]byte("a"), maxAuditValueBytes-1), {0xff, 0xff}, []byte("c")},
-			want:        map[string]any{"parameters": []any{strings.Repeat("a", maxAuditValueBytes-1), "/w=="}, "truncated": true},
+			values:      [][]byte{bytes.Repeat([]byte("a"), maxAuditValueBytes-4), {0xff, 0xff, 0xff, 0xff}, []byte("c")},
+			want:        map[string]any{"parameters": []any{strings.Repeat("a", maxAuditValueBytes-4), "////"}, "truncated": true},
+		},
+		{
+			name:        "binary value at the cap in base64",
+			formatCodes: []int16{pgtype.BinaryFormatCode},
+			values:      [][]byte{bytes.Repeat([]byte{0xff}, maxAuditValueBytes/4*3)},
+			want:        map[string]any{"parameters": []any{strings.Repeat("/", maxAuditValueBytes)}},
+		},
+		{
+			name:        "binary value over the cap in base64",
+			formatCodes: []int16{pgtype.BinaryFormatCode},
+			values:      [][]byte{bytes.Repeat([]byte{0xff}, maxAuditValueBytes/4*3+1)},
+			want:        map[string]any{"parameters": []any{strings.Repeat("/", maxAuditValueBytes)}, "truncated": true},
+		},
+		{
+			name:        "binary value that cannot fit a base64 group is dropped",
+			formatCodes: []int16{pgtype.TextFormatCode, pgtype.BinaryFormatCode},
+			values:      [][]byte{bytes.Repeat([]byte("a"), maxAuditValueBytes-3), {0xff}},
+			want:        map[string]any{"parameters": []any{strings.Repeat("a", maxAuditValueBytes-3)}, "truncated": true},
 		},
 		{
 			name:   "first value over the cap",
