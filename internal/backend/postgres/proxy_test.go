@@ -504,3 +504,19 @@ func TestProxy_Shutdown_ClosesActiveConnection(t *testing.T) {
 	assertEOF(t, session.serverConn)
 	assert.Zero(t, connCount(session.proxy))
 }
+
+func TestProxy_Shutdown_ClosesConnectionInStartup(t *testing.T) {
+	// The client never sends a startup packet, so only Shutdown can end the connection
+	// before the startup deadline.
+	session := startServe(t, "unused:5432", token.TLSClientModeNone, passwordAuth)
+
+	require.Eventually(t, func() bool {
+		return connCount(session.proxy) == 1
+	}, testTimeout, 10*time.Millisecond, "connection was not tracked")
+
+	session.proxy.Shutdown(t.Context())
+
+	require.ErrorIs(t, waitServe(t, session.done), errFailedToReceiveStartup)
+	assertEOF(t, session.clientConn)
+	assert.Zero(t, connCount(session.proxy))
+}

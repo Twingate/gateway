@@ -21,7 +21,7 @@ type Proxy struct {
 	mu sync.Mutex
 
 	// Map of all active PostgreSQL connections
-	conns map[*relay]struct{}
+	conns map[frontend.Conn]struct{}
 
 	// Wait group for active PostgreSQL connections
 	wg sync.WaitGroup
@@ -33,7 +33,7 @@ type Proxy struct {
 
 func NewProxy(config Config) *Proxy {
 	return &Proxy{
-		conns:  make(map[*relay]struct{}),
+		conns:  make(map[frontend.Conn]struct{}),
 		config: config,
 	}
 }
@@ -68,7 +68,7 @@ func (p *Proxy) Shutdown(_ context.Context) {
 	p.shuttingDown = true
 
 	for conn := range p.conns {
-		conn.close()
+		_ = conn.Close()
 	}
 
 	p.mu.Unlock()
@@ -87,7 +87,18 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 		return errShuttingDown
 	}
 
+	p.wg.Add(1)
+	defer p.wg.Done()
+
+	p.conns[conn] = struct{}{}
+
 	p.mu.Unlock()
+
+	defer func() {
+		p.mu.Lock()
+		delete(p.conns, conn)
+		p.mu.Unlock()
+	}()
 
 	logger := p.config.logger
 	logger.Audit = logger.Audit.With(
@@ -167,19 +178,6 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 	)
 
 	session := newRelay(logger, downstream, upstream)
-
-	p.wg.Add(1)
-	defer p.wg.Done()
-
-	p.mu.Lock()
-	p.conns[session] = struct{}{}
-	p.mu.Unlock()
-
-	defer func() {
-		p.mu.Lock()
-		delete(p.conns, session)
-		p.mu.Unlock()
-	}()
 
 	err = session.serve(ctx)
 
