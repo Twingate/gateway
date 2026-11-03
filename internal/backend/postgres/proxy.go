@@ -119,7 +119,7 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 	upstream := newUpstream(conn.GetUpstreamAddress(), backendtls.NewUpstreamTLSConfig(tlsMode, p.config.caPool))
 
 	if cancel != nil {
-		err := upstream.forwardCancelRequest(cancel)
+		err := upstream.forwardCancelRequest(ctx, cancel)
 		if err != nil {
 			logger.System.Error("Failed to forward the cancel request", zap.Error(err))
 			logger.Audit.Error("pg cancel", zap.Uint32("process_id", cancel.ProcessID), zap.Error(err))

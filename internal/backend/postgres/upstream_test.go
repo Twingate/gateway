@@ -4,6 +4,7 @@
 package postgres
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"io"
@@ -431,7 +432,7 @@ func TestUpstream_ForwardCancelRequest(t *testing.T) {
 			done := make(chan error, 1)
 
 			go func() {
-				done <- u.forwardCancelRequest(request)
+				done <- u.forwardCancelRequest(t.Context(), request)
 			}()
 
 			if tt.serve != nil {
@@ -441,6 +442,43 @@ func TestUpstream_ForwardCancelRequest(t *testing.T) {
 			require.ErrorIs(t, <-done, tt.wantErr)
 		})
 	}
+}
+
+func TestUpstream_ForwardCancelRequest_ContextCanceled(t *testing.T) {
+	cancel := &pgproto3.CancelRequest{ProcessID: 42, SecretKey: []byte{1, 2, 3, 4}}
+
+	t.Run("before dialing", func(t *testing.T) {
+		_, address := newUpstreamListener(t)
+		ctx, cancelCtx := context.WithCancel(t.Context())
+		cancelCtx()
+
+		err := newUpstream(address, nil).forwardCancelRequest(ctx, cancel)
+
+		require.ErrorIs(t, err, errFailedToConnectUpstream)
+		require.ErrorIs(t, err, context.Canceled)
+	})
+
+	t.Run("while waiting for the database", func(t *testing.T) {
+		listener, address := newUpstreamListener(t)
+		u := newUpstream(address, backendtls.NewUpstreamTLSConfig(token.TLSClientModeVerifyCA, newTestCAPool(t)))
+		ctx, cancelCtx := context.WithCancel(t.Context())
+		done := make(chan error, 1)
+
+		go func() {
+			done <- u.forwardCancelRequest(ctx, cancel)
+		}()
+
+		// The database receives the request but never closes the connection.
+		tlsConn := acceptTLS(t, acceptUpstream(t, listener))
+		_, err := pgproto3.NewBackend(tlsConn, tlsConn).ReceiveStartupMessage()
+		require.NoError(t, err)
+
+		cancelCtx()
+
+		err = <-done
+		require.ErrorIs(t, err, errFailedToSendCancelRequest)
+		require.ErrorIs(t, err, net.ErrClosed)
+	})
 }
 
 func TestStartTLS(t *testing.T) {
