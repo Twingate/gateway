@@ -9,6 +9,7 @@ import (
 	"net"
 	"sync"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"go.uber.org/zap"
 
 	backendtls "gateway/internal/backend/tls"
@@ -157,6 +158,11 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 	db, err := upstream.connect(ctx, startup, cred)
 	if err != nil {
 		logger.System.Error("Failed to connect to the database", zap.Error(err))
+
+		// A database error is relayed as is; anything else carries the upstream address and TLS detail.
+		if _, ok := errors.AsType[*pgconn.PgError](err); !ok {
+			err = errFailedToConnectUpstream
+		}
 
 		return downstream.reject(err)
 	}

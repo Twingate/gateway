@@ -52,7 +52,7 @@ func (c *downstreamConn) handleStartupMessage() (*pgproto3.StartupMessage, *pgpr
 
 	defer func() { _ = c.conn.SetDeadline(time.Time{}) }()
 
-	// A client that repeats a refused request ignored the refusal.
+	// A client that repeats a refused request is rejected.
 	refused := map[string]bool{}
 
 	for {
@@ -74,7 +74,7 @@ func (c *downstreamConn) handleStartupMessage() (*pgproto3.StartupMessage, *pgpr
 
 			refused[request] = true
 
-			// Refuse the encryption allows the client fall back to plaintext on the same connection..
+			// Refuse encryption and tell client to fall back to plaintext on the same connection.
 			if _, err := c.conn.Write([]byte{encryptionRefused}); err != nil {
 				return nil, nil, fmt.Errorf("%w: %w", errFailedToAnswerStartupRequest, err)
 			}

@@ -419,9 +419,8 @@ func TestProxy_ServeConn_UpstreamUnreachable(t *testing.T) {
 	session := startServe(t, closedAddr(t), token.TLSClientModeNone, passwordAuth)
 	sendStartup(t, session.client)
 
-	err := waitServe(t, session.done)
-	require.ErrorIs(t, err, errFailedToConnectUpstream)
-	assertRejected(t, session, err)
+	require.ErrorIs(t, waitServe(t, session.done), errFailedToConnectUpstream)
+	assertRejected(t, session, errFailedToConnectUpstream)
 }
 
 func TestProxy_ServeConn_UpstreamError(t *testing.T) {
@@ -461,9 +460,8 @@ func TestProxy_ServeConn_UpstreamError(t *testing.T) {
 
 			tt.upstream(t, acceptUpstream(t, listener))
 
-			err := waitServe(t, session.done)
-			require.ErrorIs(t, err, errFailedToConnectUpstream)
-			assertRejected(t, session, err)
+			require.ErrorIs(t, waitServe(t, session.done), errFailedToConnectUpstream)
+			assertRejected(t, session, errFailedToConnectUpstream)
 		})
 	}
 }
