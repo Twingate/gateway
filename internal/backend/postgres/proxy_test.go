@@ -96,6 +96,7 @@ func acceptAuthentication(t *testing.T, conn net.Conn) *pgproto3.Backend {
 
 	msg, err := backend.Receive()
 	require.NoError(t, err)
+
 	password, ok := msg.(*pgproto3.PasswordMessage)
 	require.True(t, ok, "expected a PasswordMessage, got %T", msg)
 	assert.Contains(t, password.Password, "DBUser="+testDatabaseUser)
