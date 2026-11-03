@@ -141,13 +141,22 @@ func (u upstream) connectConfig(startup *pgproto3.StartupMessage, cred credentia
 
 // forwardCancelRequest sends the CancelRequest on a connection of its own. A cancel carries no
 // credential, so the TLS handshake presents no client certificate.
-func (u upstream) forwardCancelRequest(cancel *pgproto3.CancelRequest) error {
-	upstreamConn, err := net.DialTimeout("tcp", u.address, defaultTimeout)
+func (u upstream) forwardCancelRequest(ctx context.Context, cancel *pgproto3.CancelRequest) error {
+	dialer := net.Dialer{Timeout: defaultTimeout}
+
+	upstreamConn, err := dialer.DialContext(ctx, "tcp", u.address)
 	if err != nil {
 		return fmt.Errorf("%w: %w", errFailedToConnectUpstream, err)
 	}
 
 	defer func() { _ = upstreamConn.Close() }()
+
+	// Shutdown cancels ctx. Closing the TCP connection then ends the wait for the database. The
+	// callback runs on another goroutine, so it must not read upstreamConn, which TLS replaces.
+	tcpConn := upstreamConn
+
+	stop := context.AfterFunc(ctx, func() { _ = tcpConn.Close() })
+	defer stop()
 
 	_ = upstreamConn.SetDeadline(time.Now().Add(defaultTimeout))
 

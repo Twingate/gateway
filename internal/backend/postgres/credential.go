@@ -15,9 +15,13 @@ import (
 	"gateway/internal/token"
 )
 
+// awsIAMPlaceholder is the password the aws_iam provider returns until it signs an RDS auth token.
+const awsIAMPlaceholder = "aws-iam-token"
+
 var (
-	errUnsupportedAuthType = errors.New("unsupported auth type")
-	errUnknownCredential   = errors.New("unknown credential")
+	errUnsupportedAuthType   = errors.New("unsupported auth type")
+	errUnknownCredential     = errors.New("unknown credential")
+	errFailedToGetCredential = errors.New("failed to get the database credential")
 )
 
 type credential struct {
@@ -26,7 +30,7 @@ type credential struct {
 	// certificate is served when the database asks for a client certificate during the TLS handshake.
 	certificate *tls.Certificate
 	// requireAuth is the authentication method the database must ask for: scram-sha-256 for a
-	// password, so it is never sent in cleartext.
+	// password, so it is never sent in cleartext; password for an IAM token.
 	requireAuth string
 }
 
@@ -40,7 +44,9 @@ func newCredentialProvider(auth token.Auth, passwords passwordCredentials) (cred
 	switch auth.Type {
 	case token.AuthTypePassword:
 		return newPasswordCredential(passwords, auth.User, auth.Password)
-	case token.AuthTypeAWSIAM, token.AuthTypeGCPIAM:
+	case token.AuthTypeAWSIAM:
+		return newAWSIAMCredential(auth.User), nil
+	case token.AuthTypeGCPIAM:
 		fallthrough
 	default:
 		return nil, fmt.Errorf("%w: %s", errUnsupportedAuthType, auth.Type)
@@ -111,4 +117,16 @@ func loadCredential(cfg config.PostgreSQLCredential) (credential, error) {
 	}
 
 	return cred, nil
+}
+
+type awsIAMCredential struct {
+	user string
+}
+
+func newAWSIAMCredential(user string) *awsIAMCredential {
+	return &awsIAMCredential{user: user}
+}
+
+func (c *awsIAMCredential) retrieve(_ context.Context) (credential, error) {
+	return credential{user: c.user, password: awsIAMPlaceholder, requireAuth: "password"}, nil
 }

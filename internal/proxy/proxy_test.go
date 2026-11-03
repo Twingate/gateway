@@ -5,6 +5,7 @@ package proxy
 
 import (
 	"fmt"
+	"io/fs"
 	"net"
 	"net/http"
 	"testing"
@@ -17,6 +18,7 @@ import (
 
 	"gateway/internal/backend/httpproxy"
 	"gateway/internal/backend/kubernetes"
+	"gateway/internal/backend/postgres"
 	"gateway/internal/backend/ssh"
 	gatewayconfig "gateway/internal/config"
 	"gateway/internal/frontend"
@@ -117,6 +119,31 @@ func TestNewProxy_SSHOnly(t *testing.T) {
 	assert.Empty(t, p.httpProxies)
 }
 
+func TestNewProxy_PostgreSQLOnly(t *testing.T) {
+	config := fullConfig
+	config.Kubernetes = nil
+	config.SSH = nil
+	config.PostgreSQL = &gatewayconfig.PostgreSQLConfig{}
+
+	p, err := NewProxy(&config, prometheus.NewRegistry(), logging.NewNop())
+
+	require.NoError(t, err)
+	assert.NotNil(t, p.postgresProxy)
+	assert.Nil(t, p.sshProxy)
+	assert.Empty(t, p.httpProxies)
+}
+
+func TestNewProxy_PostgreSQLConfigError(t *testing.T) {
+	config := fullConfig
+	config.PostgreSQL = &gatewayconfig.PostgreSQLConfig{}
+	config.UpstreamTrustedCABundles = []gatewayconfig.UpstreamTrustedCABundle{{File: "missing.crt"}}
+
+	_, err := NewProxy(&config, prometheus.NewRegistry(), logging.NewNop())
+
+	require.ErrorIs(t, err, fs.ErrNotExist)
+	assert.ErrorContains(t, err, "failed to create PostgreSQL config")
+}
+
 func createTestProxy(t *testing.T) (*Proxy, net.Listener) {
 	t.Helper()
 
@@ -182,6 +209,7 @@ func TestShutdown_ClosesAllComponents(t *testing.T) {
 	require.NoError(t, err)
 
 	p.sshProxy = ssh.NewProxy(*sshConfig)
+	p.postgresProxy = postgres.NewProxy(postgres.Config{})
 
 	// Start metrics server
 	go func() {
