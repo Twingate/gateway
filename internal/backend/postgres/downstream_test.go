@@ -50,15 +50,16 @@ func TestDownstreamConn_HandleStartupMessage(t *testing.T) {
 	startup := &pgproto3.StartupMessage{ProtocolVersion: pgproto3.ProtocolVersion30, Parameters: map[string]string{"user": "alice"}}
 
 	tests := []struct {
-		name    string
-		sends   []pgproto3.FrontendMessage
-		wantErr error
+		name       string
+		sends      []pgproto3.FrontendMessage
+		wantAnswer string
+		wantErr    error
 	}{
 		{name: "startup", sends: []pgproto3.FrontendMessage{startup}},
-		{name: "SSL refused", sends: []pgproto3.FrontendMessage{&pgproto3.SSLRequest{}, startup}},
-		{name: "GSS encryption refused", sends: []pgproto3.FrontendMessage{&pgproto3.GSSEncRequest{}, startup}},
-		{name: "second SSLRequest", sends: []pgproto3.FrontendMessage{&pgproto3.SSLRequest{}, &pgproto3.SSLRequest{}}, wantErr: errUnsupportedStartupRequest},
-		{name: "second GSSENCRequest", sends: []pgproto3.FrontendMessage{&pgproto3.GSSEncRequest{}, &pgproto3.GSSEncRequest{}}, wantErr: errUnsupportedStartupRequest},
+		{name: "SSL refused", sends: []pgproto3.FrontendMessage{&pgproto3.SSLRequest{}, startup}, wantAnswer: "N"},
+		{name: "GSS encryption refused", sends: []pgproto3.FrontendMessage{&pgproto3.GSSEncRequest{}, startup}, wantAnswer: "N"},
+		{name: "second SSLRequest", sends: []pgproto3.FrontendMessage{&pgproto3.SSLRequest{}, &pgproto3.SSLRequest{}}, wantAnswer: "N", wantErr: errUnsupportedStartupRequest},
+		{name: "second GSSENCRequest", sends: []pgproto3.FrontendMessage{&pgproto3.GSSEncRequest{}, &pgproto3.GSSEncRequest{}}, wantAnswer: "N", wantErr: errUnsupportedStartupRequest},
 		{name: "protocol 2.0", sends: []pgproto3.FrontendMessage{&pgproto3.StartupMessage{ProtocolVersion: 2 << 16, Parameters: map[string]string{}}}, wantErr: errFailedToReceiveStartup},
 	}
 
@@ -85,6 +86,14 @@ func TestDownstreamConn_HandleStartupMessage(t *testing.T) {
 			if tt.wantErr == nil {
 				assert.Equal(t, startup, got)
 			}
+
+			// Closing the server side ends the client's read, so a missing or extra answer fails
+			// the assertion instead of blocking.
+			require.NoError(t, serverConn.Close())
+
+			answer, err := io.ReadAll(clientConn)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantAnswer, string(answer))
 		})
 	}
 }
