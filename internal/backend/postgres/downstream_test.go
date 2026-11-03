@@ -7,7 +7,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"net"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -15,36 +14,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-// failingConn fails every write.
-type failingConn struct {
-	net.Conn
-}
-
-func (failingConn) Write(_ []byte) (int, error) {
-	return 0, io.ErrClosedPipe
-}
-
-// tcpPipe is net.Pipe over a loopback TCP connection, whose writes are buffered instead of blocking
-// until the other end reads.
-func tcpPipe(t *testing.T) func() (net.Conn, net.Conn) {
-	t.Helper()
-
-	return func() (net.Conn, net.Conn) {
-		listener, err := net.Listen("tcp", "127.0.0.1:0")
-		require.NoError(t, err)
-
-		defer listener.Close()
-
-		client, err := net.Dial("tcp", listener.Addr().String())
-		require.NoError(t, err)
-
-		server, err := listener.Accept()
-		require.NoError(t, err)
-
-		return client, server
-	}
-}
 
 func TestDownstreamConn_HandleStartupMessage(t *testing.T) {
 	startup := &pgproto3.StartupMessage{ProtocolVersion: pgproto3.ProtocolVersion30, Parameters: map[string]string{"user": "alice"}}
@@ -65,11 +34,7 @@ func TestDownstreamConn_HandleStartupMessage(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			clientConn, serverConn := tcpPipe(t)()
-			t.Cleanup(func() {
-				_ = clientConn.Close()
-				_ = serverConn.Close()
-			})
+			clientConn, serverConn := tcpPipe(t)
 
 			client := pgproto3.NewFrontend(clientConn, clientConn)
 
@@ -99,8 +64,7 @@ func TestDownstreamConn_HandleStartupMessage(t *testing.T) {
 }
 
 func TestDownstreamConn_HandleStartupMessage_ClientCloses(t *testing.T) {
-	clientConn, serverConn := tcpPipe(t)()
-	t.Cleanup(func() { _ = serverConn.Close() })
+	clientConn, serverConn := tcpPipe(t)
 
 	require.NoError(t, clientConn.Close())
 
@@ -109,11 +73,7 @@ func TestDownstreamConn_HandleStartupMessage_ClientCloses(t *testing.T) {
 }
 
 func TestDownstreamConn_HandleStartupMessage_AnswerFails(t *testing.T) {
-	clientConn, serverConn := tcpPipe(t)()
-	t.Cleanup(func() {
-		_ = clientConn.Close()
-		_ = serverConn.Close()
-	})
+	clientConn, serverConn := tcpPipe(t)
 
 	client := pgproto3.NewFrontend(clientConn, clientConn)
 	client.Send(&pgproto3.SSLRequest{})
@@ -124,11 +84,7 @@ func TestDownstreamConn_HandleStartupMessage_AnswerFails(t *testing.T) {
 }
 
 func TestDownstreamConn_HandleStartupMessage_Cancel(t *testing.T) {
-	clientConn, serverConn := tcpPipe(t)()
-	t.Cleanup(func() {
-		_ = clientConn.Close()
-		_ = serverConn.Close()
-	})
+	clientConn, serverConn := tcpPipe(t)
 
 	cancel := &pgproto3.CancelRequest{ProcessID: 42, SecretKey: []byte{1, 2, 3, 4}}
 	client := pgproto3.NewFrontend(clientConn, clientConn)
@@ -160,11 +116,7 @@ func TestDownstreamConn_NegotiateProtocolVersion(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			clientConn, serverConn := tcpPipe(t)()
-			t.Cleanup(func() {
-				_ = clientConn.Close()
-				_ = serverConn.Close()
-			})
+			clientConn, serverConn := tcpPipe(t)
 
 			require.NoError(t, newDownstreamConn(serverConn).negotiateProtocolVersion(tt.startup))
 			require.NoError(t, serverConn.Close())
@@ -194,29 +146,20 @@ func TestDownstreamConn_NegotiateProtocolVersion_SendFails(t *testing.T) {
 }
 
 func TestDownstreamConn_CompleteLogin(t *testing.T) {
-	clientConn, serverConn := tcpPipe(t)()
-	t.Cleanup(func() {
-		_ = clientConn.Close()
-		_ = serverConn.Close()
-	})
+	clientConn, serverConn := tcpPipe(t)
 
-	upstreamConn := &pgconn.HijackedConn{
+	dbConn := &pgconn.HijackedConn{
 		PID:               42,
 		SecretKey:         []byte{1, 2, 3, 4},
 		ParameterStatuses: map[string]string{"server_version": "17.0"},
 		TxStatus:          'I',
 	}
 
-	require.NoError(t, newDownstreamConn(serverConn).completeLogin(upstreamConn))
+	require.NoError(t, newDownstreamConn(serverConn).completeLogin(dbConn))
 
 	client := pgproto3.NewFrontend(clientConn, clientConn)
 
-	for _, want := range []pgproto3.BackendMessage{
-		&pgproto3.AuthenticationOk{},
-		&pgproto3.ParameterStatus{Name: "server_version", Value: "17.0"},
-		&pgproto3.BackendKeyData{ProcessID: 42, SecretKey: []byte{1, 2, 3, 4}},
-		&pgproto3.ReadyForQuery{TxStatus: 'I'},
-	} {
+	for _, want := range loginMessages {
 		got, err := client.Receive()
 		require.NoError(t, err)
 		assert.Equal(t, want, got)
@@ -224,11 +167,7 @@ func TestDownstreamConn_CompleteLogin(t *testing.T) {
 }
 
 func TestDownstreamConn_CompleteLogin_SendFails(t *testing.T) {
-	clientConn, serverConn := tcpPipe(t)()
-	t.Cleanup(func() {
-		_ = clientConn.Close()
-		_ = serverConn.Close()
-	})
+	_, serverConn := tcpPipe(t)
 
 	err := newDownstreamConn(failingConn{Conn: serverConn}).completeLogin(&pgconn.HijackedConn{})
 
@@ -236,11 +175,7 @@ func TestDownstreamConn_CompleteLogin_SendFails(t *testing.T) {
 }
 
 func TestDownstreamConn_MessageTooLong(t *testing.T) {
-	clientConn, serverConn := tcpPipe(t)()
-	t.Cleanup(func() {
-		_ = clientConn.Close()
-		_ = serverConn.Close()
-	})
+	clientConn, serverConn := tcpPipe(t)
 
 	_, err := clientConn.Write(binary.BigEndian.AppendUint32([]byte{'Q'}, maxMessageBodyLen+5))
 	require.NoError(t, err)
@@ -252,8 +187,7 @@ func TestDownstreamConn_MessageTooLong(t *testing.T) {
 }
 
 func TestDownstreamConn_Reject(t *testing.T) {
-	clientConn, serverConn := tcpPipe(t)()
-	t.Cleanup(func() { _ = clientConn.Close() })
+	clientConn, serverConn := tcpPipe(t)
 
 	require.ErrorIs(t, newDownstreamConn(serverConn).reject(errUnknownCredential), errUnknownCredential)
 
