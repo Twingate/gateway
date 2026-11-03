@@ -9,6 +9,7 @@ import (
 	"net"
 	"sync"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"go.uber.org/zap"
 
 	backendtls "gateway/internal/backend/tls"
@@ -110,7 +111,7 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 
 	startup, cancel, err := downstream.handleStartupMessage()
 	if err != nil {
-		logger.System.Error("Failed to receive startup request", zap.Error(err))
+		logger.System.Error("Failed to receive startup message", zap.Error(err))
 
 		return downstream.reject(err)
 	}
@@ -154,16 +155,21 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 		return downstream.reject(errFailedToGetCredential)
 	}
 
-	db, err := upstream.connect(ctx, startup, cred)
+	dbConn, err := upstream.connect(ctx, startup, cred)
 	if err != nil {
 		logger.System.Error("Failed to connect to the database", zap.Error(err))
+
+		// A database error is relayed as is; anything else carries the upstream address and TLS detail.
+		if _, ok := errors.AsType[*pgconn.PgError](err); !ok {
+			err = errFailedToConnectUpstream
+		}
 
 		return downstream.reject(err)
 	}
 
-	defer func() { _ = db.Conn.Close() }()
+	defer func() { _ = dbConn.Conn.Close() }()
 
-	if err := downstream.completeLogin(db); err != nil {
+	if err := downstream.completeLogin(dbConn); err != nil {
 		logger.System.Error("Failed to accept the PostgreSQL client", zap.Error(err))
 
 		return downstream.reject(err)
@@ -172,12 +178,12 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 	logger.System.Info("PostgreSQL connection established")
 
 	logger.Audit = logger.Audit.With(
-		zap.String("database_host", db.Config.Host),
-		zap.String("database_user", db.Config.User),
-		zap.String("database", db.Config.Database),
+		zap.String("database_host", dbConn.Config.Host),
+		zap.String("database_user", dbConn.Config.User),
+		zap.String("database", dbConn.Config.Database),
 	)
 
-	session := newRelay(logger, downstream, db)
+	session := newRelay(logger.System, downstream, dbConn)
 
 	err = session.serve(ctx)
 

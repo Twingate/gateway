@@ -35,7 +35,7 @@ type credential struct {
 	// certificate is served when the database asks for a client certificate during the TLS handshake.
 	certificate *tls.Certificate
 	// requireAuth is the authentication method the database must ask for: scram-sha-256 for a
-	// password, so it is never sent in cleartext; password for an IAM token.
+	// password, cleartext password for an IAM token.
 	requireAuth string
 }
 

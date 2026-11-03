@@ -101,10 +101,10 @@ func acceptAuthentication(t *testing.T, conn net.Conn) *pgproto3.Backend {
 	require.True(t, ok, "expected a PasswordMessage, got %T", msg)
 	assert.Contains(t, password.Password, "DBUser="+testDatabaseUser)
 
-	backend.Send(&pgproto3.AuthenticationOk{})
-	backend.Send(&pgproto3.ParameterStatus{Name: "server_version", Value: "17.0"})
-	backend.Send(&pgproto3.BackendKeyData{ProcessID: 42, SecretKey: []byte{1, 2, 3, 4}})
-	backend.Send(&pgproto3.ReadyForQuery{TxStatus: 'I'})
+	for _, msg := range loginMessages {
+		backend.Send(msg)
+	}
+
 	require.NoError(t, backend.Flush())
 
 	return backend
@@ -144,12 +144,7 @@ func serveSession(t *testing.T, tlsMode token.TLSClientMode) *testSession {
 	upstream := acceptAuthentication(t, upstreamConn)
 
 	// The client sees the session state the upstream authentication consumed.
-	for _, want := range []pgproto3.BackendMessage{
-		&pgproto3.AuthenticationOk{},
-		&pgproto3.ParameterStatus{Name: "server_version", Value: "17.0"},
-		&pgproto3.BackendKeyData{ProcessID: 42, SecretKey: []byte{1, 2, 3, 4}},
-		&pgproto3.ReadyForQuery{TxStatus: 'I'},
-	} {
+	for _, want := range loginMessages {
 		got, err := session.client.Receive()
 		require.NoError(t, err)
 		assert.Equal(t, want, got)
@@ -167,9 +162,7 @@ func startServe(t *testing.T, address string, tlsMode token.TLSClientMode, auth 
 	t.Helper()
 
 	proxy := newTestProxy(t)
-	clientConn, serverConn := tcpPipe(t)()
-	t.Cleanup(func() { _ = clientConn.Close() })
-
+	clientConn, serverConn := tcpPipe(t)
 	proxyConn := newProxyConn(serverConn, address, tlsMode, auth)
 	done := make(chan error, 1)
 
@@ -380,9 +373,7 @@ func TestProxy_ServeConn_NegotiateProtocolFails(t *testing.T) {
 }
 
 // The client hangs up right after its StartupMessage, and net.Pipe fails the proxy's next write.
-func TestProxy_ServeConn_AcceptFails(t *testing.T) {
-	setStaticAWSCredentials(t)
-
+func TestProxy_ServeConn_CompleteLoginFails(t *testing.T) {
 	listener, address := newUpstreamListener(t)
 	proxy := newTestProxy(t)
 	clientConn, serverConn := net.Pipe()
@@ -426,9 +417,8 @@ func TestProxy_ServeConn_UpstreamUnreachable(t *testing.T) {
 	session := startServe(t, closedAddr(t), token.TLSClientModeNone, passwordAuth)
 	sendStartup(t, session.client)
 
-	err := waitServe(t, session.done)
-	require.ErrorIs(t, err, errFailedToConnectUpstream)
-	assertRejected(t, session, err)
+	require.ErrorIs(t, waitServe(t, session.done), errFailedToConnectUpstream)
+	assertRejected(t, session, errFailedToConnectUpstream)
 }
 
 func TestProxy_ServeConn_UpstreamError(t *testing.T) {
@@ -468,9 +458,8 @@ func TestProxy_ServeConn_UpstreamError(t *testing.T) {
 
 			tt.upstream(t, acceptUpstream(t, listener))
 
-			err := waitServe(t, session.done)
-			require.ErrorIs(t, err, errFailedToConnectUpstream)
-			assertRejected(t, session, err)
+			require.ErrorIs(t, waitServe(t, session.done), errFailedToConnectUpstream)
+			assertRejected(t, session, errFailedToConnectUpstream)
 		})
 	}
 }
