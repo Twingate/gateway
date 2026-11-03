@@ -26,7 +26,7 @@ type Proxy struct {
 	mu sync.Mutex
 
 	// Map of all active SSH connections
-	connsMap map[*ConnPair]struct{}
+	connsMap map[frontend.Conn]struct{}
 
 	// Wait group for active SSH connections
 	wg sync.WaitGroup
@@ -40,7 +40,7 @@ type Proxy struct {
 
 func NewProxy(config Config) *Proxy {
 	return &Proxy{
-		connsMap: map[*ConnPair]struct{}{},
+		connsMap: map[frontend.Conn]struct{}{},
 		config:   config,
 	}
 }
@@ -84,7 +84,7 @@ func (p *Proxy) Shutdown(_ctx context.Context) {
 
 	p.shuttingDown = true
 	for conn := range p.connsMap {
-		conn.close()
+		_ = conn.Close()
 	}
 
 	p.mu.Unlock()
@@ -104,7 +104,18 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 		return errShuttingDown
 	}
 
+	p.wg.Add(1)
+	defer p.wg.Done()
+
+	p.connsMap[conn] = struct{}{}
+
 	p.mu.Unlock()
+
+	defer func() {
+		p.mu.Lock()
+		delete(p.connsMap, conn)
+		p.mu.Unlock()
+	}()
 
 	fields := []zap.Field{
 		zap.Object("user", conn.GATClaims().User),
@@ -186,20 +197,6 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 	recorderFactory := &defaultSessionRecorderFactory{segment: p.config.sessionRecording.Segment}
 
 	sshConnPair := NewConnPair(logger, sshCtx, downstreamConn, upstreamConn, recorderFactory)
-
-	// Serve the SSH connection pair
-	p.wg.Add(1)
-	defer p.wg.Done()
-
-	p.mu.Lock()
-	p.connsMap[sshConnPair] = struct{}{}
-	p.mu.Unlock()
-
-	defer func() {
-		p.mu.Lock()
-		delete(p.connsMap, sshConnPair)
-		p.mu.Unlock()
-	}()
 
 	sshConnPair.serve()
 
