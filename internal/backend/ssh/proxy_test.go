@@ -822,6 +822,8 @@ func newStalledUpstream(t *testing.T) (string, <-chan net.Conn) {
 			return
 		}
 
+		t.Cleanup(func() { _ = accepted.Close() })
+
 		conn <- accepted
 	}()
 
