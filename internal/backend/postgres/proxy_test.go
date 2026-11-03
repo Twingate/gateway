@@ -8,11 +8,13 @@ import (
 	"io"
 	"net"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgproto3"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -24,6 +26,30 @@ import (
 	"gateway/internal/logging"
 	"gateway/internal/token"
 )
+
+// newProxyConn wraps conn in the frontend.ProxyConn the proxy serves, with test GAT claims and
+// the address of the upstream the proxy dials.
+func newProxyConn(conn net.Conn, upstreamAddr string, tlsMode token.TLSClientMode, auth token.Auth) *frontend.ProxyConn {
+	upstreamHost, port, _ := net.SplitHostPort(upstreamAddr)
+	upstreamPort, _ := strconv.Atoi(port)
+
+	proxyConn := frontend.NewProxyConn(conn, nil, nil, zap.NewNop(),
+		frontend.CreateProxyConnMetrics(prometheus.NewRegistry()))
+	proxyConn.Claims = &token.GATClaims{
+		Resource: token.Resource{
+			ID:      "resource-1",
+			Address: upstreamHost,
+			GatewayMetadata: token.GatewayMetadata{
+				Upstream: token.Upstream{Port: upstreamPort, TLSMode: tlsMode},
+				Auths:    token.Auths{auth},
+			},
+		},
+	}
+	proxyConn.UpstreamHost = upstreamHost
+	proxyConn.ID = "test-conn-id"
+
+	return proxyConn
+}
 
 // newTestProxy builds a proxy whose trust store holds the test certificate, which the fake
 // upstreams serve. Besides the test credential, it has an "unreadable" credential whose password

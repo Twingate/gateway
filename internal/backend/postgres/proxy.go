@@ -12,6 +12,7 @@ import (
 
 	"go.uber.org/zap"
 
+	backendtls "gateway/internal/backend/tls"
 	"gateway/internal/frontend"
 )
 
@@ -110,15 +111,18 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 
 	_ = conn.SetDeadline(time.Now().Add(defaultTimeout))
 
-	startup, cancel, err := downstream.receiveStartupRequest()
+	startup, cancel, err := downstream.handleStartupMessage()
 	if err != nil {
 		logger.System.Error("Failed to receive startup request", zap.Error(err))
 
 		return downstream.reject(err)
 	}
 
+	tlsMode := conn.GATClaims().Resource.GatewayMetadata.Upstream.TLSMode
+	upstream := newUpstream(conn.GetUpstreamAddress(), backendtls.NewUpstreamTLSConfig(tlsMode, p.config.caPool))
+
 	if cancel != nil {
-		err := cancelUpstream(conn, cancel, p.config.caPool)
+		err := upstream.forwardCancelRequest(cancel)
 		if err != nil {
 			logger.System.Error("Failed to cancel the request", zap.Error(err))
 		} else {
@@ -152,16 +156,16 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 		return downstream.reject(errFailedToGetCredential)
 	}
 
-	upstream, err := connectUpstream(ctx, newUpstreamConfig(conn, startup, auth, cred, p.config.caPool))
+	db, err := upstream.connect(ctx, startup, cred)
 	if err != nil {
 		logger.System.Error("Failed to connect to the database", zap.Error(err))
 
 		return downstream.reject(err)
 	}
 
-	defer func() { _ = upstream.Conn.Close() }()
+	defer func() { _ = db.Conn.Close() }()
 
-	if err := downstream.accept(upstream); err != nil {
+	if err := downstream.completeLogin(db); err != nil {
 		logger.System.Error("Failed to accept the PostgreSQL client", zap.Error(err))
 
 		return downstream.reject(err)
@@ -172,12 +176,12 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 	logger.System.Info("PostgreSQL connection established")
 
 	logger.Audit = logger.Audit.With(
-		zap.String("database_host", upstream.Config.Host),
-		zap.String("database_user", upstream.Config.User),
-		zap.String("database", upstream.Config.Database),
+		zap.String("database_host", db.Config.Host),
+		zap.String("database_user", db.Config.User),
+		zap.String("database", db.Config.Database),
 	)
 
-	session := newRelay(logger, downstream, upstream)
+	session := newRelay(logger, downstream, db)
 
 	err = session.serve(ctx)
 
