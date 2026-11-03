@@ -6,7 +6,6 @@ package postgres
 import (
 	"context"
 	"crypto/tls"
-	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
@@ -17,10 +16,6 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgproto3"
-
-	backendtls "gateway/internal/backend/tls"
-	"gateway/internal/frontend"
-	"gateway/internal/token"
 )
 
 const defaultTimeout = 10 * time.Second
@@ -29,7 +24,6 @@ const defaultTimeout = 10 * time.Second
 const sslAccepted = 'S'
 
 var (
-	errUnsupportedAuthType       = errors.New("unsupported auth type")
 	errEmptyPassword             = errors.New("empty password")
 	errFailedToConnectUpstream   = errors.New("failed to connect to upstream")
 	errFailedToTakeOverUpstream  = errors.New("failed to take over the upstream connection")
@@ -37,35 +31,22 @@ var (
 	errFailedToSendCancelRequest = errors.New("failed to send cancel request")
 )
 
-type upstreamConfig struct {
+// upstream is the database that a client connection is proxied to.
+type upstream struct {
 	// address is the database's host:port
-	address  string
-	user     string
-	password string
-	database string
-	// runtimeParams are the client's other startup parameters, carried over to the database
-	runtimeParams map[string]string
-	authType      token.AuthType
-	tlsConfig     *tls.Config
+	address string
+	// tlsConfig is nil when the GAT's upstream TLS mode is plaintext.
+	tlsConfig *tls.Config
 }
 
-func newUpstreamConfig(
-	conn frontend.Conn, startup *pgproto3.StartupMessage, auth token.Auth, cred credential, caPool *x509.CertPool,
-) upstreamConfig {
-	database := startup.Parameters["database"]
-	if database == "" {
-		database = auth.User
+// newUpstream sets the TLS ServerName from address.
+func newUpstream(address string, tlsConfig *tls.Config) upstream {
+	if tlsConfig != nil {
+		host, _, _ := net.SplitHostPort(address)
+		tlsConfig.ServerName = host
 	}
 
-	return upstreamConfig{
-		address:       conn.GetUpstreamAddress(),
-		authType:      auth.Type,
-		user:          auth.User,
-		password:      cred.password,
-		database:      database,
-		runtimeParams: runtimeParams(startup),
-		tlsConfig:     newUpstreamTLSConfig(conn, cred.certificate, caPool),
-	}
+	return upstream{address: address, tlsConfig: tlsConfig}
 }
 
 // runtimeParams is the client's startup parameters without the user and database.
@@ -79,27 +60,11 @@ func runtimeParams(startup *pgproto3.StartupMessage) map[string]string {
 	return params
 }
 
-// newUpstreamTLSConfig is the TLS client config based on the GAT's upstream TLS mode.
-func newUpstreamTLSConfig(conn frontend.Conn, certificate *tls.Certificate, caPool *x509.CertPool) *tls.Config {
-	tlsConfig := backendtls.NewUpstreamTLSConfig(conn.GATClaims().Resource.GatewayMetadata.Upstream.TLSMode, caPool)
-	if tlsConfig == nil {
-		return nil
-	}
-
-	host, _, _ := net.SplitHostPort(conn.GetUpstreamAddress())
-	tlsConfig.ServerName = host
-
-	if certificate != nil {
-		tlsConfig.Certificates = []tls.Certificate{*certificate}
-	}
-
-	return tlsConfig
-}
-
-// connectUpstream authenticates to the upstream database and takes over the raw connection once
-// the session is ready.
-func connectUpstream(ctx context.Context, cfg upstreamConfig) (*pgconn.HijackedConn, error) {
-	config, err := newConnectConfig(cfg)
+// connect logs in to the database with cred and takes over the raw connection once the session is ready.
+func (u upstream) connect(
+	ctx context.Context, startup *pgproto3.StartupMessage, cred credential,
+) (*pgconn.HijackedConn, error) {
+	config, err := u.connectConfig(startup, cred)
 	if err != nil {
 		return nil, err
 	}
@@ -117,20 +82,20 @@ func connectUpstream(ctx context.Context, cfg upstreamConfig) (*pgconn.HijackedC
 		return nil, fmt.Errorf("%w: %w", errFailedToTakeOverUpstream, err)
 	}
 
-	upstream, err := pgConn.Hijack()
+	hijackedConn, err := pgConn.Hijack()
 	if err != nil {
 		_ = pgConn.Close(ctx)
 
 		return nil, fmt.Errorf("%w: %w", errFailedToTakeOverUpstream, err)
 	}
 
-	return upstream, nil
+	return hijackedConn, nil
 }
 
-// newConnectConfig is the pgconn config that authenticates to the upstream database.
-func newConnectConfig(cfg upstreamConfig) (*pgconn.Config, error) {
+// connectConfig is the pgconn config that logs in to the database with credential.
+func (u upstream) connectConfig(startup *pgproto3.StartupMessage, cred credential) (*pgconn.Config, error) {
 	// ParseConfig falls back to the gateway host's ~/.pgpass when the password is empty.
-	if cfg.password == "" {
+	if cred.password == "" {
 		return nil, errEmptyPassword
 	}
 
@@ -138,8 +103,8 @@ func newConnectConfig(cfg upstreamConfig) (*pgconn.Config, error) {
 	// Set the TLS config explicitly below.
 	connString := (&url.URL{
 		Scheme:   "postgres",
-		User:     url.UserPassword(cfg.user, cfg.password),
-		Host:     cfg.address,
+		User:     url.UserPassword(cred.user, cred.password),
+		Host:     u.address,
 		RawQuery: "sslmode=disable",
 	}).String()
 
@@ -149,35 +114,35 @@ func newConnectConfig(cfg upstreamConfig) (*pgconn.Config, error) {
 	}
 
 	// The database stays out of the URL, since parsing the URL path drops a leading slash from the name.
-	config.Database = cfg.database
+	config.Database = startup.Parameters["database"]
+	if config.Database == "" {
+		config.Database = cred.user
+	}
+
 	if config.ConnectTimeout == 0 {
 		config.ConnectTimeout = defaultTimeout
 	}
 
-	config.TLSConfig = cfg.tlsConfig
-	config.RuntimeParams = cfg.runtimeParams
+	config.TLSConfig = u.tlsConfig.Clone()
+	if config.TLSConfig != nil && cred.certificate != nil {
+		config.TLSConfig.Certificates = []tls.Certificate{*cred.certificate}
+	}
+
+	config.RuntimeParams = runtimeParams(startup)
 	// ParseConfig also reads the PG* environment variables. Pin these values, since letting an environment variable
 	// change them can lead to behavior we do not support.
 	config.SSLNegotiation = "postgres"
 	config.MinProtocolVersion = "3.0"
 	config.MaxProtocolVersion = "3.0"
-
-	switch cfg.authType {
-	case token.AuthTypePassword:
-		config.RequireAuth = "scram-sha-256"
-	case token.AuthTypeAWSIAM, token.AuthTypeGCPIAM:
-		config.RequireAuth = "password"
-	default:
-		return nil, fmt.Errorf("%w: %s", errUnsupportedAuthType, cfg.authType)
-	}
+	config.RequireAuth = cred.requireAuth
 
 	return config, nil
 }
 
-// cancelUpstream forwards the client's CancelRequest to the database on a connection of its own,
-// over TLS when the upstream TLS mode asks for it.
-func cancelUpstream(conn frontend.Conn, cancel *pgproto3.CancelRequest, caPool *x509.CertPool) error {
-	upstreamConn, err := net.DialTimeout("tcp", conn.GetUpstreamAddress(), defaultTimeout)
+// forwardCancelRequest sends the CancelRequest on a connection of its own. A cancel carries no
+// credential, so the TLS handshake presents no client certificate.
+func (u upstream) forwardCancelRequest(cancel *pgproto3.CancelRequest) error {
+	upstreamConn, err := net.DialTimeout("tcp", u.address, defaultTimeout)
 	if err != nil {
 		return fmt.Errorf("%w: %w", errFailedToConnectUpstream, err)
 	}
@@ -186,9 +151,8 @@ func cancelUpstream(conn frontend.Conn, cancel *pgproto3.CancelRequest, caPool *
 
 	_ = upstreamConn.SetDeadline(time.Now().Add(defaultTimeout))
 
-	// A cancel carries no credential. The TLS handshake succeeds without a client certificate.
-	if tlsConfig := newUpstreamTLSConfig(conn, nil, caPool); tlsConfig != nil {
-		tlsConn, err := startTLS(upstreamConn, tlsConfig)
+	if u.tlsConfig != nil {
+		tlsConn, err := startTLS(upstreamConn, u.tlsConfig)
 		if err != nil {
 			return fmt.Errorf("%w: %w", errFailedToConnectUpstream, err)
 		}

@@ -15,12 +15,19 @@ import (
 	"gateway/internal/token"
 )
 
-var errUnknownCredential = errors.New("unknown credential")
+var (
+	errUnsupportedAuthType = errors.New("unsupported auth type")
+	errUnknownCredential   = errors.New("unknown credential")
+)
 
 type credential struct {
+	user     string
 	password string
 	// certificate is served when the database asks for a client certificate during the TLS handshake.
 	certificate *tls.Certificate
+	// requireAuth is the authentication method the database must ask for: scram-sha-256 for a
+	// password, so it is never sent in cleartext.
+	requireAuth string
 }
 
 type credentialProvider interface {
@@ -32,7 +39,7 @@ type credentialProvider interface {
 func newCredentialProvider(auth token.Auth, passwords passwordCredentials) (credentialProvider, error) {
 	switch auth.Type {
 	case token.AuthTypePassword:
-		return newPasswordCredential(passwords, auth.Password)
+		return newPasswordCredential(passwords, auth.User, auth.Password)
 	case token.AuthTypeAWSIAM, token.AuthTypeGCPIAM:
 		fallthrough
 	default:
@@ -55,16 +62,19 @@ func newPasswordCredentials(credentials []config.PostgreSQLCredential) passwordC
 // passwordCredential is the credential provider for the password auth type: a credential
 // configured on the Gateway.
 type passwordCredential struct {
-	cfg config.PostgreSQLCredential
+	user string
+	cfg  config.PostgreSQLCredential
 }
 
-func newPasswordCredential(passwords passwordCredentials, auth *token.PasswordAuth) (*passwordCredential, error) {
+func newPasswordCredential(
+	passwords passwordCredentials, user string, auth *token.PasswordAuth,
+) (*passwordCredential, error) {
 	cfg, ok := passwords[auth.Credential]
 	if !ok {
 		return nil, fmt.Errorf("%w: %q", errUnknownCredential, auth.Credential)
 	}
 
-	return &passwordCredential{cfg: cfg}, nil
+	return &passwordCredential{user: user, cfg: cfg}, nil
 }
 
 func (c *passwordCredential) retrieve(_ context.Context) (credential, error) {
@@ -72,6 +82,9 @@ func (c *passwordCredential) retrieve(_ context.Context) (credential, error) {
 	if err != nil {
 		return credential{}, fmt.Errorf("credential %q: %w", c.cfg.Name, err)
 	}
+
+	cred.user = c.user
+	cred.requireAuth = "scram-sha-256"
 
 	return cred, nil
 }

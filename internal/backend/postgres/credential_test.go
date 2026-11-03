@@ -17,9 +17,16 @@ import (
 
 const (
 	testCredential      = "test"
+	testDatabaseUser    = "gateway"
 	testCertificateFile = "../../../test/data/proxy/tls.crt"
 	testPrivateKeyFile  = "../../../test/data/proxy/tls.key"
 )
+
+var passwordAuth = token.Auth{
+	Type:     token.AuthTypePassword,
+	User:     testDatabaseUser,
+	Password: &token.PasswordAuth{Credential: testCredential},
+}
 
 func TestNewCredentialProvider(t *testing.T) {
 	passwords := newPasswordCredentials([]gatewayconfig.PostgreSQLCredential{{Name: testCredential, Password: "secret"}})
@@ -27,7 +34,7 @@ func TestNewCredentialProvider(t *testing.T) {
 	got, err := newCredentialProvider(passwordAuth, passwords)
 	require.NoError(t, err)
 
-	assert.Equal(t, &passwordCredential{cfg: passwords[testCredential]}, got)
+	assert.Equal(t, &passwordCredential{user: testDatabaseUser, cfg: passwords[testCredential]}, got)
 }
 
 func TestNewCredentialProvider_Error(t *testing.T) {
@@ -105,7 +112,7 @@ func TestPasswordCredential_Retrieve(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := (&passwordCredential{cfg: tt.configured}).retrieve(t.Context())
+			got, err := (&passwordCredential{user: testDatabaseUser, cfg: tt.configured}).retrieve(t.Context())
 
 			if tt.wantErrContains != "" {
 				require.ErrorContains(t, err, tt.wantErrContains)
@@ -115,8 +122,10 @@ func TestPasswordCredential_Retrieve(t *testing.T) {
 
 			require.NoError(t, err)
 
+			assert.Equal(t, testDatabaseUser, got.user)
 			assert.Equal(t, tt.wantPassword, got.password)
 			assert.Equal(t, tt.wantCertificate, got.certificate != nil)
+			assert.Equal(t, "scram-sha-256", got.requireAuth)
 		})
 	}
 }
