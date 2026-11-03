@@ -155,6 +155,16 @@ func TestAuditObserver_ServerMessages(t *testing.T) {
 			want: []auditLine{{"pg result", map[string]any{"request_id": uint64(1)}}},
 		},
 		{
+			name: "function call response",
+			msgs: []pgproto3.BackendMessage{&pgproto3.FunctionCallResponse{Result: []byte("1")}},
+			want: []auditLine{{"pg result", map[string]any{"request_id": uint64(1)}}},
+		},
+		{
+			name: "portal suspended",
+			msgs: []pgproto3.BackendMessage{&pgproto3.PortalSuspended{}},
+			want: []auditLine{{"pg result", map[string]any{"request_id": uint64(1), "suspended": true}}},
+		},
+		{
 			name: "error",
 			msgs: []pgproto3.BackendMessage{&pgproto3.ErrorResponse{Code: "42501", Message: "permission denied for table users"}},
 			want: []auditLine{{"pg result", map[string]any{
@@ -167,7 +177,7 @@ func TestAuditObserver_ServerMessages(t *testing.T) {
 				&pgproto3.ParseComplete{}, &pgproto3.BindComplete{}, &pgproto3.CloseComplete{},
 				&pgproto3.ParameterDescription{ParameterOIDs: []uint32{23}},
 				&pgproto3.RowDescription{Fields: []pgproto3.FieldDescription{{Name: []byte("id")}}}, &pgproto3.NoData{},
-				&pgproto3.DataRow{Values: [][]byte{[]byte("1")}}, &pgproto3.PortalSuspended{}, &pgproto3.FunctionCallResponse{},
+				&pgproto3.DataRow{Values: [][]byte{[]byte("1")}},
 				&pgproto3.NoticeResponse{Message: "notice"}, &pgproto3.NotificationResponse{Channel: "jobs"},
 				&pgproto3.ParameterStatus{Name: "TimeZone", Value: "UTC"},
 				&pgproto3.CopyInResponse{}, &pgproto3.CopyOutResponse{}, &pgproto3.CopyData{Data: []byte("1\n")}, &pgproto3.CopyDone{},
