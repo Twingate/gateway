@@ -215,7 +215,15 @@ func TestDownstreamConn_CompleteLogin(t *testing.T) {
 }
 
 func TestDownstreamConn_CompleteLogin_SendFails(t *testing.T) {
-	require.ErrorIs(t, newDownstreamConn(failingConn{}).completeLogin(&pgconn.HijackedConn{}), errFailedToCompleteLogin)
+	clientConn, serverConn := tcpPipe(t)()
+	t.Cleanup(func() {
+		_ = clientConn.Close()
+		_ = serverConn.Close()
+	})
+
+	err := newDownstreamConn(failingConn{Conn: serverConn}).completeLogin(&pgconn.HijackedConn{})
+
+	require.ErrorIs(t, err, errFailedToCompleteLogin)
 }
 
 func TestDownstreamConn_MessageTooLong(t *testing.T) {

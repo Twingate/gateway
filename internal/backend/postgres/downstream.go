@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgproto3"
@@ -47,6 +48,10 @@ func newDownstreamConn(conn net.Conn) *downstreamConn {
 // handleStartupMessage refuses SSLRequest and GSSENCRequest, then returns the StartupMessage or
 // the CancelRequest that follows.
 func (c *downstreamConn) handleStartupMessage() (*pgproto3.StartupMessage, *pgproto3.CancelRequest, error) {
+	_ = c.conn.SetDeadline(time.Now().Add(defaultTimeout))
+
+	defer func() { _ = c.conn.SetDeadline(time.Time{}) }()
+
 	// A client that repeats a refused request ignored the refusal.
 	refused := map[string]bool{}
 
@@ -99,6 +104,12 @@ func (c *downstreamConn) negotiateProtocolVersion(startup *pgproto3.StartupMessa
 // completeLogin tells the client it is logged in, with the session state the upstream login
 // consumed: the parameters, the cancel key, and the ReadyForQuery.
 func (c *downstreamConn) completeLogin(upstream *pgconn.HijackedConn) error {
+	// Bounds the flush to a client that stops reading. The relay writes to the client next, so
+	// the deadline is cleared once the login is complete.
+	_ = c.conn.SetWriteDeadline(time.Now().Add(defaultTimeout))
+
+	defer func() { _ = c.conn.SetWriteDeadline(time.Time{}) }()
+
 	c.backend.Send(&pgproto3.AuthenticationOk{})
 
 	for name, value := range upstream.ParameterStatuses {
@@ -118,6 +129,9 @@ func (c *downstreamConn) completeLogin(upstream *pgconn.HijackedConn) error {
 // reject tells the client why its connection failed, closes the connection, and returns err. A
 // failed write is ignored, since the connection is closed either way.
 func (c *downstreamConn) reject(err error) error {
+	// Bounds the flush to a client that stops reading.
+	_ = c.conn.SetWriteDeadline(time.Now().Add(defaultTimeout))
+
 	c.backend.Send(newErrorResponse(err))
 	_ = c.backend.Flush()
 	_ = c.conn.Close()

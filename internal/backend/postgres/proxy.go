@@ -8,7 +8,6 @@ import (
 	"errors"
 	"net"
 	"sync"
-	"time"
 
 	"go.uber.org/zap"
 
@@ -109,8 +108,6 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 
 	downstream := newDownstreamConn(conn)
 
-	_ = conn.SetDeadline(time.Now().Add(defaultTimeout))
-
 	startup, cancel, err := downstream.handleStartupMessage()
 	if err != nil {
 		logger.System.Error("Failed to receive startup request", zap.Error(err))
@@ -170,8 +167,6 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 
 		return downstream.reject(err)
 	}
-
-	_ = conn.SetDeadline(time.Time{})
 
 	logger.System.Info("PostgreSQL connection established")
 
