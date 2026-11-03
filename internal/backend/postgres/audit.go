@@ -27,8 +27,7 @@ const (
 	fieldTruncated     = "truncated"
 )
 
-// maxAuditValueBytes caps the SQL text, the error message, or the combined parameters of one audit
-// line, measured as logged: a binary parameter counts its base64 form.
+// maxAuditValueBytes caps the SQL text, the error message, or the combined parameters of one audit line.
 const maxAuditValueBytes = 64 * humanize.KiByte
 
 // auditObserver writes one audit line per client message and per statement result. A request is
@@ -52,7 +51,9 @@ func (o *auditObserver) onDownstreamMessage(msg pgproto3.FrontendMessage) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
-	if o.startedAt.IsZero() {
+	// COPY data never opens a request: after a failed COPY the client keeps sending it past the
+	// server's ReadyForQuery.
+	if o.startedAt.IsZero() && !isCopyData(msg) {
 		o.requestID++
 		o.startedAt = time.Now()
 	}
@@ -240,5 +241,14 @@ func isBinaryFormat[F int16 | uint16](formatCodes []F, i int) bool {
 	default:
 		// A value with out-of-range index format code is logged as text.
 		return i < len(formatCodes) && formatCodes[i] == pgtype.BinaryFormatCode
+	}
+}
+
+func isCopyData(msg pgproto3.FrontendMessage) bool {
+	switch msg.(type) {
+	case *pgproto3.CopyData, *pgproto3.CopyDone, *pgproto3.CopyFail:
+		return true
+	default:
+		return false
 	}
 }
