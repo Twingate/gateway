@@ -57,6 +57,9 @@ func newProxyConn(conn net.Conn, upstreamAddr string, tlsMode token.TLSClientMod
 func newTestProxy(t *testing.T) *Proxy {
 	t.Helper()
 
+	// AWS IAM auth signs its tokens with static test keys.
+	setStaticAWSCredentials(t)
+
 	config, err := NewConfig(&gatewayconfig.PostgreSQLConfig{
 		Credentials: []gatewayconfig.PostgreSQLCredential{
 			{Name: testCredential, Password: "secret"},
@@ -129,8 +132,6 @@ var awsIAMAuth = token.Auth{
 // serveSession authenticate with the cleartext password aws_iam auth type, which the fake upstream accepts in cleartext.
 func serveSession(t *testing.T, tlsMode token.TLSClientMode) *testSession {
 	t.Helper()
-
-	setStaticAWSCredentials(t)
 
 	listener, address := newUpstreamListener(t)
 	session := startServe(t, address, tlsMode, awsIAMAuth)
