@@ -167,7 +167,9 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 	}
 
 	// Start connection to upstream SSH server
-	upstreamNetConn, err := net.DialTimeout("tcp", upstream.address, upstreamConnTimeout)
+	dialer := net.Dialer{Timeout: upstreamConnTimeout}
+
+	upstreamNetConn, err := dialer.DialContext(ctx, "tcp", upstream.address)
 	if err != nil {
 		logger.Audit.Error("Failed to connect to upstream SSH server", zap.Error(err))
 
@@ -177,6 +179,11 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 	}
 
 	defer func() { _ = upstreamNetConn.Close() }()
+
+	// ssh.NewClientConn takes no context, so closing the socket is what stops a stalled handshake
+	// when the gateway shuts down.
+	stop := context.AfterFunc(ctx, func() { _ = upstreamNetConn.Close() })
+	defer stop()
 
 	// Open the SSH connection to the upstream server
 	upstreamSSHConn, upstreamChannels, upstreamRequests, err := ssh.NewClientConn(upstreamNetConn, upstream.address, upstreamConfig)
