@@ -86,8 +86,8 @@ func (o *auditObserver) onDownstreamMessage(msg pgproto3.FrontendMessage) {
 
 		o.logger.Info("pg function_call", fields...)
 	default:
-		// Describe, Close, Sync, Flush, Terminate and COPY data (CopyData, CopyDone, CopyFail) carry
-		// no statement to audit, and COPY data is never logged.
+		// Describe, Close, Sync, Flush, Terminate and COPY data (CopyData, CopyDone, CopyFail)
+		// are not audited.
 	}
 }
 
@@ -127,7 +127,7 @@ func (o *auditObserver) onUpstreamMessage(msg pgproto3.BackendMessage) {
 		// DataRow and COPY data are never logged due to privacy and volume reasons. The rest
 		// (ParseComplete, BindComplete, CloseComplete, ParameterDescription, RowDescription, NoData,
 		// CopyInResponse, CopyOutResponse, NoticeResponse, NotificationResponse, ParameterStatus)
-		// say nothing about the statement's outcome.
+		// are ignored.
 	}
 }
 
