@@ -113,8 +113,8 @@ func TestAuditObserver_ClientMessages(t *testing.T) {
 		{
 			name: "never logged",
 			msgs: []pgproto3.FrontendMessage{
-				&pgproto3.Describe{ObjectType: objectTypeStatement, Name: "s1"},
-				&pgproto3.Close{ObjectType: objectTypeStatement, Name: "s1"}, &pgproto3.Close{ObjectType: objectTypePortal, Name: "p1"},
+				&pgproto3.Describe{ObjectType: 'S', Name: "s1"},
+				&pgproto3.Close{ObjectType: 'S', Name: "s1"}, &pgproto3.Close{ObjectType: 'P', Name: "p1"},
 				&pgproto3.Sync{}, &pgproto3.Flush{},
 				&pgproto3.CopyData{Data: []byte("1\tone\n")}, &pgproto3.CopyDone{}, &pgproto3.CopyFail{Message: "aborted"},
 				&pgproto3.Terminate{},
@@ -140,25 +140,14 @@ func TestAuditObserver_ServerMessages(t *testing.T) {
 		want []auditLine
 	}{
 		{
-			name: "command complete with a row count and columns",
-			msgs: []pgproto3.BackendMessage{
-				&pgproto3.RowDescription{Fields: []pgproto3.FieldDescription{{Name: []byte("id")}, {Name: []byte("email")}}},
-				&pgproto3.DataRow{Values: [][]byte{[]byte("1"), []byte("a@acme.int")}},
-				&pgproto3.DataRow{Values: [][]byte{[]byte("2"), []byte("b@acme.int")}},
-				&pgproto3.CommandComplete{CommandTag: []byte("SELECT 2")},
-			},
-			want: []auditLine{{"pg result", map[string]any{
-				"request_id": uint64(1), "command": "SELECT", "row_count": int64(2), "columns": []any{"id", "email"},
-			}}},
+			name: "command complete with a row count",
+			msgs: []pgproto3.BackendMessage{&pgproto3.CommandComplete{CommandTag: []byte("SELECT 2")}},
+			want: []auditLine{{"pg result", map[string]any{"request_id": uint64(1), "command": "SELECT", "row_count": int64(2)}}},
 		},
 		{
 			name: "command complete without a row count",
-			msgs: []pgproto3.BackendMessage{
-				&pgproto3.RowDescription{Fields: []pgproto3.FieldDescription{{Name: []byte("TimeZone")}}},
-				&pgproto3.DataRow{Values: [][]byte{[]byte("UTC")}},
-				&pgproto3.CommandComplete{CommandTag: []byte("SHOW")},
-			},
-			want: []auditLine{{"pg result", map[string]any{"request_id": uint64(1), "command": "SHOW", "columns": []any{"TimeZone"}}}},
+			msgs: []pgproto3.BackendMessage{&pgproto3.CommandComplete{CommandTag: []byte("SHOW")}},
+			want: []auditLine{{"pg result", map[string]any{"request_id": uint64(1), "command": "SHOW"}}},
 		},
 		{
 			name: "empty query",
@@ -175,8 +164,10 @@ func TestAuditObserver_ServerMessages(t *testing.T) {
 		{
 			name: "never logged",
 			msgs: []pgproto3.BackendMessage{
-				&pgproto3.ParseComplete{}, &pgproto3.BindComplete{}, &pgproto3.NoData{}, &pgproto3.CloseComplete{},
-				&pgproto3.ParameterDescription{ParameterOIDs: []uint32{23}}, &pgproto3.FunctionCallResponse{},
+				&pgproto3.ParseComplete{}, &pgproto3.BindComplete{}, &pgproto3.CloseComplete{},
+				&pgproto3.ParameterDescription{ParameterOIDs: []uint32{23}},
+				&pgproto3.RowDescription{Fields: []pgproto3.FieldDescription{{Name: []byte("id")}}}, &pgproto3.NoData{},
+				&pgproto3.DataRow{Values: [][]byte{[]byte("1")}}, &pgproto3.PortalSuspended{}, &pgproto3.FunctionCallResponse{},
 				&pgproto3.NoticeResponse{Message: "notice"}, &pgproto3.NotificationResponse{Channel: "jobs"},
 				&pgproto3.ParameterStatus{Name: "TimeZone", Value: "UTC"},
 				&pgproto3.CopyInResponse{}, &pgproto3.CopyOutResponse{}, &pgproto3.CopyData{Data: []byte("1\n")}, &pgproto3.CopyDone{},
@@ -194,123 +185,6 @@ func TestAuditObserver_ServerMessages(t *testing.T) {
 			o.fromServer(tt.msgs...)
 
 			assert.Equal(t, tt.want, o.takeLines(t))
-		})
-	}
-}
-
-func TestAuditObserver_ReadyForQuery(t *testing.T) {
-	tests := []struct {
-		name        string
-		txStatus    byte
-		wantPortals map[string]*portal
-	}{
-		{name: "transaction open", txStatus: 'T', wantPortals: map[string]*portal{"p1": {statement: "s1", columns: []string{"id"}}}},
-		{name: "transaction ended", txStatus: 'I', wantPortals: map[string]*portal{}},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			o := newTestAuditObserver()
-			o.fromClient(
-				&pgproto3.Parse{Name: "s1", Query: "SELECT"},
-				&pgproto3.Bind{DestinationPortal: "p1", PreparedStatement: "s1"},
-				&pgproto3.Describe{ObjectType: objectTypePortal, Name: "p1"},
-				&pgproto3.Describe{ObjectType: objectTypeStatement, Name: "s1"},
-				&pgproto3.Execute{Portal: "p1"},
-			)
-			o.fromServer(&pgproto3.RowDescription{Fields: []pgproto3.FieldDescription{{Name: []byte("id")}}})
-			// Ignore client message logs
-			o.takeLines(t)
-
-			o.fromServer(&pgproto3.ReadyForQuery{TxStatus: tt.txStatus})
-
-			assert.Equal(t, []auditLine{{"pg completed", map[string]any{"request_id": uint64(1)}}}, o.takeLines(t))
-			assert.True(t, o.startedAt.IsZero())
-			assert.Nil(t, o.columns)
-			assert.Empty(t, o.parses)
-			assert.Empty(t, o.describes)
-			assert.Empty(t, o.executes)
-			assert.Empty(t, o.closes)
-			assert.Equal(t, tt.wantPortals, o.portals)
-		})
-	}
-}
-
-// TestAuditObserver_StatementLifetime checks when a described statement's columns are dropped: the
-// server keeps the statement when its Parse fails or its Close is skipped after an error.
-func TestAuditObserver_StatementLifetime(t *testing.T) {
-	tests := []struct {
-		name           string
-		statement      string
-		client         []pgproto3.FrontendMessage
-		server         []pgproto3.BackendMessage
-		wantStatements map[string][]string
-	}{
-		{
-			name:           "parse succeeds",
-			statement:      "s1",
-			client:         []pgproto3.FrontendMessage{&pgproto3.Parse{Name: "s1", Query: "SELECT"}, &pgproto3.Sync{}},
-			server:         []pgproto3.BackendMessage{&pgproto3.ParseComplete{}},
-			wantStatements: map[string][]string{},
-		},
-		{
-			name:           "parse fails",
-			statement:      "s1",
-			client:         []pgproto3.FrontendMessage{&pgproto3.Parse{Name: "s1", Query: "SELECT"}, &pgproto3.Sync{}},
-			server:         []pgproto3.BackendMessage{&pgproto3.ErrorResponse{Code: "42P05", Message: `prepared statement "s1" already exists`}},
-			wantStatements: map[string][]string{"s1": {"id"}},
-		},
-		{
-			name:      "close completes after a describe in the same batch",
-			statement: "s1",
-			client: []pgproto3.FrontendMessage{
-				&pgproto3.Describe{ObjectType: objectTypeStatement, Name: "s1"},
-				&pgproto3.Close{ObjectType: objectTypeStatement, Name: "s1"},
-				&pgproto3.Sync{},
-			},
-			server: []pgproto3.BackendMessage{
-				&pgproto3.ParameterDescription{},
-				&pgproto3.RowDescription{Fields: []pgproto3.FieldDescription{{Name: []byte("id")}}},
-				&pgproto3.CloseComplete{},
-			},
-			wantStatements: map[string][]string{},
-		},
-		{
-			name:      "close skipped after an error",
-			statement: "s1",
-			client: []pgproto3.FrontendMessage{
-				&pgproto3.Describe{ObjectType: objectTypeStatement, Name: "missing"},
-				&pgproto3.Close{ObjectType: objectTypeStatement, Name: "s1"},
-				&pgproto3.Sync{},
-			},
-			server:         []pgproto3.BackendMessage{&pgproto3.ErrorResponse{Code: "26000", Message: `prepared statement "missing" does not exist`}},
-			wantStatements: map[string][]string{"s1": {"id"}},
-		},
-		{
-			name:           "close of a portal keeps the statement",
-			statement:      "s1",
-			client:         []pgproto3.FrontendMessage{&pgproto3.Close{ObjectType: objectTypePortal, Name: "p1"}, &pgproto3.Sync{}},
-			server:         []pgproto3.BackendMessage{&pgproto3.CloseComplete{}},
-			wantStatements: map[string][]string{"s1": {"id"}},
-		},
-		{
-			name:           "simple query drops the unnamed statement",
-			statement:      "",
-			client:         []pgproto3.FrontendMessage{&pgproto3.Query{String: "SELECT 1"}},
-			server:         []pgproto3.BackendMessage{&pgproto3.CommandComplete{CommandTag: []byte("SELECT 1")}},
-			wantStatements: map[string][]string{},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			o := newTestAuditObserver()
-			o.prepare(t, tt.statement, "id")
-
-			o.fromClient(tt.client...)
-			o.fromServer(append(tt.server, &pgproto3.ReadyForQuery{TxStatus: 'I'})...)
-
-			assert.Equal(t, tt.wantStatements, o.statements)
 		})
 	}
 }
@@ -345,184 +219,9 @@ func TestAuditObserver_SimpleQuery(t *testing.T) {
 
 	assert.Equal(t, []auditLine{
 		{"pg query", map[string]any{"request_id": uint64(1), "sql": "SELECT id, email FROM users WHERE org_id = 42"}},
-		{"pg result", map[string]any{"request_id": uint64(1), "command": "SELECT", "row_count": int64(2), "columns": []any{"id", "email"}}},
+		{"pg result", map[string]any{"request_id": uint64(1), "command": "SELECT", "row_count": int64(2)}},
 		{"pg completed", map[string]any{"request_id": uint64(1)}},
 	}, o.takeLines(t))
-}
-
-func TestAuditObserver_ExtendedQuery(t *testing.T) {
-	o := newTestAuditObserver()
-
-	// Query a maximum of 2 rows and continue to fetch with the next `execute`
-	o.fromClient(
-		&pgproto3.Parse{Query: "SELECT id, email FROM users WHERE org_id = $1"},
-		&pgproto3.Bind{DestinationPortal: "C_1", Parameters: [][]byte{[]byte("42")}},
-		&pgproto3.Describe{ObjectType: objectTypePortal, Name: "C_1"},
-		&pgproto3.Execute{Portal: "C_1", MaxRows: 2},
-		&pgproto3.Sync{},
-	)
-	o.fromServer(
-		&pgproto3.ParseComplete{},
-		&pgproto3.BindComplete{},
-		&pgproto3.RowDescription{Fields: []pgproto3.FieldDescription{{Name: []byte("id")}, {Name: []byte("email")}}},
-		&pgproto3.DataRow{Values: [][]byte{[]byte("1"), []byte("a@acme.int")}},
-		&pgproto3.DataRow{Values: [][]byte{[]byte("2"), []byte("b@acme.int")}},
-		&pgproto3.PortalSuspended{},
-		&pgproto3.ReadyForQuery{TxStatus: 'T'},
-	)
-
-	assert.Equal(t, []auditLine{
-		{"pg parse", map[string]any{"request_id": uint64(1), "statement_name": "", "sql": "SELECT id, email FROM users WHERE org_id = $1"}},
-		{"pg bind", map[string]any{"request_id": uint64(1), "statement_name": "", "portal_name": "C_1", "parameters": []any{"42"}}},
-		{"pg execute", map[string]any{"request_id": uint64(1), "portal_name": "C_1", "max_rows": uint32(2)}},
-		{"pg completed", map[string]any{"request_id": uint64(1)}},
-	}, o.takeLines(t))
-
-	o.fromClient(&pgproto3.Execute{Portal: "C_1", MaxRows: 0}, &pgproto3.Sync{})
-	o.fromServer(
-		&pgproto3.DataRow{Values: [][]byte{[]byte("3"), []byte("c@acme.int")}},
-		&pgproto3.CommandComplete{CommandTag: []byte("SELECT 1")},
-		&pgproto3.ReadyForQuery{TxStatus: 'T'},
-	)
-
-	assert.Equal(t, []auditLine{
-		{"pg execute", map[string]any{"request_id": uint64(2), "portal_name": "C_1", "max_rows": uint32(0)}},
-		{"pg result", map[string]any{"request_id": uint64(2), "command": "SELECT", "row_count": int64(1), "columns": []any{"id", "email"}}},
-		{"pg completed", map[string]any{"request_id": uint64(2)}},
-	}, o.takeLines(t))
-}
-
-// TestAuditObserver_PreparedStatement runs a statement the way a driver with a statement cache does.
-func TestAuditObserver_PreparedStatement(t *testing.T) {
-	o := newTestAuditObserver()
-
-	o.fromClient(
-		&pgproto3.Parse{Name: "stmtcache_3", Query: "SELECT id, email FROM users WHERE org_id = $1"},
-		&pgproto3.Describe{ObjectType: objectTypeStatement, Name: "stmtcache_3"},
-		&pgproto3.Sync{},
-	)
-	o.fromServer(
-		&pgproto3.ParseComplete{},
-		&pgproto3.ParameterDescription{ParameterOIDs: []uint32{23}},
-		&pgproto3.RowDescription{Fields: []pgproto3.FieldDescription{{Name: []byte("id")}, {Name: []byte("email")}}},
-		&pgproto3.ReadyForQuery{TxStatus: 'I'},
-	)
-
-	assert.Equal(t, []auditLine{
-		{"pg parse", map[string]any{"request_id": uint64(1), "statement_name": "stmtcache_3", "sql": "SELECT id, email FROM users WHERE org_id = $1"}},
-		{"pg completed", map[string]any{"request_id": uint64(1)}},
-	}, o.takeLines(t))
-
-	// Query using the cached statement
-	o.fromClient(
-		&pgproto3.Bind{PreparedStatement: "stmtcache_3", Parameters: [][]byte{[]byte("42")}},
-		&pgproto3.Execute{},
-		&pgproto3.Sync{},
-	)
-	o.fromServer(
-		&pgproto3.BindComplete{},
-		&pgproto3.DataRow{Values: [][]byte{[]byte("1"), []byte("a@acme.int")}},
-		&pgproto3.DataRow{Values: [][]byte{[]byte("2"), []byte("b@acme.int")}},
-		&pgproto3.CommandComplete{CommandTag: []byte("SELECT 2")},
-		&pgproto3.ReadyForQuery{TxStatus: 'I'},
-	)
-
-	assert.Equal(t, []auditLine{
-		{"pg bind", map[string]any{"request_id": uint64(2), "statement_name": "stmtcache_3", "portal_name": "", "parameters": []any{"42"}}},
-		{"pg execute", map[string]any{"request_id": uint64(2), "portal_name": "", "max_rows": uint32(0)}},
-		{"pg result", map[string]any{"request_id": uint64(2), "command": "SELECT", "row_count": int64(2), "columns": []any{"id", "email"}}},
-		{"pg completed", map[string]any{"request_id": uint64(2)}},
-	}, o.takeLines(t))
-}
-
-// prepare runs a driver's prepare round trip, which describes the statement before any execute.
-func (o *testAuditObserver) prepare(t *testing.T, name string, columns ...string) {
-	t.Helper()
-
-	o.fromClient(&pgproto3.Parse{Name: name, Query: "SELECT"}, &pgproto3.Describe{ObjectType: objectTypeStatement, Name: name}, &pgproto3.Sync{})
-	o.fromServer(&pgproto3.ParseComplete{}, &pgproto3.ParameterDescription{})
-
-	if columns == nil {
-		o.fromServer(&pgproto3.NoData{})
-	} else {
-		fields := make([]pgproto3.FieldDescription, len(columns))
-		for i, column := range columns {
-			fields[i] = pgproto3.FieldDescription{Name: []byte(column)}
-		}
-
-		o.fromServer(&pgproto3.RowDescription{Fields: fields})
-	}
-
-	o.fromServer(&pgproto3.ReadyForQuery{TxStatus: 'I'})
-	// Ignore audit lines up to this point
-	o.takeLines(t)
-}
-
-// TestAuditObserver_MultiplePreparedStatements runs two prepared statements in one request: the
-// second statement gets its own columns only when the first result consumed its Execute.
-func TestAuditObserver_MultiplePreparedStatements(t *testing.T) {
-	selectResult := &pgproto3.CommandComplete{CommandTag: []byte("SELECT 1")}
-
-	tests := []struct {
-		name      string
-		s1Columns []string
-		s1MaxRows uint32
-		s1Result  pgproto3.BackendMessage
-		want      []auditLine
-	}{
-		{
-			name: "both complete", s1Columns: []string{"id"}, s1Result: selectResult,
-			want: []auditLine{
-				{"pg bind", map[string]any{"request_id": uint64(3), "statement_name": "s1", "portal_name": "", "parameters": []any{}}},
-				{"pg execute", map[string]any{"request_id": uint64(3), "portal_name": "", "max_rows": uint32(0)}},
-				{"pg bind", map[string]any{"request_id": uint64(3), "statement_name": "s2", "portal_name": "", "parameters": []any{}}},
-				{"pg execute", map[string]any{"request_id": uint64(3), "portal_name": "", "max_rows": uint32(0)}},
-				{"pg result", map[string]any{"request_id": uint64(3), "command": "SELECT", "row_count": int64(1), "columns": []any{"id"}}},
-				{"pg result", map[string]any{"request_id": uint64(3), "command": "SELECT", "row_count": int64(1), "columns": []any{"email"}}},
-				{"pg completed", map[string]any{"request_id": uint64(3)}},
-			},
-		},
-		{
-			name: "first portal suspended", s1Columns: []string{"id"}, s1MaxRows: 1, s1Result: &pgproto3.PortalSuspended{},
-			want: []auditLine{
-				{"pg bind", map[string]any{"request_id": uint64(3), "statement_name": "s1", "portal_name": "", "parameters": []any{}}},
-				{"pg execute", map[string]any{"request_id": uint64(3), "portal_name": "", "max_rows": uint32(1)}},
-				{"pg bind", map[string]any{"request_id": uint64(3), "statement_name": "s2", "portal_name": "", "parameters": []any{}}},
-				{"pg execute", map[string]any{"request_id": uint64(3), "portal_name": "", "max_rows": uint32(0)}},
-				{"pg result", map[string]any{"request_id": uint64(3), "command": "SELECT", "row_count": int64(1), "columns": []any{"email"}}},
-				{"pg completed", map[string]any{"request_id": uint64(3)}},
-			},
-		},
-		{
-			name: "first empty query", s1Result: &pgproto3.EmptyQueryResponse{},
-			want: []auditLine{
-				{"pg bind", map[string]any{"request_id": uint64(3), "statement_name": "s1", "portal_name": "", "parameters": []any{}}},
-				{"pg execute", map[string]any{"request_id": uint64(3), "portal_name": "", "max_rows": uint32(0)}},
-				{"pg bind", map[string]any{"request_id": uint64(3), "statement_name": "s2", "portal_name": "", "parameters": []any{}}},
-				{"pg execute", map[string]any{"request_id": uint64(3), "portal_name": "", "max_rows": uint32(0)}},
-				{"pg result", map[string]any{"request_id": uint64(3)}},
-				{"pg result", map[string]any{"request_id": uint64(3), "command": "SELECT", "row_count": int64(1), "columns": []any{"email"}}},
-				{"pg completed", map[string]any{"request_id": uint64(3)}},
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			o := newTestAuditObserver()
-			o.prepare(t, "s1", tt.s1Columns...)
-			o.prepare(t, "s2", "email")
-
-			o.fromClient(
-				&pgproto3.Bind{PreparedStatement: "s1"}, &pgproto3.Execute{MaxRows: tt.s1MaxRows},
-				&pgproto3.Bind{PreparedStatement: "s2"}, &pgproto3.Execute{},
-				&pgproto3.Sync{},
-			)
-			o.fromServer(&pgproto3.BindComplete{}, tt.s1Result, &pgproto3.BindComplete{}, selectResult, &pgproto3.ReadyForQuery{TxStatus: 'I'})
-
-			assert.Equal(t, tt.want, o.takeLines(t))
-		})
-	}
 }
 
 // TestAuditObserver_NoOpenRequest checks a server message that arrives between a ReadyForQuery
