@@ -46,7 +46,7 @@ func tcpPipe(t *testing.T) func() (net.Conn, net.Conn) {
 	}
 }
 
-func TestDownstreamConn_ReceiveStartupRequest(t *testing.T) {
+func TestDownstreamConn_HandleStartupMessage(t *testing.T) {
 	startup := &pgproto3.StartupMessage{ProtocolVersion: pgproto3.ProtocolVersion30, Parameters: map[string]string{"user": "alice"}}
 
 	tests := []struct {
@@ -78,7 +78,7 @@ func TestDownstreamConn_ReceiveStartupRequest(t *testing.T) {
 
 			require.NoError(t, client.Flush())
 
-			got, cancel, err := newDownstreamConn(serverConn).receiveStartupRequest()
+			got, cancel, err := newDownstreamConn(serverConn).handleStartupMessage()
 			require.ErrorIs(t, err, tt.wantErr)
 			assert.Nil(t, cancel)
 
@@ -89,17 +89,17 @@ func TestDownstreamConn_ReceiveStartupRequest(t *testing.T) {
 	}
 }
 
-func TestDownstreamConn_ReceiveStartupRequest_ClientCloses(t *testing.T) {
+func TestDownstreamConn_HandleStartupMessage_ClientCloses(t *testing.T) {
 	clientConn, serverConn := tcpPipe(t)()
 	t.Cleanup(func() { _ = serverConn.Close() })
 
 	require.NoError(t, clientConn.Close())
 
-	_, _, err := newDownstreamConn(serverConn).receiveStartupRequest()
+	_, _, err := newDownstreamConn(serverConn).handleStartupMessage()
 	require.ErrorIs(t, err, errFailedToReceiveStartup)
 }
 
-func TestDownstreamConn_ReceiveStartupRequest_AnswerFails(t *testing.T) {
+func TestDownstreamConn_HandleStartupMessage_AnswerFails(t *testing.T) {
 	clientConn, serverConn := tcpPipe(t)()
 	t.Cleanup(func() {
 		_ = clientConn.Close()
@@ -110,11 +110,11 @@ func TestDownstreamConn_ReceiveStartupRequest_AnswerFails(t *testing.T) {
 	client.Send(&pgproto3.SSLRequest{})
 	require.NoError(t, client.Flush())
 
-	_, _, err := newDownstreamConn(failingConn{Conn: serverConn}).receiveStartupRequest()
+	_, _, err := newDownstreamConn(failingConn{Conn: serverConn}).handleStartupMessage()
 	require.ErrorIs(t, err, errFailedToAnswerStartupRequest)
 }
 
-func TestDownstreamConn_ReceiveStartupRequest_Cancel(t *testing.T) {
+func TestDownstreamConn_HandleStartupMessage_Cancel(t *testing.T) {
 	clientConn, serverConn := tcpPipe(t)()
 	t.Cleanup(func() {
 		_ = clientConn.Close()
@@ -126,7 +126,7 @@ func TestDownstreamConn_ReceiveStartupRequest_Cancel(t *testing.T) {
 	client.Send(cancel)
 	require.NoError(t, client.Flush())
 
-	startup, got, err := newDownstreamConn(serverConn).receiveStartupRequest()
+	startup, got, err := newDownstreamConn(serverConn).handleStartupMessage()
 	require.NoError(t, err)
 	assert.Nil(t, startup)
 	assert.Equal(t, cancel, got)
@@ -184,7 +184,7 @@ func TestDownstreamConn_NegotiateProtocolVersion_SendFails(t *testing.T) {
 	require.ErrorIs(t, err, errFailedToNegotiateProtocol)
 }
 
-func TestDownstreamConn_Accept(t *testing.T) {
+func TestDownstreamConn_CompleteLogin(t *testing.T) {
 	clientConn, serverConn := tcpPipe(t)()
 	t.Cleanup(func() {
 		_ = clientConn.Close()
@@ -198,7 +198,7 @@ func TestDownstreamConn_Accept(t *testing.T) {
 		TxStatus:          'I',
 	}
 
-	require.NoError(t, newDownstreamConn(serverConn).accept(upstreamConn))
+	require.NoError(t, newDownstreamConn(serverConn).completeLogin(upstreamConn))
 
 	client := pgproto3.NewFrontend(clientConn, clientConn)
 
@@ -214,8 +214,8 @@ func TestDownstreamConn_Accept(t *testing.T) {
 	}
 }
 
-func TestDownstreamConn_Accept_SendFails(t *testing.T) {
-	require.ErrorIs(t, newDownstreamConn(failingConn{}).accept(&pgconn.HijackedConn{}), errFailedToCompleteLogin)
+func TestDownstreamConn_CompleteLogin_SendFails(t *testing.T) {
+	require.ErrorIs(t, newDownstreamConn(failingConn{}).completeLogin(&pgconn.HijackedConn{}), errFailedToCompleteLogin)
 }
 
 func TestDownstreamConn_MessageTooLong(t *testing.T) {

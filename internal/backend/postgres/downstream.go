@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	// sslNotSupported answers an SSLRequest or GSSENCRequest.
-	sslNotSupported = 'N'
+	// encryptionRefused answers an SSLRequest or GSSENCRequest.
+	encryptionRefused = 'N'
 
 	severityFatal = "FATAL"
 
@@ -44,12 +44,11 @@ func newDownstreamConn(conn net.Conn) *downstreamConn {
 	return &downstreamConn{conn: conn, backend: backend}
 }
 
-// receiveStartupRequest answers SSLRequest and GSSENCRequest, then returns the
-// StartupMessage or the CancelRequest that follows.
-func (c *downstreamConn) receiveStartupRequest() (*pgproto3.StartupMessage, *pgproto3.CancelRequest, error) {
-	// The first request of each kind is refused with N rather than failed, because the client can
-	// fall back to plaintext. A repeat means it ignored the refusal.
-	var sslRequested, gssRequested bool
+// handleStartupMessage refuses SSLRequest and GSSENCRequest, then returns the StartupMessage or
+// the CancelRequest that follows.
+func (c *downstreamConn) handleStartupMessage() (*pgproto3.StartupMessage, *pgproto3.CancelRequest, error) {
+	// A client that repeats a refused request ignored the refusal.
+	refused := map[string]bool{}
 
 	for {
 		msg, err := c.backend.ReceiveStartupMessage()
@@ -58,28 +57,24 @@ func (c *downstreamConn) receiveStartupRequest() (*pgproto3.StartupMessage, *pgp
 		}
 
 		switch msg := msg.(type) {
-		case *pgproto3.SSLRequest:
-			if sslRequested {
-				return nil, nil, fmt.Errorf("%w: SSLRequest", errUnsupportedStartupRequest)
-			}
-
-			sslRequested = true
-		case *pgproto3.GSSEncRequest:
-			if gssRequested {
-				return nil, nil, fmt.Errorf("%w: GSSENCRequest", errUnsupportedStartupRequest)
-			}
-
-			gssRequested = true
 		case *pgproto3.StartupMessage:
 			return msg, nil, nil
 		case *pgproto3.CancelRequest:
 			return nil, msg, nil
+		case *pgproto3.SSLRequest, *pgproto3.GSSEncRequest:
+			request := fmt.Sprintf("%T", msg)
+			if refused[request] {
+				return nil, nil, fmt.Errorf("%w: repeated %s", errUnsupportedStartupRequest, request)
+			}
+
+			refused[request] = true
+
+			// Refuse the encryption allows the client fall back to plaintext on the same connection..
+			if _, err := c.conn.Write([]byte{encryptionRefused}); err != nil {
+				return nil, nil, fmt.Errorf("%w: %w", errFailedToAnswerStartupRequest, err)
+			}
 		default:
 			return nil, nil, fmt.Errorf("%w: %T", errUnsupportedStartupRequest, msg)
-		}
-
-		if _, err := c.conn.Write([]byte{sslNotSupported}); err != nil {
-			return nil, nil, fmt.Errorf("%w: %w", errFailedToAnswerStartupRequest, err)
 		}
 	}
 }
@@ -101,9 +96,9 @@ func (c *downstreamConn) negotiateProtocolVersion(startup *pgproto3.StartupMessa
 	return nil
 }
 
-// accept tells the client it is logged in, with the session state the upstream login consumed:
-// the parameters, the cancel key, and the ReadyForQuery.
-func (c *downstreamConn) accept(upstream *pgconn.HijackedConn) error {
+// completeLogin tells the client it is logged in, with the session state the upstream login
+// consumed: the parameters, the cancel key, and the ReadyForQuery.
+func (c *downstreamConn) completeLogin(upstream *pgconn.HijackedConn) error {
 	c.backend.Send(&pgproto3.AuthenticationOk{})
 
 	for name, value := range upstream.ParameterStatuses {
