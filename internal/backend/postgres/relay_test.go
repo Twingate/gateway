@@ -6,7 +6,6 @@ package postgres
 import (
 	"context"
 	"fmt"
-	"io"
 	"net"
 	"sync"
 	"testing"
@@ -16,11 +15,8 @@ import (
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"gateway/internal/logging"
+	"go.uber.org/zap"
 )
-
-const testTimeout = 5 * time.Second
 
 // testRelay connects a relay to a test client and a test server, each over its own TCP connection:
 //
@@ -36,18 +32,12 @@ type testRelay struct {
 func newTestRelay(t *testing.T, observers ...observer) *testRelay {
 	t.Helper()
 
-	pipe := tcpPipe(t)
-	clientConn, relayDownstreamConn := pipe()
-	relayUpstreamConn, serverConn := pipe()
-
-	t.Cleanup(func() {
-		_ = clientConn.Close()
-		_ = serverConn.Close()
-	})
+	clientConn, relayDownstreamConn := tcpPipe(t)
+	relayUpstreamConn, serverConn := tcpPipe(t)
 
 	return &testRelay{
 		relay: newRelay(
-			logging.NewNop(),
+			zap.NewNop(),
 			newDownstreamConn(relayDownstreamConn),
 			&pgconn.HijackedConn{
 				Conn:     relayUpstreamConn,
@@ -104,26 +94,6 @@ func (r *testRelay) sendFromServer(t *testing.T, msg pgproto3.BackendMessage) {
 	require.NoError(t, r.server.Flush())
 }
 
-func waitServe(t *testing.T, done <-chan error) error {
-	t.Helper()
-
-	select {
-	case err := <-done:
-		return err
-	case <-time.After(testTimeout):
-		t.Fatal("timed out waiting for the relay to stop")
-
-		return nil
-	}
-}
-
-// failingWriter fails every write.
-type failingWriter struct{}
-
-func (failingWriter) Write(_ []byte) (int, error) {
-	return 0, io.ErrClosedPipe
-}
-
 func encode(t *testing.T, msgs ...pgproto3.Message) []byte {
 	t.Helper()
 
@@ -137,13 +107,6 @@ func encode(t *testing.T, msgs ...pgproto3.Message) []byte {
 	}
 
 	return encoded
-}
-
-func assertEOF(t *testing.T, reader io.Reader) {
-	t.Helper()
-
-	_, err := reader.Read(make([]byte, 1))
-	assert.ErrorIs(t, err, io.EOF)
 }
 
 // unknownMessage encodes as a message type pgproto3 cannot decode.
@@ -372,7 +335,7 @@ func TestRelay_Error(t *testing.T) {
 		{
 			name: "forwarding to the server fails",
 			setupRelay: func(r *relay) {
-				r.upstream.Frontend = pgproto3.NewFrontend(r.upstream.Conn, &failingWriter{})
+				r.upstream.Frontend = pgproto3.NewFrontend(r.upstream.Conn, failingConn{})
 			},
 			clientSends: &pgproto3.Sync{},
 			wantErr:     errFailedToForwardDownstreamMessage,
@@ -380,7 +343,7 @@ func TestRelay_Error(t *testing.T) {
 		{
 			name: "forwarding to the client fails",
 			setupRelay: func(r *relay) {
-				r.downstream.backend = pgproto3.NewBackend(r.downstream.conn, &failingWriter{})
+				r.downstream.backend = pgproto3.NewBackend(r.downstream.conn, failingConn{})
 			},
 			serverSends: &pgproto3.ReadyForQuery{TxStatus: 'I'},
 			wantErr:     errFailedToForwardUpstreamMessage,

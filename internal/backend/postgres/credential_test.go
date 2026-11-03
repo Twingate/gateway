@@ -15,19 +15,6 @@ import (
 	"gateway/internal/token"
 )
 
-const (
-	testCredential      = "test"
-	testDatabaseUser    = "gateway"
-	testCertificateFile = "../../../test/data/proxy/tls.crt"
-	testPrivateKeyFile  = "../../../test/data/proxy/tls.key"
-)
-
-var passwordAuth = token.Auth{
-	Type:     token.AuthTypePassword,
-	User:     testDatabaseUser,
-	Password: &token.PasswordAuth{Credential: testCredential},
-}
-
 func TestNewCredentialProvider(t *testing.T) {
 	passwords := newPasswordCredentials([]gatewayconfig.PostgreSQLCredential{{Name: testCredential, Password: "secret"}})
 

@@ -52,7 +52,7 @@ func (c *downstreamConn) handleStartupMessage() (*pgproto3.StartupMessage, *pgpr
 
 	defer func() { _ = c.conn.SetDeadline(time.Time{}) }()
 
-	// A client that repeats a refused request ignored the refusal.
+	// A client that repeats a refused request is rejected.
 	refused := map[string]bool{}
 
 	for {
@@ -74,7 +74,7 @@ func (c *downstreamConn) handleStartupMessage() (*pgproto3.StartupMessage, *pgpr
 
 			refused[request] = true
 
-			// Refuse the encryption allows the client fall back to plaintext on the same connection..
+			// Refuse encryption and tell client to fall back to plaintext on the same connection.
 			if _, err := c.conn.Write([]byte{encryptionRefused}); err != nil {
 				return nil, nil, fmt.Errorf("%w: %w", errFailedToAnswerStartupRequest, err)
 			}
@@ -103,7 +103,7 @@ func (c *downstreamConn) negotiateProtocolVersion(startup *pgproto3.StartupMessa
 
 // completeLogin tells the client it is logged in, with the session state the upstream login
 // consumed: the parameters, the cancel key, and the ReadyForQuery.
-func (c *downstreamConn) completeLogin(upstream *pgconn.HijackedConn) error {
+func (c *downstreamConn) completeLogin(dbConn *pgconn.HijackedConn) error {
 	// Bounds the flush to a client that stops reading. The relay writes to the client next, so
 	// the deadline is cleared once the login is complete.
 	_ = c.conn.SetWriteDeadline(time.Now().Add(defaultTimeout))
@@ -112,12 +112,12 @@ func (c *downstreamConn) completeLogin(upstream *pgconn.HijackedConn) error {
 
 	c.backend.Send(&pgproto3.AuthenticationOk{})
 
-	for name, value := range upstream.ParameterStatuses {
+	for name, value := range dbConn.ParameterStatuses {
 		c.backend.Send(&pgproto3.ParameterStatus{Name: name, Value: value})
 	}
 
-	c.backend.Send(&pgproto3.BackendKeyData{ProcessID: upstream.PID, SecretKey: upstream.SecretKey})
-	c.backend.Send(&pgproto3.ReadyForQuery{TxStatus: upstream.TxStatus})
+	c.backend.Send(&pgproto3.BackendKeyData{ProcessID: dbConn.PID, SecretKey: dbConn.SecretKey})
+	c.backend.Send(&pgproto3.ReadyForQuery{TxStatus: dbConn.TxStatus})
 
 	if err := c.backend.Flush(); err != nil {
 		return fmt.Errorf("%w: %w", errFailedToCompleteLogin, err)

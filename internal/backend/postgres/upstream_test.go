@@ -261,8 +261,8 @@ func newTestCAPool(t *testing.T) *x509.CertPool {
 
 func TestUpstream_Connect_Success(t *testing.T) {
 	type result struct {
-		upstream *pgconn.HijackedConn
-		err      error
+		dbConn *pgconn.HijackedConn
+		err    error
 	}
 
 	listener, address := newUpstreamListener(t)
@@ -280,7 +280,7 @@ func TestUpstream_Connect_Success(t *testing.T) {
 
 	go func() {
 		hijackedConn, err := u.connect(t.Context(), startup, cred)
-		done <- result{upstream: hijackedConn, err: err}
+		done <- result{dbConn: hijackedConn, err: err}
 	}()
 
 	// The database agrees to TLS, then asks for a cleartext password and accepts it.
@@ -301,21 +301,21 @@ func TestUpstream_Connect_Success(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, &pgproto3.PasswordMessage{Password: "secret"}, msg)
 
-	backend.Send(&pgproto3.AuthenticationOk{})
-	backend.Send(&pgproto3.ParameterStatus{Name: "server_version", Value: "17.0"})
-	backend.Send(&pgproto3.BackendKeyData{ProcessID: 42, SecretKey: []byte{1, 2, 3, 4}})
-	backend.Send(&pgproto3.ReadyForQuery{TxStatus: 'I'})
+	for _, msg := range loginMessages {
+		backend.Send(msg)
+	}
+
 	require.NoError(t, backend.Flush())
 
 	res := <-done
 	require.NoError(t, res.err)
 
-	t.Cleanup(func() { _ = res.upstream.Conn.Close() })
+	t.Cleanup(func() { _ = res.dbConn.Conn.Close() })
 
-	assert.EqualValues(t, 42, res.upstream.PID)
-	assert.Equal(t, []byte{1, 2, 3, 4}, res.upstream.SecretKey)
-	assert.Equal(t, map[string]string{"server_version": "17.0"}, res.upstream.ParameterStatuses)
-	assert.EqualValues(t, 'I', res.upstream.TxStatus)
+	assert.EqualValues(t, 42, res.dbConn.PID)
+	assert.Equal(t, []byte{1, 2, 3, 4}, res.dbConn.SecretKey)
+	assert.Equal(t, map[string]string{"server_version": "17.0"}, res.dbConn.ParameterStatuses)
+	assert.EqualValues(t, 'I', res.dbConn.TxStatus)
 }
 
 func TestUpstream_Connect_Error(t *testing.T) {

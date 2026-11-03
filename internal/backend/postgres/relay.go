@@ -14,8 +14,6 @@ import (
 	"github.com/jackc/pgx/v5/pgproto3"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
-
-	"gateway/internal/logging"
 )
 
 var (
@@ -35,13 +33,13 @@ type observer interface {
 
 // relay forwards messages between the downstream and upstream until either side closes.
 type relay struct {
-	logger     logging.Logger
+	logger     *zap.Logger
 	downstream *downstreamConn
 	upstream   *pgconn.HijackedConn
 	observers  []observer
 }
 
-func newRelay(logger logging.Logger, downstream *downstreamConn, upstream *pgconn.HijackedConn, observers []observer) *relay {
+func newRelay(logger *zap.Logger, downstream *downstreamConn, upstream *pgconn.HijackedConn, observers []observer) *relay {
 	return &relay{logger: logger, downstream: downstream, upstream: upstream, observers: observers}
 }
 
@@ -56,18 +54,18 @@ func (r *relay) serve(ctx context.Context) error {
 	defer stop()
 
 	group.Go(func() error {
-		defer closeOnPanic(r.logger.System, r.close)
+		defer closeOnPanic(r.logger, r.close)
 
 		err := r.forwardDownstreamMessages()
-		r.logger.System.Debug("Downstream relay ended", zap.Error(err))
+		r.logger.Debug("Downstream relay ended", zap.Error(err))
 
 		return err
 	})
 	group.Go(func() error {
-		defer closeOnPanic(r.logger.System, r.close)
+		defer closeOnPanic(r.logger, r.close)
 
 		err := r.forwardUpstreamMessages()
-		r.logger.System.Debug("Upstream relay ended", zap.Error(err))
+		r.logger.Debug("Upstream relay ended", zap.Error(err))
 
 		return err
 	})
