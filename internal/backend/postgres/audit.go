@@ -98,22 +98,25 @@ func (o *auditObserver) onUpstreamMessage(msg pgproto3.BackendMessage) {
 	switch msg := msg.(type) {
 	case *pgproto3.CommandComplete:
 		command, rowCount, hasRowCount := parseCommandTag(msg.CommandTag)
-		fields := []zap.Field{zap.String("command", command)}
+		fields := append(o.requestFields(), zap.String("command", command))
 
 		if hasRowCount {
 			fields = append(fields, zap.Int64("row_count", rowCount))
 		}
 
-		o.logResult(fields...)
-	case *pgproto3.EmptyQueryResponse:
-		o.logResult()
+		o.logger.Info("pg result", fields...)
+	case *pgproto3.EmptyQueryResponse, *pgproto3.FunctionCallResponse:
+		o.logger.Info("pg result", o.requestFields()...)
+	case *pgproto3.PortalSuspended:
+		// The Execute stopped at its max_rows; the portal's next Execute continues the same result.
+		o.logger.Info("pg result", append(o.requestFields(), zap.Bool("suspended", true))...)
 	case *pgproto3.ErrorResponse:
-		fields := slices.Concat([]zap.Field{
+		fields := slices.Concat(o.requestFields(), []zap.Field{
 			zap.String("error_code", msg.Code)},
 			stringFields("error_message", msg.Message),
 		)
 
-		o.logResult(fields...)
+		o.logger.Info("pg result", fields...)
 	case *pgproto3.ReadyForQuery:
 		if !o.startedAt.IsZero() {
 			o.logger.Info("pg completed", o.requestFields()...)
@@ -123,13 +126,9 @@ func (o *auditObserver) onUpstreamMessage(msg pgproto3.BackendMessage) {
 	default:
 		// DataRow and COPY data are never logged due to privacy and volume reasons. The rest
 		// (ParseComplete, BindComplete, CloseComplete, ParameterDescription, RowDescription, NoData,
-		// PortalSuspended, CopyInResponse, CopyOutResponse, FunctionCallResponse, NoticeResponse,
-		// NotificationResponse, ParameterStatus) say nothing about the statement's outcome.
+		// CopyInResponse, CopyOutResponse, NoticeResponse, NotificationResponse, ParameterStatus)
+		// say nothing about the statement's outcome.
 	}
-}
-
-func (o *auditObserver) logResult(fields ...zap.Field) {
-	o.logger.Info("pg result", append(o.requestFields(), fields...)...)
 }
 
 // requestFields is empty when no request is open: a server message that arrives between a
