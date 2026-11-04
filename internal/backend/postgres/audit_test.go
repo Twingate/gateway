@@ -234,6 +234,115 @@ func TestAuditObserver_SimpleQuery(t *testing.T) {
 	}, o.takeLines(t))
 }
 
+// TestAuditObserver_PipelinedRequests sends every request before the server answers the first, so
+// each server message must find its request by order.
+func TestAuditObserver_PipelinedRequests(t *testing.T) {
+	o := newTestAuditObserver()
+
+	o.fromClient(
+		&pgproto3.Parse{Query: "SELECT 1"}, &pgproto3.Bind{}, &pgproto3.Execute{}, &pgproto3.Sync{},
+		&pgproto3.Sync{},
+		&pgproto3.Bind{PreparedStatement: "divide"}, &pgproto3.Execute{},
+		&pgproto3.Bind{PreparedStatement: "count"}, &pgproto3.Execute{}, &pgproto3.Sync{},
+		&pgproto3.Query{String: "SELECT 3"},
+	)
+	o.fromServer(
+		&pgproto3.CommandComplete{CommandTag: []byte("SELECT 1")}, &pgproto3.ReadyForQuery{TxStatus: 'I'},
+		// Answers the lone Sync; not logged because its request never started.
+		&pgproto3.ReadyForQuery{TxStatus: 'I'},
+		// After the error the server skips the rest of the request up to its Sync
+		&pgproto3.ErrorResponse{Code: "22012", Message: "division by zero"}, &pgproto3.ReadyForQuery{TxStatus: 'I'},
+		&pgproto3.CommandComplete{CommandTag: []byte("SELECT 1")}, &pgproto3.ReadyForQuery{TxStatus: 'I'},
+	)
+
+	assert.Equal(t, []auditLine{
+		{"pg parse", map[string]any{"request_id": uint64(1), "statement_name": "", "sql": "SELECT 1"}},
+		{"pg bind", map[string]any{"request_id": uint64(1), "statement_name": "", "portal_name": "", "parameters": []any{}}},
+		{"pg execute", map[string]any{"request_id": uint64(1), "portal_name": "", "max_rows": uint32(0)}},
+		{"pg bind", map[string]any{"request_id": uint64(2), "statement_name": "divide", "portal_name": "", "parameters": []any{}}},
+		{"pg execute", map[string]any{"request_id": uint64(2), "portal_name": "", "max_rows": uint32(0)}},
+		{"pg bind", map[string]any{"request_id": uint64(2), "statement_name": "count", "portal_name": "", "parameters": []any{}}},
+		{"pg execute", map[string]any{"request_id": uint64(2), "portal_name": "", "max_rows": uint32(0)}},
+		{"pg query", map[string]any{"request_id": uint64(3), "sql": "SELECT 3"}},
+		{"pg result", map[string]any{"request_id": uint64(1), "command": "SELECT", "row_count": int64(1)}},
+		{"pg completed", map[string]any{"request_id": uint64(1)}},
+		{"pg result", map[string]any{"request_id": uint64(2), "error_code": "22012", "error_message": "division by zero"}},
+		{"pg completed", map[string]any{"request_id": uint64(2)}},
+		{"pg result", map[string]any{"request_id": uint64(3), "command": "SELECT", "row_count": int64(1)}},
+		{"pg completed", map[string]any{"request_id": uint64(3)}},
+	}, o.takeLines(t))
+}
+
+// TestAuditObserver_CopyIn checks that a COPY FROM STDIN stays one request through the Syncs the
+// server ignores while it waits for COPY data, so the pipelined requests after it keep their numbers.
+func TestAuditObserver_CopyIn(t *testing.T) {
+	tests := []struct {
+		name string
+		copy func(o *testAuditObserver)
+	}{
+		{
+			name: "sync during a simple query copy",
+			copy: func(o *testAuditObserver) {
+				o.fromClient(&pgproto3.Query{String: "COPY t FROM STDIN"})
+				o.fromServer(&pgproto3.CopyInResponse{})
+				o.fromClient(&pgproto3.CopyData{Data: []byte("1\n")}, &pgproto3.Sync{}, &pgproto3.CopyDone{})
+				o.fromServer(&pgproto3.CommandComplete{CommandTag: []byte("COPY 1")}, &pgproto3.ReadyForQuery{TxStatus: 'I'})
+			},
+		},
+		{
+			name: "sync after the execute that starts the copy",
+			copy: func(o *testAuditObserver) {
+				o.fromClient(&pgproto3.Parse{Query: "COPY t FROM STDIN"}, &pgproto3.Bind{}, &pgproto3.Execute{}, &pgproto3.Sync{})
+				o.fromServer(&pgproto3.ParseComplete{}, &pgproto3.BindComplete{}, &pgproto3.CopyInResponse{})
+				o.fromClient(&pgproto3.CopyData{Data: []byte("1\n")}, &pgproto3.CopyDone{}, &pgproto3.Sync{})
+				o.fromServer(&pgproto3.CommandComplete{CommandTag: []byte("COPY 1")}, &pgproto3.ReadyForQuery{TxStatus: 'I'})
+			},
+		},
+		{
+			name: "copy fail",
+			copy: func(o *testAuditObserver) {
+				o.fromClient(&pgproto3.Parse{Query: "COPY t FROM STDIN"}, &pgproto3.Bind{}, &pgproto3.Execute{}, &pgproto3.Sync{})
+				o.fromServer(&pgproto3.ParseComplete{}, &pgproto3.BindComplete{}, &pgproto3.CopyInResponse{})
+				o.fromClient(&pgproto3.CopyFail{Message: "aborted"}, &pgproto3.Sync{})
+				o.fromServer(&pgproto3.ErrorResponse{Code: "57014", Message: "COPY from stdin failed: aborted"}, &pgproto3.ReadyForQuery{TxStatus: 'I'})
+			},
+		},
+		{
+			name: "copy ended before the server asks for data",
+			copy: func(o *testAuditObserver) {
+				o.fromClient(&pgproto3.Query{String: "COPY t FROM STDIN"}, &pgproto3.CopyData{Data: []byte("1\n")}, &pgproto3.CopyDone{})
+				o.fromServer(
+					&pgproto3.CopyInResponse{},
+					&pgproto3.CommandComplete{CommandTag: []byte("COPY 1")}, &pgproto3.ReadyForQuery{TxStatus: 'I'},
+				)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			o := newTestAuditObserver()
+			tt.copy(o)
+			o.takeLines(t)
+
+			o.fromClient(&pgproto3.Query{String: "SELECT 1"}, &pgproto3.Query{String: "SELECT 2"})
+			o.fromServer(
+				&pgproto3.CommandComplete{CommandTag: []byte("SELECT 1")}, &pgproto3.ReadyForQuery{TxStatus: 'I'},
+				&pgproto3.CommandComplete{CommandTag: []byte("SELECT 1")}, &pgproto3.ReadyForQuery{TxStatus: 'I'},
+			)
+
+			assert.Equal(t, []auditLine{
+				{"pg query", map[string]any{"request_id": uint64(2), "sql": "SELECT 1"}},
+				{"pg query", map[string]any{"request_id": uint64(3), "sql": "SELECT 2"}},
+				{"pg result", map[string]any{"request_id": uint64(2), "command": "SELECT", "row_count": int64(1)}},
+				{"pg completed", map[string]any{"request_id": uint64(2)}},
+				{"pg result", map[string]any{"request_id": uint64(3), "command": "SELECT", "row_count": int64(1)}},
+				{"pg completed", map[string]any{"request_id": uint64(3)}},
+			}, o.takeLines(t))
+		})
+	}
+}
+
 // TestAuditObserver_NoOpenRequest checks a server message that arrives between a ReadyForQuery
 // and the client's next message. It belongs to no request and the next client message still
 // takes the next number.
