@@ -31,8 +31,8 @@ const (
 const maxAuditValueBytes = 64 * humanize.KiByte
 
 // auditObserver writes one audit line per client message and per statement result. A request is
-// everything between two ReadyForQuery messages: any client message starts one request,
-// and the server's ReadyForQuery closes it.
+// everything between two ReadyForQuery messages: the first audited client message starts one
+// request, and the server's ReadyForQuery closes it.
 type auditObserver struct {
 	logger *zap.Logger
 
@@ -51,9 +51,8 @@ func (o *auditObserver) onDownstreamMessage(msg pgproto3.FrontendMessage) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
-	// COPY data never opens a request: after a failed COPY the client keeps sending it past the
-	// server's ReadyForQuery.
-	if o.startedAt.IsZero() && !isCopyData(msg) {
+	// Only an audited message opens a request
+	if o.startedAt.IsZero() && shouldStartAudit(msg) {
 		o.requestID++
 		o.startedAt = time.Now()
 	}
@@ -244,9 +243,9 @@ func isBinaryFormat[F int16 | uint16](formatCodes []F, i int) bool {
 	}
 }
 
-func isCopyData(msg pgproto3.FrontendMessage) bool {
+func shouldStartAudit(msg pgproto3.FrontendMessage) bool {
 	switch msg.(type) {
-	case *pgproto3.CopyData, *pgproto3.CopyDone, *pgproto3.CopyFail:
+	case *pgproto3.Query, *pgproto3.Parse, *pgproto3.Bind, *pgproto3.Execute, *pgproto3.FunctionCall:
 		return true
 	default:
 		return false

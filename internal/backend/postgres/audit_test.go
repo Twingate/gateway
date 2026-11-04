@@ -254,13 +254,25 @@ func TestAuditObserver_NoOpenRequest(t *testing.T) {
 	assert.Equal(t, []auditLine{{"pg query", map[string]any{"request_id": uint64(1), "sql": "SELECT 1"}}}, o.takeLines(t))
 }
 
-func TestAuditObserver_CopyDataOpensNoRequest(t *testing.T) {
+func TestAuditObserver_UnauditedMessagesOpenNoRequest(t *testing.T) {
 	o := newTestAuditObserver()
 
-	o.fromClient(&pgproto3.CopyData{Data: []byte("1\n")}, &pgproto3.CopyDone{}, &pgproto3.CopyFail{Message: "aborted"})
+	o.fromClient(
+		&pgproto3.Describe{ObjectType: 'S', Name: "s1"},
+		&pgproto3.Close{ObjectType: 'S', Name: "s1"},
+		&pgproto3.Flush{},
+		&pgproto3.Sync{},
+		&pgproto3.CopyData{Data: []byte("1\n")},
+		&pgproto3.CopyDone{},
+		&pgproto3.CopyFail{Message: "aborted"},
+	)
 	o.fromServer(&pgproto3.ReadyForQuery{TxStatus: 'I'})
 
 	assert.Empty(t, o.takeLines(t))
+
+	o.fromClient(&pgproto3.Query{String: "SELECT 1"})
+
+	assert.Equal(t, []auditLine{{"pg query", map[string]any{"request_id": uint64(1), "sql": "SELECT 1"}}}, o.takeLines(t))
 }
 
 func TestStringFields(t *testing.T) {
