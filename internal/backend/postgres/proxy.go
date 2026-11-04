@@ -195,6 +195,7 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 			zap.String("user", dbConn.Config.User),
 			zap.String("name", dbConn.Config.Database),
 		),
+		zap.Uint32("process_id", dbConn.PID),
 	)
 
 	relay := newRelay(logger.System, downstream, dbConn, []observer{newAuditObserver(logger.Audit)})
