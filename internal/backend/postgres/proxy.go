@@ -181,6 +181,7 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 		zap.String("database_host", dbConn.Config.Host),
 		zap.String("database_user", dbConn.Config.User),
 		zap.String("database", dbConn.Config.Database),
+		zap.Uint32("process_id", dbConn.PID),
 	)
 
 	session := newRelay(logger.System, downstream, dbConn, []observer{newAuditObserver(logger.Audit)})
