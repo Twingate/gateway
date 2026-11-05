@@ -36,7 +36,7 @@ type credential struct {
 }
 
 type credentialProvider interface {
-	retrieve(ctx context.Context) (credential, error)
+	get(ctx context.Context) (credential, error)
 }
 
 // newCredentialProvider builds the provider for the auth entry's type, holding what it needs to
@@ -84,7 +84,7 @@ func newPasswordCredential(
 	return &passwordCredential{user: user, cfg: cfg}, nil
 }
 
-func (c *passwordCredential) retrieve(_ context.Context) (credential, error) {
+func (c *passwordCredential) get(_ context.Context) (credential, error) {
 	cred, err := loadCredential(c.cfg)
 	if err != nil {
 		return credential{}, fmt.Errorf("credential %q: %w", c.cfg.Name, err)
@@ -128,6 +128,6 @@ func newAWSIAMCredential(user string) *awsIAMCredential {
 	return &awsIAMCredential{user: user}
 }
 
-func (c *awsIAMCredential) retrieve(_ context.Context) (credential, error) {
+func (c *awsIAMCredential) get(_ context.Context) (credential, error) {
 	return credential{user: c.user, password: awsIAMPlaceholder, requireAuth: "password"}, nil
 }

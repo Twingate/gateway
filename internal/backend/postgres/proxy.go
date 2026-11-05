@@ -151,7 +151,7 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 		return errFailedToGetCredential
 	}
 
-	cred, err := provider.retrieve(ctx)
+	cred, err := provider.get(ctx)
 	if err != nil {
 		logger.System.Error("Failed to get the database credential", zap.Error(err))
 		downstream.reject(errFailedToGetCredential)
