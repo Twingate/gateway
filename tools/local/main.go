@@ -69,6 +69,10 @@ func main() {
 		logger.Fatal("Failed to setup SSH server", zap.Error(err))
 	}
 
+	if err = setupPostgreSQLServer(logger); err != nil {
+		logger.Fatal("Failed to setup PostgreSQL server", zap.Error(err))
+	}
+
 	controller := fake.NewController(network, controllerPort)
 	defer controller.Close()
 
@@ -175,6 +179,23 @@ func main() {
 
 	logger.Info("Web app HTTPS fake Twingate client is serving at", zap.String("address", webAppTLSClient.Address))
 
+	postgreSQLClient := fake.NewClient(
+		user,
+		token.GeoIPLocation{},
+		fmt.Sprintf("%s:%d", gatewayHost, gatewayPort),
+		controller.URL,
+		fmt.Sprintf("%s:%d", gatewayHost, postgreSQLPort),
+		token.ResourceTypePostgreSQL,
+		fake.WithAuths(token.Auths{{
+			Type:     token.AuthTypePassword,
+			User:     postgreSQLUsername,
+			Password: &token.PasswordAuth{Credential: postgreSQLCredential},
+		}}),
+	)
+	defer postgreSQLClient.Close()
+
+	logger.Info("PostgreSQL fake Twingate client is serving at", zap.String("address", postgreSQLClient.Address))
+
 	err = createLocalGatewayConfig(kindBearerToken)
 	if err != nil {
 		logger.Error("Failed to create local gateway config", zap.Error(err))
@@ -183,6 +204,7 @@ func main() {
 	}
 
 	_, sshClientPort, _ := net.SplitHostPort(sshClient.Address)
+	_, postgreSQLClientPort, _ := net.SplitHostPort(postgreSQLClient.Address)
 
 	gatewayRunCmd := "go run main.go start --config " + gatewayConfigFile
 
@@ -197,6 +219,7 @@ Twingate local dev environment running!
   Client (SSH):            %s
   Client (Web App HTTP):   %s
   Client (Web App HTTPS):  %s
+  Client (PostgreSQL):     %s
 
 -----------------------------------------------------
 1. Start the Gateway (in a separate terminal):
@@ -229,15 +252,22 @@ Twingate local dev environment running!
   curl --cacert ./test/data/proxy/tls.crt https://%s
 
 -----------------------------------------------------
+5. Connect to PostgreSQL. The Gateway logs in as the configured user, whatever user you give:
+
+  psql "host=127.0.0.1 port=%s user=irrelevant dbname=%s"
+
+-----------------------------------------------------
 Press Ctrl+C to stop
 =====================================================
 `, controller.URL, user.Username, kubernetesClient.Address, sshClient.Address, webAppClient.Address, webAppTLSClient.Address,
+		postgreSQLClient.Address,
 		gatewayRunCmd,
 		kubeConfigFile,
 		kubeConfigFile, kindClusterName,
 		sshClientPort, sshKnownHostFile,
 		webAppClient.Address,
 		webAppTLSClient.Address,
+		postgreSQLClientPort, postgreSQLDatabase,
 	)
 
 	//nolint:forbidigo
@@ -284,9 +314,13 @@ webApp:
     X-Twingate-Client-Geo-City: "{{clientGeoCity}}"
     X-Twingate-Client-Geo-Region: "{{clientGeoRegion}}"
     X-Twingate-Client-Geo-Country: "{{clientGeoCountry}}"
+postgresql:
+  credentials:
+    - name: %s
+      password: %s
 `
 
-	config := fmt.Sprintf(configTemplate, network, gatewayPort, kindBearerToken, sshUsername)
+	config := fmt.Sprintf(configTemplate, network, gatewayPort, kindBearerToken, sshUsername, postgreSQLCredential, postgreSQLPassword)
 
 	err := os.WriteFile(gatewayConfigFile, []byte(config), 0600)
 	if err != nil {
