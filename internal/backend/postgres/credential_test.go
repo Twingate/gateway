@@ -53,7 +53,7 @@ func TestNewCredentialProvider(t *testing.T) {
 	}
 
 	t.Run("GCP IAM", func(t *testing.T) {
-		auth := token.Auth{Type: token.AuthTypeGCPIAM, User: "db@acme-int.iam", GCPIAM: &token.GCPIAMAuth{}}
+		auth := token.Auth{Type: token.AuthTypeGCPIAM, User: "db@acme-int.iam", GCPIAM: &token.GCPIAMAuth{ImpersonateServiceAccount: "db@acme-int.iam.gserviceaccount.com"}}
 
 		got, err := newCredentialProvider("db.acme.int:5432", auth, passwords)
 		require.NoError(t, err)
@@ -253,30 +253,19 @@ func (m *mockTokenProvider) Token(ctx context.Context) (*googleauth.Token, error
 }
 
 func TestGCPIAMCredential_Get(t *testing.T) {
-	tests := []struct {
-		name               string
-		impersonate        string
-		wantServiceAccount string
-	}{
-		{name: "database user's service account", wantServiceAccount: "db@acme-int.iam.gserviceaccount.com"},
-		{name: "impersonated service account", impersonate: "other@acme-int.iam.gserviceaccount.com", wantServiceAccount: "other@acme-int.iam.gserviceaccount.com"},
+	impersonate := "db@acme-int.iam.gserviceaccount.com"
+
+	creds := newGCPIAMCredential("db@acme-int.iam", &token.GCPIAMAuth{ImpersonateServiceAccount: impersonate})
+	creds.newTokenProvider = func(serviceAccount string) (googleauth.TokenProvider, error) {
+		provider := &mockTokenProvider{}
+		provider.On("Token", t.Context()).Return(&googleauth.Token{Value: "token-for-" + serviceAccount}, nil)
+
+		return provider, nil
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			creds := newGCPIAMCredential("db@acme-int.iam", &token.GCPIAMAuth{ImpersonateServiceAccount: tt.impersonate})
-			creds.newTokenProvider = func(serviceAccount string) (googleauth.TokenProvider, error) {
-				provider := &mockTokenProvider{}
-				provider.On("Token", t.Context()).Return(&googleauth.Token{Value: "token-for-" + serviceAccount}, nil)
-
-				return provider, nil
-			}
-
-			got, err := creds.get(t.Context())
-			require.NoError(t, err)
-			assert.Equal(t, credential{user: "db@acme-int.iam", password: "token-for-" + tt.wantServiceAccount, requireAuth: "password"}, got)
-		})
-	}
+	got, err := creds.get(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, credential{user: "db@acme-int.iam", password: "token-for-" + impersonate, requireAuth: "password"}, got)
 }
 
 func TestGCPIAMCredential_Get_Error(t *testing.T) {
@@ -306,7 +295,7 @@ func TestGCPIAMCredential_Get_Error(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			creds := newGCPIAMCredential("db@acme-int.iam", &token.GCPIAMAuth{})
+			creds := newGCPIAMCredential("db@acme-int.iam", &token.GCPIAMAuth{ImpersonateServiceAccount: "db@acme-int.iam.gserviceaccount.com"})
 			if tt.newTokenProvider != nil {
 				creds.newTokenProvider = tt.newTokenProvider
 			}
