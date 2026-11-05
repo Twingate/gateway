@@ -508,8 +508,8 @@ func (c *Config) Validate() error {
 	}
 
 	// Check that at least one protocol is configured
-	if c.Kubernetes == nil && c.SSH == nil && c.WebApp == nil {
-		return fmt.Errorf("%w: at least one protocol (Kubernetes, SSH, or WebApp) must be configured", ErrRequired)
+	if c.Kubernetes == nil && c.SSH == nil && c.WebApp == nil && c.PostgreSQL == nil {
+		return fmt.Errorf("%w: at least one protocol (Kubernetes, SSH, WebApp, or PostgreSQL) must be configured", ErrRequired)
 	}
 
 	return nil
