@@ -112,8 +112,9 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 	startup, cancel, err := downstream.handleStartupMessage()
 	if err != nil {
 		logger.System.Error("Failed to receive startup message", zap.Error(err))
+		downstream.reject(err)
 
-		return downstream.reject(err)
+		return err
 	}
 
 	tlsMode := conn.GATClaims().Resource.GatewayMetadata.Upstream.TLSMode
@@ -135,8 +136,9 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 
 	if err := downstream.negotiateProtocolVersion(startup); err != nil {
 		logger.System.Error("Failed to negotiate the protocol version", zap.Error(err))
+		downstream.reject(err)
 
-		return downstream.reject(err)
+		return err
 	}
 
 	auth := conn.GATClaims().Resource.GatewayMetadata.Auths[0]
@@ -144,15 +146,17 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 	provider, err := newCredentialProvider(auth, p.config.passwords)
 	if err != nil {
 		logger.System.Error("Failed to get the database credential", zap.Error(err))
+		downstream.reject(errFailedToGetCredential)
 
-		return downstream.reject(errFailedToGetCredential)
+		return errFailedToGetCredential
 	}
 
 	cred, err := provider.retrieve(ctx)
 	if err != nil {
 		logger.System.Error("Failed to get the database credential", zap.Error(err))
+		downstream.reject(errFailedToGetCredential)
 
-		return downstream.reject(errFailedToGetCredential)
+		return errFailedToGetCredential
 	}
 
 	dbConn, err := upstream.connect(ctx, startup, cred)
@@ -164,28 +168,32 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 			err = errFailedToConnectUpstream
 		}
 
-		return downstream.reject(err)
+		downstream.reject(err)
+
+		return err
 	}
 
 	defer func() { _ = dbConn.Conn.Close() }()
 
 	if err := downstream.completeLogin(dbConn); err != nil {
 		logger.System.Error("Failed to accept the PostgreSQL client", zap.Error(err))
+		downstream.reject(err)
 
-		return downstream.reject(err)
+		return err
 	}
 
 	logger.System.Info("PostgreSQL connection established")
 
 	logger.Audit = logger.Audit.With(
-		zap.String("database_host", dbConn.Config.Host),
-		zap.String("database_user", dbConn.Config.User),
-		zap.String("database", dbConn.Config.Database),
+		zap.Dict("db",
+			zap.String("user", dbConn.Config.User),
+			zap.String("name", dbConn.Config.Database),
+		),
 	)
 
-	session := newRelay(logger.System, downstream, dbConn)
+	relay := newRelay(logger.System, downstream, dbConn)
 
-	err = session.serve(ctx)
+	err = relay.serve(ctx)
 
 	logger.System.Info("PostgreSQL connection closed")
 

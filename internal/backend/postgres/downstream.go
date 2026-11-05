@@ -126,17 +126,15 @@ func (c *downstreamConn) completeLogin(dbConn *pgconn.HijackedConn) error {
 	return nil
 }
 
-// reject tells the client why its connection failed, closes the connection, and returns err. A
-// failed write is ignored, since the connection is closed either way.
-func (c *downstreamConn) reject(err error) error {
+// reject tells the client why its connection failed and closes the connection. A failed write is
+// ignored, since the connection is closed either way.
+func (c *downstreamConn) reject(err error) {
 	// Bounds the flush to a client that stops reading.
 	_ = c.conn.SetWriteDeadline(time.Now().Add(defaultTimeout))
 
 	c.backend.Send(newErrorResponse(err))
 	_ = c.backend.Flush()
 	_ = c.conn.Close()
-
-	return err
 }
 
 func newErrorResponse(err error) *pgproto3.ErrorResponse {

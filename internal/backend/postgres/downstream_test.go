@@ -189,7 +189,7 @@ func TestDownstreamConn_MessageTooLong(t *testing.T) {
 func TestDownstreamConn_Reject(t *testing.T) {
 	clientConn, serverConn := tcpPipe(t)
 
-	require.ErrorIs(t, newDownstreamConn(serverConn).reject(errUnknownCredential), errUnknownCredential)
+	newDownstreamConn(serverConn).reject(errUnknownCredential)
 
 	got, err := pgproto3.NewFrontend(clientConn, clientConn).Receive()
 	require.NoError(t, err)

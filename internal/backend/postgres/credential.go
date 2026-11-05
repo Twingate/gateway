@@ -29,8 +29,9 @@ type credential struct {
 	password string
 	// certificate is served when the database asks for a client certificate during the TLS handshake.
 	certificate *tls.Certificate
-	// requireAuth is the authentication method the database must ask for: scram-sha-256 for a
-	// password, cleartext password for an IAM token.
+	// requireAuth is the only authentication method the Gateway authenticates with, and the
+	// connection fails if the database asks for any other: scram-sha-256 for a password,
+	// cleartext password for an IAM token.
 	requireAuth string
 }
 
