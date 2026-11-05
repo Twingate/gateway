@@ -90,6 +90,8 @@ func TestUpstream_ConnectConfig(t *testing.T) {
 					"user":             "alice", // Dropped in favor of the credential's user.
 					"database":         "app",
 					"application_name": "psql",
+					"replication":      "database",
+					"_pq_.test_option": "on",
 				},
 			}
 			cred := credential{user: testDatabaseUser, password: "secret", requireAuth: "scram-sha-256"}

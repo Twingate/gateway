@@ -12,6 +12,7 @@ import (
 	"maps"
 	"net"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -49,12 +50,14 @@ func newUpstream(address string, tlsConfig *tls.Config) upstream {
 	return upstream{address: address, tlsConfig: tlsConfig}
 }
 
-// runtimeParams is the client's startup parameters without the user and database.
-// The pgconn config sets its own user and database.
+// runtimeParams is the client's startup parameters without the user and database, which the
+// pgconn config sets itself. Replication and the protocol extension options are dropped,
+// so they never reach the database.
 func runtimeParams(startup *pgproto3.StartupMessage) map[string]string {
 	params := maps.Clone(startup.Parameters)
 	maps.DeleteFunc(params, func(name, _ string) bool {
-		return name == "user" || name == "database"
+		return name == "user" || name == "database" || name == "replication" ||
+			strings.HasPrefix(name, protocolOptionPrefix)
 	})
 
 	return params

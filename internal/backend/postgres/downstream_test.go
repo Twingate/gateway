@@ -30,6 +30,7 @@ func TestDownstreamConn_HandleStartupMessage(t *testing.T) {
 		{name: "second SSLRequest", sends: []pgproto3.FrontendMessage{&pgproto3.SSLRequest{}, &pgproto3.SSLRequest{}}, wantAnswer: "N", wantErr: errUnsupportedStartupRequest},
 		{name: "second GSSENCRequest", sends: []pgproto3.FrontendMessage{&pgproto3.GSSEncRequest{}, &pgproto3.GSSEncRequest{}}, wantAnswer: "N", wantErr: errUnsupportedStartupRequest},
 		{name: "protocol 2.0", sends: []pgproto3.FrontendMessage{&pgproto3.StartupMessage{ProtocolVersion: 2 << 16, Parameters: map[string]string{}}}, wantErr: errFailedToReceiveStartup},
+		{name: "replication", sends: []pgproto3.FrontendMessage{&pgproto3.StartupMessage{ProtocolVersion: pgproto3.ProtocolVersion30, Parameters: map[string]string{"user": "alice", "replication": "database"}}}, wantErr: errReplicationNotSupported},
 	}
 
 	for _, tt := range tests {
@@ -97,20 +98,55 @@ func TestDownstreamConn_HandleStartupMessage_Cancel(t *testing.T) {
 	assert.Equal(t, cancel, got)
 }
 
+func TestRequestsReplication(t *testing.T) {
+	tests := []struct {
+		name       string
+		parameters map[string]string
+		want       bool
+	}{
+		{name: "no replication parameter", parameters: map[string]string{}, want: false},
+		{name: "false", parameters: map[string]string{"replication": "false"}, want: false},
+		{name: "off in upper case", parameters: map[string]string{"replication": "OFF"}, want: false},
+		{name: "no", parameters: map[string]string{"replication": "no"}, want: false},
+		{name: "0", parameters: map[string]string{"replication": "0"}, want: false},
+		{name: "true", parameters: map[string]string{"replication": "true"}, want: true},
+		{name: "database", parameters: map[string]string{"replication": "database"}, want: true},
+		{name: "invalid value", parameters: map[string]string{"replication": "maybe"}, want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, requestsReplication(&pgproto3.StartupMessage{Parameters: tt.parameters}))
+		})
+	}
+}
+
 func TestDownstreamConn_NegotiateProtocolVersion(t *testing.T) {
 	tests := []struct {
-		name    string
-		startup *pgproto3.StartupMessage
-		want    *pgproto3.NegotiateProtocolVersion
+		name           string
+		startup        *pgproto3.StartupMessage
+		want           *pgproto3.NegotiateProtocolVersion
+		wantParameters map[string]string
 	}{
 		{
-			name:    "protocol 3.0",
-			startup: &pgproto3.StartupMessage{ProtocolVersion: pgproto3.ProtocolVersion30, Parameters: map[string]string{}},
+			name:           "protocol 3.0",
+			startup:        &pgproto3.StartupMessage{ProtocolVersion: pgproto3.ProtocolVersion30, Parameters: map[string]string{}},
+			wantParameters: map[string]string{},
 		},
 		{
-			name:    "protocol 3.2",
-			startup: &pgproto3.StartupMessage{ProtocolVersion: pgproto3.ProtocolVersion32, Parameters: map[string]string{}},
-			want:    &pgproto3.NegotiateProtocolVersion{NewestMinorProtocol: pgproto3.ProtocolVersion30, UnrecognizedOptions: []string{}},
+			name:           "protocol 3.2",
+			startup:        &pgproto3.StartupMessage{ProtocolVersion: pgproto3.ProtocolVersion32, Parameters: map[string]string{}},
+			want:           &pgproto3.NegotiateProtocolVersion{NewestMinorProtocol: pgproto3.ProtocolVersion30, UnrecognizedOptions: []string{}},
+			wantParameters: map[string]string{},
+		},
+		{
+			name: "protocol extension option",
+			startup: &pgproto3.StartupMessage{
+				ProtocolVersion: pgproto3.ProtocolVersion30,
+				Parameters:      map[string]string{"application_name": "psql", "_pq_.test_option": "on"},
+			},
+			want:           &pgproto3.NegotiateProtocolVersion{NewestMinorProtocol: pgproto3.ProtocolVersion30, UnrecognizedOptions: []string{"_pq_.test_option"}},
+			wantParameters: map[string]string{"application_name": "psql"},
 		},
 	}
 
@@ -120,6 +156,7 @@ func TestDownstreamConn_NegotiateProtocolVersion(t *testing.T) {
 
 			require.NoError(t, newDownstreamConn(serverConn).negotiateProtocolVersion(tt.startup))
 			require.NoError(t, serverConn.Close())
+			assert.Equal(t, tt.wantParameters, tt.startup.Parameters)
 
 			client := pgproto3.NewFrontend(clientConn, clientConn)
 
