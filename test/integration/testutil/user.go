@@ -110,3 +110,32 @@ func NewWebAppUser(user *token.User, geoIPLocation token.GeoIPLocation, gatewayP
 func (u *WebAppUser) Close() {
 	u.client.Close()
 }
+
+type PostgreSQLUser struct {
+	token.User
+
+	Address string
+	client  *fake.Client
+}
+
+func NewPostgreSQLUser(user *token.User, gatewayPort int, upstreamAddress, controllerURL string, auths token.Auths, opts ...fake.Option) *PostgreSQLUser {
+	client := fake.NewClient(
+		user,
+		token.GeoIPLocation{},
+		fmt.Sprintf("127.0.0.1:%d", gatewayPort),
+		controllerURL,
+		upstreamAddress,
+		token.ResourceTypePostgreSQL,
+		append([]fake.Option{fake.WithAuths(auths)}, opts...)...,
+	)
+
+	return &PostgreSQLUser{
+		User:    *user,
+		Address: client.Address,
+		client:  client,
+	}
+}
+
+func (u *PostgreSQLUser) Close() {
+	u.client.Close()
+}

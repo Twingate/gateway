@@ -18,6 +18,7 @@ import (
 	authv1 "k8s.io/api/authentication/v1"
 	corev1 "k8s.io/api/core/v1"
 
+	"gateway/internal/logging"
 	"gateway/internal/sessionrecorder"
 )
 
@@ -182,6 +183,56 @@ func AssertLogsForSSHGlobalRequest(t *testing.T, logs *observer.ObservedLogs, ex
 	}
 
 	t.Errorf("no 'SSH global request' log matching %v", expectedGlobalRequest)
+}
+
+type PostgreSQLAuditLog struct {
+	Message string
+	Fields  map[string]any
+}
+
+func AssertLogsForPostgreSQLSession(t *testing.T, entries []observer.LoggedEntry, expectedUser, expectedDatabase map[string]any, expectedLogs []PostgreSQLAuditLog) {
+	t.Helper()
+
+	auditLogs := []PostgreSQLAuditLog{}
+
+	for _, entry := range entries {
+		fields := entry.ContextMap()
+
+		// Only the logs of a relayed session name the database.
+		if _, ok := fields["db"]; entry.LoggerName != logging.AuditLoggerName || !ok {
+			continue
+		}
+
+		assert.Equal(t, expectedUser, fields["user"])
+
+		for key, value := range expectedDatabase {
+			assert.Equal(t, value, fields[key], "%s mismatch", key)
+			delete(fields, key)
+		}
+
+		delete(fields, "user")
+		delete(fields, "conn_id")
+
+		auditLogs = append(auditLogs, PostgreSQLAuditLog{Message: entry.Message, Fields: fields})
+	}
+
+	assert.Equal(t, expectedLogs, auditLogs)
+}
+
+func AssertLogsForPostgreSQLCancel(t *testing.T, entries []observer.LoggedEntry, expectedUser map[string]any, expectedProcessID uint32) {
+	t.Helper()
+
+	cancelLogs := []observer.LoggedEntry{}
+
+	for _, entry := range entries {
+		if entry.LoggerName == logging.AuditLoggerName && entry.Message == "pg cancel" {
+			cancelLogs = append(cancelLogs, entry)
+		}
+	}
+
+	require.Len(t, cancelLogs, 1)
+	assert.Equal(t, expectedUser, cancelLogs[0].ContextMap()["user"])
+	assert.Equal(t, expectedProcessID, cancelLogs[0].ContextMap()["process_id"])
 }
 
 func matchesExpected(actual, expected map[string]any) bool {

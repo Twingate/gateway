@@ -51,6 +51,7 @@ type Client struct {
 	upstreamTLSMode       token.TLSClientMode
 	resourceType          token.ResourceType
 	requestHeaderRewrites map[string]string
+	auths                 token.Auths
 
 	cancel context.CancelFunc
 	wg     *sync.WaitGroup
@@ -63,6 +64,7 @@ var downstreamPorts = map[token.ResourceType]int{
 	token.ResourceTypeKubernetes: 443,
 	token.ResourceTypeSSH:        22,
 	token.ResourceTypeWebApp:     80,
+	token.ResourceTypePostgreSQL: 5432,
 }
 
 // Option configures a Client at construction time.
@@ -72,6 +74,20 @@ type Option func(*Client)
 func WithRequestHeaderRewrites(rewrites map[string]string) Option {
 	return func(c *Client) {
 		c.requestHeaderRewrites = rewrites
+	}
+}
+
+// WithAuths sets the PostgreSQL auth entries carried in the GAT.
+func WithAuths(auths token.Auths) Option {
+	return func(c *Client) {
+		c.auths = auths
+	}
+}
+
+// WithUpstreamTLSMode sets the upstream TLS mode carried in the GAT.
+func WithUpstreamTLSMode(mode token.TLSClientMode) Option {
+	return func(c *Client) {
+		c.upstreamTLSMode = mode
 	}
 }
 
@@ -137,8 +153,8 @@ func NewClient(user *token.User, geoIPLocation token.GeoIPLocation, proxyAddress
 		logger:           logger,
 	}
 
-	// The Controller sends TLS modes only for Web App resources.
-	if resourceType == token.ResourceTypeWebApp {
+	// The Controller sends TLS modes only for Web App and PostgreSQL resources.
+	if resourceType == token.ResourceTypeWebApp || resourceType == token.ResourceTypePostgreSQL {
 		c.downstreamTLSMode = token.TLSServerModeNone
 		c.upstreamTLSMode = token.TLSClientModeNone
 	}
@@ -298,6 +314,7 @@ func (c *Client) fetchGAT() (string, error) {
 				Downstream:            token.Downstream{Port: c.downstreamPort, TLSMode: c.downstreamTLSMode},
 				Upstream:              token.Upstream{Port: c.upstreamPort, TLSMode: c.upstreamTLSMode},
 				RequestHeaderRewrites: c.requestHeaderRewrites,
+				Auths:                 c.auths,
 			},
 		},
 	}
