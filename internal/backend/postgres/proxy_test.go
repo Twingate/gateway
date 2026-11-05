@@ -57,6 +57,9 @@ func newProxyConn(conn net.Conn, upstreamAddr string, tlsMode token.TLSClientMod
 func newTestProxy(t *testing.T) *Proxy {
 	t.Helper()
 
+	// AWS IAM auth signs its tokens with static test keys.
+	setStaticAWSCredentials(t)
+
 	config, err := NewConfig(&gatewayconfig.PostgreSQLConfig{
 		Credentials: []gatewayconfig.PostgreSQLCredential{
 			{Name: testCredential, Password: "secret"},
@@ -96,7 +99,10 @@ func acceptAuthentication(t *testing.T, conn net.Conn) *pgproto3.Backend {
 
 	msg, err := backend.Receive()
 	require.NoError(t, err)
-	assert.Equal(t, &pgproto3.PasswordMessage{Password: awsIAMPlaceholder}, msg)
+
+	password, ok := msg.(*pgproto3.PasswordMessage)
+	require.True(t, ok, "expected a PasswordMessage, got %T", msg)
+	assert.Contains(t, password.Password, "DBUser="+testDatabaseUser)
 
 	for _, msg := range loginMessages {
 		backend.Send(msg)
