@@ -29,13 +29,14 @@ type credential struct {
 	password string
 	// certificate is served when the database asks for a client certificate during the TLS handshake.
 	certificate *tls.Certificate
-	// requireAuth is the authentication method the database must ask for: scram-sha-256 for a
-	// password, cleartext password for an IAM token.
+	// requireAuth is the only authentication method the Gateway authenticates with, and the
+	// connection fails if the database asks for any other: scram-sha-256 for a password,
+	// cleartext password for an IAM token.
 	requireAuth string
 }
 
 type credentialProvider interface {
-	retrieve(ctx context.Context) (credential, error)
+	get(ctx context.Context) (credential, error)
 }
 
 // newCredentialProvider builds the provider for the auth entry's type, holding what it needs to
@@ -83,7 +84,7 @@ func newPasswordCredential(
 	return &passwordCredential{user: user, cfg: cfg}, nil
 }
 
-func (c *passwordCredential) retrieve(_ context.Context) (credential, error) {
+func (c *passwordCredential) get(_ context.Context) (credential, error) {
 	cred, err := loadCredential(c.cfg)
 	if err != nil {
 		return credential{}, fmt.Errorf("credential %q: %w", c.cfg.Name, err)
@@ -127,6 +128,6 @@ func newAWSIAMCredential(user string) *awsIAMCredential {
 	return &awsIAMCredential{user: user}
 }
 
-func (c *awsIAMCredential) retrieve(_ context.Context) (credential, error) {
+func (c *awsIAMCredential) get(_ context.Context) (credential, error) {
 	return credential{user: c.user, password: awsIAMPlaceholder, requireAuth: "password"}, nil
 }
