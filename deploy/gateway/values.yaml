@@ -415,6 +415,11 @@ metrics:
     labels:
       grafana_dashboard: "1"
 
+  # Go pprof profiling endpoints, served on the metrics port under /debug/pprof/
+  # Only enable this temporarily, for performance investigations
+  pprof:
+    enabled: false
+
   # Custom Prometheus Rule
   # For more information checkout: https://github.com/prometheus-operator/prometheus-operator/blob/main/Documentation/api-reference/api.md#prometheusrule
   prometheusRule:

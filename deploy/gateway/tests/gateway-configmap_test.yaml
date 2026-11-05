@@ -73,6 +73,27 @@ tests:
                     privateKeyFile: "/etc/gateway/tls/1/tls.key"
                   - certificateFile: "/etc/gateway/tls/2/tls.crt"
                     privateKeyFile: "/etc/gateway/tls/2/tls.key"
+  - it: should not enable pprof by default
+    set:
+      twingate:
+        network: "acme"
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "pprof"
+  - it: should enable pprof when metrics.pprof.enabled is true
+    set:
+      twingate:
+        network: "acme"
+      metrics:
+        pprof:
+          enabled: true
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: |-
+            metricsPort: 9090
+            pprof: true
   - it: should error when network is not provided
     set:
       twingate:

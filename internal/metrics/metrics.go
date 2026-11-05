@@ -7,6 +7,7 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"net/http/pprof" //nolint:gosec // G108: handlers are registered on the metrics mux only when pprof is enabled
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -21,6 +22,8 @@ const Namespace = "twingate_gateway"
 type Config struct {
 	Registry *prometheus.Registry
 	Logger   *zap.Logger
+	// EnablePprof serves the net/http/pprof profiling endpoints under /debug/pprof/.
+	EnablePprof bool
 }
 
 type Server struct {
@@ -35,6 +38,10 @@ func NewServer(config Config) *Server {
 		config.Registry,
 		promhttp.HandlerFor(config.Registry, promhttp.HandlerOpts{Registry: config.Registry}),
 	))
+
+	if config.EnablePprof {
+		registerPprofHandlers(mux)
+	}
 
 	errorLog, _ := zap.NewStdLogAt(config.Logger, zapcore.ErrorLevel)
 
@@ -55,6 +62,16 @@ func (s *Server) Start(listener net.Listener) error {
 
 func (s *Server) Shutdown(ctx context.Context) error {
 	return s.server.Shutdown(ctx)
+}
+
+// registerPprofHandlers registers the net/http/pprof endpoints on mux. pprof.Index also serves
+// the named profiles such as /debug/pprof/heap and /debug/pprof/goroutine.
+func registerPprofHandlers(mux *http.ServeMux) {
+	mux.HandleFunc("/debug/pprof/", pprof.Index)
+	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 }
 
 func registerCoreMetrics(reg *prometheus.Registry) {

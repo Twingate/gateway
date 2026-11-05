@@ -139,6 +139,7 @@ Versions tracked in `.tool-versions`.
 | Test (Integration) | `make test-integration` |
 | Test (E2E) | `make test-e2e` |
 | Test (Helm) | `make test-helm` |
+| Benchmarks | `make bench` |
 | Lint Go | `make lint` |
 | Lint Dockerfile | `make lint-dockerfile` |
 | Lint Markdown | `make lint-markdown` |
@@ -307,6 +308,18 @@ Resources: Deployment, Service, ServiceAccount, ClusterRole/Binding, Secret (TLS
 export LOG_LEVEL=debug                                    # Enable debug logs
 go test -v ./internal/proxy -run TestProxyStart          # Run specific test
 go test -race ./...                                        # Race detector
+```
+
+### Profiling
+
+Benchmarks for the hot paths live in `*_bench_test.go` files. Run `make bench` before and after a change and compare with `benchstat`.
+
+Set `pprof: true` in the config (Helm: `metrics.pprof.enabled`) to serve `net/http/pprof` on the metrics port:
+
+```bash
+kubectl port-forward deployment/gateway 9090:9090
+go tool pprof "http://localhost:9090/debug/pprof/profile?seconds=30"   # CPU
+go tool pprof http://localhost:9090/debug/pprof/heap                   # Heap
 ```
 
 ## Notes for AI Assistants
