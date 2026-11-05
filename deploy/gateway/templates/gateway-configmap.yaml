@@ -196,3 +196,23 @@ data:
     {{ end -}}
     {{ end -}}
     {{ end -}}
+
+    {{ with .Values.postgresql -}}
+    {{ if .enabled -}}
+    {{ include "gateway.requireUniquePostgresqlCredentialNames" $ -}}
+    {{ with .credentials -}}
+    postgresql:
+      credentials:
+        {{- range $i, $credential := . }}
+        - name: {{ $credential.name | quote }}
+          passwordFile: "/etc/gateway/postgresql/{{ $i }}/password"
+          {{- if $credential.clientCertificate }}
+          clientCertificateFile: "/etc/gateway/postgresql/{{ $i }}/tls.crt"
+          clientPrivateKeyFile: "/etc/gateway/postgresql/{{ $i }}/tls.key"
+          {{- end }}
+        {{- end }}
+    {{ else -}}
+    postgresql: {}
+    {{ end -}}
+    {{ end -}}
+    {{ end -}}

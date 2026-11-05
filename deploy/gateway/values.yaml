@@ -173,6 +173,24 @@ webApp:
   # Custom HTTP headers to inject into proxied requests.
   requestHeaders: {}
 
+postgresql:
+  enabled: false
+
+  # Password credentials the Gateway can use to log in to PostgreSQL databases.
+  credentials: []
+    # - name: "prod-viewer"
+    #   # Provide either the password inline or the name of an existing Secret holding it.
+    #   # An inline password is for dev/testing only; in production use
+    #   # passwordSecretName so the raw credential never appears in Helm values.
+    #   password: ""
+    #   passwordSecretName: ""  # Name of an existing Secret containing the password (key name: `password`)
+    #
+    #   # Optional. Provide either the PEM content inline or the name of an existing Secret holding the client certificate.
+    #   clientCertificate:
+    #     certificate: ""
+    #     privateKey: ""
+    #     secretName: ""  # Name of an existing Secret holding the certificate under `tls.crt` and the private key under `tls.key`
+
 clusterDomain: cluster.local
 
 # Gateway deployment
