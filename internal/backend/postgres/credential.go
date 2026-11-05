@@ -161,12 +161,8 @@ func (c *awsIAMCredential) get(ctx context.Context) (credential, error) {
 	return credential{user: c.user, password: authToken, requireAuth: "password"}, nil
 }
 
-const (
-	// cloudSQLLoginScope limits the access token to logging in to Cloud SQL.
-	cloudSQLLoginScope = "https://www.googleapis.com/auth/sqlservice.login"
-	// serviceAccountSuffix the GCP service account's email suffix.
-	serviceAccountSuffix = ".gserviceaccount.com"
-)
+// cloudSQLLoginScope limits the access token to logging in to Cloud SQL.
+const cloudSQLLoginScope = "https://www.googleapis.com/auth/sqlservice.login"
 
 var (
 	errFailedToLoadGCPCredentials = errors.New("failed to load GCP credentials")
@@ -182,12 +178,7 @@ type gcpIAMCredential struct {
 }
 
 func newGCPIAMCredential(user string, auth *token.GCPIAMAuth) *gcpIAMCredential {
-	serviceAccount := auth.ImpersonateServiceAccount
-	if serviceAccount == "" {
-		serviceAccount = user + serviceAccountSuffix
-	}
-
-	return &gcpIAMCredential{user: user, serviceAccount: serviceAccount, newTokenProvider: newGCPTokenProvider}
+	return &gcpIAMCredential{user: user, serviceAccount: auth.ImpersonateServiceAccount, newTokenProvider: newGCPTokenProvider}
 }
 
 func newGCPTokenProvider(serviceAccount string) (googleauth.TokenProvider, error) {
