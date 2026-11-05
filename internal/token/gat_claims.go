@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/golang-jwt/jwt/v5"
 	"go.uber.org/zap/zapcore"
@@ -24,6 +25,9 @@ const supportedVersion = "1"
 const (
 	minPort = 1
 	maxPort = 65535
+
+	// serviceAccountSuffix the GCP service account's email suffix.
+	serviceAccountSuffix = ".gserviceaccount.com"
 )
 
 var (
@@ -34,6 +38,7 @@ var (
 	errInvalidTLSMode        = errors.New("invalid TLS mode")
 	errInvalidAuthType       = errors.New("invalid auth type")
 	errUnverifiedIAMUpstream = errors.New("IAM auth requires upstream TLS mode VERIFY_FULL or VERIFY_CA")
+	errInvalidServiceAccount = errors.New("invalid GCP service account")
 	errUnsupportedTLS        = errors.New("downstream TLS is not supported")
 )
 
@@ -303,7 +308,7 @@ type AWSIAMAuth struct {
 type GCPIAMAuth struct {
 	// ImpersonateServiceAccount is the service account the Gateway impersonates before fetching the
 	// Cloud SQL token.
-	ImpersonateServiceAccount string `json:"impersonate_service_account,omitempty"` //nolint:tagliatelle // GAT wire format from the controller uses snake_case
+	ImpersonateServiceAccount string `json:"impersonate_service_account"` //nolint:tagliatelle // GAT wire format from the controller uses snake_case
 }
 
 func (a Auth) MarshalJSON() ([]byte, error) {
@@ -361,6 +366,14 @@ func (a Auth) Validate(upstreamTLSMode TLSClientMode) error {
 
 		return validateIAMUpstreamTLSMode(upstreamTLSMode)
 	case AuthTypeGCPIAM:
+		if a.GCPIAM.ImpersonateServiceAccount == "" {
+			return fmt.Errorf("%w \"impersonate_service_account\"", jwt.ErrTokenRequiredClaimMissing)
+		}
+
+		if name, ok := strings.CutSuffix(a.GCPIAM.ImpersonateServiceAccount, serviceAccountSuffix); !ok || name == "" {
+			return fmt.Errorf("%w: %w %q", jwt.ErrTokenInvalidClaims, errInvalidServiceAccount, a.GCPIAM.ImpersonateServiceAccount)
+		}
+
 		return validateIAMUpstreamTLSMode(upstreamTLSMode)
 	}
 
