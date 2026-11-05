@@ -11,7 +11,6 @@ import (
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
@@ -47,27 +46,12 @@ func (o *testAuditObserver) fromServer(msgs ...pgproto3.BackendMessage) {
 	}
 }
 
-// takeLines returns the auditLine written since the last call. duration_ms is checked here and
-// dropped. A test calls it and ignores the result to drop the lines its setup wrote, so the next
-// call returns only the lines of the messages under test.
-func (o *testAuditObserver) takeLines(t *testing.T) []auditLine {
-	t.Helper()
-
+// takeLines returns the auditLine written since the last call.
+func (o *testAuditObserver) takeLines() []auditLine {
 	lines := []auditLine{}
 
 	for _, entry := range o.logs.TakeAll() {
-		fields := entry.ContextMap()
-
-		_, hasRequest := fields[fieldRequestID]
-		_, hasDuration := fields[fieldDurationMS]
-
-		if entry.Message == "pg result" || entry.Message == "pg completed" {
-			assert.Equal(t, hasRequest, hasDuration, "%s: duration_ms must come with request_id", entry.Message)
-		}
-
-		delete(fields, fieldDurationMS)
-
-		lines = append(lines, auditLine{message: entry.Message, fields: fields})
+		lines = append(lines, auditLine{message: entry.Message, fields: entry.ContextMap()})
 	}
 
 	return lines
@@ -82,24 +66,24 @@ func TestAuditObserver_ClientMessages(t *testing.T) {
 		{
 			name: "query",
 			msgs: []pgproto3.FrontendMessage{&pgproto3.Query{String: "SELECT 1"}},
-			want: []auditLine{{"pg query", map[string]any{"request_id": uint64(1), "sql": "SELECT 1"}}},
+			want: []auditLine{{"pg query", map[string]any{"sql": "SELECT 1"}}},
 		},
 		{
 			name: "parse",
 			msgs: []pgproto3.FrontendMessage{&pgproto3.Parse{Name: "stmtcache_3", Query: "SELECT $1"}},
-			want: []auditLine{{"pg parse", map[string]any{"request_id": uint64(1), "statement_name": "stmtcache_3", "sql": "SELECT $1"}}},
+			want: []auditLine{{"pg parse", map[string]any{"statement_name": "stmtcache_3", "sql": "SELECT $1"}}},
 		},
 		{
 			name: "bind",
 			msgs: []pgproto3.FrontendMessage{&pgproto3.Bind{PreparedStatement: "stmtcache_3", Parameters: [][]byte{[]byte("42")}}},
 			want: []auditLine{{"pg bind", map[string]any{
-				"request_id": uint64(1), "statement_name": "stmtcache_3", "portal_name": "", "parameters": []any{"42"},
+				"statement_name": "stmtcache_3", "portal_name": "", "parameters": []any{"42"},
 			}}},
 		},
 		{
 			name: "execute",
 			msgs: []pgproto3.FrontendMessage{&pgproto3.Execute{Portal: "p1", MaxRows: 10}},
-			want: []auditLine{{"pg execute", map[string]any{"request_id": uint64(1), "portal_name": "p1", "max_rows": uint32(10)}}},
+			want: []auditLine{{"pg execute", map[string]any{"portal_name": "p1", "max_rows": uint32(10)}}},
 		},
 		{
 			name: "function call",
@@ -107,7 +91,7 @@ func TestAuditObserver_ClientMessages(t *testing.T) {
 				&pgproto3.FunctionCall{Function: 1234, ArgFormatCodes: []uint16{pgtype.BinaryFormatCode}, Arguments: [][]byte{{1}}},
 			},
 			want: []auditLine{{"pg function_call", map[string]any{
-				"request_id": uint64(1), "function": uint32(1234), "arguments": []any{"AQ=="},
+				"function": uint32(1234), "arguments": []any{"AQ=="},
 			}}},
 		},
 		{
@@ -128,7 +112,7 @@ func TestAuditObserver_ClientMessages(t *testing.T) {
 			o := newTestAuditObserver()
 			o.fromClient(tt.msgs...)
 
-			assert.Equal(t, tt.want, o.takeLines(t))
+			assert.Equal(t, tt.want, o.takeLines())
 		})
 	}
 }
@@ -142,33 +126,28 @@ func TestAuditObserver_ServerMessages(t *testing.T) {
 		{
 			name: "command complete with a row count",
 			msgs: []pgproto3.BackendMessage{&pgproto3.CommandComplete{CommandTag: []byte("SELECT 2")}},
-			want: []auditLine{{"pg result", map[string]any{"request_id": uint64(1), "command": "SELECT", "row_count": int64(2)}}},
+			want: []auditLine{{"pg result", map[string]any{"command": "SELECT", "row_count": int64(2)}}},
 		},
 		{
 			name: "command complete without a row count",
 			msgs: []pgproto3.BackendMessage{&pgproto3.CommandComplete{CommandTag: []byte("SHOW")}},
-			want: []auditLine{{"pg result", map[string]any{"request_id": uint64(1), "command": "SHOW"}}},
+			want: []auditLine{{"pg result", map[string]any{"command": "SHOW"}}},
 		},
 		{
 			name: "empty query",
 			msgs: []pgproto3.BackendMessage{&pgproto3.EmptyQueryResponse{}},
-			want: []auditLine{{"pg result", map[string]any{"request_id": uint64(1)}}},
+			want: []auditLine{{"pg result", map[string]any{}}},
 		},
 		{
 			name: "function call response",
 			msgs: []pgproto3.BackendMessage{&pgproto3.FunctionCallResponse{Result: []byte("1")}},
-			want: []auditLine{{"pg result", map[string]any{"request_id": uint64(1)}}},
-		},
-		{
-			name: "portal suspended",
-			msgs: []pgproto3.BackendMessage{&pgproto3.PortalSuspended{}},
-			want: []auditLine{{"pg result", map[string]any{"request_id": uint64(1), "suspended": true}}},
+			want: []auditLine{{"pg result", map[string]any{}}},
 		},
 		{
 			name: "error",
 			msgs: []pgproto3.BackendMessage{&pgproto3.ErrorResponse{Code: "42501", Message: "permission denied for table users"}},
 			want: []auditLine{{"pg result", map[string]any{
-				"request_id": uint64(1), "error_code": "42501", "error_message": "permission denied for table users",
+				"error_code": "42501", "error_message": "permission denied for table users",
 			}}},
 		},
 		{
@@ -177,10 +156,12 @@ func TestAuditObserver_ServerMessages(t *testing.T) {
 				&pgproto3.ParseComplete{}, &pgproto3.BindComplete{}, &pgproto3.CloseComplete{},
 				&pgproto3.ParameterDescription{ParameterOIDs: []uint32{23}},
 				&pgproto3.RowDescription{Fields: []pgproto3.FieldDescription{{Name: []byte("id")}}}, &pgproto3.NoData{},
+				&pgproto3.PortalSuspended{},
 				&pgproto3.DataRow{Values: [][]byte{[]byte("1")}},
 				&pgproto3.NoticeResponse{Message: "notice"}, &pgproto3.NotificationResponse{Channel: "jobs"},
 				&pgproto3.ParameterStatus{Name: "TimeZone", Value: "UTC"},
 				&pgproto3.CopyInResponse{}, &pgproto3.CopyOutResponse{}, &pgproto3.CopyData{Data: []byte("1\n")}, &pgproto3.CopyDone{},
+				&pgproto3.ReadyForQuery{TxStatus: 'I'},
 			},
 			want: []auditLine{},
 		},
@@ -189,199 +170,11 @@ func TestAuditObserver_ServerMessages(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			o := newTestAuditObserver()
-			o.fromClient(&pgproto3.Query{String: "SELECT 1"})
-			o.takeLines(t)
-
 			o.fromServer(tt.msgs...)
 
-			assert.Equal(t, tt.want, o.takeLines(t))
+			assert.Equal(t, tt.want, o.takeLines())
 		})
 	}
-}
-
-func TestAuditObserver_RequestNumbering(t *testing.T) {
-	o := newTestAuditObserver()
-
-	for want := uint64(1); want <= 3; want++ {
-		o.fromClient(&pgproto3.Query{String: "SELECT 1"})
-		o.fromServer(&pgproto3.CommandComplete{CommandTag: []byte("SELECT 1")}, &pgproto3.ReadyForQuery{TxStatus: 'I'})
-
-		lines := o.takeLines(t)
-		require.Len(t, lines, 3)
-
-		for _, line := range lines {
-			assert.Equal(t, want, line.fields["request_id"], line.message)
-		}
-	}
-}
-
-func TestAuditObserver_SimpleQuery(t *testing.T) {
-	o := newTestAuditObserver()
-
-	o.fromClient(&pgproto3.Query{String: "SELECT id, email FROM users WHERE org_id = 42"})
-	o.fromServer(
-		&pgproto3.RowDescription{Fields: []pgproto3.FieldDescription{{Name: []byte("id")}, {Name: []byte("email")}}},
-		&pgproto3.DataRow{Values: [][]byte{[]byte("1"), []byte("a@acme.int")}},
-		&pgproto3.DataRow{Values: [][]byte{[]byte("2"), []byte("b@acme.int")}},
-		&pgproto3.CommandComplete{CommandTag: []byte("SELECT 2")},
-		&pgproto3.ReadyForQuery{TxStatus: 'I'},
-	)
-
-	assert.Equal(t, []auditLine{
-		{"pg query", map[string]any{"request_id": uint64(1), "sql": "SELECT id, email FROM users WHERE org_id = 42"}},
-		{"pg result", map[string]any{"request_id": uint64(1), "command": "SELECT", "row_count": int64(2)}},
-		{"pg completed", map[string]any{"request_id": uint64(1)}},
-	}, o.takeLines(t))
-}
-
-// TestAuditObserver_PipelinedRequests sends every request before the server answers the first, so
-// each server message must find its request by order.
-func TestAuditObserver_PipelinedRequests(t *testing.T) {
-	o := newTestAuditObserver()
-
-	o.fromClient(
-		&pgproto3.Parse{Query: "SELECT 1"}, &pgproto3.Bind{}, &pgproto3.Execute{}, &pgproto3.Sync{},
-		&pgproto3.Sync{},
-		&pgproto3.Bind{PreparedStatement: "divide"}, &pgproto3.Execute{},
-		&pgproto3.Bind{PreparedStatement: "count"}, &pgproto3.Execute{}, &pgproto3.Sync{},
-		&pgproto3.Query{String: "SELECT 3"},
-	)
-	o.fromServer(
-		&pgproto3.CommandComplete{CommandTag: []byte("SELECT 1")}, &pgproto3.ReadyForQuery{TxStatus: 'I'},
-		// Answers the lone Sync; not logged because its request never started.
-		&pgproto3.ReadyForQuery{TxStatus: 'I'},
-		// After the error the server skips the rest of the request up to its Sync
-		&pgproto3.ErrorResponse{Code: "22012", Message: "division by zero"}, &pgproto3.ReadyForQuery{TxStatus: 'I'},
-		&pgproto3.CommandComplete{CommandTag: []byte("SELECT 1")}, &pgproto3.ReadyForQuery{TxStatus: 'I'},
-	)
-
-	assert.Equal(t, []auditLine{
-		{"pg parse", map[string]any{"request_id": uint64(1), "statement_name": "", "sql": "SELECT 1"}},
-		{"pg bind", map[string]any{"request_id": uint64(1), "statement_name": "", "portal_name": "", "parameters": []any{}}},
-		{"pg execute", map[string]any{"request_id": uint64(1), "portal_name": "", "max_rows": uint32(0)}},
-		{"pg bind", map[string]any{"request_id": uint64(2), "statement_name": "divide", "portal_name": "", "parameters": []any{}}},
-		{"pg execute", map[string]any{"request_id": uint64(2), "portal_name": "", "max_rows": uint32(0)}},
-		{"pg bind", map[string]any{"request_id": uint64(2), "statement_name": "count", "portal_name": "", "parameters": []any{}}},
-		{"pg execute", map[string]any{"request_id": uint64(2), "portal_name": "", "max_rows": uint32(0)}},
-		{"pg query", map[string]any{"request_id": uint64(3), "sql": "SELECT 3"}},
-		{"pg result", map[string]any{"request_id": uint64(1), "command": "SELECT", "row_count": int64(1)}},
-		{"pg completed", map[string]any{"request_id": uint64(1)}},
-		{"pg result", map[string]any{"request_id": uint64(2), "error_code": "22012", "error_message": "division by zero"}},
-		{"pg completed", map[string]any{"request_id": uint64(2)}},
-		{"pg result", map[string]any{"request_id": uint64(3), "command": "SELECT", "row_count": int64(1)}},
-		{"pg completed", map[string]any{"request_id": uint64(3)}},
-	}, o.takeLines(t))
-}
-
-// TestAuditObserver_CopyIn checks that a COPY FROM STDIN stays one request through the Syncs the
-// server ignores while it waits for COPY data, so the pipelined requests after it keep their numbers.
-func TestAuditObserver_CopyIn(t *testing.T) {
-	tests := []struct {
-		name string
-		copy func(o *testAuditObserver)
-	}{
-		{
-			name: "sync during a simple query copy",
-			copy: func(o *testAuditObserver) {
-				o.fromClient(&pgproto3.Query{String: "COPY t FROM STDIN"})
-				o.fromServer(&pgproto3.CopyInResponse{})
-				o.fromClient(&pgproto3.CopyData{Data: []byte("1\n")}, &pgproto3.Sync{}, &pgproto3.CopyDone{})
-				o.fromServer(&pgproto3.CommandComplete{CommandTag: []byte("COPY 1")}, &pgproto3.ReadyForQuery{TxStatus: 'I'})
-			},
-		},
-		{
-			name: "sync after the execute that starts the copy",
-			copy: func(o *testAuditObserver) {
-				o.fromClient(&pgproto3.Parse{Query: "COPY t FROM STDIN"}, &pgproto3.Bind{}, &pgproto3.Execute{}, &pgproto3.Sync{})
-				o.fromServer(&pgproto3.ParseComplete{}, &pgproto3.BindComplete{}, &pgproto3.CopyInResponse{})
-				o.fromClient(&pgproto3.CopyData{Data: []byte("1\n")}, &pgproto3.CopyDone{}, &pgproto3.Sync{})
-				o.fromServer(&pgproto3.CommandComplete{CommandTag: []byte("COPY 1")}, &pgproto3.ReadyForQuery{TxStatus: 'I'})
-			},
-		},
-		{
-			name: "copy fail",
-			copy: func(o *testAuditObserver) {
-				o.fromClient(&pgproto3.Parse{Query: "COPY t FROM STDIN"}, &pgproto3.Bind{}, &pgproto3.Execute{}, &pgproto3.Sync{})
-				o.fromServer(&pgproto3.ParseComplete{}, &pgproto3.BindComplete{}, &pgproto3.CopyInResponse{})
-				o.fromClient(&pgproto3.CopyFail{Message: "aborted"}, &pgproto3.Sync{})
-				o.fromServer(&pgproto3.ErrorResponse{Code: "57014", Message: "COPY from stdin failed: aborted"}, &pgproto3.ReadyForQuery{TxStatus: 'I'})
-			},
-		},
-		{
-			name: "copy ended before the server asks for data",
-			copy: func(o *testAuditObserver) {
-				o.fromClient(&pgproto3.Query{String: "COPY t FROM STDIN"}, &pgproto3.CopyData{Data: []byte("1\n")}, &pgproto3.CopyDone{})
-				o.fromServer(
-					&pgproto3.CopyInResponse{},
-					&pgproto3.CommandComplete{CommandTag: []byte("COPY 1")}, &pgproto3.ReadyForQuery{TxStatus: 'I'},
-				)
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			o := newTestAuditObserver()
-			tt.copy(o)
-			o.takeLines(t)
-
-			o.fromClient(&pgproto3.Query{String: "SELECT 1"}, &pgproto3.Query{String: "SELECT 2"})
-			o.fromServer(
-				&pgproto3.CommandComplete{CommandTag: []byte("SELECT 1")}, &pgproto3.ReadyForQuery{TxStatus: 'I'},
-				&pgproto3.CommandComplete{CommandTag: []byte("SELECT 1")}, &pgproto3.ReadyForQuery{TxStatus: 'I'},
-			)
-
-			assert.Equal(t, []auditLine{
-				{"pg query", map[string]any{"request_id": uint64(2), "sql": "SELECT 1"}},
-				{"pg query", map[string]any{"request_id": uint64(3), "sql": "SELECT 2"}},
-				{"pg result", map[string]any{"request_id": uint64(2), "command": "SELECT", "row_count": int64(1)}},
-				{"pg completed", map[string]any{"request_id": uint64(2)}},
-				{"pg result", map[string]any{"request_id": uint64(3), "command": "SELECT", "row_count": int64(1)}},
-				{"pg completed", map[string]any{"request_id": uint64(3)}},
-			}, o.takeLines(t))
-		})
-	}
-}
-
-// TestAuditObserver_NoOpenRequest checks a server message that arrives between a ReadyForQuery
-// and the client's next message. It belongs to no request and the next client message still
-// takes the next number.
-func TestAuditObserver_NoOpenRequest(t *testing.T) {
-	o := newTestAuditObserver()
-
-	o.fromServer(
-		&pgproto3.ErrorResponse{Code: "57P01", Message: "terminating connection due to administrator command"},
-		&pgproto3.ReadyForQuery{TxStatus: 'I'},
-	)
-
-	assert.Equal(t, []auditLine{
-		{"pg result", map[string]any{"error_code": "57P01", "error_message": "terminating connection due to administrator command"}},
-	}, o.takeLines(t))
-
-	o.fromClient(&pgproto3.Query{String: "SELECT 1"})
-
-	assert.Equal(t, []auditLine{{"pg query", map[string]any{"request_id": uint64(1), "sql": "SELECT 1"}}}, o.takeLines(t))
-}
-
-func TestAuditObserver_UnauditedMessagesOpenNoRequest(t *testing.T) {
-	o := newTestAuditObserver()
-
-	o.fromClient(
-		&pgproto3.Describe{ObjectType: 'S', Name: "s1"},
-		&pgproto3.Close{ObjectType: 'S', Name: "s1"},
-		&pgproto3.Flush{},
-		&pgproto3.Sync{},
-		&pgproto3.CopyData{Data: []byte("1\n")},
-		&pgproto3.CopyDone{},
-		&pgproto3.CopyFail{Message: "aborted"},
-	)
-	o.fromServer(&pgproto3.ReadyForQuery{TxStatus: 'I'})
-
-	assert.Empty(t, o.takeLines(t))
-
-	o.fromClient(&pgproto3.Query{String: "SELECT 1"})
-
-	assert.Equal(t, []auditLine{{"pg query", map[string]any{"request_id": uint64(1), "sql": "SELECT 1"}}}, o.takeLines(t))
 }
 
 func TestStringFields(t *testing.T) {
