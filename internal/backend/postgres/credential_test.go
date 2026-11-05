@@ -93,7 +93,7 @@ func TestNewCredentialProvider_Error(t *testing.T) {
 	}
 }
 
-func TestPasswordCredential_Retrieve(t *testing.T) {
+func TestPasswordCredential_Get(t *testing.T) {
 	passwordFile := filepath.Join(t.TempDir(), "password")
 	require.NoError(t, os.WriteFile(passwordFile, []byte("from file\n"), 0o600))
 
@@ -139,7 +139,7 @@ func TestPasswordCredential_Retrieve(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := (&passwordCredential{user: testDatabaseUser, cfg: tt.configured}).retrieve(t.Context())
+			got, err := (&passwordCredential{user: testDatabaseUser, cfg: tt.configured}).get(t.Context())
 
 			if tt.wantErrContains != "" {
 				require.ErrorContains(t, err, tt.wantErrContains)
@@ -172,10 +172,10 @@ func setStaticAWSCredentials(t *testing.T) {
 	t.Setenv("AWS_SECRET_ACCESS_KEY", "secret")
 }
 
-func TestAWSIAMCredential_Retrieve(t *testing.T) {
+func TestAWSIAMCredential_Get(t *testing.T) {
 	setStaticAWSCredentials(t)
 
-	got, err := newAWSIAMCredential("db.acme.int:5432", testDatabaseUser, &token.AWSIAMAuth{Region: "eu-west-1"}).retrieve(t.Context())
+	got, err := newAWSIAMCredential("db.acme.int:5432", testDatabaseUser, &token.AWSIAMAuth{Region: "eu-west-1"}).get(t.Context())
 	require.NoError(t, err)
 
 	assert.Equal(t, testDatabaseUser, got.user)
@@ -189,7 +189,7 @@ func TestAWSIAMCredential_Retrieve(t *testing.T) {
 	assert.Contains(t, got.password, url.QueryEscape("/eu-west-1/rds-db/aws4_request"))
 }
 
-func TestAWSIAMCredential_Retrieve_Error(t *testing.T) {
+func TestAWSIAMCredential_Get_Error(t *testing.T) {
 	tests := []struct {
 		name    string
 		setup   func(t *testing.T)
@@ -232,7 +232,7 @@ func TestAWSIAMCredential_Retrieve_Error(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			tt.setup(t)
 
-			_, err := newAWSIAMCredential("db.acme.int:5432", testDatabaseUser, tt.auth).retrieve(t.Context())
+			_, err := newAWSIAMCredential("db.acme.int:5432", testDatabaseUser, tt.auth).get(t.Context())
 
 			require.ErrorIs(t, err, tt.wantErr)
 		})
@@ -252,7 +252,7 @@ func (m *mockTokenProvider) Token(ctx context.Context) (*googleauth.Token, error
 	return gcpToken, args.Error(1)
 }
 
-func TestGCPIAMCredential_Retrieve(t *testing.T) {
+func TestGCPIAMCredential_Get(t *testing.T) {
 	tests := []struct {
 		name               string
 		impersonate        string
@@ -272,14 +272,14 @@ func TestGCPIAMCredential_Retrieve(t *testing.T) {
 				return provider, nil
 			}
 
-			got, err := creds.retrieve(t.Context())
+			got, err := creds.get(t.Context())
 			require.NoError(t, err)
 			assert.Equal(t, credential{user: "db@acme-int.iam", password: "token-for-" + tt.wantServiceAccount, requireAuth: "password"}, got)
 		})
 	}
 }
 
-func TestGCPIAMCredential_Retrieve_Error(t *testing.T) {
+func TestGCPIAMCredential_Get_Error(t *testing.T) {
 	// Keeps the Application Default Credentials of the machine running the tests out of the lookup.
 	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", filepath.Join(t.TempDir(), "missing.json"))
 
@@ -311,7 +311,7 @@ func TestGCPIAMCredential_Retrieve_Error(t *testing.T) {
 				creds.newTokenProvider = tt.newTokenProvider
 			}
 
-			_, err := creds.retrieve(t.Context())
+			_, err := creds.get(t.Context())
 
 			require.ErrorIs(t, err, tt.wantErr)
 		})
