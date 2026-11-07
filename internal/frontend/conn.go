@@ -44,7 +44,7 @@ type Conn interface {
 	GetUpstreamAddress() string
 	GetToken() string
 	Authenticate() error
-	UpgradeToTLS() error
+	UpgradeToTLS(tlsConfig *tls.Config) error
 
 	Close() error
 }
@@ -232,8 +232,8 @@ func (p *ProxyConn) Authenticate() error {
 	return nil
 }
 
-func (p *ProxyConn) UpgradeToTLS() error {
-	tlsConn := tls.Server(p.Conn, p.TLSConfig)
+func (p *ProxyConn) UpgradeToTLS(tlsConfig *tls.Config) error {
+	tlsConn := tls.Server(p.Conn, tlsConfig)
 	if err := tlsConn.Handshake(); err != nil {
 		p.Logger.Error("failed to upgrade TLS", zap.Error(err))
 

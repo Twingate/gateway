@@ -76,6 +76,7 @@ type Listener struct {
 	tokenParser      *token.Parser
 	certManager      *cert.Manager
 	tlsConfig        *tls.Config
+	webAppTLSConfig  *tls.Config
 	connectValidator Validator
 	logger           *zap.Logger
 
@@ -90,6 +91,7 @@ func NewListener(
 	ctx context.Context,
 	twingateConfig config.TwingateConfig,
 	tlsCfg config.TLSConfig,
+	webAppCfg *config.WebAppConfig,
 	channels map[token.ResourceType]chan<- Conn,
 	registry *prometheus.Registry,
 	logger *zap.Logger,
@@ -103,7 +105,7 @@ func NewListener(
 		return nil, fmt.Errorf("failed to create token parser: %w", err)
 	}
 
-	certManager, err := cert.NewManager(tlsCfg, logger)
+	certManager, err := cert.NewManager(tlsCfg, webAppCfg, logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create TLS certificate manager: %w", err)
 	}
@@ -112,6 +114,12 @@ func NewListener(
 		MinVersion:     tls.VersionTLS13,
 		MaxVersion:     tls.VersionTLS13,
 		GetCertificate: certManager.GetCertificate,
+	}
+
+	webAppTLSConfig := &tls.Config{
+		MinVersion:     tls.VersionTLS13,
+		MaxVersion:     tls.VersionTLS13,
+		GetCertificate: certManager.GetWebAppCertificate,
 	}
 
 	connectValidator := &MessageValidator{
@@ -125,6 +133,7 @@ func NewListener(
 		tokenParser:      tokenParser,
 		certManager:      certManager,
 		tlsConfig:        tlsConfig,
+		webAppTLSConfig:  webAppTLSConfig,
 		connectValidator: connectValidator,
 		logger:           logger,
 		metrics:          metrics,
@@ -191,8 +200,13 @@ func (l *Listener) Serve(ctx context.Context, listener net.Listener) error {
 				return
 			}
 
+			tlsConfig := l.tlsConfig
+			if resourceType == token.ResourceTypeWebApp {
+				tlsConfig = l.webAppTLSConfig
+			}
+
 			if proxyConn.GATClaims().ShouldUpgradeTLS() {
-				if err := proxyConn.UpgradeToTLS(); err != nil {
+				if err := proxyConn.UpgradeToTLS(tlsConfig); err != nil {
 					l.logger.Error("Failed to upgrade to TLS", zap.Error(err))
 
 					_ = proxyConn.Close()
