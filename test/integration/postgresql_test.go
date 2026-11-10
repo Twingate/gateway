@@ -182,15 +182,21 @@ func TestPostgreSQL(t *testing.T) {
 			})
 
 			t.Run("cancel", func(t *testing.T) {
+				const query = "SELECT pg_sleep(30)"
+
 				seen := logs.Len()
 				queryDone := make(chan error, 1)
 
 				go func() {
-					_, err := conn.Exec(t.Context(), "SELECT pg_sleep(30)")
+					_, err := conn.Exec(t.Context(), query)
 					queryDone <- err
 				}()
 
-				time.Sleep(500 * time.Millisecond)
+				// PostgreSQL ignores a cancel that reaches an idle backend, so wait until the Gateway relays the query.
+				require.Eventually(t, func() bool {
+					return logs.FilterMessage("pg query").FilterField(zap.String("sql", query)).FilterField(zap.Uint32("process_id", conn.PgConn().PID())).Len() == 1
+				}, 5*time.Second, 10*time.Millisecond)
+
 				require.NoError(t, conn.PgConn().CancelRequest(t.Context()))
 
 				var pgErr *pgconn.PgError
@@ -206,7 +212,7 @@ func TestPostgreSQL(t *testing.T) {
 				entries := logs.All()[seen:]
 
 				testutil.AssertLogsForPostgreSQLSession(t, entries, expectedUser, expectedDatabase, []testutil.PostgreSQLAuditLog{
-					{Message: "pg query", Fields: map[string]any{"sql": "SELECT pg_sleep(30)"}},
+					{Message: "pg query", Fields: map[string]any{"sql": query}},
 					{Message: "pg result", Fields: map[string]any{"error_code": "57014", "error_message": "canceling statement due to user request"}},
 					{Message: "pg completed", Fields: map[string]any{}},
 				})
