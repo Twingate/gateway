@@ -11,7 +11,6 @@ import (
 	"net"
 
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgproto3"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 )
@@ -23,24 +22,16 @@ var (
 	errFailedToForwardUpstreamMessage   = errors.New("failed to forward upstream message")
 )
 
-// observer sees every message before the relay forwards it. The relay calls onDownstreamMessage and
-// onUpstreamMessage from separate goroutines, so the two can run at the same time. It must not
-// retain, modify or block a message.
-type observer interface {
-	onDownstreamMessage(msg pgproto3.FrontendMessage)
-	onUpstreamMessage(msg pgproto3.BackendMessage)
-}
-
 // relay forwards messages between the downstream and upstream until either side closes.
 type relay struct {
 	logger     *zap.Logger
 	downstream *downstreamConn
 	upstream   *pgconn.HijackedConn
-	observers  []observer
+	audit      *auditObserver
 }
 
-func newRelay(logger *zap.Logger, downstream *downstreamConn, upstream *pgconn.HijackedConn, observers []observer) *relay {
-	return &relay{logger: logger, downstream: downstream, upstream: upstream, observers: observers}
+func newRelay(logger *zap.Logger, downstream *downstreamConn, upstream *pgconn.HijackedConn, audit *auditObserver) *relay {
+	return &relay{logger: logger, downstream: downstream, upstream: upstream, audit: audit}
 }
 
 // serve returns nil when the session ended normally: When either side closed after a Terminate message,
@@ -92,9 +83,7 @@ func (r *relay) forwardDownstreamMessages() error {
 			return fmt.Errorf("%w: %w", errFailedToReceiveDownstreamMessage, err)
 		}
 
-		for _, observer := range r.observers {
-			observer.onDownstreamMessage(msg)
-		}
+		r.audit.onDownstreamMessage(msg)
 
 		r.upstream.Frontend.Send(msg)
 
@@ -111,9 +100,7 @@ func (r *relay) forwardUpstreamMessages() error {
 			return fmt.Errorf("%w: %w", errFailedToReceiveUpstreamMessage, err)
 		}
 
-		for _, observer := range r.observers {
-			observer.onUpstreamMessage(msg)
-		}
+		r.audit.onUpstreamMessage(msg)
 
 		r.downstream.backend.Send(msg)
 

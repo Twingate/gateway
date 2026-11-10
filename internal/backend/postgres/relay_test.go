@@ -5,9 +5,7 @@ package postgres
 
 import (
 	"context"
-	"fmt"
 	"net"
-	"sync"
 	"testing"
 	"time"
 
@@ -16,6 +14,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+
+	zapobserver "go.uber.org/zap/zaptest/observer"
 )
 
 // testRelay connects a relay to a test client and a test server, each over its own TCP connection:
@@ -23,17 +23,19 @@ import (
 //	client ◀──downstream──▶ relay ◀──upstream──▶ server
 type testRelay struct {
 	relay      *relay
+	auditLogs  *zapobserver.ObservedLogs
 	client     *pgproto3.Frontend
 	clientConn net.Conn
 	server     *pgproto3.Backend
 	serverConn net.Conn
 }
 
-func newTestRelay(t *testing.T, observers ...observer) *testRelay {
+func newTestRelay(t *testing.T) *testRelay {
 	t.Helper()
 
 	clientConn, relayDownstreamConn := tcpPipe(t)
 	relayUpstreamConn, serverConn := tcpPipe(t)
+	core, auditLogs := zapobserver.New(zap.InfoLevel)
 
 	return &testRelay{
 		relay: newRelay(
@@ -43,8 +45,9 @@ func newTestRelay(t *testing.T, observers ...observer) *testRelay {
 				Conn:     relayUpstreamConn,
 				Frontend: pgproto3.NewFrontend(relayUpstreamConn, relayUpstreamConn),
 			},
-			observers,
+			newAuditObserver(zap.New(core)),
 		),
+		auditLogs:  auditLogs,
 		client:     pgproto3.NewFrontend(clientConn, clientConn),
 		clientConn: clientConn,
 		server:     pgproto3.NewBackend(serverConn, serverConn),
@@ -120,33 +123,6 @@ func (unknownMessage) Decode(_ []byte) error { return nil }
 
 func (unknownMessage) Encode(dst []byte) ([]byte, error) {
 	return append(dst, 'z', 0, 0, 0, 4), nil
-}
-
-type recordingObserver struct {
-	mu   sync.Mutex
-	seen []string
-}
-
-func (o *recordingObserver) onDownstreamMessage(msg pgproto3.FrontendMessage) {
-	o.record(fmt.Sprintf("downstream %T", msg))
-}
-
-func (o *recordingObserver) onUpstreamMessage(msg pgproto3.BackendMessage) {
-	o.record(fmt.Sprintf("upstream %T", msg))
-}
-
-func (o *recordingObserver) record(event string) {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-
-	o.seen = append(o.seen, event)
-}
-
-func (o *recordingObserver) events() []string {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-
-	return o.seen
 }
 
 func TestRelay_Forward(t *testing.T) {
@@ -285,33 +261,25 @@ func TestRelay_BufferedMessages(t *testing.T) {
 	})
 }
 
-func TestRelay_Observers(t *testing.T) {
-	first, second := &recordingObserver{}, &recordingObserver{}
-	r := newTestRelay(t, first, second)
+func TestRelay_Audit(t *testing.T) {
+	r := newTestRelay(t)
 	r.serve(t.Context(), t)
 
-	for _, msg := range []pgproto3.FrontendMessage{&pgproto3.Parse{}, &pgproto3.Sync{}} {
-		r.sendFromClient(t, msg)
+	r.sendFromClient(t, &pgproto3.Query{String: "SELECT 1"})
 
-		_, err := r.server.Receive()
-		require.NoError(t, err)
+	_, err := r.server.Receive()
+	require.NoError(t, err)
+
+	r.sendFromServer(t, &pgproto3.ReadyForQuery{TxStatus: 'I'})
+
+	_, err = r.client.Receive()
+	require.NoError(t, err)
+
+	want := []auditLine{
+		{"pg query", map[string]any{"sql": "SELECT 1"}},
+		{"pg completed", map[string]any{}},
 	}
-
-	for _, msg := range []pgproto3.BackendMessage{&pgproto3.ParseComplete{}, &pgproto3.ReadyForQuery{TxStatus: 'I'}} {
-		r.sendFromServer(t, msg)
-
-		_, err := r.client.Receive()
-		require.NoError(t, err)
-	}
-
-	want := []string{
-		"downstream *pgproto3.Parse",
-		"downstream *pgproto3.Sync",
-		"upstream *pgproto3.ParseComplete",
-		"upstream *pgproto3.ReadyForQuery",
-	}
-	assert.Equal(t, want, first.events())
-	assert.Equal(t, want, second.events())
+	assert.Equal(t, want, takeLines(r.auditLogs))
 }
 
 func TestRelay_Error(t *testing.T) {
