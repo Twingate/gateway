@@ -110,7 +110,7 @@ func (p GATClaims) Validate() error {
 			return err
 		}
 
-		return p.Resource.GatewayMetadata.Auths.Validate(p.Resource.GatewayMetadata.Upstream.TLSMode)
+		return p.Resource.GatewayMetadata.validateAuths()
 	}
 
 	return nil
@@ -211,7 +211,7 @@ type GatewayMetadata struct {
 	Downstream            Downstream        `json:"downstream"`
 	Upstream              Upstream          `json:"upstream"`
 	RequestHeaderRewrites map[string]string `json:"request_header_rewrites,omitempty"` //nolint:tagliatelle // GAT wire format from the controller uses snake_case
-	Auths                 Auths             `json:"auths,omitempty"`
+	Auths                 []Auth            `json:"auths,omitempty"`
 }
 
 // Downstream describes the connection between the protocol client and the Gateway.
@@ -267,16 +267,15 @@ const (
 	AuthTypeGCPIAM AuthType = "gcp_iam"
 )
 
-// Auths is a list of authentication methods that the Gateway can use to connect to the upstream database.
-type Auths []Auth
-
-func (a Auths) Validate(upstreamTLSMode TLSClientMode) error {
-	if len(a) == 0 {
+// validateAuths checks that the GAT carries at least one authentication method for the upstream
+// database, and that each one is valid for the upstream TLS mode.
+func (m GatewayMetadata) validateAuths() error {
+	if len(m.Auths) == 0 {
 		return fmt.Errorf("%w \"%s\"", jwt.ErrTokenRequiredClaimMissing, "resource.gateway_metadata.auths")
 	}
 
-	for i, auth := range a {
-		if err := auth.Validate(upstreamTLSMode); err != nil {
+	for i, auth := range m.Auths {
+		if err := auth.Validate(m.Upstream.TLSMode); err != nil {
 			return fmt.Errorf("resource.gateway_metadata.auths[%d]: %w", i, err)
 		}
 	}
