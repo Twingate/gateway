@@ -123,12 +123,14 @@ var awsIAMAuth = token.Auth{
 	AWSIAM: &token.AWSIAMAuth{Region: "eu-west-1"},
 }
 
-// serveSession authenticate with the cleartext password aws_iam auth type, which the fake upstream accepts in cleartext.
-func serveSession(t *testing.T, tlsMode token.TLSClientMode) *testSession {
+// newEstablishedSession returns a session whose client is logged in to a fake database, with
+// the proxy relaying between them. It logs in with the aws_iam auth type, whose token is sent
+// as a cleartext password that the fake database accepts.
+func newEstablishedSession(t *testing.T, tlsMode token.TLSClientMode) *testSession {
 	t.Helper()
 
 	listener, address := newUpstreamListener(t)
-	session := startServe(t, address, tlsMode, awsIAMAuth)
+	session := newSession(t, address, tlsMode, awsIAMAuth)
 	sendStartup(t, session.client)
 
 	upstreamConn := acceptUpstream(t, listener)
@@ -151,9 +153,9 @@ func serveSession(t *testing.T, tlsMode token.TLSClientMode) *testSession {
 	return session
 }
 
-// startServe serves a new client connection with the upstream address and
-// the GAT token's auth entry.
-func startServe(t *testing.T, address string, tlsMode token.TLSClientMode, auth token.Auth) *testSession {
+// newSession starts serving a new client connection. The client has sent nothing yet, and the
+// test plays the database at address, if there is one.
+func newSession(t *testing.T, address string, tlsMode token.TLSClientMode, auth token.Auth) *testSession {
 	t.Helper()
 
 	proxy := newTestProxy(t)
@@ -261,7 +263,7 @@ func TestProxy_Start_ServesUntilListenerCloses(t *testing.T) {
 }
 
 func TestProxy_ServeConn(t *testing.T) {
-	session := serveSession(t, token.TLSClientModeNone)
+	session := newEstablishedSession(t, token.TLSClientModeNone)
 
 	// A query round trip through the relay.
 	session.client.Send(&pgproto3.Query{String: "SELECT 1"})
@@ -296,7 +298,7 @@ func TestProxy_ServeConn(t *testing.T) {
 
 // TestProxy_ServeConn_TLS authenticates over TLS, verifying the upstream certificate.
 func TestProxy_ServeConn_TLS(t *testing.T) {
-	session := serveSession(t, token.TLSClientModeVerifyFull)
+	session := newEstablishedSession(t, token.TLSClientModeVerifyFull)
 
 	_, ok := session.serverConn.(*tls.Conn)
 	require.True(t, ok)
@@ -314,7 +316,7 @@ func TestProxy_ServeConn_TLS(t *testing.T) {
 }
 
 func TestProxy_ServeConn_StartupError(t *testing.T) {
-	session := startServe(t, "unused:5432", token.TLSClientModeNone, passwordAuth)
+	session := newSession(t, "unused:5432", token.TLSClientModeNone, passwordAuth)
 
 	session.client.Send(&pgproto3.SSLRequest{})
 	session.client.Send(&pgproto3.SSLRequest{})
@@ -335,7 +337,7 @@ func TestProxy_ServeConn_StartupError(t *testing.T) {
 // before any work is done upstream.
 func TestProxy_ServeConn_NegotiatesProtocolFirst(t *testing.T) {
 	auth := token.Auth{Type: token.AuthTypePassword, User: testDatabaseUser, Password: &token.PasswordAuth{Credential: "other"}}
-	session := startServe(t, "unused:5432", token.TLSClientModeNone, auth)
+	session := newSession(t, "unused:5432", token.TLSClientModeNone, auth)
 
 	session.client.Send(&pgproto3.StartupMessage{ProtocolVersion: pgproto3.ProtocolVersion32, Parameters: map[string]string{"user": "alice"}})
 	require.NoError(t, session.client.Flush())
@@ -398,7 +400,7 @@ func TestProxy_ServeConn_CredentialError(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			auth := token.Auth{Type: token.AuthTypePassword, User: testDatabaseUser, Password: &token.PasswordAuth{Credential: tt.credential}}
-			session := startServe(t, "unused:5432", token.TLSClientModeNone, auth)
+			session := newSession(t, "unused:5432", token.TLSClientModeNone, auth)
 			sendStartup(t, session.client)
 
 			err := waitServe(t, session.done)
@@ -409,7 +411,7 @@ func TestProxy_ServeConn_CredentialError(t *testing.T) {
 }
 
 func TestProxy_ServeConn_UpstreamUnreachable(t *testing.T) {
-	session := startServe(t, closedAddr(t), token.TLSClientModeNone, passwordAuth)
+	session := newSession(t, closedAddr(t), token.TLSClientModeNone, passwordAuth)
 	sendStartup(t, session.client)
 
 	require.ErrorIs(t, waitServe(t, session.done), errFailedToConnectUpstream)
@@ -448,7 +450,7 @@ func TestProxy_ServeConn_UpstreamError(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			listener, address := newUpstreamListener(t)
-			session := startServe(t, address, tt.tlsMode, passwordAuth)
+			session := newSession(t, address, tt.tlsMode, passwordAuth)
 			sendStartup(t, session.client)
 
 			tt.upstream(t, acceptUpstream(t, listener))
@@ -461,7 +463,7 @@ func TestProxy_ServeConn_UpstreamError(t *testing.T) {
 
 func TestProxy_ServeConn_AuthenticationRefused(t *testing.T) {
 	listener, address := newUpstreamListener(t)
-	session := startServe(t, address, token.TLSClientModeNone, passwordAuth)
+	session := newSession(t, address, token.TLSClientModeNone, passwordAuth)
 	sendStartup(t, session.client)
 
 	_, backend := receiveStartup(t, acceptUpstream(t, listener))
@@ -478,7 +480,7 @@ func TestProxy_ServeConn_AuthenticationRefused(t *testing.T) {
 
 func TestProxy_ServeConn_Cancel(t *testing.T) {
 	listener, address := newUpstreamListener(t)
-	session := startServe(t, address, token.TLSClientModeNone, passwordAuth)
+	session := newSession(t, address, token.TLSClientModeNone, passwordAuth)
 
 	cancel := &pgproto3.CancelRequest{ProcessID: 42, SecretKey: []byte{1, 2, 3, 4}}
 	session.client.Send(cancel)
@@ -498,7 +500,7 @@ func TestProxy_ServeConn_Cancel(t *testing.T) {
 }
 
 func TestProxy_ServeConn_CancelFails(t *testing.T) {
-	session := startServe(t, closedAddr(t), token.TLSClientModeNone, passwordAuth)
+	session := newSession(t, closedAddr(t), token.TLSClientModeNone, passwordAuth)
 
 	session.client.Send(&pgproto3.CancelRequest{ProcessID: 42, SecretKey: []byte{1, 2, 3, 4}})
 	require.NoError(t, session.client.Flush())
@@ -508,7 +510,7 @@ func TestProxy_ServeConn_CancelFails(t *testing.T) {
 }
 
 func TestProxy_Shutdown_ClosesActiveConnection(t *testing.T) {
-	session := serveSession(t, token.TLSClientModeNone)
+	session := newEstablishedSession(t, token.TLSClientModeNone)
 
 	require.Eventually(t, func() bool {
 		return connCount(session.proxy) == 1
@@ -525,7 +527,7 @@ func TestProxy_Shutdown_ClosesActiveConnection(t *testing.T) {
 func TestProxy_Shutdown_ClosesConnectionInStartup(t *testing.T) {
 	// The client never sends a startup packet, so only Shutdown can end the connection
 	// before the startup deadline.
-	session := startServe(t, "unused:5432", token.TLSClientModeNone, passwordAuth)
+	session := newSession(t, "unused:5432", token.TLSClientModeNone, passwordAuth)
 
 	require.Eventually(t, func() bool {
 		return connCount(session.proxy) == 1
