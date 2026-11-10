@@ -431,7 +431,7 @@ func TestAuth_Validate(t *testing.T) {
 		{
 			name:            "GCP IAM with upstream VERIFY_CA",
 			upstreamTLSMode: TLSClientModeVerifyCA,
-			auth:            Auth{Type: AuthTypeGCPIAM, User: "db@my-project.iam", GCPIAM: &GCPIAMAuth{}},
+			auth:            Auth{Type: AuthTypeGCPIAM, User: "db@my-project.iam", GCPIAM: &GCPIAMAuth{ImpersonateServiceAccount: "db@my-project.iam.gserviceaccount.com"}},
 		},
 	}
 
@@ -484,9 +484,30 @@ func TestAuth_Validate(t *testing.T) {
 			expectedErrorMessage: "\"resource.gateway_metadata.upstream.tls_mode\": \"INSECURE\"",
 		},
 		{
+			name:                 "GCP IAM without impersonate service account",
+			upstreamTLSMode:      TLSClientModeVerifyFull,
+			auth:                 Auth{Type: AuthTypeGCPIAM, User: "db@my-project.iam", GCPIAM: &GCPIAMAuth{}},
+			expectedError:        jwt.ErrTokenRequiredClaimMissing,
+			expectedErrorMessage: "\"impersonate_service_account\"",
+		},
+		{
+			name:                 "GCP IAM with non-service-account email",
+			upstreamTLSMode:      TLSClientModeVerifyFull,
+			auth:                 Auth{Type: AuthTypeGCPIAM, User: "db@my-project.iam", GCPIAM: &GCPIAMAuth{ImpersonateServiceAccount: "db@my-project.iam"}},
+			expectedError:        errInvalidServiceAccount,
+			expectedErrorMessage: "invalid GCP service account \"db@my-project.iam\"",
+		},
+		{
+			name:                 "GCP IAM with service account suffix only",
+			upstreamTLSMode:      TLSClientModeVerifyFull,
+			auth:                 Auth{Type: AuthTypeGCPIAM, User: "db@my-project.iam", GCPIAM: &GCPIAMAuth{ImpersonateServiceAccount: ".gserviceaccount.com"}},
+			expectedError:        errInvalidServiceAccount,
+			expectedErrorMessage: "invalid GCP service account \".gserviceaccount.com\"",
+		},
+		{
 			name:                 "GCP IAM with upstream NONE",
 			upstreamTLSMode:      TLSClientModeNone,
-			auth:                 Auth{Type: AuthTypeGCPIAM, User: "db@my-project.iam", GCPIAM: &GCPIAMAuth{}},
+			auth:                 Auth{Type: AuthTypeGCPIAM, User: "db@my-project.iam", GCPIAM: &GCPIAMAuth{ImpersonateServiceAccount: "db@my-project.iam.gserviceaccount.com"}},
 			expectedError:        errUnverifiedIAMUpstream,
 			expectedErrorMessage: "\"resource.gateway_metadata.upstream.tls_mode\": \"NONE\"",
 		},
