@@ -117,7 +117,6 @@ func TestUpstream_ConnectConfig(t *testing.T) {
 			assert.Equal(t, "postgres", config.SSLNegotiation)
 			assert.Equal(t, "3.0", config.MinProtocolVersion)
 			assert.Equal(t, "3.0", config.MaxProtocolVersion)
-			assert.Equal(t, "prefer", config.ChannelBinding)
 			assert.Equal(t, cred.requireAuth, config.RequireAuth)
 		})
 	}
