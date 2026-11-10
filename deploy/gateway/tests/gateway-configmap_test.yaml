@@ -1499,3 +1499,178 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "at '/log': missing property 'audit'"
+---
+suite: Gateway configmap with PostgreSQL
+templates:
+  - gateway-configmap.yaml
+set:
+  twingate:
+    network: "acme"
+  postgresql:
+    enabled: true
+tests:
+  - it: should render empty postgresql block when enabled without credentials
+    asserts:
+      - equal:
+          path: data["config.yaml"]
+          value: |-
+            twingate:
+              network: "acme"
+              host: "twingate.com"
+
+            port: 8443
+            metricsPort: 9090
+
+            log:
+              system:
+                level: "info"
+                output:
+                  stderr: {}
+              audit:
+                output:
+                  stderr: {}
+              sessionRecording:
+                segment:
+                  maxDuration: "5m"
+                  maxSize: "64KiB"
+                output:
+                  stderr: {}
+
+            tls:
+              certificates:
+                files:
+                  - certificateFile: "/etc/gateway/tls/0/tls.crt"
+                    privateKeyFile: "/etc/gateway/tls/0/tls.key"
+
+            postgresql: {}
+  - it: should render one credential per entry with its mounted files
+    set:
+      postgresql:
+        credentials:
+          - name: "viewer"
+            passwordSecretName: "viewer-password"
+          - name: "editor"
+            password: "my-password"
+            clientCertificate:
+              secretName: "editor-client-certificate"
+    asserts:
+      - equal:
+          path: data["config.yaml"]
+          value: |-
+            twingate:
+              network: "acme"
+              host: "twingate.com"
+
+            port: 8443
+            metricsPort: 9090
+
+            log:
+              system:
+                level: "info"
+                output:
+                  stderr: {}
+              audit:
+                output:
+                  stderr: {}
+              sessionRecording:
+                segment:
+                  maxDuration: "5m"
+                  maxSize: "64KiB"
+                output:
+                  stderr: {}
+
+            tls:
+              certificates:
+                files:
+                  - certificateFile: "/etc/gateway/tls/0/tls.crt"
+                    privateKeyFile: "/etc/gateway/tls/0/tls.key"
+
+            postgresql:
+              credentials:
+                - name: "viewer"
+                  passwordFile: "/etc/gateway/postgresql/0/password"
+                - name: "editor"
+                  passwordFile: "/etc/gateway/postgresql/1/password"
+                  clientCertificateFile: "/etc/gateway/postgresql/1/tls.crt"
+                  clientPrivateKeyFile: "/etc/gateway/postgresql/1/tls.key"
+  - it: should error when a credential has no name
+    set:
+      postgresql:
+        credentials:
+          - passwordSecretName: "viewer-password"
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/postgresql/credentials/0': missing property 'name'"
+  - it: should error when a credential name is empty
+    set:
+      postgresql:
+        credentials:
+          - name: ""
+            passwordSecretName: "viewer-password"
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/postgresql/credentials/0/name': minLength: got 0, want 1"
+  - it: should error when a credential has no password
+    set:
+      postgresql:
+        credentials:
+          - name: "viewer"
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/postgresql/credentials/0': 'oneOf' failed, none matched"
+  - it: should error when a credential has both an inline password and a password Secret
+    set:
+      postgresql:
+        credentials:
+          - name: "viewer"
+            password: "my-password"
+            passwordSecretName: "viewer-password"
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/postgresql/credentials/0': 'oneOf' failed, subschemas 0, 1 matched"
+  - it: should error when a client certificate has no private key
+    set:
+      postgresql:
+        credentials:
+          - name: "editor"
+            passwordSecretName: "editor-password"
+            clientCertificate:
+              certificate: "my-client-certificate"
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/postgresql/credentials/0/clientCertificate': 'oneOf' failed, none matched"
+  - it: should error when a client certificate has both inline content and a Secret
+    set:
+      postgresql:
+        credentials:
+          - name: "editor"
+            passwordSecretName: "editor-password"
+            clientCertificate:
+              certificate: "my-client-certificate"
+              privateKey: "my-client-private-key"
+              secretName: "editor-client-certificate"
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/postgresql/credentials/0/clientCertificate': 'oneOf' failed, subschemas 0, 1 matched"
+  - it: should error when two credentials share a name
+    set:
+      postgresql:
+        credentials:
+          - name: "viewer"
+            passwordSecretName: "viewer-password"
+          - name: "viewer"
+            passwordSecretName: "other-viewer-password"
+    asserts:
+      - failedTemplate:
+          errorMessage: 'postgresql.credentials[0] and postgresql.credentials[1] both use the name "viewer". Give each credential its own name.'
+  - it: should not check credential names when PostgreSQL is disabled
+    set:
+      postgresql:
+        enabled: false
+        credentials:
+          - name: "viewer"
+            passwordSecretName: "viewer-password"
+          - name: "viewer"
+            passwordSecretName: "other-viewer-password"
+    asserts:
+      - notFailedTemplate: {}

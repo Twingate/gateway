@@ -206,6 +206,38 @@ return a string; callers decode it with fromJsonArray.
 {{- end }}
 
 {{/*
+Secret names holding the `postgresql.credentials` passwords, as a JSON array since include
+returns a string. Callers decode it with fromJsonArray.
+*/}}
+{{- define "gateway.postgresqlPasswordSecretNames" -}}
+{{- $fullname := include "gateway.fullname" . }}
+{{- $names := list }}
+{{- range $i, $credential := .Values.postgresql.credentials }}
+{{- $names = append $names ($credential.passwordSecretName | default (printf "%s-postgresql-password-%d" $fullname $i)) }}
+{{- end }}
+{{- $names | toJson }}
+{{- end }}
+
+{{/*
+Secret names holding the `postgresql.credentials` client certificates, as a JSON array since
+include returns a string. Callers decode it with fromJsonArray.
+
+A credential without a client certificate gets an empty name, so each name stays at its credential's position.
+*/}}
+{{- define "gateway.postgresqlClientCertificateSecretNames" -}}
+{{- $fullname := include "gateway.fullname" . }}
+{{- $names := list }}
+{{- range $i, $credential := .Values.postgresql.credentials }}
+{{- $name := "" }}
+{{- with $credential.clientCertificate }}
+{{- $name = .secretName | default (printf "%s-postgresql-client-certificate-%d" $fullname $i) }}
+{{- end }}
+{{- $names = append $names $name }}
+{{- end }}
+{{- $names | toJson }}
+{{- end }}
+
+{{/*
 Create the name of the SSH local CA secret to use
 */}}
 {{- define "gateway.sshLocalCASecretName" -}}
@@ -404,6 +436,19 @@ Fail when two log categories write to the same file.
 {{- end }}
 {{- $_ := set $categories $path $category }}
 {{- end }}
+{{- end }}
+{{- end }}
+
+{{/*
+Fail when two `postgresql.credentials` entries share a name.
+*/}}
+{{- define "gateway.requireUniquePostgresqlCredentialNames" -}}
+{{- $indexes := dict }}
+{{- range $i, $credential := .Values.postgresql.credentials }}
+{{- with get $indexes $credential.name }}
+{{- fail (printf "postgresql.credentials[%s] and postgresql.credentials[%d] both use the name %q. Give each credential its own name." . $i $credential.name) }}
+{{- end }}
+{{- $_ := set $indexes $credential.name (toString $i) }}
 {{- end }}
 {{- end }}
 

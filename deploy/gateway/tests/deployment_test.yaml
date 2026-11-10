@@ -504,3 +504,117 @@ tests:
             name: tls-vault-issuer-ca-bundle
             mountPath: /etc/gateway/tls/vault
             readOnly: true
+---
+suite: Deployment with PostgreSQL credentials
+templates:
+  - deployment.yaml
+set:
+  twingate:
+    network: "acme"
+tests:
+  - it: should not add any PostgreSQL credential volume when `postgresql.enabled` is false
+    set:
+      postgresql:
+        enabled: false
+        credentials:
+          - name: "viewer"
+            passwordSecretName: "viewer-password"
+    asserts:
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: postgresql-credential-0
+          any: true
+      - notContains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: postgresql-credential-0
+          any: true
+  - it: should mount existing Secrets
+    set:
+      postgresql:
+        enabled: true
+        credentials:
+          - name: "editor"
+            passwordSecretName: "editor-password"
+            clientCertificate:
+              secretName: "editor-client-certificate"
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: postgresql-credential-0
+            projected:
+              sources:
+                - secret:
+                    name: editor-password
+                    items:
+                      - key: password
+                        path: password
+                - secret:
+                    name: editor-client-certificate
+                    items:
+                      - key: tls.crt
+                        path: tls.crt
+                      - key: tls.key
+                        path: tls.key
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: postgresql-credential-0
+            mountPath: /etc/gateway/postgresql/0
+            readOnly: true
+  - it: should mount inline values from the chart-owned Secrets
+    set:
+      postgresql:
+        enabled: true
+        credentials:
+          - name: "viewer"
+            password: "my-password"
+          - name: "editor"
+            password: "my-password"
+            clientCertificate:
+              certificate: "my-client-certificate"
+              privateKey: "my-client-private-key"
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: postgresql-credential-0
+            projected:
+              sources:
+                - secret:
+                    name: RELEASE-NAME-gateway-postgresql-password-0
+                    items:
+                      - key: password
+                        path: password
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: postgresql-credential-1
+            projected:
+              sources:
+                - secret:
+                    name: RELEASE-NAME-gateway-postgresql-password-1
+                    items:
+                      - key: password
+                        path: password
+                - secret:
+                    name: RELEASE-NAME-gateway-postgresql-client-certificate-1
+                    items:
+                      - key: tls.crt
+                        path: tls.crt
+                      - key: tls.key
+                        path: tls.key
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: postgresql-credential-0
+            mountPath: /etc/gateway/postgresql/0
+            readOnly: true
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: postgresql-credential-1
+            mountPath: /etc/gateway/postgresql/1
+            readOnly: true

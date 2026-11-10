@@ -448,6 +448,69 @@
       },
       "additionalProperties": false
     },
+    "postgresql": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable PostgreSQL proxying.",
+          "default": false
+        },
+        "credentials": {
+          "type": "array",
+          "description": "Credentials the Gateway can use to log in to PostgreSQL databases.",
+          "default": [],
+          "items": {
+            "type": "object",
+            "required": ["name"],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Name of the credential, must be unique across credentials. A PostgreSQL resource chooses the credential by its name."
+              },
+              "password": {
+                "type": "string",
+                "description": "Password in plain text. Dev and testing only; use `passwordSecretName` in production."
+              },
+              "passwordSecretName": {
+                "type": "string",
+                "description": "Name of an existing Secret containing the password (key name: `password`)."
+              },
+              "clientCertificate": {
+                "type": "object",
+                "description": "Client certificate the Gateway presents when the database asks for one during the TLS handshake. Provide either the PEM content inline or the name of an existing Secret holding it.",
+                "properties": {
+                  "certificate": {
+                    "type": "string",
+                    "description": "Client certificate content (PEM format)."
+                  },
+                  "privateKey": {
+                    "type": "string",
+                    "description": "Client private key content (PEM format)."
+                  },
+                  "secretName": {
+                    "type": "string",
+                    "description": "Name of an existing Secret containing the client certificate under tls.crt and its private key under tls.key."
+                  }
+                },
+                "oneOf": [
+                  {"required": ["secretName"]},
+                  {"required": ["certificate", "privateKey"]}
+                ],
+                "additionalProperties": false
+              }
+            },
+            "oneOf": [
+              {"required": ["password"]},
+              {"required": ["passwordSecretName"]}
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
     "tls": {
       "type": "object",
       "properties": {
