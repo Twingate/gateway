@@ -66,6 +66,12 @@ func SetupPostgreSQLServer(t *testing.T) (string, int) {
 
 	containerID := strings.TrimSpace(string(output))
 
+	t.Cleanup(func() {
+		// #nosec G204 -- output is a container ID returned by docker
+		_, err = RunCommand(exec.Command("docker", "rm", "-vf", containerID))
+		require.NoError(t, err, "failed to remove PostgreSQL docker container")
+	})
+
 	// #nosec G204 -- output is a container ID returned by docker
 	output, err = RunCommand(exec.Command("docker", "inspect", containerID,
 		fmt.Sprintf("--format='{{(index (index .NetworkSettings.Ports \"%d/tcp\") 0).HostPort}}'", postgreSQLPort),
@@ -74,12 +80,6 @@ func SetupPostgreSQLServer(t *testing.T) (string, int) {
 
 	serverPort, err := strconv.Atoi(strings.Trim(string(output), "'\n"))
 	require.NoError(t, err, "failed to parse PostgreSQL server port")
-
-	t.Cleanup(func() {
-		// #nosec G204 -- output is a container ID returned by docker
-		_, err = RunCommand(exec.Command("docker", "rm", "-vf", containerID))
-		require.NoError(t, err, "failed to remove PostgreSQL docker container")
-	})
 
 	err = wait.PollUntilContextTimeout(t.Context(), time.Second, 60*time.Second, true, func(_ context.Context) (bool, error) {
 		// The image first runs a temporary server on a Unix socket to initialize the database, so
