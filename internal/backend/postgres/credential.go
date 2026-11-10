@@ -53,7 +53,7 @@ func newCredentialProvider(upstreamAddress string, auth token.Auth, passwords pa
 	case token.AuthTypeAWSIAM:
 		return newAWSIAMCredential(upstreamAddress, auth.User, auth.AWSIAM), nil
 	case token.AuthTypeGCPIAM:
-		return newGCPIAMCredential(auth.User, auth.GCPIAM), nil
+		return newGCPIAMCredential(auth.User, auth.GCPIAM)
 	default:
 		return nil, fmt.Errorf("%w: %s", errUnsupportedAuthType, auth.Type)
 	}
@@ -172,29 +172,24 @@ var (
 // gcpIAMCredential is the credential provider for the gcp_iam auth type: a service account's
 // access token, which Cloud SQL takes as the password.
 type gcpIAMCredential struct {
-	user             string
-	serviceAccount   string
-	newTokenProvider func(serviceAccount string) (googleauth.TokenProvider, error)
+	user          string
+	tokenProvider googleauth.TokenProvider
 }
 
-func newGCPIAMCredential(user string, auth *token.GCPIAMAuth) *gcpIAMCredential {
-	return &gcpIAMCredential{user: user, serviceAccount: auth.ImpersonateServiceAccount, newTokenProvider: newGCPTokenProvider}
-}
-
-func newGCPTokenProvider(serviceAccount string) (googleauth.TokenProvider, error) {
-	return impersonate.NewCredentials(&impersonate.CredentialsOptions{
-		TargetPrincipal: serviceAccount,
+func newGCPIAMCredential(user string, auth *token.GCPIAMAuth) (*gcpIAMCredential, error) {
+	tokenProvider, err := impersonate.NewCredentials(&impersonate.CredentialsOptions{
+		TargetPrincipal: auth.ImpersonateServiceAccount,
 		Scopes:          []string{cloudSQLLoginScope},
 	})
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", errFailedToLoadGCPCredentials, err)
+	}
+
+	return &gcpIAMCredential{user: user, tokenProvider: tokenProvider}, nil
 }
 
 func (c *gcpIAMCredential) get(ctx context.Context) (credential, error) {
-	provider, err := c.newTokenProvider(c.serviceAccount)
-	if err != nil {
-		return credential{}, fmt.Errorf("%w: %w", errFailedToLoadGCPCredentials, err)
-	}
-
-	gcpToken, err := provider.Token(ctx)
+	gcpToken, err := c.tokenProvider.Token(ctx)
 	if err != nil {
 		return credential{}, fmt.Errorf("%w: %w", errFailedToFetchGCPToken, err)
 	}

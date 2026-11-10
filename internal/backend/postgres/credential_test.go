@@ -53,19 +53,25 @@ func TestNewCredentialProvider(t *testing.T) {
 	}
 
 	t.Run("GCP IAM", func(t *testing.T) {
+		// Any Application Default Credentials will do: the impersonated provider fetches no token until asked.
+		credentialsFile := filepath.Join(t.TempDir(), "application_default_credentials.json")
+		require.NoError(t, os.WriteFile(credentialsFile,
+			[]byte(`{"type": "authorized_user", "client_id": "id", "client_secret": "secret", "refresh_token": "token"}`), 0o600))
+		t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", credentialsFile)
+
 		auth := token.Auth{Type: token.AuthTypeGCPIAM, User: "db@acme-int.iam", GCPIAM: &token.GCPIAMAuth{ImpersonateServiceAccount: "db@acme-int.iam.gserviceaccount.com"}}
 
 		got, err := newCredentialProvider("db.acme.int:5432", auth, passwords)
 		require.NoError(t, err)
-
-		gcp, ok := got.(*gcpIAMCredential)
-		require.True(t, ok, "got %T", got)
-		assert.Equal(t, "db@acme-int.iam.gserviceaccount.com", gcp.serviceAccount)
+		assert.IsType(t, &gcpIAMCredential{}, got)
 	})
 }
 
 func TestNewCredentialProvider_Error(t *testing.T) {
 	passwords := newPasswordCredentials([]gatewayconfig.PostgreSQLCredential{{Name: testCredential, Password: "secret"}})
+
+	// Keeps the Application Default Credentials of the machine running the tests out of the lookup.
+	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", filepath.Join(t.TempDir(), "missing.json"))
 
 	tests := []struct {
 		name    string
@@ -81,6 +87,11 @@ func TestNewCredentialProvider_Error(t *testing.T) {
 			name:    "unsupported auth type",
 			auth:    token.Auth{Type: "kerberos"},
 			wantErr: errUnsupportedAuthType,
+		},
+		{
+			name:    "GCP credentials not found",
+			auth:    token.Auth{Type: token.AuthTypeGCPIAM, User: "db@acme-int.iam", GCPIAM: &token.GCPIAMAuth{ImpersonateServiceAccount: "db@acme-int.iam.gserviceaccount.com"}},
+			wantErr: errFailedToLoadGCPCredentials,
 		},
 	}
 
@@ -253,56 +264,22 @@ func (m *mockTokenProvider) Token(ctx context.Context) (*googleauth.Token, error
 }
 
 func TestGCPIAMCredential_Get(t *testing.T) {
-	impersonate := "db@acme-int.iam.gserviceaccount.com"
+	provider := &mockTokenProvider{}
+	provider.On("Token", t.Context()).Return(&googleauth.Token{Value: "gcp-token"}, nil)
 
-	creds := newGCPIAMCredential("db@acme-int.iam", &token.GCPIAMAuth{ImpersonateServiceAccount: impersonate})
-	creds.newTokenProvider = func(serviceAccount string) (googleauth.TokenProvider, error) {
-		provider := &mockTokenProvider{}
-		provider.On("Token", t.Context()).Return(&googleauth.Token{Value: "token-for-" + serviceAccount}, nil)
-
-		return provider, nil
-	}
+	creds := &gcpIAMCredential{user: "db@acme-int.iam", tokenProvider: provider}
 
 	got, err := creds.get(t.Context())
 	require.NoError(t, err)
-	assert.Equal(t, credential{user: "db@acme-int.iam", password: "token-for-" + impersonate, requireAuth: "password"}, got)
+	assert.Equal(t, credential{user: "db@acme-int.iam", password: "gcp-token", requireAuth: "password"}, got)
 }
 
 func TestGCPIAMCredential_Get_Error(t *testing.T) {
-	// Keeps the Application Default Credentials of the machine running the tests out of the lookup.
-	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", filepath.Join(t.TempDir(), "missing.json"))
+	provider := &mockTokenProvider{}
+	provider.On("Token", t.Context()).Return(nil, errTokenProvider)
 
-	tests := []struct {
-		name             string
-		newTokenProvider func(string) (googleauth.TokenProvider, error)
-		wantErr          error
-	}{
-		{
-			name:    "credentials not found",
-			wantErr: errFailedToLoadGCPCredentials,
-		},
-		{
-			name: "token fetch fails",
-			newTokenProvider: func(string) (googleauth.TokenProvider, error) {
-				provider := &mockTokenProvider{}
-				provider.On("Token", mock.Anything).Return(nil, errTokenProvider)
+	creds := &gcpIAMCredential{user: "db@acme-int.iam", tokenProvider: provider}
 
-				return provider, nil
-			},
-			wantErr: errFailedToFetchGCPToken,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			creds := newGCPIAMCredential("db@acme-int.iam", &token.GCPIAMAuth{ImpersonateServiceAccount: "db@acme-int.iam.gserviceaccount.com"})
-			if tt.newTokenProvider != nil {
-				creds.newTokenProvider = tt.newTokenProvider
-			}
-
-			_, err := creds.get(t.Context())
-
-			require.ErrorIs(t, err, tt.wantErr)
-		})
-	}
+	_, err := creds.get(t.Context())
+	require.ErrorIs(t, err, errFailedToFetchGCPToken)
 }
