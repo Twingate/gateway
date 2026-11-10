@@ -125,7 +125,6 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 		if err != nil {
 			logger.System.Error("Failed to forward the cancel request", zap.Error(err))
 
-			// The audit log gets a short label; the system log above keeps the full error.
 			reason := "cancel_failed"
 			if errors.Is(err, errFailedToConnectUpstream) {
 				reason = "unreachable_upstream"
