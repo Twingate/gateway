@@ -121,7 +121,7 @@ func TestPostgreSQL(t *testing.T) {
 				return logs.FilterMessage("PostgreSQL connection established").FilterField(zap.Uint32("process_id", conn.PgConn().PID())).Len() == 1
 			}, 5*time.Second, 10*time.Millisecond)
 
-			t.Run("query", func(t *testing.T) {
+			t.Run("single statement query", func(t *testing.T) {
 				const (
 					query = "SELECT current_user, current_database(), ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()"
 					// pgx names the statements it caches after a hash of their SQL.
@@ -148,6 +148,23 @@ func TestPostgreSQL(t *testing.T) {
 					{Message: "pg bind", Fields: map[string]any{"statement_name": statementName, "portal_name": "", "parameters": []any{}}},
 					{Message: "pg execute", Fields: map[string]any{"portal_name": "", "max_rows": uint32(0)}},
 					{Message: "pg result", Fields: map[string]any{"command": "SELECT", "row_count": int64(1)}},
+					{Message: "pg completed", Fields: map[string]any{}},
+				})
+			})
+
+			t.Run("multiple statements query", func(t *testing.T) {
+				const query = "BEGIN; SELECT 1; COMMIT"
+
+				seen := logs.Len()
+
+				_, err := conn.Exec(t.Context(), query)
+				require.NoError(t, err)
+
+				testutil.AssertLogsForPostgreSQLSession(t, logs.All()[seen:], expectedUser, expectedDatabase, []testutil.PostgreSQLAuditLog{
+					{Message: "pg query", Fields: map[string]any{"sql": query}},
+					{Message: "pg result", Fields: map[string]any{"command": "BEGIN"}},
+					{Message: "pg result", Fields: map[string]any{"command": "SELECT", "row_count": int64(1)}},
+					{Message: "pg result", Fields: map[string]any{"command": "COMMIT"}},
 					{Message: "pg completed", Fields: map[string]any{}},
 				})
 			})
