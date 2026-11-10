@@ -98,29 +98,6 @@ func TestDownstreamConn_HandleStartupMessage_Cancel(t *testing.T) {
 	assert.Equal(t, cancel, got)
 }
 
-func TestRequestsReplication(t *testing.T) {
-	tests := []struct {
-		name       string
-		parameters map[string]string
-		want       bool
-	}{
-		{name: "no replication parameter", parameters: map[string]string{}, want: false},
-		{name: "false", parameters: map[string]string{"replication": "false"}, want: false},
-		{name: "off in upper case", parameters: map[string]string{"replication": "OFF"}, want: false},
-		{name: "no", parameters: map[string]string{"replication": "no"}, want: false},
-		{name: "0", parameters: map[string]string{"replication": "0"}, want: false},
-		{name: "true", parameters: map[string]string{"replication": "true"}, want: true},
-		{name: "database", parameters: map[string]string{"replication": "database"}, want: true},
-		{name: "invalid value", parameters: map[string]string{"replication": "maybe"}, want: true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, requestsReplication(&pgproto3.StartupMessage{Parameters: tt.parameters}))
-		})
-	}
-}
-
 func TestDownstreamConn_NegotiateProtocolVersion(t *testing.T) {
 	tests := []struct {
 		name           string

@@ -51,7 +51,7 @@ func newDownstreamConn(conn net.Conn) *downstreamConn {
 }
 
 // handleStartupMessage refuses SSLRequest and GSSENCRequest, then returns the StartupMessage or
-// the CancelRequest that follows. A StartupMessage that asks for replication is refused.
+// the CancelRequest that follows. A StartupMessage with a replication parameter is refused.
 func (c *downstreamConn) handleStartupMessage() (*pgproto3.StartupMessage, *pgproto3.CancelRequest, error) {
 	_ = c.conn.SetDeadline(time.Now().Add(defaultTimeout))
 
@@ -68,8 +68,9 @@ func (c *downstreamConn) handleStartupMessage() (*pgproto3.StartupMessage, *pgpr
 
 		switch msg := msg.(type) {
 		case *pgproto3.StartupMessage:
-			// Replication connections carry commands the audit log cannot describe.
-			if requestsReplication(msg) {
+			// Replication connections carry commands the audit log cannot describe. Any value is
+			// refused, so the parameter is never dropped without the client knowing.
+			if _, ok := msg.Parameters["replication"]; ok {
 				return nil, nil, errReplicationNotSupported
 			}
 
@@ -91,21 +92,6 @@ func (c *downstreamConn) handleStartupMessage() (*pgproto3.StartupMessage, *pgpr
 		default:
 			return nil, nil, fmt.Errorf("%w: %T", errUnsupportedStartupRequest, msg)
 		}
-	}
-}
-
-// requestsReplication reports whether startup asks for a replication connection.
-func requestsReplication(startup *pgproto3.StartupMessage) bool {
-	value, ok := startup.Parameters["replication"]
-	if !ok {
-		return false
-	}
-
-	switch strings.ToLower(value) {
-	case "false", "off", "no", "0":
-		return false
-	default:
-		return true
 	}
 }
 
