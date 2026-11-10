@@ -20,6 +20,7 @@ import (
 
 	"gateway/internal/logging"
 	"gateway/internal/sessionrecorder"
+	"gateway/internal/util/testutil"
 )
 
 // shortTimeout shrinks the proxy's timeout knobs so their firing path runs fast in tests.
@@ -352,7 +353,7 @@ func TestChannelPair_Teardown(t *testing.T) {
 			// The other peer drains the remaining bytes, then sees EOF, while its requests
 			// channel stays open.
 			assert.Equal(t, "last-bytes", string(readInFull(t, other.ch, len("last-bytes"))))
-			assertEOF(t, other.ch)
+			testutil.AssertEOF(t, other.ch)
 
 			// The requests channel survives the half-close: a request sent after EOF still arrives.
 			_, err = other.ch.SendRequest("exit-status", false, ssh.Marshal(struct{ Status uint32 }{Status: 0}))
@@ -363,7 +364,7 @@ func TestChannelPair_Teardown(t *testing.T) {
 			// Full close propagates: the initiator sees EOF, its requests channel closes, and
 			// serve() returns.
 			require.NoError(t, other.ch.Close())
-			assertEOF(t, initiator.ch)
+			testutil.AssertEOF(t, initiator.ch)
 			waitReqChanClosed(t, initiator.requests)
 			waitDone(t, done)
 		})
@@ -386,7 +387,7 @@ func TestChannelPair_EOFFlushTimeout(t *testing.T) {
 
 	// The flush can never complete: the proxy gives up after channelEOFTimeout and EOF
 	// still reaches the target.
-	assertEOF(t, channels.target.ch)
+	testutil.AssertEOF(t, channels.target.ch)
 	assert.GreaterOrEqual(t, time.Since(start), shortTimeout)
 
 	// Closing both ends unblocks the pending forward; the source's request must not be
@@ -404,7 +405,7 @@ func TestChannelPair_TeardownTimeout(t *testing.T) {
 	start := time.Now()
 
 	require.NoError(t, channels.source.ch.CloseWrite())
-	assertEOF(t, channels.target.ch)
+	testutil.AssertEOF(t, channels.target.ch)
 
 	// The target never closes after EOF: the proxy force-closes the channel after
 	// channelCloseTimeout instead of waiting forever.
@@ -441,7 +442,7 @@ func TestChannelPair_PeerAbortMidTransfer(t *testing.T) {
 		t.Fatal("sender still blocked after the peer aborted")
 	}
 
-	assertEOF(t, channels.source.ch)
+	testutil.AssertEOF(t, channels.source.ch)
 	waitDone(t, done)
 }
 
@@ -728,8 +729,8 @@ func TestChannelPair_CopyPanicClosesChannels(t *testing.T) {
 	require.NoError(t, err)
 
 	// ...and both far ends see their channel close.
-	assertEOF(t, channels.source.ch)
-	assertEOF(t, channels.target.ch)
+	testutil.AssertEOF(t, channels.source.ch)
+	testutil.AssertEOF(t, channels.target.ch)
 	waitDone(t, done)
 }
 
@@ -749,8 +750,8 @@ func TestChannelPair_RequestPanicClosesChannels(t *testing.T) {
 		ssh.Marshal(windowChangeReq{WidthColumns: 120, HeightRows: 40}))
 
 	// ...and both far ends see their channel close.
-	assertEOF(t, channels.source.ch)
-	assertEOF(t, channels.target.ch)
+	testutil.AssertEOF(t, channels.source.ch)
+	testutil.AssertEOF(t, channels.target.ch)
 	waitDone(t, done)
 }
 
@@ -777,8 +778,8 @@ func TestChannelPair_ServePanicClosesChannels(t *testing.T) {
 	// writing its header.
 	_ = sendRequest(channels.source.ch, requestTypeShell, false, nil)
 
-	assertEOF(t, channels.source.ch)
-	assertEOF(t, channels.target.ch)
+	testutil.AssertEOF(t, channels.source.ch)
+	testutil.AssertEOF(t, channels.target.ch)
 	waitDone(t, done)
 }
 

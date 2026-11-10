@@ -13,6 +13,8 @@ import (
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"gateway/internal/util/testutil"
 )
 
 func TestDownstreamConn_HandleStartupMessage(t *testing.T) {
@@ -35,7 +37,7 @@ func TestDownstreamConn_HandleStartupMessage(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			clientConn, serverConn := tcpPipe(t)
+			clientConn, serverConn := testutil.TCPPipe(t)
 
 			client := pgproto3.NewFrontend(clientConn, clientConn)
 
@@ -65,7 +67,7 @@ func TestDownstreamConn_HandleStartupMessage(t *testing.T) {
 }
 
 func TestDownstreamConn_HandleStartupMessage_ClientCloses(t *testing.T) {
-	clientConn, serverConn := tcpPipe(t)
+	clientConn, serverConn := testutil.TCPPipe(t)
 
 	require.NoError(t, clientConn.Close())
 
@@ -74,7 +76,7 @@ func TestDownstreamConn_HandleStartupMessage_ClientCloses(t *testing.T) {
 }
 
 func TestDownstreamConn_HandleStartupMessage_AnswerFails(t *testing.T) {
-	clientConn, serverConn := tcpPipe(t)
+	clientConn, serverConn := testutil.TCPPipe(t)
 
 	client := pgproto3.NewFrontend(clientConn, clientConn)
 	client.Send(&pgproto3.SSLRequest{})
@@ -85,7 +87,7 @@ func TestDownstreamConn_HandleStartupMessage_AnswerFails(t *testing.T) {
 }
 
 func TestDownstreamConn_HandleStartupMessage_Cancel(t *testing.T) {
-	clientConn, serverConn := tcpPipe(t)
+	clientConn, serverConn := testutil.TCPPipe(t)
 
 	cancel := &pgproto3.CancelRequest{ProcessID: 42, SecretKey: []byte{1, 2, 3, 4}}
 	client := pgproto3.NewFrontend(clientConn, clientConn)
@@ -129,7 +131,7 @@ func TestDownstreamConn_NegotiateProtocolVersion(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			clientConn, serverConn := tcpPipe(t)
+			clientConn, serverConn := testutil.TCPPipe(t)
 
 			require.NoError(t, newDownstreamConn(serverConn).negotiateProtocolVersion(tt.startup))
 			require.NoError(t, serverConn.Close())
@@ -160,7 +162,7 @@ func TestDownstreamConn_NegotiateProtocolVersion_SendFails(t *testing.T) {
 }
 
 func TestDownstreamConn_CompleteLogin(t *testing.T) {
-	clientConn, serverConn := tcpPipe(t)
+	clientConn, serverConn := testutil.TCPPipe(t)
 
 	dbConn := &pgconn.HijackedConn{
 		PID:               42,
@@ -181,7 +183,7 @@ func TestDownstreamConn_CompleteLogin(t *testing.T) {
 }
 
 func TestDownstreamConn_CompleteLogin_SendFails(t *testing.T) {
-	_, serverConn := tcpPipe(t)
+	_, serverConn := testutil.TCPPipe(t)
 
 	err := newDownstreamConn(failingConn{Conn: serverConn}).completeLogin(&pgconn.HijackedConn{})
 
@@ -189,7 +191,7 @@ func TestDownstreamConn_CompleteLogin_SendFails(t *testing.T) {
 }
 
 func TestDownstreamConn_MessageTooLong(t *testing.T) {
-	clientConn, serverConn := tcpPipe(t)
+	clientConn, serverConn := testutil.TCPPipe(t)
 
 	_, err := clientConn.Write(binary.BigEndian.AppendUint32([]byte{'Q'}, maxMessageBodyLen+5))
 	require.NoError(t, err)
@@ -201,7 +203,7 @@ func TestDownstreamConn_MessageTooLong(t *testing.T) {
 }
 
 func TestDownstreamConn_Reject(t *testing.T) {
-	clientConn, serverConn := tcpPipe(t)
+	clientConn, serverConn := testutil.TCPPipe(t)
 
 	newDownstreamConn(serverConn).reject(errUnknownCredential)
 
