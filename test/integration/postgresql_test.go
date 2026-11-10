@@ -15,6 +15,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 
 	gatewayconfig "gateway/internal/config"
 	"gateway/internal/proxy"
@@ -116,6 +117,10 @@ func TestPostgreSQL(t *testing.T) {
 				"process_id": conn.PgConn().PID(),
 			}
 
+			require.Eventually(t, func() bool {
+				return logs.FilterMessage("PostgreSQL connection established").FilterField(zap.Uint32("process_id", conn.PgConn().PID())).Len() == 1
+			}, 5*time.Second, 10*time.Millisecond)
+
 			t.Run("query", func(t *testing.T) {
 				const (
 					query = "SELECT current_user, current_database(), ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()"
@@ -139,9 +144,11 @@ func TestPostgreSQL(t *testing.T) {
 
 				testutil.AssertLogsForPostgreSQLSession(t, logs.All()[seen:], expectedUser, expectedDatabase, []testutil.PostgreSQLAuditLog{
 					{Message: "pg parse", Fields: map[string]any{"statement_name": statementName, "sql": query}},
+					{Message: "pg completed", Fields: map[string]any{}},
 					{Message: "pg bind", Fields: map[string]any{"statement_name": statementName, "portal_name": "", "parameters": []any{}}},
 					{Message: "pg execute", Fields: map[string]any{"portal_name": "", "max_rows": uint32(0)}},
 					{Message: "pg result", Fields: map[string]any{"command": "SELECT", "row_count": int64(1)}},
+					{Message: "pg completed", Fields: map[string]any{}},
 				})
 			})
 
@@ -164,10 +171,13 @@ func TestPostgreSQL(t *testing.T) {
 				testutil.AssertLogsForPostgreSQLSession(t, logs.All()[seen:], expectedUser, expectedDatabase, []testutil.PostgreSQLAuditLog{
 					{Message: "pg query", Fields: map[string]any{"sql": "CREATE TEMPORARY TABLE items (id int, name text)"}},
 					{Message: "pg result", Fields: map[string]any{"command": "CREATE TABLE"}},
+					{Message: "pg completed", Fields: map[string]any{}},
 					{Message: "pg query", Fields: map[string]any{"sql": "COPY items FROM STDIN"}},
 					{Message: "pg result", Fields: map[string]any{"command": "COPY", "row_count": int64(2)}},
+					{Message: "pg completed", Fields: map[string]any{}},
 					{Message: "pg query", Fields: map[string]any{"sql": "COPY items TO STDOUT"}},
 					{Message: "pg result", Fields: map[string]any{"command": "COPY", "row_count": int64(2)}},
+					{Message: "pg completed", Fields: map[string]any{}},
 				})
 			})
 
@@ -198,13 +208,16 @@ func TestPostgreSQL(t *testing.T) {
 				testutil.AssertLogsForPostgreSQLSession(t, entries, expectedUser, expectedDatabase, []testutil.PostgreSQLAuditLog{
 					{Message: "pg query", Fields: map[string]any{"sql": "SELECT pg_sleep(30)"}},
 					{Message: "pg result", Fields: map[string]any{"error_code": "57014", "error_message": "canceling statement due to user request"}},
+					{Message: "pg completed", Fields: map[string]any{}},
 				})
 				testutil.AssertLogsForPostgreSQLCancel(t, entries, expectedUser, conn.PgConn().PID())
 			})
 
 			require.NoError(t, conn.Close(t.Context()))
+
+			require.Eventually(t, func() bool {
+				return logs.FilterMessage("PostgreSQL connection closed").FilterField(zap.Uint32("process_id", conn.PgConn().PID())).Len() == 1
+			}, 5*time.Second, 10*time.Millisecond)
 		})
 	}
-
-	require.Len(t, logs.FilterMessage("PostgreSQL connection established").All(), 2)
 }
