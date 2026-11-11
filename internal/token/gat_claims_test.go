@@ -144,7 +144,7 @@ func TestGATTokenClaims_Validate(t *testing.T) {
 		claims.Resource.Type = ResourceTypePostgreSQL
 		claims.Resource.GatewayMetadata.Downstream.TLSMode = TLSServerModeNone
 		claims.Resource.GatewayMetadata.Upstream.TLSMode = TLSClientModeVerifyFull
-		claims.Resource.GatewayMetadata.Auths = Auths{{Type: AuthTypePassword, User: "viewer", Password: &PasswordAuth{Credential: "prod-viewer"}}}
+		claims.Resource.GatewayMetadata.Auths = []Auth{{Type: AuthTypePassword, User: "viewer", Password: &PasswordAuth{Credential: "prod-viewer"}}}
 
 		assert.NoError(t, claims.Validate())
 	})
@@ -376,16 +376,18 @@ func TestGATTokenClaims_Validate(t *testing.T) {
 	}
 }
 
-func TestAuths_Validate(t *testing.T) {
+func TestGatewayMetadata_ValidateAuths(t *testing.T) {
 	validAuth := Auth{Type: AuthTypePassword, User: "viewer", Password: &PasswordAuth{Credential: "prod-viewer"}}
 
 	t.Run("Valid auths", func(t *testing.T) {
-		assert.NoError(t, Auths{validAuth}.Validate(TLSClientModeVerifyFull))
+		metadata := GatewayMetadata{Upstream: Upstream{TLSMode: TLSClientModeVerifyFull}, Auths: []Auth{validAuth}}
+
+		assert.NoError(t, metadata.validateAuths())
 	})
 
 	tests := []struct {
 		name                 string
-		auths                Auths
+		auths                []Auth
 		expectedError        error
 		expectedErrorMessage string
 	}{
@@ -396,7 +398,7 @@ func TestAuths_Validate(t *testing.T) {
 		},
 		{
 			name:                 "Invalid auth",
-			auths:                Auths{{Type: AuthTypePassword, User: "editor", Password: &PasswordAuth{}}},
+			auths:                []Auth{{Type: AuthTypePassword, User: "editor", Password: &PasswordAuth{}}},
 			expectedError:        jwt.ErrTokenRequiredClaimMissing,
 			expectedErrorMessage: "resource.gateway_metadata.auths[0]: token is missing required claim \"credential\"",
 		},
@@ -404,7 +406,9 @@ func TestAuths_Validate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := tt.auths.Validate(TLSClientModeVerifyFull)
+			metadata := GatewayMetadata{Upstream: Upstream{TLSMode: TLSClientModeVerifyFull}, Auths: tt.auths}
+
+			err := metadata.validateAuths()
 
 			require.ErrorIs(t, err, tt.expectedError)
 			require.ErrorContains(t, err, tt.expectedErrorMessage)
