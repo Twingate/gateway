@@ -62,6 +62,8 @@ linters:
         - caProvider
         - credentialProvider
         - issuer
+        # cloud.google.com/go/auth
+        - TokenProvider
         # golang.org/x/crypto/ssh
         - Signer
         - PublicKey
