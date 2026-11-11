@@ -60,6 +60,7 @@ linters:
         - Recorder
         - ca
         - caProvider
+        - credentialProvider
         - issuer
         # golang.org/x/crypto/ssh
         - Signer

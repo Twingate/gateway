@@ -20,6 +20,7 @@ import (
 
 	"gateway/internal/backend/httpproxy"
 	"gateway/internal/backend/kubernetes"
+	"gateway/internal/backend/postgres"
 	"gateway/internal/backend/ssh"
 	"gateway/internal/backend/webapp"
 	gatewayconfig "gateway/internal/config"
@@ -39,6 +40,7 @@ type Proxy struct {
 
 	httpProxies   map[token.ResourceType]*httpproxy.Proxy
 	sshProxy      *ssh.Proxy
+	postgresProxy *postgres.Proxy
 	metricsServer *metrics.Server
 
 	listener     net.Listener
@@ -104,6 +106,17 @@ func NewProxy(config *gatewayconfig.Config, registry *prometheus.Registry, logge
 		sshProxy = ssh.NewProxy(*sshConfig)
 	}
 
+	var postgresProxy *postgres.Proxy
+
+	if config.PostgreSQL != nil {
+		postgresConfig, err := postgres.NewConfig(config.PostgreSQL, config.UpstreamTrustedCABundles, logger)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create PostgreSQL config: %w", err)
+		}
+
+		postgresProxy = postgres.NewProxy(*postgresConfig)
+	}
+
 	sessionrecorder.RegisterRecordedSessionMetrics(metrics.Namespace, registry)
 
 	metricsServer := metrics.NewServer(metrics.Config{
@@ -118,6 +131,7 @@ func NewProxy(config *gatewayconfig.Config, registry *prometheus.Registry, logge
 
 		httpProxies:   httpProxies,
 		sshProxy:      sshProxy,
+		postgresProxy: postgresProxy,
 		metricsServer: metricsServer,
 	}, nil
 }
@@ -141,6 +155,14 @@ func (p *Proxy) Start() error {
 		sshChannel := make(chan frontend.Conn)
 		channels[token.ResourceTypeSSH] = sshChannel
 		sshListener = frontend.NewProtocolListener(sshChannel, listener.Addr())
+	}
+
+	var postgresListener *frontend.ProtocolListener
+
+	if p.postgresProxy != nil {
+		postgresChannel := make(chan frontend.Conn)
+		channels[token.ResourceTypePostgreSQL] = postgresChannel
+		postgresListener = frontend.NewProtocolListener(postgresChannel, listener.Addr())
 	}
 
 	httpListeners := make(map[token.ResourceType]*frontend.ProtocolListener)
@@ -183,6 +205,19 @@ func (p *Proxy) Start() error {
 			err := p.sshProxy.Start(gCtx, sshListener)
 			if err != nil {
 				p.logger.System.Error("SSH proxy stopped with error", zap.Error(err))
+			}
+
+			return err
+		})
+	}
+
+	if p.postgresProxy != nil {
+		g.Go(func() error {
+			p.logger.System.Info("Starting PostgreSQL proxy")
+
+			err := p.postgresProxy.Start(gCtx, postgresListener)
+			if err != nil {
+				p.logger.System.Error("PostgreSQL proxy stopped with error", zap.Error(err))
 			}
 
 			return err
@@ -266,6 +301,10 @@ func (p *Proxy) shutdown() {
 
 		if p.sshProxy != nil {
 			p.sshProxy.Shutdown(ctx)
+		}
+
+		if p.postgresProxy != nil {
+			p.postgresProxy.Shutdown(ctx)
 		}
 
 		if err := p.metricsServer.Shutdown(ctx); err != nil {
