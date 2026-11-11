@@ -143,8 +143,6 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 		return err
 	}
 
-	loginStart := time.Now()
-
 	if err := downstream.negotiateProtocolVersion(startup); err != nil {
 		logger.System.Error("Failed to negotiate the protocol version", zap.Error(err))
 		p.config.metrics.RecordSession(metrics.DBSessionOutcomeClientError)
@@ -154,6 +152,8 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 	}
 
 	auth := conn.GATClaims().Resource.GatewayMetadata.Auths[0]
+
+	credentialStart := time.Now()
 
 	provider, err := newCredentialProvider(conn.GetUpstreamAddress(), auth, p.config.passwords)
 	if err != nil {
@@ -172,6 +172,10 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 
 		return errFailedToGetCredential
 	}
+
+	p.config.metrics.RecordCredentialRetrieval(string(auth.Type), time.Since(credentialStart))
+
+	connectStart := time.Now()
 
 	dbConn, err := upstream.connect(ctx, startup, cred)
 	if err != nil {
@@ -192,6 +196,8 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 		return err
 	}
 
+	p.config.metrics.RecordUpstreamConnect(time.Since(connectStart))
+
 	defer func() { _ = dbConn.Conn.Close() }()
 
 	if err := downstream.completeLogin(dbConn); err != nil {
@@ -203,7 +209,6 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 	}
 
 	p.config.metrics.RecordSession(metrics.DBSessionOutcomeSuccess)
-	p.config.metrics.RecordUpstreamLogin(string(auth.Type), time.Since(loginStart))
 
 	sessionEnded := p.config.metrics.TrackActiveSession()
 	defer sessionEnded()

@@ -23,7 +23,8 @@ func TestDBMetrics(t *testing.T) {
 	pgMetrics := dbMetrics.WithResourceType(ResourceTypePostgreSQL)
 
 	pgMetrics.RecordSession(DBSessionOutcomeSuccess)
-	pgMetrics.RecordUpstreamLogin("password", time.Second)
+	pgMetrics.RecordCredentialRetrieval("password", time.Second)
+	pgMetrics.RecordUpstreamConnect(2 * time.Second)
 	sessionEnded := pgMetrics.TrackActiveSession()
 
 	metricFamilies, err := testRegistry.Gather()
@@ -38,9 +39,12 @@ func TestDBMetrics(t *testing.T) {
 			"resource_type": "postgresql",
 			"outcome":       "success",
 		},
-		"twingate_gateway_db_upstream_login_duration_seconds": {
+		"twingate_gateway_db_credential_retrieval_duration_seconds": {
 			"resource_type": "postgresql",
 			"auth_type":     "password",
+		},
+		"twingate_gateway_db_upstream_connect_duration_seconds": {
+			"resource_type": "postgresql",
 		},
 	}
 	assert.Equal(t, expectedLabels, labelsByMetric)
@@ -48,10 +52,15 @@ func TestDBMetrics(t *testing.T) {
 	assert.InDelta(t, 1, promtestutil.ToFloat64(dbMetrics.sessionsTotal), 0)
 	assert.InDelta(t, 1, promtestutil.ToFloat64(dbMetrics.activeSessions), 0)
 
-	histogram := testutil.GetHistogram("twingate_gateway_db_upstream_login_duration_seconds", metricFamilies)
+	histogram := testutil.GetHistogram("twingate_gateway_db_credential_retrieval_duration_seconds", metricFamilies)
 	require.NotNil(t, histogram)
 	assert.Equal(t, uint64(1), histogram.GetSampleCount())
 	assert.InDelta(t, 1, histogram.GetSampleSum(), 0)
+
+	histogram = testutil.GetHistogram("twingate_gateway_db_upstream_connect_duration_seconds", metricFamilies)
+	require.NotNil(t, histogram)
+	assert.Equal(t, uint64(1), histogram.GetSampleCount())
+	assert.InDelta(t, 2, histogram.GetSampleSum(), 0)
 
 	sessionEnded()
 

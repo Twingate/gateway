@@ -27,9 +27,10 @@ const (
 )
 
 type DBMetrics struct {
-	activeSessions        *prometheus.GaugeVec
-	sessionsTotal         *prometheus.CounterVec
-	upstreamLoginDuration *prometheus.HistogramVec
+	activeSessions              *prometheus.GaugeVec
+	sessionsTotal               *prometheus.CounterVec
+	credentialRetrievalDuration *prometheus.HistogramVec
+	upstreamConnectDuration     *prometheus.HistogramVec
 }
 
 func RegisterDBMetrics(registry *prometheus.Registry) *DBMetrics {
@@ -46,15 +47,22 @@ func RegisterDBMetrics(registry *prometheus.Registry) *DBMetrics {
 			Help:      "Total number of database connection attempts by outcome",
 		}, []string{labelResourceType, labelOutcome}),
 
-		upstreamLoginDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		credentialRetrievalDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: Namespace,
-			Name:      "db_upstream_login_duration_seconds",
-			Help:      "Time taken to log in to the upstream database in seconds",
+			Name:      "db_credential_retrieval_duration_seconds",
+			Help:      "Time taken to retrieve the credential for the upstream database in seconds",
 			Buckets:   prometheus.DefBuckets,
 		}, []string{labelResourceType, labelAuthType}),
+
+		upstreamConnectDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: Namespace,
+			Name:      "db_upstream_connect_duration_seconds",
+			Help:      "Time taken to connect and log in to the upstream database in seconds",
+			Buckets:   prometheus.DefBuckets,
+		}, []string{labelResourceType}),
 	}
 
-	registry.MustRegister(m.activeSessions, m.sessionsTotal, m.upstreamLoginDuration)
+	registry.MustRegister(m.activeSessions, m.sessionsTotal, m.credentialRetrievalDuration, m.upstreamConnectDuration)
 
 	return m
 }
@@ -74,8 +82,12 @@ func (m *DBResourceMetrics) RecordSession(outcome DBSessionOutcome) {
 	m.metrics.sessionsTotal.WithLabelValues(m.resourceType, string(outcome)).Inc()
 }
 
-func (m *DBResourceMetrics) RecordUpstreamLogin(authType string, duration time.Duration) {
-	m.metrics.upstreamLoginDuration.WithLabelValues(m.resourceType, authType).Observe(duration.Seconds())
+func (m *DBResourceMetrics) RecordCredentialRetrieval(authType string, duration time.Duration) {
+	m.metrics.credentialRetrievalDuration.WithLabelValues(m.resourceType, authType).Observe(duration.Seconds())
+}
+
+func (m *DBResourceMetrics) RecordUpstreamConnect(duration time.Duration) {
+	m.metrics.upstreamConnectDuration.WithLabelValues(m.resourceType).Observe(duration.Seconds())
 }
 
 // TrackActiveSession counts a session as active until the returned function is called.
