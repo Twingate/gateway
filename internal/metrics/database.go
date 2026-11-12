@@ -23,7 +23,6 @@ const (
 	DBSessionOutcomeClientError          DBSessionOutcome = "client_error"
 	DBSessionOutcomeCredentialError      DBSessionOutcome = "credential_error" // #nosec G101 -- metric label value, not a credential
 	DBSessionOutcomeUpstreamConnectError DBSessionOutcome = "upstream_connect_error"
-	DBSessionOutcomeUpstreamLoginError   DBSessionOutcome = "upstream_login_error"
 )
 
 type DBMetrics struct {
