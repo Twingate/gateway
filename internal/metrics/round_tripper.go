@@ -21,6 +21,7 @@ type ResourceType string
 const (
 	ResourceTypeKubernetes ResourceType = "kubernetes"
 	ResourceTypeWebApp     ResourceType = "web_app"
+	ResourceTypePostgreSQL ResourceType = "postgresql"
 )
 
 type RoundTripperMetrics struct {

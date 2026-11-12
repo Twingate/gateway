@@ -8,12 +8,14 @@ import (
 	"errors"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"go.uber.org/zap"
 
 	backendtls "gateway/internal/backend/tls"
 	"gateway/internal/frontend"
+	"gateway/internal/metrics"
 )
 
 var errShuttingDown = errors.New("shutting down")
@@ -112,6 +114,7 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 	startup, cancel, err := downstream.handleStartupMessage()
 	if err != nil {
 		logger.System.Error("Failed to receive startup message", zap.Error(err))
+		p.config.metrics.RecordSession(metrics.DBSessionOutcomeClientError)
 		downstream.reject(err)
 
 		return err
@@ -142,6 +145,7 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 
 	if err := downstream.negotiateProtocolVersion(startup); err != nil {
 		logger.System.Error("Failed to negotiate the protocol version", zap.Error(err))
+		p.config.metrics.RecordSession(metrics.DBSessionOutcomeClientError)
 		downstream.reject(err)
 
 		return err
@@ -149,9 +153,12 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 
 	auth := conn.GATClaims().Resource.GatewayMetadata.Auths[0]
 
+	credentialStart := time.Now()
+
 	provider, err := newCredentialProvider(conn.GetUpstreamAddress(), auth, p.config.passwords)
 	if err != nil {
 		logger.System.Error("Failed to get the database credential", zap.Error(err))
+		p.config.metrics.RecordSession(metrics.DBSessionOutcomeCredentialError)
 		downstream.reject(errFailedToGetCredential)
 
 		return errFailedToGetCredential
@@ -160,14 +167,21 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 	cred, err := provider.get(ctx)
 	if err != nil {
 		logger.System.Error("Failed to get the database credential", zap.Error(err))
+		p.config.metrics.RecordSession(metrics.DBSessionOutcomeCredentialError)
 		downstream.reject(errFailedToGetCredential)
 
 		return errFailedToGetCredential
 	}
 
+	p.config.metrics.RecordCredentialRetrieval(string(auth.Type), time.Since(credentialStart))
+
+	connectStart := time.Now()
+
 	dbConn, err := upstream.connect(ctx, startup, cred)
 	if err != nil {
 		logger.System.Error("Failed to connect to the database", zap.Error(err))
+
+		p.config.metrics.RecordSession(metrics.DBSessionOutcomeUpstreamConnectError)
 
 		// A database error is relayed as is; anything else carries the upstream address and TLS detail.
 		if _, ok := errors.AsType[*pgconn.PgError](err); !ok {
@@ -179,14 +193,22 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 		return err
 	}
 
+	p.config.metrics.RecordUpstreamConnect(time.Since(connectStart))
+
 	defer func() { _ = dbConn.Conn.Close() }()
 
 	if err := downstream.completeLogin(dbConn); err != nil {
 		logger.System.Error("Failed to accept the PostgreSQL client", zap.Error(err))
+		p.config.metrics.RecordSession(metrics.DBSessionOutcomeClientError)
 		downstream.reject(err)
 
 		return err
 	}
+
+	p.config.metrics.RecordSession(metrics.DBSessionOutcomeSuccess)
+
+	sessionEnded := p.config.metrics.TrackActiveSession()
+	defer sessionEnded()
 
 	logger.System.Info("PostgreSQL connection established")
 

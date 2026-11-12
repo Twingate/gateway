@@ -24,6 +24,7 @@ import (
 	gatewayconfig "gateway/internal/config"
 	"gateway/internal/frontend"
 	"gateway/internal/logging"
+	"gateway/internal/metrics"
 	"gateway/internal/token"
 )
 
@@ -65,7 +66,7 @@ func newTestProxy(t *testing.T) *Proxy {
 			{Name: testCredential, Password: "secret"},
 			{Name: "unreadable", PasswordFile: filepath.Join(t.TempDir(), "missing")},
 		},
-	}, []gatewayconfig.UpstreamTrustedCABundle{{File: testCertificateFile}}, logging.NewNop())
+	}, []gatewayconfig.UpstreamTrustedCABundle{{File: testCertificateFile}}, metrics.RegisterDBMetrics(prometheus.NewRegistry()), logging.NewNop())
 	require.NoError(t, err)
 
 	return NewProxy(*config)
