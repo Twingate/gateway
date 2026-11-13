@@ -45,60 +45,60 @@ func TestAuditObserver_ClientMessages(t *testing.T) {
 		{
 			name: "query",
 			msgs: []pgproto3.FrontendMessage{&pgproto3.Query{String: "SELECT 1"}},
-			want: []auditLine{{"pg query", map[string]any{"sql": "SELECT 1"}}},
+			want: []auditLine{{"pg_query", map[string]any{"sql": "SELECT 1"}}},
 		},
 		{
 			name: "query over the cap",
 			msgs: []pgproto3.FrontendMessage{&pgproto3.Query{String: overCap}},
-			want: []auditLine{{"pg query", map[string]any{"sql": atCap, "truncated": true}}},
+			want: []auditLine{{"pg_query", map[string]any{"sql": atCap, "truncated": true}}},
 		},
 		{
 			name: "parse",
 			msgs: []pgproto3.FrontendMessage{&pgproto3.Parse{Name: "stmtcache_3", Query: "SELECT $1"}},
-			want: []auditLine{{"pg parse", map[string]any{"statement_name": "stmtcache_3", "sql": "SELECT $1"}}},
+			want: []auditLine{{"pg_parse", map[string]any{"statement_name": "stmtcache_3", "sql": "SELECT $1"}}},
 		},
 		{
 			name: "parse with a statement name over the cap",
 			msgs: []pgproto3.FrontendMessage{&pgproto3.Parse{Name: overCap, Query: "SELECT 1"}},
-			want: []auditLine{{"pg parse", map[string]any{"statement_name": atCap, "sql": "SELECT 1", "truncated": true}}},
+			want: []auditLine{{"pg_parse", map[string]any{"statement_name": atCap, "sql": "SELECT 1", "truncated": true}}},
 		},
 		{
 			name: "bind",
 			msgs: []pgproto3.FrontendMessage{&pgproto3.Bind{PreparedStatement: "stmtcache_3", Parameters: [][]byte{[]byte("42")}}},
-			want: []auditLine{{"pg bind", map[string]any{
+			want: []auditLine{{"pg_bind", map[string]any{
 				"statement_name": "stmtcache_3", "portal_name": "", "parameters": []any{"42"},
 			}}},
 		},
 		{
 			name: "bind with names over the cap",
 			msgs: []pgproto3.FrontendMessage{&pgproto3.Bind{PreparedStatement: overCap, DestinationPortal: overCap}},
-			want: []auditLine{{"pg bind", map[string]any{
+			want: []auditLine{{"pg_bind", map[string]any{
 				"statement_name": atCap, "portal_name": atCap, "parameters": []any{}, "truncated": true,
 			}}},
 		},
 		{
 			name: "bind with parameters over the cap",
 			msgs: []pgproto3.FrontendMessage{&pgproto3.Bind{PreparedStatement: "stmtcache_3", Parameters: [][]byte{[]byte(overCap)}}},
-			want: []auditLine{{"pg bind", map[string]any{
+			want: []auditLine{{"pg_bind", map[string]any{
 				"statement_name": "stmtcache_3", "portal_name": "", "parameters": []any{atCap}, "truncated": true,
 			}}},
 		},
 		{
 			name: "execute",
 			msgs: []pgproto3.FrontendMessage{&pgproto3.Execute{Portal: "p1", MaxRows: 10}},
-			want: []auditLine{{"pg execute", map[string]any{"portal_name": "p1", "max_rows": uint32(10)}}},
+			want: []auditLine{{"pg_execute", map[string]any{"portal_name": "p1", "max_rows": uint32(10)}}},
 		},
 		{
 			name: "execute with a portal name over the cap",
 			msgs: []pgproto3.FrontendMessage{&pgproto3.Execute{Portal: overCap}},
-			want: []auditLine{{"pg execute", map[string]any{"portal_name": atCap, "max_rows": uint32(0), "truncated": true}}},
+			want: []auditLine{{"pg_execute", map[string]any{"portal_name": atCap, "max_rows": uint32(0), "truncated": true}}},
 		},
 		{
 			name: "function call",
 			msgs: []pgproto3.FrontendMessage{
 				&pgproto3.FunctionCall{Function: 1234, ArgFormatCodes: []uint16{pgtype.BinaryFormatCode}, Arguments: [][]byte{{1}}},
 			},
-			want: []auditLine{{"pg function_call", map[string]any{
+			want: []auditLine{{"pg_function_call", map[string]any{
 				"function": uint32(1234), "arguments": []any{"AQ=="},
 			}}},
 		},
@@ -138,39 +138,37 @@ func TestAuditObserver_ServerMessages(t *testing.T) {
 		{
 			name: "command complete with a row count",
 			msgs: []pgproto3.BackendMessage{&pgproto3.CommandComplete{CommandTag: []byte("SELECT 2")}},
-			want: []auditLine{{"pg result", map[string]any{"command": "SELECT", "row_count": int64(2)}}},
+			want: []auditLine{{"pg_result", map[string]any{"command": "SELECT", "row_count": int64(2)}}},
 		},
 		{
 			name: "command complete without a row count",
 			msgs: []pgproto3.BackendMessage{&pgproto3.CommandComplete{CommandTag: []byte("SHOW")}},
-			want: []auditLine{{"pg result", map[string]any{"command": "SHOW"}}},
+			want: []auditLine{{"pg_result", map[string]any{"command": "SHOW"}}},
 		},
 		{
 			name: "empty query",
 			msgs: []pgproto3.BackendMessage{&pgproto3.EmptyQueryResponse{}},
-			want: []auditLine{{"pg result", map[string]any{}}},
+			want: []auditLine{{"pg_result", map[string]any{}}},
 		},
 		{
 			name: "function call response",
 			msgs: []pgproto3.BackendMessage{&pgproto3.FunctionCallResponse{Result: []byte("1")}},
-			want: []auditLine{{"pg result", map[string]any{}}},
+			want: []auditLine{{"pg_result", map[string]any{}}},
 		},
 		{
 			name: "error",
 			msgs: []pgproto3.BackendMessage{&pgproto3.ErrorResponse{Code: "42501", Message: "permission denied for table users"}},
-			want: []auditLine{{"pg result", map[string]any{
-				"error_code": "42501", "error_message": "permission denied for table users",
-			}}},
+			want: []auditLine{{"pg_result", map[string]any{"error_code": "42501"}}},
 		},
 		{
 			name: "portal suspended",
 			msgs: []pgproto3.BackendMessage{&pgproto3.PortalSuspended{}},
-			want: []auditLine{{"pg result", map[string]any{"suspended": true}}},
+			want: []auditLine{{"pg_result", map[string]any{"suspended": true}}},
 		},
 		{
 			name: "ready for query",
 			msgs: []pgproto3.BackendMessage{&pgproto3.ReadyForQuery{TxStatus: 'I'}},
-			want: []auditLine{{"pg completed", map[string]any{}}},
+			want: []auditLine{{"pg_completed", map[string]any{}}},
 		},
 		{
 			name: "never logged",

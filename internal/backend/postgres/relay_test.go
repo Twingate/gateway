@@ -276,8 +276,8 @@ func TestRelay_Audit(t *testing.T) {
 	require.NoError(t, err)
 
 	want := []auditLine{
-		{"pg query", map[string]any{"sql": "SELECT 1"}},
-		{"pg completed", map[string]any{}},
+		{"pg_query", map[string]any{"sql": "SELECT 1"}},
+		{"pg_completed", map[string]any{}},
 	}
 	assert.Equal(t, want, takeLines(r.auditLogs))
 }
