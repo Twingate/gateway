@@ -27,10 +27,11 @@ type relay struct {
 	logger     *zap.Logger
 	downstream *downstreamConn
 	upstream   *pgconn.HijackedConn
+	audit      *auditObserver
 }
 
-func newRelay(logger *zap.Logger, downstream *downstreamConn, upstream *pgconn.HijackedConn) *relay {
-	return &relay{logger: logger, downstream: downstream, upstream: upstream}
+func newRelay(logger *zap.Logger, downstream *downstreamConn, upstream *pgconn.HijackedConn, audit *auditObserver) *relay {
+	return &relay{logger: logger, downstream: downstream, upstream: upstream, audit: audit}
 }
 
 // serve returns nil when the session ended normally: When either side closed after a Terminate message,
@@ -82,6 +83,8 @@ func (r *relay) forwardDownstreamMessages() error {
 			return fmt.Errorf("%w: %w", errFailedToReceiveDownstreamMessage, err)
 		}
 
+		r.audit.onDownstreamMessage(msg)
+
 		r.upstream.Frontend.Send(msg)
 
 		if err := r.upstream.Frontend.Flush(); err != nil {
@@ -96,6 +99,8 @@ func (r *relay) forwardUpstreamMessages() error {
 		if err != nil {
 			return fmt.Errorf("%w: %w", errFailedToReceiveUpstreamMessage, err)
 		}
+
+		r.audit.onUpstreamMessage(msg)
 
 		r.downstream.backend.Send(msg)
 
