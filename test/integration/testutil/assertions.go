@@ -225,7 +225,7 @@ func AssertLogsForPostgreSQLCancel(t *testing.T, entries []observer.LoggedEntry,
 	cancelLogs := []observer.LoggedEntry{}
 
 	for _, entry := range entries {
-		if entry.LoggerName == logging.AuditLoggerName && entry.Message == "pg cancel" {
+		if entry.LoggerName == logging.AuditLoggerName && entry.Message == "pg_cancel" {
 			cancelLogs = append(cancelLogs, entry)
 		}
 	}

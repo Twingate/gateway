@@ -118,7 +118,7 @@ func TestPostgreSQL(t *testing.T) {
 			}
 
 			require.Eventually(t, func() bool {
-				return logs.FilterMessage("PostgreSQL connection established").FilterField(zap.Uint32("process_id", conn.PgConn().PID())).Len() == 1
+				return logs.FilterMessage("pg_connect").FilterField(zap.Uint32("process_id", conn.PgConn().PID())).Len() == 1
 			}, 5*time.Second, 10*time.Millisecond)
 
 			t.Run("single statement query", func(t *testing.T) {
@@ -143,12 +143,12 @@ func TestPostgreSQL(t *testing.T) {
 				assert.Equal(t, tt.tlsMode != token.TLSClientModeNone, ssl)
 
 				testutil.AssertLogsForPostgreSQLSession(t, logs.All()[seen:], expectedUser, expectedDatabase, []testutil.PostgreSQLAuditLog{
-					{Message: "pg parse", Fields: map[string]any{"statement_name": statementName, "sql": query}},
-					{Message: "pg completed", Fields: map[string]any{}},
-					{Message: "pg bind", Fields: map[string]any{"statement_name": statementName, "portal_name": "", "parameters": []any{}}},
-					{Message: "pg execute", Fields: map[string]any{"portal_name": "", "max_rows": uint32(0)}},
-					{Message: "pg result", Fields: map[string]any{"command": "SELECT", "row_count": int64(1)}},
-					{Message: "pg completed", Fields: map[string]any{}},
+					{Message: "pg_parse", Fields: map[string]any{"statement_name": statementName, "sql": query}},
+					{Message: "pg_completed", Fields: map[string]any{}},
+					{Message: "pg_bind", Fields: map[string]any{"statement_name": statementName, "portal_name": "", "parameters": []any{}}},
+					{Message: "pg_execute", Fields: map[string]any{"portal_name": "", "max_rows": uint32(0)}},
+					{Message: "pg_result", Fields: map[string]any{"command": "SELECT", "row_count": int64(1)}},
+					{Message: "pg_completed", Fields: map[string]any{}},
 				})
 			})
 
@@ -161,11 +161,11 @@ func TestPostgreSQL(t *testing.T) {
 				require.NoError(t, err)
 
 				testutil.AssertLogsForPostgreSQLSession(t, logs.All()[seen:], expectedUser, expectedDatabase, []testutil.PostgreSQLAuditLog{
-					{Message: "pg query", Fields: map[string]any{"sql": query}},
-					{Message: "pg result", Fields: map[string]any{"command": "BEGIN"}},
-					{Message: "pg result", Fields: map[string]any{"command": "SELECT", "row_count": int64(1)}},
-					{Message: "pg result", Fields: map[string]any{"command": "COMMIT"}},
-					{Message: "pg completed", Fields: map[string]any{}},
+					{Message: "pg_query", Fields: map[string]any{"sql": query}},
+					{Message: "pg_result", Fields: map[string]any{"command": "BEGIN"}},
+					{Message: "pg_result", Fields: map[string]any{"command": "SELECT", "row_count": int64(1)}},
+					{Message: "pg_result", Fields: map[string]any{"command": "COMMIT"}},
+					{Message: "pg_completed", Fields: map[string]any{}},
 				})
 			})
 
@@ -186,15 +186,15 @@ func TestPostgreSQL(t *testing.T) {
 				assert.Equal(t, "1\tone\n2\ttwo\n", out.String())
 
 				testutil.AssertLogsForPostgreSQLSession(t, logs.All()[seen:], expectedUser, expectedDatabase, []testutil.PostgreSQLAuditLog{
-					{Message: "pg query", Fields: map[string]any{"sql": "CREATE TEMPORARY TABLE items (id int, name text)"}},
-					{Message: "pg result", Fields: map[string]any{"command": "CREATE TABLE"}},
-					{Message: "pg completed", Fields: map[string]any{}},
-					{Message: "pg query", Fields: map[string]any{"sql": "COPY items FROM STDIN"}},
-					{Message: "pg result", Fields: map[string]any{"command": "COPY", "row_count": int64(2)}},
-					{Message: "pg completed", Fields: map[string]any{}},
-					{Message: "pg query", Fields: map[string]any{"sql": "COPY items TO STDOUT"}},
-					{Message: "pg result", Fields: map[string]any{"command": "COPY", "row_count": int64(2)}},
-					{Message: "pg completed", Fields: map[string]any{}},
+					{Message: "pg_query", Fields: map[string]any{"sql": "CREATE TEMPORARY TABLE items (id int, name text)"}},
+					{Message: "pg_result", Fields: map[string]any{"command": "CREATE TABLE"}},
+					{Message: "pg_completed", Fields: map[string]any{}},
+					{Message: "pg_query", Fields: map[string]any{"sql": "COPY items FROM STDIN"}},
+					{Message: "pg_result", Fields: map[string]any{"command": "COPY", "row_count": int64(2)}},
+					{Message: "pg_completed", Fields: map[string]any{}},
+					{Message: "pg_query", Fields: map[string]any{"sql": "COPY items TO STDOUT"}},
+					{Message: "pg_result", Fields: map[string]any{"command": "COPY", "row_count": int64(2)}},
+					{Message: "pg_completed", Fields: map[string]any{}},
 				})
 			})
 
@@ -211,7 +211,7 @@ func TestPostgreSQL(t *testing.T) {
 
 				// PostgreSQL ignores a cancel that reaches an idle backend, so wait until the Gateway relays the query.
 				require.Eventually(t, func() bool {
-					return logs.FilterMessage("pg query").FilterField(zap.String("sql", query)).FilterField(zap.Uint32("process_id", conn.PgConn().PID())).Len() == 1
+					return logs.FilterMessage("pg_query").FilterField(zap.String("sql", query)).FilterField(zap.Uint32("process_id", conn.PgConn().PID())).Len() == 1
 				}, 5*time.Second, 10*time.Millisecond)
 
 				require.NoError(t, conn.PgConn().CancelRequest(t.Context()))
@@ -229,9 +229,9 @@ func TestPostgreSQL(t *testing.T) {
 				entries := logs.All()[seen:]
 
 				testutil.AssertLogsForPostgreSQLSession(t, entries, expectedUser, expectedDatabase, []testutil.PostgreSQLAuditLog{
-					{Message: "pg query", Fields: map[string]any{"sql": query}},
-					{Message: "pg result", Fields: map[string]any{"error_code": "57014", "error_message": "canceling statement due to user request"}},
-					{Message: "pg completed", Fields: map[string]any{}},
+					{Message: "pg_query", Fields: map[string]any{"sql": query}},
+					{Message: "pg_result", Fields: map[string]any{"error_code": "57014"}},
+					{Message: "pg_completed", Fields: map[string]any{}},
 				})
 				testutil.AssertLogsForPostgreSQLCancel(t, entries, expectedUser, conn.PgConn().PID())
 			})
@@ -239,7 +239,7 @@ func TestPostgreSQL(t *testing.T) {
 			require.NoError(t, conn.Close(t.Context()))
 
 			require.Eventually(t, func() bool {
-				return logs.FilterMessage("PostgreSQL connection closed").FilterField(zap.Uint32("process_id", conn.PgConn().PID())).Len() == 1
+				return logs.FilterMessage("pg_disconnect").FilterField(zap.Uint32("process_id", conn.PgConn().PID())).Len() == 1
 			}, 5*time.Second, 10*time.Millisecond)
 		})
 	}
