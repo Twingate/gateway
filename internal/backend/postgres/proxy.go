@@ -112,6 +112,13 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 	startup, cancel, err := downstream.handleStartupMessage()
 	if err != nil {
 		logger.System.Error("Failed to receive startup message", zap.Error(err))
+
+		reason := "startup_failed"
+		if errors.Is(err, errReplicationNotSupported) {
+			reason = "replication_not_supported"
+		}
+
+		logger.Audit.Error("pg_connect_failed", zap.String("error", reason))
 		downstream.reject(err)
 
 		return err
@@ -130,9 +137,9 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 				reason = "unreachable_upstream"
 			}
 
-			logger.Audit.Error("pg cancel", zap.Uint32("process_id", cancel.ProcessID), zap.String("error", reason))
+			logger.Audit.Error("pg_cancel", zap.Uint32("process_id", cancel.ProcessID), zap.String("error", reason))
 		} else {
-			logger.Audit.Info("pg cancel", zap.Uint32("process_id", cancel.ProcessID))
+			logger.Audit.Info("pg_cancel", zap.Uint32("process_id", cancel.ProcessID))
 		}
 
 		_ = conn.Close()
@@ -142,6 +149,7 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 
 	if err := downstream.negotiateProtocolVersion(startup); err != nil {
 		logger.System.Error("Failed to negotiate the protocol version", zap.Error(err))
+		logger.Audit.Error("pg_connect_failed", zap.String("error", "startup_failed"))
 		downstream.reject(err)
 
 		return err
@@ -152,6 +160,7 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 	provider, err := newCredentialProvider(conn.GetUpstreamAddress(), auth, p.config.passwords)
 	if err != nil {
 		logger.System.Error("Failed to get the database credential", zap.Error(err))
+		logger.Audit.Error("pg_connect_failed", zap.String("error", "credential_failed"))
 		downstream.reject(errFailedToGetCredential)
 
 		return errFailedToGetCredential
@@ -160,6 +169,7 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 	cred, err := provider.get(ctx)
 	if err != nil {
 		logger.System.Error("Failed to get the database credential", zap.Error(err))
+		logger.Audit.Error("pg_connect_failed", zap.String("error", "credential_failed"))
 		downstream.reject(errFailedToGetCredential)
 
 		return errFailedToGetCredential
@@ -169,11 +179,15 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 	if err != nil {
 		logger.System.Error("Failed to connect to the database", zap.Error(err))
 
+		reason := "login_rejected"
+
 		// A database error is relayed as is; anything else carries the upstream address and TLS detail.
 		if _, ok := errors.AsType[*pgconn.PgError](err); !ok {
 			err = errFailedToConnectUpstream
+			reason = "unreachable_upstream"
 		}
 
+		logger.Audit.Error("pg_connect_failed", zap.String("error", reason))
 		downstream.reject(err)
 
 		return err
@@ -183,25 +197,30 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 
 	if err := downstream.completeLogin(dbConn); err != nil {
 		logger.System.Error("Failed to accept the PostgreSQL client", zap.Error(err))
+		logger.Audit.Error("pg_connect_failed", zap.String("error", "startup_failed"))
 		downstream.reject(err)
 
 		return err
 	}
-
-	logger.System.Info("PostgreSQL connection established")
 
 	logger.Audit = logger.Audit.With(
 		zap.Dict("db",
 			zap.String("user", dbConn.Config.User),
 			zap.String("name", dbConn.Config.Database),
 		),
+		zap.Uint32("process_id", dbConn.PID),
 	)
 
-	relay := newRelay(logger.System, downstream, dbConn)
+	logger.Audit.Info("pg_connect")
+
+	relay := newRelay(logger.System, downstream, dbConn, newAuditObserver(logger.Audit))
 
 	err = relay.serve(ctx)
-
-	logger.System.Info("PostgreSQL connection closed")
+	if err != nil {
+		logger.Audit.Error("pg_disconnect", zap.String("error", "relay_failed"))
+	} else {
+		logger.Audit.Info("pg_disconnect")
+	}
 
 	return err
 }
