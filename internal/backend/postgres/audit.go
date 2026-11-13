@@ -23,8 +23,8 @@ const (
 	fieldTruncated     = "truncated"
 )
 
-// maxAuditValueBytes caps each statement name, portal name, SQL text and error message in an audit
-// line, and the combined parameters of one line.
+// maxAuditValueBytes caps each statement name, portal name and SQL text in an audit line, and the
+// combined parameters of one line.
 const maxAuditValueBytes = 64 * humanize.KiByte
 
 // auditObserver writes one audit line per client message and per statement result, as the relay
@@ -42,27 +42,27 @@ func (o *auditObserver) onDownstreamMessage(msg pgproto3.FrontendMessage) {
 	case *pgproto3.Query:
 		sql, truncated := stringField(fieldSQL, msg.String)
 
-		o.logger.Info("pg query", sql, truncatedField(truncated))
+		o.logger.Info("pg_query", sql, truncatedField(truncated))
 	case *pgproto3.Parse:
 		statement, statementTruncated := stringField(fieldStatementName, msg.Name)
 		sql, sqlTruncated := stringField(fieldSQL, msg.Query)
 
-		o.logger.Info("pg parse", statement, sql, truncatedField(statementTruncated, sqlTruncated))
+		o.logger.Info("pg_parse", statement, sql, truncatedField(statementTruncated, sqlTruncated))
 	case *pgproto3.Bind:
 		statement, statementTruncated := stringField(fieldStatementName, msg.PreparedStatement)
 		portal, portalTruncated := stringField(fieldPortalName, msg.DestinationPortal)
 		parameters, parametersTruncated := valueField("parameters", msg.ParameterFormatCodes, msg.Parameters)
 
-		o.logger.Info("pg bind", statement, portal, parameters,
+		o.logger.Info("pg_bind", statement, portal, parameters,
 			truncatedField(statementTruncated, portalTruncated, parametersTruncated))
 	case *pgproto3.Execute:
 		portal, truncated := stringField(fieldPortalName, msg.Portal)
 
-		o.logger.Info("pg execute", portal, zap.Uint32("max_rows", msg.MaxRows), truncatedField(truncated))
+		o.logger.Info("pg_execute", portal, zap.Uint32("max_rows", msg.MaxRows), truncatedField(truncated))
 	case *pgproto3.FunctionCall:
 		arguments, truncated := valueField("arguments", msg.ArgFormatCodes, msg.Arguments)
 
-		o.logger.Info("pg function_call", zap.Uint32("function", msg.Function), arguments, truncatedField(truncated))
+		o.logger.Info("pg_function_call", zap.Uint32("function", msg.Function), arguments, truncatedField(truncated))
 	default:
 		// Describe, Close, Sync, Flush, Terminate and the COPY messages are not audited.
 	}
@@ -78,17 +78,15 @@ func (o *auditObserver) onUpstreamMessage(msg pgproto3.BackendMessage) {
 			fields = append(fields, zap.Int64("row_count", rowCount))
 		}
 
-		o.logger.Info("pg result", fields...)
+		o.logger.Info("pg_result", fields...)
 	case *pgproto3.EmptyQueryResponse, *pgproto3.FunctionCallResponse:
-		o.logger.Info("pg result")
+		o.logger.Info("pg_result")
 	case *pgproto3.ErrorResponse:
-		message, truncated := stringField("error_message", msg.Message)
-
-		o.logger.Info("pg result", zap.String("error_code", msg.Code), message, truncatedField(truncated))
+		o.logger.Info("pg_result", zap.String("error_code", msg.Code))
 	case *pgproto3.PortalSuspended:
-		o.logger.Info("pg result", zap.Bool("suspended", true))
+		o.logger.Info("pg_result", zap.Bool("suspended", true))
 	case *pgproto3.ReadyForQuery:
-		o.logger.Info("pg completed")
+		o.logger.Info("pg_completed")
 	default:
 		// DataRow and COPY data are never logged due to privacy and volume reasons. The rest
 		// (ParseComplete, BindComplete, CloseComplete, ParameterDescription, RowDescription, NoData,
@@ -112,7 +110,7 @@ func truncatedField(truncated ...bool) zap.Field {
 	return zap.Skip()
 }
 
-// valueField builds the parameters of a `pg bind` line and the arguments of a `pg function_call` line,
+// valueField builds the parameters of a `pg_bind` line and the arguments of a `pg_function_call` line,
 // cutting the value that crosses the audit size cap and dropping the values after it.
 func valueField[F int16 | uint16](name string, formatCodes []F, values [][]byte) (zap.Field, bool) {
 	logged := make([]any, 0, len(values))
