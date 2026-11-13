@@ -5,6 +5,7 @@ package cmd
 
 import (
 	"fmt"
+	"net"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/spf13/cobra"
@@ -47,7 +48,12 @@ func start() error {
 		return err
 	}
 
-	return p.Start()
+	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", cfg.Port))
+	if err != nil {
+		return fmt.Errorf("failed to listen: %w", err)
+	}
+
+	return p.Start(listener)
 }
 
 func loadConfig() (*config.Config, error) {

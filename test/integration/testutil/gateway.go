@@ -25,7 +25,7 @@ func NewObservedLogger() (logging.Logger, *observer.ObservedLogs) {
 	return logging.Logger{System: logger.Named(logging.SystemLoggerName), Audit: logger.Named(logging.AuditLoggerName), Session: logger.Named(logging.SessionLoggerName)}, logs
 }
 
-func GatewayHealthCheck(t *testing.T, port int) {
+func GatewayHealthCheck(t *testing.T, address string) {
 	t.Helper()
 	t.Log("Waiting for Gateway to be ready...")
 
@@ -41,7 +41,7 @@ func GatewayHealthCheck(t *testing.T, port int) {
 	// Try to connect to the health endpoint with fixed backoff
 	backoff := 100 * time.Millisecond
 	maxAttempts := 5
-	gatewayURL := fmt.Sprintf("https://127.0.0.1:%d/healthz", port)
+	gatewayURL := fmt.Sprintf("https://%s/healthz", address)
 
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		resp, err := client.Get(gatewayURL)

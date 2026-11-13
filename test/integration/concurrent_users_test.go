@@ -6,6 +6,7 @@ package integration
 import (
 	"fmt"
 	"math/rand/v2"
+	"net"
 	"net/http"
 	"net/url"
 	"sync"
@@ -22,7 +23,6 @@ import (
 	"gateway/internal/proxy"
 	"gateway/internal/sessionrecorder"
 	"gateway/internal/token"
-	"gateway/test/fake"
 	"gateway/test/integration/testutil"
 )
 
@@ -34,25 +34,18 @@ const numUsers = 10
 // Each user run its own goroutine. A list of pre-defined commands is shuffled and run sequentially.
 // The output and audit log of each command is asserted.
 func TestConcurrentUsers(t *testing.T) {
-	const gatewayPort = 8444
+	t.Parallel()
 
 	kindKubectl, kindKubeConfig, kindBearerToken := testutil.SetupKinD(t)
 
 	kindURL, err := url.Parse(kindKubeConfig.Host)
 	require.NoError(t, err, "failed to parse API server URL")
 
-	// Start the Controller
-	controller := fake.NewController(network, 8080)
-	defer controller.Close()
-
-	t.Log("Controller is serving at", controller.URL)
-
 	config := gatewayconfig.Config{
 		Twingate: gatewayconfig.TwingateConfig{
 			Network: network,
 			Host:    host,
 		},
-		Port:        gatewayPort,
 		MetricsPort: 0,
 		TLS: gatewayconfig.TLSConfig{
 			Certificates: &gatewayconfig.TLSCertificateSources{
@@ -80,13 +73,17 @@ func TestConcurrentUsers(t *testing.T) {
 	p, err := proxy.NewProxy(&config, prometheus.NewRegistry(), logger)
 	require.NoError(t, err, "failed to create proxy")
 
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err, "failed to listen")
+
 	// Start the Gateway
 	go func() {
-		err := p.Start()
+		err := p.Start(listener)
 		t.Logf("Failed to start Gateway: %v", err)
 	}()
 
-	testutil.GatewayHealthCheck(t, gatewayPort)
+	gatewayAddress := listener.Addr().String()
+	testutil.GatewayHealthCheck(t, gatewayAddress)
 
 	var (
 		users      = make([]*testutil.User, 0, numUsers)
@@ -100,9 +97,9 @@ func TestConcurrentUsers(t *testing.T) {
 				Username: fmt.Sprintf("user-%d@acme.com", i+1),
 				Groups:   []string{},
 			},
-			gatewayPort,
+			gatewayAddress,
 			kindURL.Host,
-			controller.URL,
+			controllerURL,
 		)
 		require.NoError(t, err, "failed to create user %d", i+1)
 
