@@ -15,6 +15,9 @@ data:
     port: {{ .https }}
     metricsPort: {{ .metrics }}
     {{- end }}
+    {{- if .Values.metrics.pprof.enabled }}
+    pprof: true
+    {{- end }}
 
     log:
       system:
