@@ -36,10 +36,14 @@ spec:
   {{- with .Values.twingateOperator.remoteNetworkId }}
   remoteNetworkId: {{ . | quote }}
   {{- end }}
+  {{- with .Values.twingateOperator.gateway.address }}
+  address: {{ . | quote }}
+  {{- else }}
   serviceRef:
     name: {{ include "gateway.fullname" . }}
     namespace: {{ .Release.Namespace }}
     port: {{ .Values.service.port }}
+  {{- end }}
   x509CertificateAuthorityRef:
     name: {{ include "gateway.fullname" . }}-ca
     namespace: {{ .Release.Namespace }}
