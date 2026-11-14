@@ -153,6 +153,32 @@ tests:
       - equal:
           path: spec.remoteNetworkId
           value: "UmVtb3RlTmV0d29yazoxMjMK"
+  - it: omits address when none is set, leaving the operator to resolve it from the Service
+    set:
+      twingateOperator:
+        gateway:
+          enabled: true
+    kubernetesProvider: *clusterNamespace
+    documentSelector:
+      path: kind
+      value: TwingateGateway
+    asserts:
+      - notExists:
+          path: spec.address
+  - it: sets address on the gateway
+    set:
+      twingateOperator:
+        gateway:
+          enabled: true
+          address: "gateway.corp.internal:443"
+    kubernetesProvider: *clusterNamespace
+    documentSelector:
+      path: kind
+      value: TwingateGateway
+    asserts:
+      - equal:
+          path: spec.address
+          value: "gateway.corp.internal:443"
   - it: suffixes the CA name with a hash of the cluster and namespace
     set:
       twingateOperator:

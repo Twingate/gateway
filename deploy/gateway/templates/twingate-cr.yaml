@@ -40,6 +40,9 @@ spec:
     name: {{ include "gateway.fullname" . }}
     namespace: {{ .Release.Namespace }}
     port: {{ .Values.service.port }}
+  {{- with .Values.twingateOperator.gateway.address }}
+  address: {{ . | quote }}
+  {{- end }}
   x509CertificateAuthorityRef:
     name: {{ include "gateway.fullname" . }}-ca
     namespace: {{ .Release.Namespace }}
