@@ -567,23 +567,21 @@ func TestBuildVariables_CoversAllowedKeys(t *testing.T) {
 func TestRewrite_SetsXForwardedProto(t *testing.T) {
 	tests := []struct {
 		name              string
-		downstreamTLSMode token.TLSServerMode
+		tls               *tls.ConnectionState
 		clientSuppliedXFP string
 		want              string
 	}{
 		{
-			name:              "HTTPS when the Gateway terminates TLS downstream",
-			downstreamTLSMode: token.TLSServerModeTLS13,
-			want:              "https",
+			name: "HTTPS when the protocol client connects over TLS",
+			tls:  &tls.ConnectionState{},
+			want: "https",
 		},
 		{
-			name:              "HTTP when the protocol client connects in plaintext",
-			downstreamTLSMode: token.TLSServerModeNone,
-			want:              "http",
+			name: "HTTP when the protocol client connects in plaintext",
+			want: "http",
 		},
 		{
 			name:              "client-supplied value is overwritten",
-			downstreamTLSMode: token.TLSServerModeNone,
 			clientSuppliedXFP: "https",
 			want:              "http",
 		},
@@ -598,8 +596,7 @@ func TestRewrite_SetsXForwardedProto(t *testing.T) {
 				Resource: token.Resource{
 					Type: token.ResourceTypeWebApp,
 					GatewayMetadata: token.GatewayMetadata{
-						Downstream: token.Downstream{Port: 443, TLSMode: tt.downstreamTLSMode},
-						Upstream:   token.Upstream{Port: 80, TLSMode: token.TLSClientModeNone},
+						Upstream: token.Upstream{Port: 80, TLSMode: token.TLSClientModeNone},
 					},
 				},
 			}
@@ -609,8 +606,11 @@ func TestRewrite_SetsXForwardedProto(t *testing.T) {
 				outReq.Header.Set("X-Forwarded-Proto", tt.clientSuppliedXFP)
 			}
 
+			inReq := httptest.NewRequest(http.MethodGet, "http://admin.example.int/path", nil)
+			inReq.TLS = tt.tls
+
 			proxyReq := &httputil.ProxyRequest{
-				In:  httptest.NewRequest(http.MethodGet, "http://admin.example.int/path", nil),
+				In:  inReq,
 				Out: outReq,
 			}
 

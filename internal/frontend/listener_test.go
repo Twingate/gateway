@@ -99,10 +99,6 @@ func (m *mockProxyConn) Authenticate() error {
 	return nil
 }
 
-func (m *mockProxyConn) UpgradeToTLS() error {
-	return nil
-}
-
 func createMockListener(t *testing.T) (net.Listener, string) {
 	t.Helper()
 

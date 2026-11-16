@@ -35,7 +35,7 @@ main.go → cmd/start.go → proxy.NewProxy() → proxy.Start()
 
 **`internal/frontend/`** - Accepts client connections and hands authenticated connections to backends:
 
-- `listener.go`: TLS termination; routes each authenticated connection to a backend by the GAT resource type
+- `listener.go`: TLS termination of the CONNECT leg; routes each authenticated connection to a backend by the GAT resource type
 - `connect.go`: Validates CONNECT + JWT + Proof-of-Possession (client signs the TLS EKM; verified against the public key in the GAT)
 - `conn.go`: `ProxyConn`, the authenticated connection (claims, upstream host) that backends receive
 - `cert/`: Server certificate sourcing (files, local issuer, Vault, GCP Private CA) with hot reload
@@ -47,7 +47,7 @@ main.go → cmd/start.go → proxy.NewProxy() → proxy.Start()
 
 **`internal/backend/`** - One package per application protocol, each proxying an authenticated connection to its upstream:
 
-- `httpproxy/`: Shared reverse-proxy core and audit middleware for the HTTP backends
+- `httpproxy/`: Shared reverse-proxy core for the HTTP backends: TLS with the protocol client when the GAT requires it, audit middleware
 - `kubernetes/`: Kubernetes API proxy
 - `webapp/`: HTTP web app proxy with templated header rewriting
 - `ssh/`: SSH proxy
