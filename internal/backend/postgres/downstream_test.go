@@ -180,6 +180,20 @@ func TestDownstreamConn_CompleteLogin(t *testing.T) {
 	}
 }
 
+func TestDownstreamConn_CompleteLogin_NoCancelKey(t *testing.T) {
+	clientConn, serverConn := tcpPipe(t)
+
+	require.NoError(t, newDownstreamConn(serverConn).completeLogin(&pgconn.HijackedConn{TxStatus: 'I'}))
+
+	client := pgproto3.NewFrontend(clientConn, clientConn)
+
+	for _, want := range []pgproto3.BackendMessage{&pgproto3.AuthenticationOk{}, &pgproto3.ReadyForQuery{TxStatus: 'I'}} {
+		got, err := client.Receive()
+		require.NoError(t, err)
+		assert.Equal(t, want, got)
+	}
+}
+
 func TestDownstreamConn_CompleteLogin_SendFails(t *testing.T) {
 	_, serverConn := tcpPipe(t)
 

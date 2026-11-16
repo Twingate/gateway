@@ -141,7 +141,11 @@ func (c *downstreamConn) completeLogin(dbConn *pgconn.HijackedConn) error {
 		c.backend.Send(&pgproto3.ParameterStatus{Name: name, Value: value})
 	}
 
-	c.backend.Send(&pgproto3.BackendKeyData{ProcessID: dbConn.PID, SecretKey: dbConn.SecretKey})
+	// A database without query cancellation, such as RDS Proxy, sends no cancel key.
+	if len(dbConn.SecretKey) > 0 {
+		c.backend.Send(&pgproto3.BackendKeyData{ProcessID: dbConn.PID, SecretKey: dbConn.SecretKey})
+	}
+
 	c.backend.Send(&pgproto3.ReadyForQuery{TxStatus: dbConn.TxStatus})
 
 	if err := c.backend.Flush(); err != nil {
