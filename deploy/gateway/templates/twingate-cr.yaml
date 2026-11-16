@@ -37,7 +37,9 @@ spec:
   remoteNetworkId: {{ . | quote }}
   {{- end }}
   {{- with .Values.twingateOperator.gateway.address }}
-  address: {{ . | quote }}
+  address:
+    host: {{ .host | quote }}
+    port: {{ .port }}
   {{- else }}
   serviceRef:
     name: {{ include "gateway.fullname" . }}

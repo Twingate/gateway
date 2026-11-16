@@ -176,7 +176,9 @@ tests:
       twingateOperator:
         gateway:
           enabled: true
-          address: "gateway.corp.internal:443"
+          address:
+            host: gateway.corp.internal
+            port: 8443
     kubernetesProvider: *clusterNamespace
     documentSelector:
       path: kind
@@ -184,7 +186,9 @@ tests:
     asserts:
       - equal:
           path: spec.address
-          value: "gateway.corp.internal:443"
+          value:
+            host: gateway.corp.internal
+            port: 8443
       - notExists:
           path: spec.serviceRef
   - it: suffixes the CA name with a hash of the cluster and namespace

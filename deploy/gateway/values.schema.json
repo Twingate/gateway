@@ -39,9 +39,23 @@
               "default": false
             },
             "address": {
-              "type": "string",
-              "pattern": "^$|^\\S+:[0-9]{1,5}$",
-              "description": "Address (host:port) Connectors dial when they cannot reach the Gateway Service directly, e.g. through a proxy, ingress, or private endpoint. Leave empty to use the address the operator resolves from the Gateway Service."
+              "type": "object",
+              "description": "Address Connectors dial when they cannot reach the Gateway Service directly, e.g. through a proxy, ingress, or private endpoint. Unset uses the address the operator resolves from the Gateway Service.",
+              "required": ["host", "port"],
+              "additionalProperties": false,
+              "properties": {
+                "host": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "DNS name or IPv4 address of the Gateway."
+                },
+                "port": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 65535,
+                  "description": "Port the Gateway is reachable on."
+                }
+              }
             },
             "certificateAuthority": {
               "type": "object",
