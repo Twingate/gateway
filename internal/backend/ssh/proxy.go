@@ -183,10 +183,13 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 	// ssh.NewClientConn takes no context, so closing the socket is what stops a stalled handshake
 	// when the gateway shuts down.
 	stop := context.AfterFunc(ctx, func() { _ = upstreamNetConn.Close() })
-	defer stop()
 
 	// Open the SSH connection to the upstream server
 	upstreamSSHConn, upstreamChannels, upstreamRequests, err := ssh.NewClientConn(upstreamNetConn, upstream.address, upstreamConfig)
+
+	// The handshake is over, so Shutdown alone ends the connection from here on.
+	stop()
+
 	if err != nil {
 		logger.Audit.Error("Failed to connect to upstream SSH server", zap.Error(err))
 
