@@ -41,7 +41,7 @@ func newProxyConn(conn net.Conn, upstreamAddr string, tlsMode token.TLSClientMod
 			Address: upstreamHost,
 			GatewayMetadata: token.GatewayMetadata{
 				Upstream: token.Upstream{Port: upstreamPort, TLSMode: tlsMode},
-				Auths:    token.Auths{auth},
+				Auths:    []token.Auth{auth},
 			},
 		},
 	}
