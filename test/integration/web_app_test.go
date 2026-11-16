@@ -4,9 +4,15 @@
 package integration
 
 import (
+	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
+	"net/http/httptrace"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -15,10 +21,13 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/net/http2"
+	"golang.org/x/net/websocket"
 
 	gatewayconfig "gateway/internal/config"
 	"gateway/internal/proxy"
 	"gateway/internal/token"
+	"gateway/test/data"
 	"gateway/test/fake"
 	"gateway/test/integration/testutil"
 )
@@ -145,4 +154,166 @@ func TestWebApp(t *testing.T) {
 		"groups":   []any{"OnCall", "Engineering"},
 	}
 	testutil.AssertLogsForREST(t, logs, "/", expectedUser, http.StatusOK)
+}
+
+func TestWebApp_HTTP2(t *testing.T) {
+	const gatewayPort = 8451
+
+	echoServer := testutil.SetupHTTPEchoServer(t)
+
+	controller := fake.NewController(network, 8080)
+	defer controller.Close()
+
+	config := gatewayconfig.Config{
+		Twingate: gatewayconfig.TwingateConfig{
+			Network: network,
+			Host:    host,
+		},
+		Port:        gatewayPort,
+		MetricsPort: 0,
+		TLS: gatewayconfig.TLSConfig{
+			Certificates: &gatewayconfig.TLSCertificateSources{
+				Files: []gatewayconfig.TLSCertificateFileKeyPair{
+					{
+						CertificateFile: "../data/proxy/tls.crt",
+						PrivateKeyFile:  "../data/proxy/tls.key",
+					},
+				},
+			},
+		},
+		WebApp: &gatewayconfig.WebAppConfig{},
+	}
+
+	logger, _ := testutil.NewObservedLogger()
+
+	p, err := proxy.NewProxy(&config, prometheus.NewRegistry(), logger)
+	require.NoError(t, err, "failed to create proxy")
+
+	go func() {
+		err := p.Start()
+		t.Logf("Failed to start Gateway: %v", err)
+	}()
+
+	testutil.GatewayHealthCheck(t, gatewayPort)
+
+	user := testutil.NewWebAppUser(
+		&token.User{
+			ID:       "user-webapp-1",
+			Username: "alex@acme.com",
+			Groups:   []string{"Engineering"},
+		},
+		token.GeoIPLocation{},
+		gatewayPort,
+		echoServer.Listener.Addr().String(),
+		controller.URL,
+		nil,
+		fake.WithDownstreamTLS(),
+	)
+	defer user.Close()
+
+	userURL, err := url.Parse(user.URL)
+	require.NoError(t, err)
+
+	caCertPool := x509.NewCertPool()
+	caCertPool.AppendCertsFromPEM(data.ProxyCert)
+
+	tlsConfig := &tls.Config{
+		MinVersion: tls.VersionTLS13,
+		RootCAs:    caCertPool,
+	}
+
+	transport := &http.Transport{
+		TLSClientConfig:   tlsConfig,
+		ForceAttemptHTTP2: true,
+	}
+	defer transport.CloseIdleConnections()
+
+	client := &http.Client{Transport: transport}
+
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+
+	t.Run("Negotiates HTTP/2", func(t *testing.T) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://"+userURL.Host+"/", nil)
+		require.NoError(t, err)
+
+		resp, err := client.Do(req)
+		require.NoError(t, err)
+
+		defer resp.Body.Close()
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		assert.Equal(t, 2, resp.ProtoMajor)
+	})
+
+	t.Run("Serves a request on the connection of open event streams", func(t *testing.T) {
+		conns := map[net.Conn]struct{}{}
+		traceCtx := httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
+			GotConn: func(info httptrace.GotConnInfo) {
+				conns[info.Conn] = struct{}{}
+			},
+		})
+
+		for _, path := range []string{"/events", "/events", "/events", "/"} {
+			req, err := http.NewRequestWithContext(traceCtx, http.MethodGet, "https://"+userURL.Host+path, nil)
+			require.NoError(t, err)
+
+			resp, err := client.Do(req)
+			require.NoError(t, err)
+
+			defer resp.Body.Close()
+
+			assert.Equal(t, http.StatusOK, resp.StatusCode)
+		}
+
+		assert.Len(t, conns, 1)
+	})
+
+	// A browser opens a WebSocket on an HTTP/2 connection only when the server advertises
+	// extended CONNECT (RFC 8441), which the reverse proxy cannot forward. Without it, the
+	// browser opens a separate HTTP/1.1 connection.
+	t.Run("Does not offer WebSocket over HTTP/2", func(t *testing.T) {
+		h2TLSConfig := tlsConfig.Clone()
+		h2TLSConfig.NextProtos = []string{"h2"}
+
+		conn, err := (&tls.Dialer{Config: h2TLSConfig}).DialContext(ctx, "tcp", userURL.Host)
+		require.NoError(t, err)
+
+		defer conn.Close()
+
+		require.NoError(t, conn.SetDeadline(time.Now().Add(5*time.Second)))
+
+		_, err = io.WriteString(conn, http2.ClientPreface)
+		require.NoError(t, err)
+
+		framer := http2.NewFramer(conn, conn)
+		require.NoError(t, framer.WriteSettings())
+
+		frame, err := framer.ReadFrame()
+		require.NoError(t, err)
+		require.IsType(t, &http2.SettingsFrame{}, frame)
+
+		enableConnectProtocol, _ := frame.(*http2.SettingsFrame).Value(http2.SettingEnableConnectProtocol)
+		assert.Zero(t, enableConnectProtocol)
+	})
+
+	t.Run("Proxies a WebSocket over HTTP/1.1", func(t *testing.T) {
+		wsConfig, err := websocket.NewConfig("wss://"+userURL.Host+"/ws", "https://"+userURL.Host)
+		require.NoError(t, err)
+
+		wsConfig.TlsConfig = tlsConfig.Clone()
+		wsConfig.TlsConfig.NextProtos = []string{"http/1.1"}
+
+		conn, err := wsConfig.DialContext(ctx)
+		require.NoError(t, err, "failed to open WebSocket")
+
+		defer conn.Close()
+
+		require.NoError(t, websocket.Message.Send(conn, "ping"))
+
+		var message string
+
+		require.NoError(t, websocket.Message.Receive(conn, &message))
+		assert.Equal(t, "ping", message)
+	})
 }

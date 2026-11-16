@@ -11,7 +11,9 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
+	"strings"
 
 	"github.com/golang-jwt/jwt/v5"
 	"go.uber.org/zap/zapcore"
@@ -176,6 +178,54 @@ type Resource struct {
 	Address         string          `json:"address"`
 	Aliases         []string        `json:"aliases,omitempty"`
 	GatewayMetadata GatewayMetadata `json:"gateway_metadata"` //nolint:tagliatelle // GAT wire format from the controller uses snake_case
+}
+
+// ResolveUpstreamHost returns the host the Gateway forwards to for a request to host, and false
+// when host is neither the resource address nor one of its aliases.
+func (r Resource) ResolveUpstreamHost(host string) (string, bool) {
+	switch {
+	case matchResourceAddress(r.Address, host):
+		return host, true
+	case matchResourceAliases(r.Aliases, host):
+		return r.Address, true
+	default:
+		return "", false
+	}
+}
+
+var validDNSLabel = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$`)
+
+// matchResourceAddress checks whether host matches the resource address pattern.
+// Supports exact match and RFC 6125 wildcard matching: *.example.com matches
+// api.example.com but not example.com or foo.bar.example.com.
+func matchResourceAddress(pattern, host string) bool {
+	if strings.EqualFold(pattern, host) {
+		return true
+	}
+
+	if !strings.HasPrefix(pattern, "*.") {
+		return false
+	}
+
+	suffix := pattern[1:]
+	if len(host) <= len(suffix) || !strings.HasSuffix(strings.ToLower(host), strings.ToLower(suffix)) {
+		return false
+	}
+
+	label := host[:len(host)-len(suffix)]
+
+	return validDNSLabel.MatchString(label)
+}
+
+// matchResourceAliases reports whether host matches any of the resource aliases.
+func matchResourceAliases(aliases []string, host string) bool {
+	for _, alias := range aliases {
+		if alias != "" && strings.EqualFold(alias, host) {
+			return true
+		}
+	}
+
+	return false
 }
 
 type GatewayMetadata struct {

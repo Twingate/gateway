@@ -28,12 +28,13 @@ import (
 var (
 	tlsClaims = &token.GATClaims{
 		User:     token.User{Username: "test@acme.com"},
-		Resource: token.Resource{Type: token.ResourceTypeKubernetes},
+		Resource: token.Resource{Type: token.ResourceTypeKubernetes, Address: "127.0.0.1"},
 	}
 	plaintextClaims = &token.GATClaims{
 		User: token.User{Username: "test@acme.com"},
 		Resource: token.Resource{
-			Type: token.ResourceTypeWebApp,
+			Type:    token.ResourceTypeWebApp,
+			Address: "127.0.0.1",
 			GatewayMetadata: token.GatewayMetadata{
 				Downstream: token.Downstream{TLSMode: token.TLSServerModeNone},
 			},
@@ -57,7 +58,7 @@ func (l *mockConnListener) Accept() (net.Conn, error) {
 	connMetrics := frontend.CreateProxyConnMetrics(prometheus.NewRegistry())
 	proxyConn := frontend.NewProxyConn(conn, l.tlsConfig, nil, zap.NewNop(), connMetrics)
 	proxyConn.ID = "test-conn"
-	proxyConn.RequestedHost = "localhost"
+	proxyConn.RequestedHost = "127.0.0.1"
 	proxyConn.UpstreamHost = "localhost"
 	proxyConn.Claims = l.claims
 
@@ -115,6 +116,53 @@ func TestProxy_ForwardRequest(t *testing.T) {
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 	assert.Equal(t, "OK", string(body))
+}
+
+func TestProxy_ForwardRequest_HTTP2(t *testing.T) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+
+	serverCert, err := tls.X509KeyPair(data.ProxyCert, data.ProxyKey)
+	require.NoError(t, err)
+
+	tlsConfig := &tls.Config{Certificates: []tls.Certificate{serverCert}, MinVersion: tls.VersionTLS13}
+
+	proxy := NewProxy(Config{
+		Metrics:      metrics.RegisterHTTPMetrics(prometheus.NewRegistry()),
+		ResourceType: metrics.ResourceTypeWebApp,
+		Handler:      handler,
+		Logger:       logging.NewNop(),
+	})
+
+	go func() {
+		_ = proxy.Start(&mockConnListener{Listener: listener, claims: tlsClaims, tlsConfig: tlsConfig})
+	}()
+
+	defer func() {
+		_ = proxy.Shutdown(context.Background())
+	}()
+
+	rootCAs := x509.NewCertPool()
+	rootCAs.AppendCertsFromPEM(data.ProxyCert)
+
+	client := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig:   &tls.Config{RootCAs: rootCAs, MinVersion: tls.VersionTLS13},
+			ForceAttemptHTTP2: true,
+		},
+	}
+
+	resp, err := client.Get("https://" + listener.Addr().String() + "/test")
+	require.NoError(t, err)
+
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, "HTTP/2.0", resp.Proto)
+	assert.Empty(t, tlsConfig.NextProtos, "the connection's TLS config is not modified")
 }
 
 func TestProxy_AuditRedirectedRequest(t *testing.T) {

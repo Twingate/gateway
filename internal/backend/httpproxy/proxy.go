@@ -45,7 +45,7 @@ func NewProxy(cfg Config) *Proxy {
 	mux.Handle("/", cfg.Handler)
 
 	handler := metrics.HTTPMiddleware(cfg.Metrics, cfg.ResourceType, auditMiddleware(auditMiddlewareConfig{
-		next:   mux,
+		next:   misdirectedRequestMiddleware(mux),
 		logger: cfg.Logger,
 	}))
 
@@ -78,6 +78,13 @@ func (p *Proxy) Shutdown(ctx context.Context) error {
 	return p.httpServer.Shutdown(ctx)
 }
 
+// ALPN protocol IDs, see
+// https://www.iana.org/assignments/tls-extensiontype-values#alpn-protocol-ids.
+const (
+	alpnHTTP2  = "h2"
+	alpnHTTP11 = "http/1.1"
+)
+
 // tlsUpgradeListener wraps each accepted connection whose GAT requires TLS in a TLS server
 // connection. The handshake runs on first use, in the http.Server goroutine serving the
 // connection, so Accept does not block on the protocol client.
@@ -92,7 +99,10 @@ func (l *tlsUpgradeListener) Accept() (net.Conn, error) {
 	}
 
 	if proxyConn, ok := conn.(*frontend.ProxyConn); ok && proxyConn.GATClaims().ShouldUpgradeTLS() {
-		return tls.Server(conn, proxyConn.TLSConfig), nil
+		tlsConfig := proxyConn.TLSConfig.Clone()
+		tlsConfig.NextProtos = []string{alpnHTTP2, alpnHTTP11}
+
+		return tls.Server(conn, tlsConfig), nil
 	}
 
 	return conn, nil

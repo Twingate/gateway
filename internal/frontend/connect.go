@@ -10,9 +10,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"regexp"
 	"strconv"
-	"strings"
 
 	"gateway/internal/config"
 	"gateway/internal/token"
@@ -161,15 +159,8 @@ func resolveUpstream(target string, resource token.Resource) (requestedHost, ups
 		}
 	}
 
-	upstreamHost = host
-
-	switch {
-	case matchResourceAddress(resource.Address, host):
-		// host matches the resource address; forward to the same host
-	case matchResourceAliases(resource.Aliases, host):
-		// host matches an alias; forward to the resource's address
-		upstreamHost = resource.Address
-	default:
+	upstreamHost, ok := resource.ResolveUpstreamHost(host)
+	if !ok {
 		return "", "", &HTTPError{
 			Code:    http.StatusBadRequest,
 			Message: fmt.Sprintf("CONNECT host %s does not match resource address %s or aliases %v", host, resource.Address, resource.Aliases),
@@ -203,39 +194,4 @@ func resolveUpstream(target string, resource token.Resource) (requestedHost, ups
 	}
 
 	return host, upstreamHost, nil
-}
-
-var validDNSLabel = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$`)
-
-// matchResourceAddress checks whether host matches the resource address pattern.
-// Supports exact match and RFC 6125 wildcard matching: *.example.com matches
-// api.example.com but not example.com or foo.bar.example.com.
-func matchResourceAddress(pattern, host string) bool {
-	if strings.EqualFold(pattern, host) {
-		return true
-	}
-
-	if !strings.HasPrefix(pattern, "*.") {
-		return false
-	}
-
-	suffix := pattern[1:]
-	if len(host) <= len(suffix) || !strings.HasSuffix(strings.ToLower(host), strings.ToLower(suffix)) {
-		return false
-	}
-
-	label := host[:len(host)-len(suffix)]
-
-	return validDNSLabel.MatchString(label)
-}
-
-// matchResourceAliases reports whether host matches any of the resource aliases.
-func matchResourceAliases(aliases []string, host string) bool {
-	for _, alias := range aliases {
-		if alias != "" && strings.EqualFold(alias, host) {
-			return true
-		}
-	}
-
-	return false
 }

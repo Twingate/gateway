@@ -63,6 +63,7 @@ main.go → cmd/start.go → proxy.NewProxy() → proxy.Start()
 - Reverse proxy to an HTTP upstream; scheme and address come from the GAT's upstream metadata
 - Request headers rewritten from templates with GAT variables (JWT, username, groups, client geo)
 - Strips client identity headers (`X-Real-IP`, `X-Forwarded-*`) so the client cannot spoof them
+- Offers HTTP/2 to TLS clients; answers 421 to a request whose hostname is not a name of the connection's resource
 
 **`internal/backend/ssh/`** - SSH proxy:
 
