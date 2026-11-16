@@ -309,6 +309,7 @@ func TestWebApp_HTTP2(t *testing.T) {
 
 		defer conn.Close()
 
+		require.NoError(t, conn.SetDeadline(time.Now().Add(5*time.Second)))
 		require.NoError(t, websocket.Message.Send(conn, "ping"))
 
 		var message string

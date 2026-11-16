@@ -281,6 +281,11 @@ func (c *Client) handleConnection(ctx context.Context, clientConn net.Conn, gat 
 
 func (c *Client) fetchGAT() (string, error) {
 	clientPublicKey, _ := ReadECKey(data.ClientKey)
+
+	// A protocol client reaches the resource at the listener address instead of the resource
+	// address, so the listener host is a name of the resource.
+	listenerHost, _, _ := net.SplitHostPort(c.Address)
+
 	requestBody := requestBody{
 		ClientPublicKey: &token.PublicKey{
 			PublicKey: clientPublicKey.PublicKey,
@@ -294,6 +299,7 @@ func (c *Client) fetchGAT() (string, error) {
 			ID:      "resource-1",
 			Type:    c.resourceType,
 			Address: c.resourceHostname,
+			Aliases: []string{listenerHost},
 			GatewayMetadata: token.GatewayMetadata{
 				Downstream:            token.Downstream{Port: c.downstreamPort, TLSMode: c.downstreamTLSMode},
 				Upstream:              token.Upstream{Port: c.upstreamPort, TLSMode: c.upstreamTLSMode},
