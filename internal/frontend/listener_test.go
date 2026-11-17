@@ -38,7 +38,7 @@ var testTLSConfig = config.TLSConfig{
 func newTestCertManager(t *testing.T, tlsCfg config.TLSConfig) *cert.Manager {
 	t.Helper()
 
-	manager, err := cert.NewManager(tlsCfg, zap.NewNop())
+	manager, err := cert.NewManager(tlsCfg, nil, zap.NewNop())
 	require.NoError(t, err)
 
 	return manager
@@ -52,6 +52,8 @@ type mockProxyConn struct {
 	isClosed atomic.Bool
 
 	isHealthz bool
+
+	upgradeTLSConfig *tls.Config
 }
 
 func (m *mockProxyConn) Close() error {
@@ -99,7 +101,9 @@ func (m *mockProxyConn) Authenticate() error {
 	return nil
 }
 
-func (m *mockProxyConn) UpgradeToTLS() error {
+func (m *mockProxyConn) UpgradeToTLS(tlsConfig *tls.Config) error {
+	m.upgradeTLSConfig = tlsConfig
+
 	return nil
 }
 
@@ -129,11 +133,12 @@ func createClaims(t *testing.T, resourceType token.ResourceType) *token.GATClaim
 }
 
 type testListenerFixtures struct {
-	listener    *Listener
-	tcpListener net.Listener
-	httpChannel chan Conn
-	sshChannel  chan Conn
-	addr        string
+	listener      *Listener
+	tcpListener   net.Listener
+	httpChannel   chan Conn
+	sshChannel    chan Conn
+	webAppChannel chan Conn
+	addr          string
 }
 
 func createTestListenerWithChannels(t *testing.T) *testListenerFixtures {
@@ -144,27 +149,32 @@ func createTestListenerWithChannels(t *testing.T) *testListenerFixtures {
 	// Create channels for testing
 	httpChannel := make(chan Conn, 1)
 	sshChannel := make(chan Conn, 1)
+	webAppChannel := make(chan Conn, 1)
 	channels := map[token.ResourceType]chan<- Conn{
 		token.ResourceTypeKubernetes: httpChannel,
 		token.ResourceTypeSSH:        sshChannel,
+		token.ResourceTypeWebApp:     webAppChannel,
 	}
 
 	registry := prometheus.NewRegistry()
 	logger := zap.NewNop()
 	// Create listener with minimal config (we'll override the factory)
 	listener := &Listener{
-		channels:    channels,
-		logger:      logger,
-		metrics:     CreateProxyConnMetrics(registry),
-		certManager: newTestCertManager(t, testTLSConfig),
+		channels:        channels,
+		logger:          logger,
+		metrics:         CreateProxyConnMetrics(registry),
+		certManager:     newTestCertManager(t, testTLSConfig),
+		tlsConfig:       &tls.Config{MinVersion: tls.VersionTLS13},
+		webAppTLSConfig: &tls.Config{MinVersion: tls.VersionTLS13},
 	}
 
 	return &testListenerFixtures{
-		listener:    listener,
-		tcpListener: tcpListener,
-		httpChannel: httpChannel,
-		sshChannel:  sshChannel,
-		addr:        addr,
+		listener:      listener,
+		tcpListener:   tcpListener,
+		httpChannel:   httpChannel,
+		sshChannel:    sshChannel,
+		webAppChannel: webAppChannel,
+		addr:          addr,
 	}
 }
 
@@ -270,6 +280,63 @@ func TestListener_Serve_SSH(t *testing.T) {
 
 	// Wait for the HTTP listener goroutine
 	waitGroup.Wait()
+}
+
+func TestListener_Serve_UpgradeTLSConfig(t *testing.T) {
+	webAppClaims := createClaims(t, token.ResourceTypeWebApp)
+	webAppClaims.Resource.GatewayMetadata.Downstream.TLSMode = token.TLSServerModeTLS13
+
+	tests := []struct {
+		name                string
+		claims              *token.GATClaims
+		wantWebAppTLSConfig bool
+	}{
+		{
+			name:   "Kubernetes upgrades with the TLS config",
+			claims: createClaims(t, token.ResourceTypeKubernetes),
+		},
+		{
+			name:                "Web App with downstream TLS upgrades with the Web App TLS config",
+			claims:              webAppClaims,
+			wantWebAppTLSConfig: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fixtures := createTestListenerWithChannels(t)
+
+			fixtures.listener.proxyConnFactory = func(conn net.Conn, _ *tls.Config, _ Validator, _ *zap.Logger) Conn {
+				return &mockProxyConn{
+					Conn:   conn,
+					Claims: tt.claims,
+				}
+			}
+
+			channel, wantTLSConfig := fixtures.httpChannel, fixtures.listener.tlsConfig
+			if tt.wantWebAppTLSConfig {
+				channel, wantTLSConfig = fixtures.webAppChannel, fixtures.listener.webAppTLSConfig
+			}
+
+			go func() {
+				_ = fixtures.listener.Serve(t.Context(), fixtures.tcpListener)
+			}()
+
+			go func() {
+				_, err := net.Dial("tcp", fixtures.addr)
+				assert.NoError(t, err)
+			}()
+
+			select {
+			case conn := <-channel:
+				assert.Same(t, wantTLSConfig, conn.(*mockProxyConn).upgradeTLSConfig)
+			case <-time.After(1 * time.Second):
+				t.Fatal("timeout waiting for connection")
+			}
+
+			_ = fixtures.tcpListener.Close()
+		})
+	}
 }
 
 func TestListener_Serve_Healthz(t *testing.T) {

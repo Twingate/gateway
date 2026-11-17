@@ -345,6 +345,12 @@ type VaultAWSConfig struct {
 
 type WebAppConfig struct {
 	RequestHeaders map[string]string `yaml:"requestHeaders,omitempty"`
+	TLS            *WebAppTLSConfig  `yaml:"tls,omitempty"`
+}
+
+// WebAppTLSConfig lists the certificates served on the downstream TLS handshake of Web Apps.
+type WebAppTLSConfig struct {
+	Certificates TLSCertificateSources `yaml:"certificates"`
 }
 
 func newDefaultConfig() *Config {
@@ -482,6 +488,12 @@ func (c *Config) Validate() error {
 	if c.SSH != nil {
 		if err := c.SSH.Validate(); err != nil {
 			return fmt.Errorf("ssh config: %w", err)
+		}
+	}
+
+	if c.WebApp != nil {
+		if err := c.WebApp.Validate(); err != nil {
+			return fmt.Errorf("webApp config: %w", err)
 		}
 	}
 
@@ -1314,6 +1326,18 @@ func (v *SSHCAVaultConfig) GetUpstreamHostCAMount() string {
 	}
 
 	return defaultVaultSSHMount
+}
+
+func (w *WebAppConfig) Validate() error {
+	if w.TLS == nil {
+		return nil
+	}
+
+	if err := w.TLS.Certificates.Validate(); err != nil {
+		return fmt.Errorf("tls: certificates: %w", err)
+	}
+
+	return nil
 }
 
 // validateHost checks host is a well-formed hostname for a trusted Twingate controller domain.

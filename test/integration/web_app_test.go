@@ -4,8 +4,11 @@
 package integration
 
 import (
+	"crypto/tls"
 	"encoding/json"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"testing"
@@ -17,6 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	gatewayconfig "gateway/internal/config"
+	"gateway/internal/logging"
 	"gateway/internal/proxy"
 	"gateway/internal/token"
 	"gateway/test/fake"
@@ -145,4 +149,100 @@ func TestWebApp(t *testing.T) {
 		"groups":   []any{"OnCall", "Engineering"},
 	}
 	testutil.AssertLogsForREST(t, logs, "/", expectedUser, http.StatusOK)
+}
+
+// TestWebAppTLSCertificates tests that a Web App with downstream TLS is served a webApp.tls
+// certificate covering its SNI, and the tls certificate for any other name.
+func TestWebAppTLSCertificates(t *testing.T) {
+	const gatewayPort = 8451
+
+	echoServer := testutil.SetupHTTPEchoServer(t)
+	upstreamAddress := echoServer.Listener.Addr().String()
+
+	controller := fake.NewController(network, 8080)
+	defer controller.Close()
+
+	config := gatewayconfig.Config{
+		Twingate: gatewayconfig.TwingateConfig{
+			Network: network,
+			Host:    host,
+		},
+		Port:        gatewayPort,
+		MetricsPort: 0,
+		TLS: gatewayconfig.TLSConfig{
+			Certificates: &gatewayconfig.TLSCertificateSources{
+				Files: []gatewayconfig.TLSCertificateFileKeyPair{
+					{
+						CertificateFile: "../data/proxy/tls.crt",
+						PrivateKeyFile:  "../data/proxy/tls.key",
+					},
+				},
+			},
+		},
+		WebApp: &gatewayconfig.WebAppConfig{
+			TLS: &gatewayconfig.WebAppTLSConfig{
+				Certificates: gatewayconfig.TLSCertificateSources{
+					Files: []gatewayconfig.TLSCertificateFileKeyPair{
+						{
+							CertificateFile: "../data/api_server/tls.crt",
+							PrivateKeyFile:  "../data/api_server/tls.key",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	p, err := proxy.NewProxy(&config, prometheus.NewRegistry(), logging.NewNop())
+	require.NoError(t, err, "failed to create proxy")
+
+	go func() {
+		err := p.Start()
+		t.Logf("Failed to start Gateway: %v", err)
+	}()
+
+	testutil.GatewayHealthCheck(t, gatewayPort)
+
+	client := fake.NewClient(
+		&token.User{ID: "user-webapp-1", Username: "alex@acme.com", Groups: []string{"OnCall", "Engineering"}},
+		token.GeoIPLocation{Lat: 37.5, Lon: -122.4, Country: "US", Region: "CA", City: "San Mateo"},
+		fmt.Sprintf("127.0.0.1:%d", gatewayPort),
+		controller.URL,
+		upstreamAddress,
+		token.ResourceTypeWebApp,
+		fake.WithDownstreamTLS(),
+	)
+	t.Cleanup(client.Close)
+
+	webAppCert, err := tls.LoadX509KeyPair("../data/api_server/tls.crt", "../data/api_server/tls.key")
+	require.NoError(t, err)
+
+	proxyCert, err := tls.LoadX509KeyPair("../data/proxy/tls.crt", "../data/proxy/tls.key")
+	require.NoError(t, err)
+
+	dial := func(serverName string) (*tls.Conn, error) {
+		return tls.DialWithDialer(&net.Dialer{Timeout: time.Second}, "tcp", client.Address, &tls.Config{
+			ServerName:         serverName,
+			MinVersion:         tls.VersionTLS13,
+			InsecureSkipVerify: true, // #nosec G402 -- the test asserts which certificate is served, not that it is trusted
+		})
+	}
+
+	// The proxy certificate covers localhost too. The Web App certificates load asynchronously,
+	// so wait until the handshake is served the Web App certificate.
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		conn, err := dial("localhost")
+		require.NoError(c, err)
+
+		defer conn.Close()
+
+		assert.Equal(c, webAppCert.Certificate[0], conn.ConnectionState().PeerCertificates[0].Raw)
+	}, 5*time.Second, 50*time.Millisecond)
+
+	conn, err := dial("kubernetes")
+	require.NoError(t, err)
+
+	defer conn.Close()
+
+	assert.Equal(t, proxyCert.Certificate[0], conn.ConnectionState().PeerCertificates[0].Raw)
 }
