@@ -139,6 +139,10 @@ func (u upstream) connectConfig(startup *pgproto3.StartupMessage, cred credentia
 	config.MaxProtocolVersion = "3.0"
 	config.RequireAuth = cred.requireAuth
 
+	if startup.ProtocolVersion == pgproto3.ProtocolVersion32 {
+		config.MaxProtocolVersion = "3.2"
+	}
+
 	return config, nil
 }
 
