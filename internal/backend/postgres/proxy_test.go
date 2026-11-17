@@ -555,11 +555,11 @@ func TestProxy_ServeConn_Cancel(t *testing.T) {
 		want    auditLine
 	}{
 		{
-			name: "database closes the connection",
+			name: "upstream closes the connection",
 			want: connAuditLine("pg_cancel", map[string]any{"db": db}),
 		},
 		{
-			name:    "database resets the connection",
+			name:    "upstream resets the connection",
 			reset:   true,
 			wantErr: errFailedToSendCancelRequest,
 			want:    connAuditLine("pg_cancel", map[string]any{"db": db, "error": "cancel_failed"}),
@@ -597,7 +597,7 @@ func TestProxy_ServeConn_Cancel(t *testing.T) {
 	}
 }
 
-func TestProxy_ServeConn_CancelFails(t *testing.T) {
+func TestProxy_ServeConn_CancelUpstreamUnreachable(t *testing.T) {
 	session := newSession(t, closedAddr(t), token.TLSClientModeNone, passwordAuth)
 
 	session.client.Send(&pgproto3.CancelRequest{ProcessID: 42, SecretKey: []byte{1, 2, 3, 4}})
