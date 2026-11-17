@@ -186,7 +186,7 @@ func main() {
 		controller.URL,
 		fmt.Sprintf("%s:%d", gatewayHost, postgreSQLPort),
 		token.ResourceTypePostgreSQL,
-		fake.WithAuths(token.Auths{{
+		fake.WithAuths([]token.Auth{{
 			Type:     token.AuthTypePassword,
 			User:     postgreSQLUsername,
 			Password: &token.PasswordAuth{Credential: postgreSQLCredential},
