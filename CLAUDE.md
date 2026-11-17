@@ -47,7 +47,7 @@ main.go → cmd/start.go → proxy.NewProxy() → proxy.Start()
 
 **`internal/backend/`** - One package per application protocol, each proxying an authenticated connection to its upstream:
 
-- `httpproxy/`: Shared reverse-proxy core for the HTTP backends: TLS with the protocol client when the GAT requires it, audit middleware
+- `httpproxy/`: Shared reverse-proxy core for the HTTP backends: TLS with the protocol client when the GAT requires it, HTTP/2 for TLS clients, 421 to an HTTP/1.1 or HTTP/2 request whose hostname does not resolve to the connection's upstream host, audit middleware
 - `kubernetes/`: Kubernetes API proxy
 - `webapp/`: HTTP web app proxy with templated header rewriting
 - `ssh/`: SSH proxy
@@ -63,7 +63,6 @@ main.go → cmd/start.go → proxy.NewProxy() → proxy.Start()
 - Reverse proxy to an HTTP upstream; scheme and address come from the GAT's upstream metadata
 - Request headers rewritten from templates with GAT variables (JWT, username, groups, client geo)
 - Strips client identity headers (`X-Real-IP`, `X-Forwarded-*`) so the client cannot spoof them
-- Offers HTTP/2 to TLS clients; answers 421 to a request whose hostname is not a name of the connection's resource
 
 **`internal/backend/ssh/`** - SSH proxy:
 
