@@ -101,6 +101,7 @@ func auditMiddleware(config auditMiddlewareConfig) http.Handler {
 			zap.Time("requested_at", time.Now()),
 			zap.String("method", r.Method),
 			zap.String("url", r.URL.String()),
+			zap.String("proto", r.Proto),
 			zap.String("remote_addr", r.RemoteAddr),
 			zap.Object("user", conn.Claims.User),
 			zap.String("conn_id", conn.ID),

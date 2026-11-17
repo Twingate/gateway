@@ -322,6 +322,210 @@ func TestGATTokenClaims_Validate(t *testing.T) {
 	}
 }
 
+func TestResource_ResolveUpstreamHost(t *testing.T) {
+	tests := []struct {
+		name     string
+		resource Resource
+		host     string
+		want     string
+		wantOK   bool
+	}{
+		{
+			name:     "host matches the resource address",
+			resource: Resource{Address: "example.com"},
+			host:     "example.com",
+			want:     "example.com",
+			wantOK:   true,
+		},
+		{
+			name:     "wildcard address keeps requested host",
+			resource: Resource{Address: "*.example.com"},
+			host:     "api.example.com",
+			want:     "api.example.com",
+			wantOK:   true,
+		},
+		{
+			name:     "alias maps to resource address",
+			resource: Resource{Address: "10.0.0.5", Aliases: []string{"first.internal", "second.internal"}},
+			host:     "second.internal",
+			want:     "10.0.0.5",
+			wantOK:   true,
+		},
+		{
+			name:     "host matches neither address nor alias",
+			resource: Resource{Address: "example.com", Aliases: []string{"app.internal"}},
+			host:     "other.com",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := tt.resource.ResolveUpstreamHost(tt.host)
+
+			assert.Equal(t, tt.wantOK, ok)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestMatchResourceAddress(t *testing.T) {
+	tests := []struct {
+		name    string
+		pattern string
+		host    string
+		want    bool
+	}{
+		{
+			name:    "exact match",
+			pattern: "api.example.com",
+			host:    "api.example.com",
+			want:    true,
+		},
+		{
+			name:    "exact match case insensitive",
+			pattern: "api.example.com",
+			host:    "Api.example.coM",
+			want:    true,
+		},
+		{
+			name:    "exact match mismatch",
+			pattern: "api.example.com",
+			host:    "other.example.com",
+			want:    false,
+		},
+		{
+			name:    "wildcard matches single label",
+			pattern: "*.example.com",
+			host:    "api.example.com",
+			want:    true,
+		},
+		{
+			name:    "wildcard reject non-matching suffix",
+			pattern: "*.example.com",
+			host:    "api.invalid.com",
+			want:    false,
+		},
+		{
+			name:    "wildcard reject invalid starting label",
+			pattern: "*.example.com",
+			host:    "-invalid.example.com",
+			want:    false,
+		},
+		{
+			name:    "wildcard reject invalid ending label",
+			pattern: "*.example.com",
+			host:    "invalid-.example.com",
+			want:    false,
+		},
+		{
+			name:    "wildcard with top-level domain",
+			pattern: "*.com",
+			host:    "twingate.com",
+			want:    true,
+		},
+		{
+			name:    "wildcard match case insensitive",
+			pattern: "*.Example.COM",
+			host:    "API.example.com",
+			want:    true,
+		},
+		{
+			name:    "wildcard does not match bare domain",
+			pattern: "*.example.com",
+			host:    "example.com",
+			want:    false,
+		},
+		{
+			name:    "wildcard does not match multi-level subdomain",
+			pattern: "*.example.com",
+			host:    "foo.bar.example.com",
+			want:    false,
+		},
+		{
+			name:    "non-leftmost wildcard rejected",
+			pattern: "api.*.com",
+			host:    "api.example.com",
+			want:    false,
+		},
+		{
+			name:    "bare wildcard rejected",
+			pattern: "*",
+			host:    "example.com",
+			want:    false,
+		},
+		{
+			name:    "wildcard without dot rejected",
+			pattern: "*example.com",
+			host:    "apiexample.com",
+			want:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, matchResourceAddress(tt.pattern, tt.host))
+		})
+	}
+}
+
+func TestMatchResourceAliases(t *testing.T) {
+	tests := []struct {
+		name    string
+		aliases []string
+		host    string
+		want    bool
+	}{
+		{
+			name:    "match same alias",
+			aliases: []string{"app.internal"},
+			host:    "app.internal",
+			want:    true,
+		},
+		{
+			name:    "match case insensitive",
+			aliases: []string{"App.Internal"},
+			host:    "app.INTERNAL",
+			want:    true,
+		},
+		{
+			name:    "matches other aliases",
+			aliases: []string{"first.internal", "second.internal"},
+			host:    "second.internal",
+			want:    true,
+		},
+		{
+			name:    "mismatch",
+			aliases: []string{"app.internal"},
+			host:    "other.internal",
+			want:    false,
+		},
+		{
+			name:    "no aliases never matches",
+			aliases: nil,
+			host:    "app.internal",
+			want:    false,
+		},
+		{
+			name:    "empty alias never matches",
+			aliases: []string{""},
+			host:    "app.internal",
+			want:    false,
+		},
+		{
+			name:    "empty alias does not match empty host",
+			aliases: []string{""},
+			host:    "",
+			want:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, matchResourceAliases(tt.aliases, tt.host))
+		})
+	}
+}
+
 func TestPublicKey_MarshalJSON(t *testing.T) {
 	t.Run("Valid public key", func(t *testing.T) {
 		x, _ := new(big.Int).SetString("ccf05474241308bffdca1392dbb28fd98deeaf8ca15f04b3cf163c6da3b10c94", 16)
