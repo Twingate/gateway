@@ -165,8 +165,8 @@ func buildVariables(conn *frontend.ProxyConn) map[string]string {
 var clientIdentityHeaders = []string{"X-Real-IP", "X-Forwarded-Port", "X-Forwarded-Server"}
 
 // downstreamScheme reports the scheme the protocol client used to reach the Gateway.
-func downstreamScheme(conn *frontend.ProxyConn) string {
-	if conn.GATClaims().ShouldUpgradeTLS() {
+func downstreamScheme(r *http.Request) string {
+	if r.TLS != nil {
 		return "https"
 	}
 
@@ -190,7 +190,7 @@ func rewrite(r *httputil.ProxyRequest, conn *frontend.ProxyConn, headers map[str
 		r.Out.Header.Del(headerName)
 	}
 
-	r.Out.Header.Set("X-Forwarded-Proto", downstreamScheme(conn))
+	r.Out.Header.Set("X-Forwarded-Proto", downstreamScheme(r.In))
 
 	variables := buildVariables(conn)
 

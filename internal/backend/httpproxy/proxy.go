@@ -5,6 +5,7 @@ package httpproxy
 
 import (
 	"context"
+	"crypto/tls"
 	"net"
 	"net/http"
 	"time"
@@ -56,6 +57,10 @@ func NewProxy(cfg Config) *Proxy {
 		Handler:           handler,
 		ErrorLog:          errorLog,
 		ConnContext: func(ctx context.Context, c net.Conn) context.Context {
+			if tlsConn, ok := c.(*tls.Conn); ok {
+				c = tlsConn.NetConn()
+			}
+
 			return context.WithValue(ctx, ConnContextKey{}, c)
 		},
 	}
@@ -66,9 +71,29 @@ func NewProxy(cfg Config) *Proxy {
 }
 
 func (p *Proxy) Start(listener net.Listener) error {
-	return p.httpServer.Serve(listener)
+	return p.httpServer.Serve(&tlsUpgradeListener{Listener: listener})
 }
 
 func (p *Proxy) Shutdown(ctx context.Context) error {
 	return p.httpServer.Shutdown(ctx)
+}
+
+// tlsUpgradeListener wraps each accepted connection whose GAT requires TLS in a TLS server
+// connection. The handshake runs on first use, in the http.Server goroutine serving the
+// connection, so Accept does not block on the protocol client.
+type tlsUpgradeListener struct {
+	net.Listener
+}
+
+func (l *tlsUpgradeListener) Accept() (net.Conn, error) {
+	conn, err := l.Listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+
+	if proxyConn, ok := conn.(*frontend.ProxyConn); ok && proxyConn.GATClaims().ShouldUpgradeTLS() {
+		return tls.Server(conn, proxyConn.TLSConfig), nil
+	}
+
+	return conn, nil
 }

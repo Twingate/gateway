@@ -5,6 +5,8 @@ package httpproxy
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"io"
 	"net"
 	"net/http"
@@ -20,10 +22,30 @@ import (
 	"gateway/internal/logging"
 	"gateway/internal/metrics"
 	"gateway/internal/token"
+	"gateway/test/data"
+)
+
+var (
+	tlsClaims = &token.GATClaims{
+		User:     token.User{Username: "test@acme.com"},
+		Resource: token.Resource{Type: token.ResourceTypeKubernetes},
+	}
+	plaintextClaims = &token.GATClaims{
+		User: token.User{Username: "test@acme.com"},
+		Resource: token.Resource{
+			Type: token.ResourceTypeWebApp,
+			GatewayMetadata: token.GatewayMetadata{
+				Downstream: token.Downstream{TLSMode: token.TLSServerModeNone},
+			},
+		},
+	}
 )
 
 type mockConnListener struct {
 	net.Listener
+
+	claims    *token.GATClaims
+	tlsConfig *tls.Config
 }
 
 func (l *mockConnListener) Accept() (net.Conn, error) {
@@ -33,14 +55,11 @@ func (l *mockConnListener) Accept() (net.Conn, error) {
 	}
 
 	connMetrics := frontend.CreateProxyConnMetrics(prometheus.NewRegistry())
-	proxyConn := frontend.NewProxyConn(conn, nil, nil, zap.NewNop(), connMetrics)
+	proxyConn := frontend.NewProxyConn(conn, l.tlsConfig, nil, zap.NewNop(), connMetrics)
 	proxyConn.ID = "test-conn"
 	proxyConn.RequestedHost = "localhost"
 	proxyConn.UpstreamHost = "localhost"
-	proxyConn.Claims = &token.GATClaims{
-		User:     token.User{Username: "test@acme.com"},
-		Resource: token.Resource{Type: token.ResourceTypeKubernetes},
-	}
+	proxyConn.Claims = l.claims
 
 	return proxyConn, nil
 }
@@ -79,7 +98,7 @@ func TestProxy_ForwardRequest(t *testing.T) {
 	})
 
 	go func() {
-		_ = proxy.Start(&mockConnListener{Listener: listener})
+		_ = proxy.Start(&mockConnListener{Listener: listener, claims: plaintextClaims})
 	}()
 
 	defer func() {
@@ -112,7 +131,7 @@ func TestProxy_AuditRedirectedRequest(t *testing.T) {
 	})
 
 	go func() {
-		_ = proxy.Start(&mockConnListener{Listener: listener})
+		_ = proxy.Start(&mockConnListener{Listener: listener, claims: plaintextClaims})
 	}()
 
 	defer func() {
@@ -139,6 +158,82 @@ func TestProxy_AuditRedirectedRequest(t *testing.T) {
 	assert.Equal(t, http.StatusTemporaryRedirect, logContext["response"].(map[string]any)["status_code"])
 }
 
+func TestProxy_Start_UpgradesTLS(t *testing.T) {
+	serverCert, err := tls.X509KeyPair(data.ProxyCert, data.ProxyKey)
+	require.NoError(t, err)
+
+	rootCAs := x509.NewCertPool()
+	rootCAs.AppendCertsFromPEM(data.ProxyCert)
+
+	tests := []struct {
+		name    string
+		claims  *token.GATClaims
+		wantTLS bool
+	}{
+		{
+			name:    "TLS when the GAT requires it",
+			claims:  tlsClaims,
+			wantTLS: true,
+		},
+		{
+			name:    "plaintext when the GAT does not require TLS",
+			claims:  plaintextClaims,
+			wantTLS: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			listener, err := net.Listen("tcp", "127.0.0.1:0")
+			require.NoError(t, err)
+
+			served := make(chan *http.Request, 1)
+			handler := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+				served <- r
+			})
+
+			proxy := NewProxy(Config{
+				Metrics:      metrics.RegisterHTTPMetrics(prometheus.NewRegistry()),
+				ResourceType: metrics.ResourceTypeKubernetes,
+				Handler:      handler,
+				Logger:       logging.NewNop(),
+			})
+
+			go func() {
+				_ = proxy.Start(&mockConnListener{
+					Listener:  listener,
+					claims:    tt.claims,
+					tlsConfig: &tls.Config{Certificates: []tls.Certificate{serverCert}, MinVersion: tls.VersionTLS13},
+				})
+			}()
+
+			t.Cleanup(func() {
+				_ = proxy.Shutdown(context.Background())
+			})
+
+			client := &http.Client{
+				Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: rootCAs, MinVersion: tls.VersionTLS13}},
+			}
+
+			scheme := "http"
+			if tt.wantTLS {
+				scheme = "https"
+			}
+
+			resp, err := client.Get(scheme + "://" + listener.Addr().String() + "/")
+			require.NoError(t, err)
+
+			defer resp.Body.Close()
+
+			r := <-served
+			assert.Equal(t, tt.wantTLS, r.TLS != nil)
+			assert.NotPanics(t, func() {
+				assert.Equal(t, "test-conn", ProxyConnFromContext(r.Context()).GetID())
+			})
+		})
+	}
+}
+
 func TestProxy_Shutdown(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -157,7 +252,7 @@ func TestProxy_Shutdown(t *testing.T) {
 	done := make(chan error, 1)
 
 	go func() {
-		done <- proxy.Start(&mockConnListener{Listener: listener})
+		done <- proxy.Start(&mockConnListener{Listener: listener, claims: plaintextClaims})
 	}()
 
 	err = proxy.Shutdown(context.Background())

@@ -165,14 +165,15 @@ func (l *Listener) Serve(ctx context.Context, listener net.Listener) error {
 			return err
 		}
 
-		l.logger.Debug("Accepted connection", zap.String("remote_addr", conn.RemoteAddr().String()))
+		connLogger := l.logger.With(zap.String("remote_addr", conn.RemoteAddr().String()))
+		connLogger.Debug("Accepted connection")
 
 		wg.Go(func() {
-			proxyConn := l.proxyConnFactory(conn, l.tlsConfig, l.connectValidator, l.logger)
+			proxyConn := l.proxyConnFactory(conn, l.tlsConfig, l.connectValidator, connLogger)
 
 			if err := proxyConn.Authenticate(); err != nil {
 				if !errors.Is(err, io.EOF) {
-					l.logger.Error("Failed to authenticate connection", zap.Error(err))
+					connLogger.Error("Failed to authenticate connection", zap.Error(err))
 				}
 
 				_ = proxyConn.Close()
@@ -184,21 +185,11 @@ func (l *Listener) Serve(ctx context.Context, listener net.Listener) error {
 			channel, exists := l.channels[resourceType]
 
 			if !exists {
-				l.logger.Error("Unsupported resource type", zap.String("resource_type", string(resourceType)))
+				connLogger.Error("Unsupported resource type", zap.String("resource_type", string(resourceType)))
 
 				_ = proxyConn.Close()
 
 				return
-			}
-
-			if proxyConn.GATClaims().ShouldUpgradeTLS() {
-				if err := proxyConn.UpgradeToTLS(); err != nil {
-					l.logger.Error("Failed to upgrade to TLS", zap.Error(err))
-
-					_ = proxyConn.Close()
-
-					return
-				}
 			}
 
 			select {
