@@ -25,6 +25,7 @@ import (
 	"gateway/internal/frontend"
 	"gateway/internal/logging"
 	"gateway/internal/token"
+	"gateway/internal/util/testutil"
 )
 
 // newProxyConn wraps conn in the frontend.ProxyConn the proxy serves, with test GAT claims and
@@ -41,7 +42,7 @@ func newProxyConn(conn net.Conn, upstreamAddr string, tlsMode token.TLSClientMod
 			Address: upstreamHost,
 			GatewayMetadata: token.GatewayMetadata{
 				Upstream: token.Upstream{Port: upstreamPort, TLSMode: tlsMode},
-				Auths:    token.Auths{auth},
+				Auths:    []token.Auth{auth},
 			},
 		},
 	}
@@ -165,7 +166,7 @@ func newSession(t *testing.T, address string, tlsMode token.TLSClientMode, auth 
 	t.Helper()
 
 	proxy := newTestProxy(t)
-	clientConn, serverConn := tcpPipe(t)
+	clientConn, serverConn := testutil.TCPPipe(t)
 	proxyConn := newProxyConn(serverConn, address, tlsMode, auth)
 	done := make(chan error, 1)
 
@@ -208,7 +209,7 @@ func assertRejected(t *testing.T, session *testSession, err error) {
 	got, err := session.client.Receive()
 	require.NoError(t, err)
 	assert.Equal(t, want, got)
-	assertEOF(t, session.clientConn)
+	testutil.AssertEOF(t, session.clientConn)
 }
 
 func sendStartup(t *testing.T, client *pgproto3.Frontend) {
@@ -242,7 +243,7 @@ func TestProxy_RejectsWhenShuttingDown(t *testing.T) {
 	clientConn, serverConn := net.Pipe()
 
 	require.ErrorIs(t, proxy.serveConn(t.Context(), newProxyConn(serverConn, "unused:5432", token.TLSClientModeNone, passwordAuth)), errShuttingDown)
-	assertEOF(t, clientConn)
+	testutil.AssertEOF(t, clientConn)
 }
 
 func TestProxy_Start_ServesUntilListenerCloses(t *testing.T) {
@@ -262,7 +263,7 @@ func TestProxy_Start_ServesUntilListenerCloses(t *testing.T) {
 	clientConn, serverConn := net.Pipe()
 	conns <- newProxyConn(serverConn, "unused:5432", token.TLSClientModeNone, passwordAuth)
 
-	assertEOF(t, clientConn)
+	testutil.AssertEOF(t, clientConn)
 
 	require.NoError(t, listener.Close())
 	require.NoError(t, waitServe(t, done))
@@ -299,7 +300,7 @@ func TestProxy_ServeConn(t *testing.T) {
 	require.NoError(t, session.serverConn.Close())
 
 	require.NoError(t, waitServe(t, session.done))
-	assertEOF(t, session.clientConn)
+	testutil.AssertEOF(t, session.clientConn)
 }
 
 // TestProxy_ServeConn_TLS authenticates over TLS, verifying the upstream certificate.
@@ -318,7 +319,7 @@ func TestProxy_ServeConn_TLS(t *testing.T) {
 	require.NoError(t, session.serverConn.Close())
 
 	require.NoError(t, waitServe(t, session.done))
-	assertEOF(t, session.clientConn)
+	testutil.AssertEOF(t, session.clientConn)
 }
 
 func TestProxy_ServeConn_StartupError(t *testing.T) {
@@ -502,7 +503,7 @@ func TestProxy_ServeConn_Cancel(t *testing.T) {
 	require.NoError(t, upstreamConn.Close())
 
 	require.NoError(t, waitServe(t, session.done))
-	assertEOF(t, session.clientConn)
+	testutil.AssertEOF(t, session.clientConn)
 }
 
 func TestProxy_ServeConn_CancelFails(t *testing.T) {
@@ -512,7 +513,7 @@ func TestProxy_ServeConn_CancelFails(t *testing.T) {
 	require.NoError(t, session.client.Flush())
 
 	require.ErrorIs(t, waitServe(t, session.done), errFailedToConnectUpstream)
-	assertEOF(t, session.clientConn)
+	testutil.AssertEOF(t, session.clientConn)
 }
 
 func TestProxy_Shutdown_ClosesActiveConnection(t *testing.T) {
@@ -525,8 +526,8 @@ func TestProxy_Shutdown_ClosesActiveConnection(t *testing.T) {
 	session.proxy.Shutdown(t.Context())
 
 	require.NoError(t, waitServe(t, session.done))
-	assertEOF(t, session.clientConn)
-	assertEOF(t, session.serverConn)
+	testutil.AssertEOF(t, session.clientConn)
+	testutil.AssertEOF(t, session.serverConn)
 	assert.Zero(t, connCount(session.proxy))
 }
 
@@ -542,6 +543,6 @@ func TestProxy_Shutdown_ClosesConnectionInStartup(t *testing.T) {
 	session.proxy.Shutdown(t.Context())
 
 	require.ErrorIs(t, waitServe(t, session.done), errFailedToReceiveStartup)
-	assertEOF(t, session.clientConn)
+	testutil.AssertEOF(t, session.clientConn)
 	assert.Zero(t, connCount(session.proxy))
 }
