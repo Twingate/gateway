@@ -121,7 +121,7 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 		}
 
 		logger.Audit.Error("pg_connect", zap.String("error", reason))
-		p.config.metrics.RecordSession(metrics.DBSessionOutcomeClientError)
+		p.recordSessionError(ctx, metrics.DBSessionOutcomeClientError)
 		downstream.reject(err)
 
 		return err
@@ -159,7 +159,7 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 	if err := downstream.negotiateProtocolVersion(startup); err != nil {
 		logger.System.Error("Failed to negotiate the protocol version", zap.Error(err))
 		logger.Audit.Error("pg_connect", zap.String("error", "startup_failed"))
-		p.config.metrics.RecordSession(metrics.DBSessionOutcomeClientError)
+		p.recordSessionError(ctx, metrics.DBSessionOutcomeClientError)
 		downstream.reject(err)
 
 		return err
@@ -173,7 +173,7 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 	if err != nil {
 		logger.System.Error("Failed to get the database credential", zap.Error(err))
 		logger.Audit.Error("pg_connect", zap.String("error", "credential_failed"))
-		p.config.metrics.RecordSession(metrics.DBSessionOutcomeCredentialError)
+		p.recordSessionError(ctx, metrics.DBSessionOutcomeCredentialError)
 		downstream.reject(errFailedToGetCredential)
 
 		return errFailedToGetCredential
@@ -183,12 +183,7 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 	if err != nil {
 		logger.System.Error("Failed to get the database credential", zap.Error(err))
 		logger.Audit.Error("pg_connect", zap.String("error", "credential_failed"))
-
-		// A failure caused by shutdown is not a credential error.
-		if ctx.Err() == nil {
-			p.config.metrics.RecordSession(metrics.DBSessionOutcomeCredentialError)
-		}
-
+		p.recordSessionError(ctx, metrics.DBSessionOutcomeCredentialError)
 		downstream.reject(errFailedToGetCredential)
 
 		return errFailedToGetCredential
@@ -201,11 +196,7 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 	dbConn, err := upstream.connect(ctx, startup, cred)
 	if err != nil {
 		logger.System.Error("Failed to connect to the database", zap.Error(err))
-
-		// A failure caused by shutdown is not an upstream error.
-		if ctx.Err() == nil {
-			p.config.metrics.RecordSession(metrics.DBSessionOutcomeUpstreamConnectError)
-		}
+		p.recordSessionError(ctx, metrics.DBSessionOutcomeUpstreamConnectError)
 
 		reason := "login_rejected"
 
@@ -228,7 +219,7 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 	if err := downstream.completeLogin(dbConn); err != nil {
 		logger.System.Error("Failed to accept the PostgreSQL client", zap.Error(err))
 		logger.Audit.Error("pg_connect", zap.String("error", "startup_failed"))
-		p.config.metrics.RecordSession(metrics.DBSessionOutcomeClientError)
+		p.recordSessionError(ctx, metrics.DBSessionOutcomeClientError)
 		downstream.reject(err)
 
 		return err
@@ -259,6 +250,15 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 	}
 
 	return err
+}
+
+// recordSessionError counts a session whose setup failed. A failure caused by shutdown is not counted.
+func (p *Proxy) recordSessionError(ctx context.Context, outcome metrics.DBSessionOutcome) {
+	if ctx.Err() != nil {
+		return
+	}
+
+	p.config.metrics.RecordSession(outcome)
 }
 
 func closeOnPanic(logger *zap.Logger, closeFn func()) {
