@@ -6,6 +6,7 @@ package postgres
 import (
 	"crypto/tls"
 	"io"
+	"maps"
 	"net"
 	"path/filepath"
 	"strconv"
@@ -26,6 +27,7 @@ import (
 	"gateway/internal/logging"
 	"gateway/internal/metrics"
 	"gateway/internal/token"
+	"gateway/internal/util/testutil"
 )
 
 // newProxyConn wraps conn in the frontend.ProxyConn the proxy serves, with test GAT claims and
@@ -42,7 +44,7 @@ func newProxyConn(conn net.Conn, upstreamAddr string, tlsMode token.TLSClientMod
 			Address: upstreamHost,
 			GatewayMetadata: token.GatewayMetadata{
 				Upstream: token.Upstream{Port: upstreamPort, TLSMode: tlsMode},
-				Auths:    token.Auths{auth},
+				Auths:    []token.Auth{auth},
 			},
 		},
 	}
@@ -117,6 +119,7 @@ func acceptAuthentication(t *testing.T, conn net.Conn) *pgproto3.Backend {
 // testSession is a connection served by a test proxy.
 type testSession struct {
 	proxy      *Proxy
+	auditLogs  *zapobserver.ObservedLogs
 	client     *pgproto3.Frontend
 	clientConn net.Conn
 	server     *pgproto3.Backend
@@ -166,7 +169,9 @@ func newSession(t *testing.T, address string, tlsMode token.TLSClientMode, auth 
 	t.Helper()
 
 	proxy := newTestProxy(t)
-	clientConn, serverConn := tcpPipe(t)
+	core, auditLogs := zapobserver.New(zap.InfoLevel)
+	proxy.config.logger.Audit = zap.New(core)
+	clientConn, serverConn := testutil.TCPPipe(t)
 	proxyConn := newProxyConn(serverConn, address, tlsMode, auth)
 	done := make(chan error, 1)
 
@@ -176,6 +181,7 @@ func newSession(t *testing.T, address string, tlsMode token.TLSClientMode, auth 
 
 	return &testSession{
 		proxy:      proxy,
+		auditLogs:  auditLogs,
 		client:     pgproto3.NewFrontend(clientConn, clientConn),
 		clientConn: clientConn,
 		done:       done,
@@ -209,7 +215,22 @@ func assertRejected(t *testing.T, session *testSession, err error) {
 	got, err := session.client.Receive()
 	require.NoError(t, err)
 	assert.Equal(t, want, got)
-	assertEOF(t, session.clientConn)
+	testutil.AssertEOF(t, session.clientConn)
+}
+
+// loginDB is the db field of every audit line once the fake database accepts the login.
+var loginDB = map[string]any{"user": testDatabaseUser, "name": testDatabaseUser, "process_id": uint32(42)}
+
+// connAuditLine is an audit line of a test session: fields plus the user and connection ID that
+// every line of the session carries.
+func connAuditLine(message string, fields map[string]any) auditLine {
+	line := auditLine{message: message, fields: map[string]any{
+		"user":    map[string]any{"id": "", "username": "", "groups": []any{}},
+		"conn_id": "test-conn-id",
+	}}
+	maps.Copy(line.fields, fields)
+
+	return line
 }
 
 func sendStartup(t *testing.T, client *pgproto3.Frontend) {
@@ -243,7 +264,7 @@ func TestProxy_RejectsWhenShuttingDown(t *testing.T) {
 	clientConn, serverConn := net.Pipe()
 
 	require.ErrorIs(t, proxy.serveConn(t.Context(), newProxyConn(serverConn, "unused:5432", token.TLSClientModeNone, passwordAuth)), errShuttingDown)
-	assertEOF(t, clientConn)
+	testutil.AssertEOF(t, clientConn)
 }
 
 func TestProxy_Start_ServesUntilListenerCloses(t *testing.T) {
@@ -263,7 +284,7 @@ func TestProxy_Start_ServesUntilListenerCloses(t *testing.T) {
 	clientConn, serverConn := net.Pipe()
 	conns <- newProxyConn(serverConn, "unused:5432", token.TLSClientModeNone, passwordAuth)
 
-	assertEOF(t, clientConn)
+	testutil.AssertEOF(t, clientConn)
 
 	require.NoError(t, listener.Close())
 	require.NoError(t, waitServe(t, done))
@@ -300,7 +321,31 @@ func TestProxy_ServeConn(t *testing.T) {
 	require.NoError(t, session.serverConn.Close())
 
 	require.NoError(t, waitServe(t, session.done))
-	assertEOF(t, session.clientConn)
+	testutil.AssertEOF(t, session.clientConn)
+
+	want := []auditLine{
+		connAuditLine("pg_connect", map[string]any{"db": loginDB}),
+		connAuditLine("pg_query", map[string]any{"db": loginDB, "sql": "SELECT 1"}),
+		connAuditLine("pg_result", map[string]any{"db": loginDB, "command": "SELECT", "row_count": int64(1)}),
+		connAuditLine("pg_completed", map[string]any{"db": loginDB}),
+		connAuditLine("pg_disconnect", map[string]any{"db": loginDB}),
+	}
+	assert.Equal(t, want, takeLines(session.auditLogs))
+}
+
+func TestProxy_ServeConn_RelayError(t *testing.T) {
+	session := newEstablishedSession(t, token.TLSClientModeNone)
+
+	session.client.Send(unknownMessage{})
+	require.NoError(t, session.client.Flush())
+
+	require.ErrorIs(t, waitServe(t, session.done), errFailedToReceiveDownstreamMessage)
+
+	want := []auditLine{
+		connAuditLine("pg_connect", map[string]any{"db": loginDB}),
+		connAuditLine("pg_disconnect", map[string]any{"db": loginDB, "error": "relay_failed"}),
+	}
+	assert.Equal(t, want, takeLines(session.auditLogs))
 }
 
 // TestProxy_ServeConn_TLS authenticates over TLS, verifying the upstream certificate.
@@ -319,7 +364,7 @@ func TestProxy_ServeConn_TLS(t *testing.T) {
 	require.NoError(t, session.serverConn.Close())
 
 	require.NoError(t, waitServe(t, session.done))
-	assertEOF(t, session.clientConn)
+	testutil.AssertEOF(t, session.clientConn)
 }
 
 func TestProxy_ServeConn_StartupError(t *testing.T) {
@@ -338,6 +383,19 @@ func TestProxy_ServeConn_StartupError(t *testing.T) {
 	err = waitServe(t, session.done)
 	require.ErrorIs(t, err, errUnsupportedStartupRequest)
 	assertRejected(t, session, err)
+	assert.Equal(t, []auditLine{connAuditLine("pg_connect", map[string]any{"error": "startup_failed"})}, takeLines(session.auditLogs))
+}
+
+func TestProxy_ServeConn_ReplicationRefused(t *testing.T) {
+	session := newSession(t, "unused:5432", token.TLSClientModeNone, passwordAuth)
+
+	session.client.Send(&pgproto3.StartupMessage{ProtocolVersion: pgproto3.ProtocolVersion30, Parameters: map[string]string{"user": "alice", "replication": "database"}})
+	require.NoError(t, session.client.Flush())
+
+	err := waitServe(t, session.done)
+	require.ErrorIs(t, err, errReplicationNotSupported)
+	assertRejected(t, session, err)
+	assert.Equal(t, []auditLine{connAuditLine("pg_connect", map[string]any{"error": "replication_not_supported"})}, takeLines(session.auditLogs))
 }
 
 // TestProxy_ServeConn_NegotiatesProtocolFirst checks that the protocol version is negotiated
@@ -413,6 +471,7 @@ func TestProxy_ServeConn_CredentialError(t *testing.T) {
 			err := waitServe(t, session.done)
 			require.ErrorIs(t, err, errFailedToGetCredential)
 			assertRejected(t, session, err)
+			assert.Equal(t, []auditLine{connAuditLine("pg_connect", map[string]any{"error": "credential_failed"})}, takeLines(session.auditLogs))
 		})
 	}
 }
@@ -423,6 +482,7 @@ func TestProxy_ServeConn_UpstreamUnreachable(t *testing.T) {
 
 	require.ErrorIs(t, waitServe(t, session.done), errFailedToConnectUpstream)
 	assertRejected(t, session, errFailedToConnectUpstream)
+	assert.Equal(t, []auditLine{connAuditLine("pg_connect", map[string]any{"error": "unreachable_upstream"})}, takeLines(session.auditLogs))
 }
 
 func TestProxy_ServeConn_UpstreamError(t *testing.T) {
@@ -483,37 +543,72 @@ func TestProxy_ServeConn_AuthenticationRefused(t *testing.T) {
 	require.ErrorAs(t, err, &pgErr)
 	assert.Equal(t, "28P01", pgErr.Code)
 	assertRejected(t, session, err)
+	assert.Equal(t, []auditLine{connAuditLine("pg_connect", map[string]any{"error": "login_rejected"})}, takeLines(session.auditLogs))
 }
 
 func TestProxy_ServeConn_Cancel(t *testing.T) {
-	listener, address := newUpstreamListener(t)
-	session := newSession(t, address, token.TLSClientModeNone, passwordAuth)
+	db := map[string]any{"process_id": uint32(42)}
 
-	cancel := &pgproto3.CancelRequest{ProcessID: 42, SecretKey: []byte{1, 2, 3, 4}}
-	session.client.Send(cancel)
-	require.NoError(t, session.client.Flush())
+	tests := []struct {
+		name    string
+		reset   bool
+		wantErr error
+		want    auditLine
+	}{
+		{
+			name: "upstream closes the connection",
+			want: connAuditLine("pg_cancel", map[string]any{"db": db}),
+		},
+		{
+			name:    "upstream resets the connection",
+			reset:   true,
+			wantErr: errFailedToSendCancelRequest,
+			want:    connAuditLine("pg_cancel", map[string]any{"db": db, "error": "cancel_failed"}),
+		},
+	}
 
-	upstreamConn := acceptUpstream(t, listener)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			listener, address := newUpstreamListener(t)
+			session := newSession(t, address, token.TLSClientModeNone, passwordAuth)
 
-	got, err := pgproto3.NewBackend(upstreamConn, upstreamConn).ReceiveStartupMessage()
-	require.NoError(t, err)
-	assert.Equal(t, cancel, got)
+			cancel := &pgproto3.CancelRequest{ProcessID: 42, SecretKey: []byte{1, 2, 3, 4}}
+			session.client.Send(cancel)
+			require.NoError(t, session.client.Flush())
 
-	// The database answers a cancel request by closing the connection.
-	require.NoError(t, upstreamConn.Close())
+			upstreamConn := acceptUpstream(t, listener)
 
-	require.NoError(t, waitServe(t, session.done))
-	assertEOF(t, session.clientConn)
+			got, err := pgproto3.NewBackend(upstreamConn, upstreamConn).ReceiveStartupMessage()
+			require.NoError(t, err)
+			assert.Equal(t, cancel, got)
+
+			if tt.reset {
+				tcpConn, ok := upstreamConn.(*net.TCPConn)
+				require.True(t, ok)
+				require.NoError(t, tcpConn.SetLinger(0))
+			}
+
+			// The database answers a cancel request by closing the connection.
+			require.NoError(t, upstreamConn.Close())
+
+			require.ErrorIs(t, waitServe(t, session.done), tt.wantErr)
+			testutil.AssertEOF(t, session.clientConn)
+			assert.Equal(t, []auditLine{tt.want}, takeLines(session.auditLogs))
+		})
+	}
 }
 
-func TestProxy_ServeConn_CancelFails(t *testing.T) {
+func TestProxy_ServeConn_CancelUpstreamUnreachable(t *testing.T) {
 	session := newSession(t, closedAddr(t), token.TLSClientModeNone, passwordAuth)
 
 	session.client.Send(&pgproto3.CancelRequest{ProcessID: 42, SecretKey: []byte{1, 2, 3, 4}})
 	require.NoError(t, session.client.Flush())
 
 	require.ErrorIs(t, waitServe(t, session.done), errFailedToConnectUpstream)
-	assertEOF(t, session.clientConn)
+	testutil.AssertEOF(t, session.clientConn)
+
+	want := connAuditLine("pg_cancel", map[string]any{"db": map[string]any{"process_id": uint32(42)}, "error": "unreachable_upstream"})
+	assert.Equal(t, []auditLine{want}, takeLines(session.auditLogs))
 }
 
 func TestProxy_Shutdown_ClosesActiveConnection(t *testing.T) {
@@ -526,8 +621,8 @@ func TestProxy_Shutdown_ClosesActiveConnection(t *testing.T) {
 	session.proxy.Shutdown(t.Context())
 
 	require.NoError(t, waitServe(t, session.done))
-	assertEOF(t, session.clientConn)
-	assertEOF(t, session.serverConn)
+	testutil.AssertEOF(t, session.clientConn)
+	testutil.AssertEOF(t, session.serverConn)
 	assert.Zero(t, connCount(session.proxy))
 }
 
@@ -543,6 +638,6 @@ func TestProxy_Shutdown_ClosesConnectionInStartup(t *testing.T) {
 	session.proxy.Shutdown(t.Context())
 
 	require.ErrorIs(t, waitServe(t, session.done), errFailedToReceiveStartup)
-	assertEOF(t, session.clientConn)
+	testutil.AssertEOF(t, session.clientConn)
 	assert.Zero(t, connCount(session.proxy))
 }

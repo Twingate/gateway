@@ -14,6 +14,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+
+	zapobserver "go.uber.org/zap/zaptest/observer"
+
+	"gateway/internal/util/testutil"
 )
 
 // testRelay connects a relay to a test client and a test server, each over its own TCP connection:
@@ -21,6 +25,7 @@ import (
 //	client ◀──downstream──▶ relay ◀──upstream──▶ server
 type testRelay struct {
 	relay      *relay
+	auditLogs  *zapobserver.ObservedLogs
 	client     *pgproto3.Frontend
 	clientConn net.Conn
 	server     *pgproto3.Backend
@@ -30,8 +35,9 @@ type testRelay struct {
 func newTestRelay(t *testing.T) *testRelay {
 	t.Helper()
 
-	clientConn, relayDownstreamConn := tcpPipe(t)
-	relayUpstreamConn, serverConn := tcpPipe(t)
+	clientConn, relayDownstreamConn := testutil.TCPPipe(t)
+	relayUpstreamConn, serverConn := testutil.TCPPipe(t)
+	core, auditLogs := zapobserver.New(zap.InfoLevel)
 
 	return &testRelay{
 		relay: newRelay(
@@ -41,7 +47,9 @@ func newTestRelay(t *testing.T) *testRelay {
 				Conn:     relayUpstreamConn,
 				Frontend: pgproto3.NewFrontend(relayUpstreamConn, relayUpstreamConn),
 			},
+			newAuditor(zap.New(core)),
 		),
+		auditLogs:  auditLogs,
 		client:     pgproto3.NewFrontend(clientConn, clientConn),
 		clientConn: clientConn,
 		server:     pgproto3.NewBackend(serverConn, serverConn),
@@ -171,7 +179,7 @@ func TestRelay_Terminate(t *testing.T) {
 	require.NoError(t, r.serverConn.Close())
 
 	require.NoError(t, waitServe(t, done))
-	assertEOF(t, r.clientConn)
+	testutil.AssertEOF(t, r.clientConn)
 }
 
 func TestRelay_PeerCloses(t *testing.T) {
@@ -182,7 +190,7 @@ func TestRelay_PeerCloses(t *testing.T) {
 		require.NoError(t, r.clientConn.Close())
 
 		require.NoError(t, waitServe(t, done))
-		assertEOF(t, r.serverConn)
+		testutil.AssertEOF(t, r.serverConn)
 	})
 
 	t.Run("server closes", func(t *testing.T) {
@@ -192,7 +200,7 @@ func TestRelay_PeerCloses(t *testing.T) {
 		require.NoError(t, r.serverConn.Close())
 
 		require.NoError(t, waitServe(t, done))
-		assertEOF(t, r.clientConn)
+		testutil.AssertEOF(t, r.clientConn)
 	})
 }
 
@@ -203,8 +211,8 @@ func TestRelay_Close(t *testing.T) {
 	r.relay.close()
 
 	require.NoError(t, waitServe(t, done))
-	assertEOF(t, r.clientConn)
-	assertEOF(t, r.serverConn)
+	testutil.AssertEOF(t, r.clientConn)
+	testutil.AssertEOF(t, r.serverConn)
 }
 
 func TestRelay_ContextCancelled(t *testing.T) {
@@ -215,8 +223,8 @@ func TestRelay_ContextCancelled(t *testing.T) {
 	cancel()
 
 	require.NoError(t, waitServe(t, done))
-	assertEOF(t, r.clientConn)
-	assertEOF(t, r.serverConn)
+	testutil.AssertEOF(t, r.clientConn)
+	testutil.AssertEOF(t, r.serverConn)
 }
 
 func TestRelay_BufferedMessages(t *testing.T) {
@@ -253,6 +261,27 @@ func TestRelay_BufferedMessages(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, &pgproto3.Sync{}, got)
 	})
+}
+
+func TestRelay_Audit(t *testing.T) {
+	r := newTestRelay(t)
+	r.serve(t.Context(), t)
+
+	r.sendFromClient(t, &pgproto3.Query{String: "SELECT 1"})
+
+	_, err := r.server.Receive()
+	require.NoError(t, err)
+
+	r.sendFromServer(t, &pgproto3.ReadyForQuery{TxStatus: 'I'})
+
+	_, err = r.client.Receive()
+	require.NoError(t, err)
+
+	want := []auditLine{
+		{"pg_query", map[string]any{"sql": "SELECT 1"}},
+		{"pg_completed", map[string]any{}},
+	}
+	assert.Equal(t, want, takeLines(r.auditLogs))
 }
 
 func TestRelay_Error(t *testing.T) {

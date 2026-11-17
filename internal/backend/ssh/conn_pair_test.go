@@ -15,6 +15,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"gateway/internal/logging"
+	"gateway/internal/util/testutil"
 )
 
 func TestConnPair_ForwardsChannels(t *testing.T) {
@@ -218,7 +219,7 @@ func TestConnPair_SourceAcceptFailure(t *testing.T) {
 	// The already-opened target channel is closed again.
 	select {
 	case targetCh := <-target:
-		assertEOF(t, targetCh.ch)
+		testutil.AssertEOF(t, targetCh.ch)
 	case <-time.After(testTimeout):
 		t.Fatal("target channel was never opened")
 	}
