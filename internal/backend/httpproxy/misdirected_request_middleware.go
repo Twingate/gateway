@@ -12,11 +12,15 @@ import (
 // misdirectedRequestMiddleware answers 421 to a request whose hostname does not resolve to the
 // same upstream host of the connection's resource as the CONNECT host.
 //
-// An HTTP/2 client reuses a connection for any hostname that resolves to the same address and is
-// covered by the server certificate, so a request can arrive on a connection authenticated for
-// another resource. 421 makes the client retry on a connection of its own. The request hostname
-// may differ from the CONNECT host (e.g. an alias vs the resource address), so the check is that
-// both resolve to the same upstream host.
+// The request hostname may differ from the CONNECT host (e.g. an alias vs the resource address),
+// so the check is that both resolve to the same upstream host.
+//
+// The check applies to every HTTP version. A client of any version can send a Host header naming
+// a host outside the resource, and a backend that forwards it lets an upstream serving several
+// virtual hosts (e.g. a shared ingress) route the request to one the GAT does not cover. An
+// HTTP/2 client also sends such a request unintentionally: it reuses a connection for any
+// hostname that resolves to the same address and is covered by the server certificate, and 421
+// makes it retry on a connection of its own.
 func misdirectedRequestMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn := ProxyConnFromContext(r.Context())
