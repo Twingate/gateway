@@ -27,10 +27,10 @@ type relay struct {
 	logger     *zap.Logger
 	downstream *downstreamConn
 	upstream   *pgconn.HijackedConn
-	audit      *auditObserver
+	audit      *auditor
 }
 
-func newRelay(logger *zap.Logger, downstream *downstreamConn, upstream *pgconn.HijackedConn, audit *auditObserver) *relay {
+func newRelay(logger *zap.Logger, downstream *downstreamConn, upstream *pgconn.HijackedConn, audit *auditor) *relay {
 	return &relay{logger: logger, downstream: downstream, upstream: upstream, audit: audit}
 }
 

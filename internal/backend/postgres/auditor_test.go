@@ -33,7 +33,7 @@ func takeLines(logs *zapobserver.ObservedLogs) []auditLine {
 	return lines
 }
 
-func TestAuditObserver_ClientMessages(t *testing.T) {
+func TestAuditor_ClientMessages(t *testing.T) {
 	overCap := strings.Repeat("s", maxAuditValueBytes+1)
 	atCap := overCap[:maxAuditValueBytes]
 
@@ -118,10 +118,10 @@ func TestAuditObserver_ClientMessages(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			core, logs := zapobserver.New(zap.InfoLevel)
-			o := newAuditObserver(zap.New(core))
+			a := newAuditor(zap.New(core))
 
 			for _, msg := range tt.msgs {
-				o.onDownstreamMessage(msg)
+				a.onDownstreamMessage(msg)
 			}
 
 			assert.Equal(t, tt.want, takeLines(logs))
@@ -129,7 +129,7 @@ func TestAuditObserver_ClientMessages(t *testing.T) {
 	}
 }
 
-func TestAuditObserver_ServerMessages(t *testing.T) {
+func TestAuditor_ServerMessages(t *testing.T) {
 	tests := []struct {
 		name string
 		msgs []pgproto3.BackendMessage
@@ -163,7 +163,7 @@ func TestAuditObserver_ServerMessages(t *testing.T) {
 		{
 			name: "portal suspended",
 			msgs: []pgproto3.BackendMessage{&pgproto3.PortalSuspended{}},
-			want: []auditLine{{"pg_result", map[string]any{"suspended": true}}},
+			want: []auditLine{{"pg_result", map[string]any{"portal_suspended": true}}},
 		},
 		{
 			name: "ready for query",
@@ -188,10 +188,10 @@ func TestAuditObserver_ServerMessages(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			core, logs := zapobserver.New(zap.InfoLevel)
-			o := newAuditObserver(zap.New(core))
+			a := newAuditor(zap.New(core))
 
 			for _, msg := range tt.msgs {
-				o.onUpstreamMessage(msg)
+				a.onUpstreamMessage(msg)
 			}
 
 			assert.Equal(t, tt.want, takeLines(logs))
