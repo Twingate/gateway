@@ -30,7 +30,7 @@ const (
 )
 
 func TestPostgreSQL(t *testing.T) {
-	_, serverPort := testutil.SetupPostgreSQLServer(t)
+	_, serverPort := testutil.SetupPostgreSQLServer(t, testutil.PostgreSQL18Image)
 
 	controller := fake.NewController(network, 8080)
 
@@ -203,8 +203,65 @@ func TestPostgreSQL(t *testing.T) {
 				})
 			})
 
-			t.Run("cancel", func(t *testing.T) {
-				const query = "SELECT pg_sleep(30)"
+			require.NoError(t, conn.Close(t.Context()))
+
+			require.Eventually(t, func() bool {
+				return logs.FilterMessage("pg_disconnect").FilterField(dbField).Len() == 1
+			}, 5*time.Second, 10*time.Millisecond)
+		})
+	}
+
+	t.Run("cancel", func(t *testing.T) {
+		const query = "SELECT pg_sleep(30)"
+
+		_, server17Port := testutil.SetupPostgreSQLServer(t, testutil.PostgreSQL17Image)
+
+		for _, tt := range []struct {
+			name             string
+			serverPort       int
+			protocolVersion  string
+			wantCancelKeyLen int
+		}{
+			{name: "protocol 3.0 on PostgreSQL 18", serverPort: serverPort, protocolVersion: "3.0", wantCancelKeyLen: 4},
+			{name: "protocol 3.2 on PostgreSQL 18", serverPort: serverPort, protocolVersion: "3.2", wantCancelKeyLen: 32},
+			// PostgreSQL 17 does not support protocol 3.2, so the client is downgraded to protocol 3.0.
+			{name: "protocol 3.2 on PostgreSQL 17", serverPort: server17Port, protocolVersion: "3.2", wantCancelKeyLen: 4},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				user := testutil.NewPostgreSQLUser(
+					&token.User{ID: "user-postgresql-1", Username: "alex@acme.com", Groups: []string{"OnCall", "Engineering"}},
+					postgreSQLGatewayPort,
+					fmt.Sprintf("127.0.0.1:%d", tt.serverPort),
+					controller.URL,
+					auths,
+					fake.WithUpstreamTLSMode(token.TLSClientModeNone),
+				)
+
+				t.Cleanup(func() { user.Close() })
+
+				conn, err := pgx.Connect(t.Context(), fmt.Sprintf(
+					"postgres://client:unused@%s/%s?max_protocol_version=%s",
+					user.Address, testutil.PostgreSQLDatabase, tt.protocolVersion,
+				))
+				require.NoError(t, err, "failed to connect to PostgreSQL through the Gateway")
+
+				t.Cleanup(func() { _ = conn.Close(t.Context()) })
+
+				// The cancel key is longer than 4 bytes only when protocol 3.2 was negotiated.
+				assert.Len(t, conn.PgConn().SecretKey(), tt.wantCancelKeyLen)
+
+				expectedDatabase := map[string]any{
+					"db": map[string]any{
+						"user":       testutil.PostgreSQLUsername,
+						"name":       testutil.PostgreSQLDatabase,
+						"process_id": conn.PgConn().PID(),
+					},
+				}
+				dbField := zap.Dict("db",
+					zap.String("user", testutil.PostgreSQLUsername),
+					zap.String("name", testutil.PostgreSQLDatabase),
+					zap.Uint32("process_id", conn.PgConn().PID()),
+				)
 
 				seen := logs.Len()
 				queryDone := make(chan error, 1)
@@ -240,12 +297,6 @@ func TestPostgreSQL(t *testing.T) {
 				})
 				testutil.AssertLogsForPostgreSQLCancel(t, entries, expectedUser, conn.PgConn().PID())
 			})
-
-			require.NoError(t, conn.Close(t.Context()))
-
-			require.Eventually(t, func() bool {
-				return logs.FilterMessage("pg_disconnect").FilterField(dbField).Len() == 1
-			}, 5*time.Second, 10*time.Millisecond)
-		})
-	}
+		}
+	})
 }
