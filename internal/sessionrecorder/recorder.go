@@ -15,6 +15,7 @@ import (
 	"go.uber.org/zap"
 
 	gatewayconfig "gateway/internal/config"
+	"gateway/internal/metrics"
 	yamlutil "gateway/internal/util/yaml"
 )
 
@@ -24,17 +25,14 @@ var (
 	errAlreadyFinished     = errors.New("recording already finished")
 )
 
-var (
-	recordedSessionDuration prometheus.Histogram
-)
+var recordedSessionDuration = prometheus.NewHistogram(prometheus.HistogramOpts{
+	Namespace: metrics.Namespace,
+	Name:      "recorded_session_duration_seconds",
+	Help:      "Duration of WebSocket session in seconds",
+	Buckets:   []float64{1, 5, 10, 30, 60, 300, 600, 1800, 3600},
+})
 
-func RegisterRecordedSessionMetrics(namespace string, registry *prometheus.Registry) {
-	recordedSessionDuration = prometheus.NewHistogram(prometheus.HistogramOpts{
-		Namespace: namespace,
-		Name:      "recorded_session_duration_seconds",
-		Help:      "Duration of WebSocket session in seconds",
-		Buckets:   []float64{1, 5, 10, 30, 60, 300, 600, 1800, 3600},
-	})
+func RegisterRecordedSessionMetrics(registry *prometheus.Registry) {
 	registry.MustRegister(recordedSessionDuration)
 }
 

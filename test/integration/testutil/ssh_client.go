@@ -36,10 +36,10 @@ func (s *SSH) CopyFileToHost(remoteDest, localDest string, cmdOptions ...string)
 	return s.copy(context.Background(), source, localDest, cmdOptions...)
 }
 
-// LocalPortForward creates an ssh command with local port forwarding (-L).
-// The returned cmd is prepared but not started — the caller must call cmd.Start().
-func (s *SSH) LocalPortForward(ctx context.Context, localPort int, remoteHost string, remotePort int) *exec.Cmd {
-	return s.portForwardCommand(ctx, "-L", fmt.Sprintf("%d:%s:%d", localPort, remoteHost, remotePort))
+// LocalPortForward creates an ssh command with local port forwarding (-L) from the Unix socket at
+// localSocket. The returned cmd is prepared but not started — the caller must call cmd.Start().
+func (s *SSH) LocalPortForward(ctx context.Context, localSocket, remoteHost string, remotePort int) *exec.Cmd {
+	return s.portForwardCommand(ctx, "-L", fmt.Sprintf("%s:%s:%d", localSocket, remoteHost, remotePort))
 }
 
 // RemotePortForward creates an ssh command with remote port forwarding (-R).

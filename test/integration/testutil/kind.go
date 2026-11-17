@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -95,13 +96,19 @@ func SetupKinD(t *testing.T) (*Kubectl, *rest.Config, string) {
 
 	provider := cluster.NewProvider(cluster.ProviderWithLogger(kindcmd.NewLogger()))
 	clusterName := "gateway-integration-test-" + strings.ToLower(t.Name())
+	// kind locks the kubeconfig file without retrying, so concurrent clusters sharing the default
+	// kubeconfig fail to create or delete.
+	kubeconfigPath := filepath.Join(t.TempDir(), "kubeconfig")
 
 	// Create the cluster
-	err := provider.Create(clusterName, cluster.CreateWithRawConfig([]byte(kindClusterYaml)))
+	err := provider.Create(clusterName,
+		cluster.CreateWithRawConfig([]byte(kindClusterYaml)),
+		cluster.CreateWithKubeconfigPath(kubeconfigPath),
+	)
 	require.NoError(t, err, "failed to create kind cluster")
 
 	t.Cleanup(func() {
-		err := provider.Delete(clusterName, "")
+		err := provider.Delete(clusterName, kubeconfigPath)
 		require.NoError(t, err, "failed to delete kind cluster")
 	})
 
@@ -116,7 +123,7 @@ func SetupKinD(t *testing.T) (*Kubectl, *rest.Config, string) {
 
 	k := &Kubectl{
 		Options: KubectlOptions{
-			Context: "kind-" + clusterName,
+			Kubeconfig: kubeconfigPath,
 		},
 	}
 
