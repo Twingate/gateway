@@ -19,7 +19,8 @@ import (
 )
 
 const (
-	postgreSQLImage           = "postgres:18.6-alpine"
+	PostgreSQL17Image         = "postgres:17.11-alpine"
+	PostgreSQL18Image         = "postgres:18.6-alpine"
 	PostgreSQLUsername        = "gateway"
 	PostgreSQLPassword        = "secret"
 	PostgreSQLDatabase        = "app"
@@ -43,23 +44,23 @@ const (
 	`
 )
 
-func SetupPostgreSQLServer(t *testing.T) (string, int) {
+func SetupPostgreSQLServer(t *testing.T, image string) (string, int) {
 	t.Helper()
 
 	const postgreSQLPort = 5432
 
-	ensureDockerImage(t, postgreSQLImage)
+	ensureDockerImage(t, image)
 
 	// #nosec G204 -- inputs are from trusted operator configuration
 	output, err := RunCommand(exec.Command("docker", "run", "-d",
 		"-p", fmt.Sprintf("0:%d", postgreSQLPort),
-		"--name", "gateway-integration-test-postgresql",
+		"--name", "gateway-integration-test-"+strings.ReplaceAll(image, ":", "-"),
 		"--env", "POSTGRES_USER="+PostgreSQLUsername,
 		"--env", "POSTGRES_PASSWORD="+PostgreSQLPassword,
 		"--env", "POSTGRES_DB="+PostgreSQLDatabase,
 		"--env", "SSL_CERT="+string(data.ProxyCert),
 		"--env", "SSL_KEY="+string(data.ProxyKey),
-		postgreSQLImage,
+		image,
 		"sh", "-c", postgreSQLEntrypoint,
 	))
 	require.NoError(t, err, "failed to create PostgreSQL docker container")

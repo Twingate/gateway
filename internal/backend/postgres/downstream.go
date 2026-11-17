@@ -23,6 +23,9 @@ const (
 	// protocolOptionPrefix starts the name of every protocol extension option in a StartupMessage.
 	protocolOptionPrefix = "_pq_."
 
+	// protocol30CancelKeyLen is the fixed length of a cancel key in protocol 3.0.
+	protocol30CancelKeyLen = 4
+
 	// maxMessageBodyLen follows PostgreSQL's own 1 GiB message limit.
 	maxMessageBodyLen = 0x3fffffff - 1
 )
@@ -95,27 +98,32 @@ func (c *downstreamConn) handleStartupMessage() (*pgproto3.StartupMessage, *pgpr
 	}
 }
 
-// negotiateProtocolVersion always downgrades the connection to protocol 3.0. The Gateway supports
-// no protocol extension, so it removes the _pq_. options from startup and lists them back to the
-// client as unrecognized.
-func (c *downstreamConn) negotiateProtocolVersion(startup *pgproto3.StartupMessage) error {
+// negotiateProtocolVersion reports the protocol version the database granted, worked out from the
+// length of its cancel key. The Gateway supports no protocol extension, so it lists the _pq_. options
+// from startup back to the client as unrecognized.
+func (c *downstreamConn) negotiateProtocolVersion(startup *pgproto3.StartupMessage, dbConn *pgconn.HijackedConn) error {
 	unrecognizedOptions := []string{}
 
 	for name := range startup.Parameters {
 		if strings.HasPrefix(name, protocolOptionPrefix) {
 			unrecognizedOptions = append(unrecognizedOptions, name)
-			delete(startup.Parameters, name)
 		}
 	}
 
-	if startup.ProtocolVersion == pgproto3.ProtocolVersion30 && len(unrecognizedOptions) == 0 {
+	version := uint32(pgproto3.ProtocolVersion30)
+	if len(dbConn.SecretKey) > protocol30CancelKeyLen {
+		version = pgproto3.ProtocolVersion32
+	}
+
+	// A client that receives no NegotiateProtocolVersion assumes it got everything it asked for.
+	if version == startup.ProtocolVersion && len(unrecognizedOptions) == 0 {
 		return nil
 	}
 
 	// The field carries the whole version number, as the server sends it: libpq reads a bare 0 as
 	// protocol 0.0, not as minor version 0, and refuses it.
 	c.backend.Send(&pgproto3.NegotiateProtocolVersion{
-		NewestMinorProtocol: pgproto3.ProtocolVersion30,
+		NewestMinorProtocol: version,
 		UnrecognizedOptions: unrecognizedOptions,
 	})
 

@@ -147,14 +147,6 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 		return err
 	}
 
-	if err := downstream.negotiateProtocolVersion(startup); err != nil {
-		logger.System.Error("Failed to negotiate the protocol version", zap.Error(err))
-		logger.Audit.Error("pg_connect", zap.String("error", "startup_failed"))
-		downstream.reject(err)
-
-		return err
-	}
-
 	auth := conn.GATClaims().Resource.GatewayMetadata.Auths[0]
 
 	provider, err := newCredentialProvider(conn.GetUpstreamAddress(), auth, p.config.passwords)
@@ -194,6 +186,14 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 	}
 
 	defer func() { _ = dbConn.Conn.Close() }()
+
+	if err := downstream.negotiateProtocolVersion(startup, dbConn); err != nil {
+		logger.System.Error("Failed to negotiate the protocol version", zap.Error(err))
+		logger.Audit.Error("pg_connect", zap.String("error", "startup_failed"))
+		downstream.reject(err)
+
+		return err
+	}
 
 	if err := downstream.completeLogin(dbConn); err != nil {
 		logger.System.Error("Failed to accept the PostgreSQL client", zap.Error(err))

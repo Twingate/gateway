@@ -397,38 +397,39 @@ func TestProxy_ServeConn_ReplicationRefused(t *testing.T) {
 	assert.Equal(t, []auditLine{connAuditLine("pg_connect", map[string]any{"error": "replication_not_supported"})}, takeLines(session.auditLogs))
 }
 
-// TestProxy_ServeConn_NegotiatesProtocolFirst checks that the protocol version is negotiated
-// before any work is done upstream.
-func TestProxy_ServeConn_NegotiatesProtocolFirst(t *testing.T) {
-	auth := token.Auth{Type: token.AuthTypePassword, User: testDatabaseUser, Password: &token.PasswordAuth{Credential: "other"}}
-	session := newSession(t, "unused:5432", token.TLSClientModeNone, auth)
+// TestProxy_ServeConn_NegotiatesProtocol checks that a client asking for protocol 3.2 is told the
+// database granted only 3.0, before it is logged in.
+func TestProxy_ServeConn_NegotiatesProtocol(t *testing.T) {
+	listener, address := newUpstreamListener(t)
+	session := newSession(t, address, token.TLSClientModeNone, awsIAMAuth)
 
 	session.client.Send(&pgproto3.StartupMessage{ProtocolVersion: pgproto3.ProtocolVersion32, Parameters: map[string]string{"user": "alice"}})
 	require.NoError(t, session.client.Flush())
 
+	acceptAuthentication(t, acceptUpstream(t, listener))
+
 	got, err := session.client.Receive()
 	require.NoError(t, err)
 	assert.Equal(t, &pgproto3.NegotiateProtocolVersion{NewestMinorProtocol: pgproto3.ProtocolVersion30, UnrecognizedOptions: []string{}}, got)
-
-	err = waitServe(t, session.done)
-	require.ErrorIs(t, err, errFailedToGetCredential)
-	assertRejected(t, session, err)
 }
 
 // The client hangs up right after its StartupMessage, and net.Pipe fails the proxy's next write.
 func TestProxy_ServeConn_NegotiateProtocolFails(t *testing.T) {
+	listener, address := newUpstreamListener(t)
 	proxy := newTestProxy(t)
 	clientConn, serverConn := net.Pipe()
 	done := make(chan error, 1)
 
 	go func() {
-		done <- proxy.serveConn(t.Context(), newProxyConn(serverConn, "unused:5432", token.TLSClientModeNone, passwordAuth))
+		done <- proxy.serveConn(t.Context(), newProxyConn(serverConn, address, token.TLSClientModeNone, awsIAMAuth))
 	}()
 
 	client := pgproto3.NewFrontend(clientConn, clientConn)
 	client.Send(&pgproto3.StartupMessage{ProtocolVersion: pgproto3.ProtocolVersion32, Parameters: map[string]string{"user": "alice"}})
 	require.NoError(t, client.Flush())
 	require.NoError(t, clientConn.Close())
+
+	acceptAuthentication(t, acceptUpstream(t, listener))
 
 	require.ErrorIs(t, waitServe(t, done), errFailedToNegotiateProtocol)
 }

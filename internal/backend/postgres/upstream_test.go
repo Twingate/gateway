@@ -159,6 +159,17 @@ func TestUpstream_ConnectConfig_ConnectTimeout(t *testing.T) {
 	}
 }
 
+func TestUpstream_ConnectConfig_Protocol32(t *testing.T) {
+	config, err := upstream{address: "db.acme.int:5432"}.connectConfig(
+		&pgproto3.StartupMessage{ProtocolVersion: pgproto3.ProtocolVersion32},
+		credential{user: testDatabaseUser, password: "secret"},
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, "3.0", config.MinProtocolVersion)
+	assert.Equal(t, "3.2", config.MaxProtocolVersion)
+}
+
 func TestUpstream_ConnectConfig_TLS(t *testing.T) {
 	certificate := &tls.Certificate{Certificate: [][]byte{{1}}}
 
