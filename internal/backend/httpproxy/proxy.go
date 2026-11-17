@@ -54,8 +54,14 @@ func NewProxy(cfg Config) *Proxy {
 	httpServer := &http.Server{
 		// G112 - Protect against Slowloris attack
 		ReadHeaderTimeout: 5 * time.Second,
-		Handler:           handler,
-		ErrorLog:          errorLog,
+		// Long enough that the client usually closes an idle connection first, since a new connection
+		// costs the client a CONNECT, GAT and Proof-of-Possession validation, and a TLS handshake.
+		IdleTimeout: 5 * time.Minute,
+		HTTP2: &http.HTTP2Config{
+			SendPingTimeout: 30 * time.Second,
+		},
+		Handler:  handler,
+		ErrorLog: errorLog,
 		ConnContext: func(ctx context.Context, c net.Conn) context.Context {
 			if tlsConn, ok := c.(*tls.Conn); ok {
 				c = tlsConn.NetConn()

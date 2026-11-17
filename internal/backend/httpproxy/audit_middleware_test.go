@@ -155,6 +155,7 @@ func TestAuditMiddleware(t *testing.T) {
 			assert.Subset(t, logContext, map[string]any{
 				"method":      "GET",
 				"url":         "/api",
+				"proto":       "HTTP/1.1",
 				"remote_addr": request.RemoteAddr,
 				"conn_id":     "conn-id-1",
 				"user":        map[string]any{"id": "user-id-1", "username": "user@acme.com", "groups": []any{"OnCall", "Engineering"}},
