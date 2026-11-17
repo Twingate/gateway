@@ -247,7 +247,6 @@ func TestPostgreSQL(t *testing.T) {
 
 				t.Cleanup(func() { _ = conn.Close(t.Context()) })
 
-				// The cancel key is longer than 4 bytes only when protocol 3.2 was negotiated.
 				assert.Len(t, conn.PgConn().SecretKey(), tt.wantCancelKeyLen)
 
 				expectedDatabase := map[string]any{

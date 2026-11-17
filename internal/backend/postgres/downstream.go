@@ -23,8 +23,7 @@ const (
 	// protocolOptionPrefix starts the name of every protocol extension option in a StartupMessage.
 	protocolOptionPrefix = "_pq_."
 
-	// protocol30CancelKeyLen is the fixed length of a cancel key in protocol 3.0. Only protocol 3.2
-	// carries a longer one.
+	// protocol30CancelKeyLen is the fixed length of a cancel key in protocol 3.0.
 	protocol30CancelKeyLen = 4
 
 	// maxMessageBodyLen follows PostgreSQL's own 1 GiB message limit.
@@ -100,8 +99,8 @@ func (c *downstreamConn) handleStartupMessage() (*pgproto3.StartupMessage, *pgpr
 }
 
 // negotiateProtocolVersion reports the protocol version the database granted, worked out from the
-// length of its cancel key because pgconn does not report it. The Gateway supports no protocol
-// extension, so it lists the _pq_. options from startup back to the client as unrecognized.
+// length of its cancel key. The Gateway supports no protocol extension, so it lists the _pq_. options
+// from startup back to the client as unrecognized.
 func (c *downstreamConn) negotiateProtocolVersion(startup *pgproto3.StartupMessage, dbConn *pgconn.HijackedConn) error {
 	unrecognizedOptions := []string{}
 
