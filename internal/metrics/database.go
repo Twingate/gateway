@@ -25,9 +25,18 @@ const (
 	DBSessionOutcomeUpstreamConnectError DBSessionOutcome = "upstream_connect_error"
 )
 
+// DBCancelOutcome is whether a query cancel request reached the database.
+type DBCancelOutcome string
+
+const (
+	DBCancelOutcomeSuccess DBCancelOutcome = "success"
+	DBCancelOutcomeFailure DBCancelOutcome = "failure"
+)
+
 type DBMetrics struct {
 	activeSessions              *prometheus.GaugeVec
 	sessionsTotal               *prometheus.CounterVec
+	cancelTotal                 *prometheus.CounterVec
 	credentialRetrievalDuration *prometheus.HistogramVec
 	upstreamConnectDuration     *prometheus.HistogramVec
 }
@@ -46,6 +55,12 @@ func RegisterDBMetrics(registry *prometheus.Registry) *DBMetrics {
 			Help:      "Total number of database connection attempts by outcome",
 		}, []string{labelResourceType, labelOutcome}),
 
+		cancelTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: Namespace,
+			Name:      "db_cancel_total",
+			Help:      "Total number of query cancel requests forwarded to the database by outcome",
+		}, []string{labelResourceType, labelOutcome}),
+
 		credentialRetrievalDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: Namespace,
 			Name:      "db_credential_retrieval_duration_seconds",
@@ -61,7 +76,7 @@ func RegisterDBMetrics(registry *prometheus.Registry) *DBMetrics {
 		}, []string{labelResourceType}),
 	}
 
-	registry.MustRegister(m.activeSessions, m.sessionsTotal, m.credentialRetrievalDuration, m.upstreamConnectDuration)
+	registry.MustRegister(m.activeSessions, m.sessionsTotal, m.cancelTotal, m.credentialRetrievalDuration, m.upstreamConnectDuration)
 
 	return m
 }
@@ -79,6 +94,10 @@ type DBResourceMetrics struct {
 
 func (m *DBResourceMetrics) RecordSession(outcome DBSessionOutcome) {
 	m.metrics.sessionsTotal.WithLabelValues(m.resourceType, string(outcome)).Inc()
+}
+
+func (m *DBResourceMetrics) RecordCancel(outcome DBCancelOutcome) {
+	m.metrics.cancelTotal.WithLabelValues(m.resourceType, string(outcome)).Inc()
 }
 
 func (m *DBResourceMetrics) RecordCredentialRetrieval(authType string, duration time.Duration) {

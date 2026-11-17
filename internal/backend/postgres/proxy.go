@@ -141,8 +141,14 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 			}
 
 			logger.Audit.Error("pg_cancel", zap.Dict("db", zap.Uint32("process_id", cancel.ProcessID)), zap.String("error", reason))
+
+			// A failure caused by shutdown is not a failed cancel.
+			if ctx.Err() == nil {
+				p.config.metrics.RecordCancel(metrics.DBCancelOutcomeFailure)
+			}
 		} else {
 			logger.Audit.Info("pg_cancel", zap.Dict("db", zap.Uint32("process_id", cancel.ProcessID)))
+			p.config.metrics.RecordCancel(metrics.DBCancelOutcomeSuccess)
 		}
 
 		_ = conn.Close()

@@ -23,6 +23,7 @@ func TestDBMetrics(t *testing.T) {
 	pgMetrics := dbMetrics.WithResourceType(ResourceTypePostgreSQL)
 
 	pgMetrics.RecordSession(DBSessionOutcomeSuccess)
+	pgMetrics.RecordCancel(DBCancelOutcomeSuccess)
 	pgMetrics.RecordCredentialRetrieval("password", time.Second)
 	pgMetrics.RecordUpstreamConnect(2 * time.Second)
 	sessionEnded := pgMetrics.TrackActiveSession()
@@ -39,6 +40,10 @@ func TestDBMetrics(t *testing.T) {
 			"resource_type": "postgresql",
 			"outcome":       "success",
 		},
+		"twingate_gateway_db_cancel_total": {
+			"resource_type": "postgresql",
+			"outcome":       "success",
+		},
 		"twingate_gateway_db_credential_retrieval_duration_seconds": {
 			"resource_type": "postgresql",
 			"auth_type":     "password",
@@ -50,6 +55,7 @@ func TestDBMetrics(t *testing.T) {
 	assert.Equal(t, expectedLabels, labelsByMetric)
 
 	assert.InDelta(t, 1, promtestutil.ToFloat64(dbMetrics.sessionsTotal), 0)
+	assert.InDelta(t, 1, promtestutil.ToFloat64(dbMetrics.cancelTotal), 0)
 	assert.InDelta(t, 1, promtestutil.ToFloat64(dbMetrics.activeSessions), 0)
 
 	histogram := testutil.GetHistogram("twingate_gateway_db_credential_retrieval_duration_seconds", metricFamilies)
