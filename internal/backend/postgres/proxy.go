@@ -213,7 +213,7 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 
 	logger.Audit.Info("pg_connect")
 
-	relay := newRelay(logger.System, downstream, dbConn, newAuditObserver(logger.Audit))
+	relay := newRelay(logger.System, downstream, dbConn, newAuditor(logger.Audit))
 
 	err = relay.serve(ctx)
 	if err != nil {

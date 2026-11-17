@@ -27,48 +27,48 @@ const (
 // combined parameters of one line.
 const maxAuditValueBytes = 64 * humanize.KiByte
 
-// auditObserver writes one audit line per client message and per statement result, as the relay
+// auditor writes one audit line per client message and per statement result, as the relay
 // sees each one.
-type auditObserver struct {
+type auditor struct {
 	logger *zap.Logger
 }
 
-func newAuditObserver(logger *zap.Logger) *auditObserver {
-	return &auditObserver{logger: logger}
+func newAuditor(logger *zap.Logger) *auditor {
+	return &auditor{logger: logger}
 }
 
-func (o *auditObserver) onDownstreamMessage(msg pgproto3.FrontendMessage) {
+func (a *auditor) onDownstreamMessage(msg pgproto3.FrontendMessage) {
 	switch msg := msg.(type) {
 	case *pgproto3.Query:
 		sql, truncated := stringField(fieldSQL, msg.String)
 
-		o.logger.Info("pg_query", sql, truncatedField(truncated))
+		a.logger.Info("pg_query", sql, truncatedField(truncated))
 	case *pgproto3.Parse:
 		statement, statementTruncated := stringField(fieldStatementName, msg.Name)
 		sql, sqlTruncated := stringField(fieldSQL, msg.Query)
 
-		o.logger.Info("pg_parse", statement, sql, truncatedField(statementTruncated, sqlTruncated))
+		a.logger.Info("pg_parse", statement, sql, truncatedField(statementTruncated, sqlTruncated))
 	case *pgproto3.Bind:
 		statement, statementTruncated := stringField(fieldStatementName, msg.PreparedStatement)
 		portal, portalTruncated := stringField(fieldPortalName, msg.DestinationPortal)
 		parameters, parametersTruncated := valueField("parameters", msg.ParameterFormatCodes, msg.Parameters)
 
-		o.logger.Info("pg_bind", statement, portal, parameters,
+		a.logger.Info("pg_bind", statement, portal, parameters,
 			truncatedField(statementTruncated, portalTruncated, parametersTruncated))
 	case *pgproto3.Execute:
 		portal, truncated := stringField(fieldPortalName, msg.Portal)
 
-		o.logger.Info("pg_execute", portal, zap.Uint32("max_rows", msg.MaxRows), truncatedField(truncated))
+		a.logger.Info("pg_execute", portal, zap.Uint32("max_rows", msg.MaxRows), truncatedField(truncated))
 	case *pgproto3.FunctionCall:
 		arguments, truncated := valueField("arguments", msg.ArgFormatCodes, msg.Arguments)
 
-		o.logger.Info("pg_function_call", zap.Uint32("function", msg.Function), arguments, truncatedField(truncated))
+		a.logger.Info("pg_function_call", zap.Uint32("function", msg.Function), arguments, truncatedField(truncated))
 	default:
 		// Describe, Close, Sync, Flush, Terminate and the COPY messages are not audited.
 	}
 }
 
-func (o *auditObserver) onUpstreamMessage(msg pgproto3.BackendMessage) {
+func (a *auditor) onUpstreamMessage(msg pgproto3.BackendMessage) {
 	switch msg := msg.(type) {
 	case *pgproto3.CommandComplete:
 		command, rowCount, hasRowCount := parseCommandTag(msg.CommandTag)
@@ -78,15 +78,15 @@ func (o *auditObserver) onUpstreamMessage(msg pgproto3.BackendMessage) {
 			fields = append(fields, zap.Int64("row_count", rowCount))
 		}
 
-		o.logger.Info("pg_result", fields...)
+		a.logger.Info("pg_result", fields...)
 	case *pgproto3.EmptyQueryResponse, *pgproto3.FunctionCallResponse:
-		o.logger.Info("pg_result")
+		a.logger.Info("pg_result")
 	case *pgproto3.ErrorResponse:
-		o.logger.Info("pg_result", zap.String("error_code", msg.Code))
+		a.logger.Info("pg_result", zap.String("error_code", msg.Code))
 	case *pgproto3.PortalSuspended:
-		o.logger.Info("pg_result", zap.Bool("suspended", true))
+		a.logger.Info("pg_result", zap.Bool("portal_suspended", true))
 	case *pgproto3.ReadyForQuery:
-		o.logger.Info("pg_completed")
+		a.logger.Info("pg_completed")
 	default:
 		// DataRow and COPY data are never logged due to privacy and volume reasons. The rest
 		// (ParseComplete, BindComplete, CloseComplete, ParameterDescription, RowDescription, NoData,
@@ -191,7 +191,8 @@ func isBinaryFormat[F int16 | uint16](formatCodes []F, i int) bool {
 		// A single format code applies to every value.
 		return formatCodes[0] == pgtype.BinaryFormatCode
 	default:
-		// A value with out-of-range index format code is logged as text.
+		// Each value has its own format code. A message with fewer codes than values is invalid and
+		// the server rejects it, so its values without a code are logged as text.
 		return i < len(formatCodes) && formatCodes[i] == pgtype.BinaryFormatCode
 	}
 }

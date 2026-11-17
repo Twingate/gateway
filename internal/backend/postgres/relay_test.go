@@ -47,7 +47,7 @@ func newTestRelay(t *testing.T) *testRelay {
 				Conn:     relayUpstreamConn,
 				Frontend: pgproto3.NewFrontend(relayUpstreamConn, relayUpstreamConn),
 			},
-			newAuditObserver(zap.New(core)),
+			newAuditor(zap.New(core)),
 		),
 		auditLogs:  auditLogs,
 		client:     pgproto3.NewFrontend(clientConn, clientConn),
