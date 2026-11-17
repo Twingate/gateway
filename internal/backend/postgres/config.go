@@ -15,7 +15,7 @@ import (
 type Config struct {
 	passwords passwordCredentials
 	caPool    *x509.CertPool
-	metrics   *metrics.DBResourceMetrics
+	metrics   *metrics.DBMetrics
 	logger    logging.Logger
 }
 

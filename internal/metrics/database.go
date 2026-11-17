@@ -37,8 +37,8 @@ type DBMetrics struct {
 	activeSessions              *prometheus.GaugeVec
 	sessionsTotal               *prometheus.CounterVec
 	cancelTotal                 *prometheus.CounterVec
-	credentialRetrievalDuration *prometheus.HistogramVec
-	upstreamConnectDuration     *prometheus.HistogramVec
+	credentialRetrievalDuration prometheus.ObserverVec
+	upstreamConnectDuration     prometheus.ObserverVec
 }
 
 func RegisterDBMetrics(registry *prometheus.Registry) *DBMetrics {
@@ -81,36 +81,39 @@ func RegisterDBMetrics(registry *prometheus.Registry) *DBMetrics {
 	return m
 }
 
-// WithResourceType returns the metrics of one database resource type.
-func (m *DBMetrics) WithResourceType(resourceType ResourceType) *DBResourceMetrics {
-	return &DBResourceMetrics{metrics: m, resourceType: string(resourceType)}
+// WithResourceType returns the metrics of one database resource type, with the resource_type label
+// already set. Only the returned metrics can record.
+func (m *DBMetrics) WithResourceType(resourceType ResourceType) *DBMetrics {
+	labels := prometheus.Labels{labelResourceType: string(resourceType)}
+
+	return &DBMetrics{
+		activeSessions:              m.activeSessions.MustCurryWith(labels),
+		sessionsTotal:               m.sessionsTotal.MustCurryWith(labels),
+		cancelTotal:                 m.cancelTotal.MustCurryWith(labels),
+		credentialRetrievalDuration: m.credentialRetrievalDuration.MustCurryWith(labels),
+		upstreamConnectDuration:     m.upstreamConnectDuration.MustCurryWith(labels),
+	}
 }
 
-// DBResourceMetrics records the database metrics of one resource type.
-type DBResourceMetrics struct {
-	metrics      *DBMetrics
-	resourceType string
+func (m *DBMetrics) RecordSession(outcome DBSessionOutcome) {
+	m.sessionsTotal.WithLabelValues(string(outcome)).Inc()
 }
 
-func (m *DBResourceMetrics) RecordSession(outcome DBSessionOutcome) {
-	m.metrics.sessionsTotal.WithLabelValues(m.resourceType, string(outcome)).Inc()
+func (m *DBMetrics) RecordCancel(outcome DBCancelOutcome) {
+	m.cancelTotal.WithLabelValues(string(outcome)).Inc()
 }
 
-func (m *DBResourceMetrics) RecordCancel(outcome DBCancelOutcome) {
-	m.metrics.cancelTotal.WithLabelValues(m.resourceType, string(outcome)).Inc()
+func (m *DBMetrics) RecordCredentialRetrieval(authType string, duration time.Duration) {
+	m.credentialRetrievalDuration.WithLabelValues(authType).Observe(duration.Seconds())
 }
 
-func (m *DBResourceMetrics) RecordCredentialRetrieval(authType string, duration time.Duration) {
-	m.metrics.credentialRetrievalDuration.WithLabelValues(m.resourceType, authType).Observe(duration.Seconds())
-}
-
-func (m *DBResourceMetrics) RecordUpstreamConnect(duration time.Duration) {
-	m.metrics.upstreamConnectDuration.WithLabelValues(m.resourceType).Observe(duration.Seconds())
+func (m *DBMetrics) RecordUpstreamConnect(duration time.Duration) {
+	m.upstreamConnectDuration.WithLabelValues().Observe(duration.Seconds())
 }
 
 // TrackActiveSession counts a session as active until the returned function is called.
-func (m *DBResourceMetrics) TrackActiveSession() func() {
-	activeSessions := m.metrics.activeSessions.WithLabelValues(m.resourceType)
+func (m *DBMetrics) TrackActiveSession() func() {
+	activeSessions := m.activeSessions.WithLabelValues()
 	activeSessions.Inc()
 
 	return activeSessions.Dec
