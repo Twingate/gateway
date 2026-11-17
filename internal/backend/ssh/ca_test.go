@@ -160,9 +160,10 @@ func TestNewLocalCA_ReloadsPrivateKey(t *testing.T) {
 	require.NoError(t, err)
 
 	cert, err := provider.gatewayUserCA().sign(t.Context(), &certificateRequest{
-		certType:  UserCert,
-		publicKey: subjectPublicKey,
-		ttl:       time.Minute,
+		certType:   UserCert,
+		publicKey:  subjectPublicKey,
+		principals: []string{"alice"},
+		ttl:        time.Minute,
 	})
 	require.NoError(t, err)
 	require.Equal(t, newPublicKey.Marshal(), cert.SignatureKey.Marshal())
@@ -281,9 +282,10 @@ func TestVaultCAProvider_UpstreamHostKeyCallback(t *testing.T) {
 	require.NoError(t, err)
 
 	cert := &ssh.Certificate{
-		Key:         hostPubKey,
-		CertType:    ssh.HostCert,
-		ValidBefore: mustUint64(time.Now().Add(time.Hour)),
+		Key:             hostPubKey,
+		CertType:        ssh.HostCert,
+		ValidPrincipals: []string{"10.0.0.1"},
+		ValidBefore:     mustUint64(time.Now().Add(time.Hour)),
 	}
 	require.NoError(t, cert.SignCert(rand.Reader, caSigner))
 

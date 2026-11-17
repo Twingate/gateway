@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 
 	"gateway/internal/config"
 	"gateway/internal/frontend/cert"
@@ -353,10 +354,10 @@ func TestListener_UnsupportedResourceType(t *testing.T) {
 	}
 
 	registry := prometheus.NewRegistry()
-	logger := zap.NewNop()
+	core, logs := observer.New(zap.ErrorLevel)
 	listener := &Listener{
 		channels:    channels,
-		logger:      logger,
+		logger:      zap.New(core),
 		metrics:     CreateProxyConnMetrics(registry),
 		certManager: newTestCertManager(t, testTLSConfig),
 	}
@@ -393,6 +394,9 @@ func TestListener_UnsupportedResourceType(t *testing.T) {
 
 	// Channel should be empty (connection was not routed)
 	require.Empty(t, httpChannel)
+
+	require.Equal(t, 1, logs.Len())
+	assert.Equal(t, closedConn.RemoteAddr().String(), logs.All()[0].ContextMap()["remote_addr"])
 
 	// Close the listener
 	_ = tcpListener.Close()
