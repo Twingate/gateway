@@ -367,7 +367,7 @@ func TestProxy_ClosesUpstreamOnPanicBeforeServe(t *testing.T) {
 	require.NoError(t, err)
 
 	// The upstream handshake panics, and the deferred cleanup closes the upstream connection
-	// without tracking the pair.
+	// and stops tracking the connection.
 	waitDone(t, done)
 	require.NotNil(t, recovered, "serveConn did not panic")
 	assertNetConnClosed(t, <-upstreamConn)
@@ -399,10 +399,10 @@ func TestProxy_Shutdown_ClosesActiveConnection(t *testing.T) {
 	client, err := dialDownstream(t, sshProxy, clientConn)
 	require.NoError(t, err)
 
-	// The connection pair is tracked once both handshakes complete.
-	require.Eventually(t, func() bool {
-		return connCount(sshProxy) == 1
-	}, testTimeout, 10*time.Millisecond, "connection was not tracked")
+	// The proxy answers a global request only once both handshakes complete and the connection
+	// pair is serving.
+	_, _, err = client.SendRequest("keepalive@openssh.com", true, nil)
+	require.NoError(t, err)
 
 	sshProxy.Shutdown(t.Context())
 
@@ -410,6 +410,55 @@ func TestProxy_Shutdown_ClosesActiveConnection(t *testing.T) {
 	assert.Zero(t, connCount(sshProxy))
 	assertConnClosed(t, client.Conn)
 	require.NoError(t, waitErr(t, serveDone))
+}
+
+func TestProxy_Shutdown_ClosesConnectionDuringHandshake(t *testing.T) {
+	sshProxy := newTestProxy(t)
+
+	// The client never sends its SSH version, so the proxy stays in the downstream handshake.
+	clientConn, serverConn := newDownstreamConn(t, "unused:22")
+
+	serveDone := make(chan error, 1)
+
+	go func() {
+		serveDone <- sshProxy.serveConn(t.Context(), serverConn)
+	}()
+
+	require.Eventually(t, func() bool {
+		return connCount(sshProxy) == 1
+	}, testTimeout, 10*time.Millisecond, "connection was not tracked")
+
+	sshProxy.Shutdown(t.Context())
+
+	assert.Zero(t, connCount(sshProxy))
+	assertNetConnClosed(t, clientConn)
+	require.Error(t, waitErr(t, serveDone))
+}
+
+func TestProxy_CancelClosesStalledUpstreamHandshake(t *testing.T) {
+	// The gateway cancels the context before it shuts the proxy down, so a stalled upstream
+	// handshake has to end on cancel or Shutdown would wait for it forever.
+	sshProxy := newTestProxy(t)
+
+	upstreamAddr, upstreamConn := newStalledUpstream(t)
+	clientConn, serverConn := newDownstreamConn(t, upstreamAddr)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	serveDone := make(chan error, 1)
+
+	go func() {
+		serveDone <- sshProxy.serveConn(ctx, serverConn)
+	}()
+
+	_, err := dialDownstream(t, sshProxy, clientConn)
+	require.NoError(t, err)
+
+	accepted := <-upstreamConn
+
+	cancel()
+
+	require.Error(t, waitErr(t, serveDone))
+	assertNetConnClosed(t, accepted)
 }
 
 // testProxyUsername is the username the test proxy presents to upstream servers.
@@ -749,6 +798,33 @@ func newBareUpstream(t *testing.T) (string, <-chan net.Conn) {
 		conn <- accepted
 
 		_, _, _, _ = ssh.NewServerConn(accepted, config)
+	}()
+
+	return listener.Addr().String(), conn
+}
+
+// newStalledUpstream starts a TCP server that accepts one connection and never speaks SSH, so a
+// client's handshake with it blocks. It returns the listen address and a channel delivering the
+// accepted connection so a test can assert the client closes it.
+func newStalledUpstream(t *testing.T) (string, <-chan net.Conn) {
+	t.Helper()
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+
+	t.Cleanup(func() { _ = listener.Close() })
+
+	conn := make(chan net.Conn, 1)
+
+	go func() {
+		accepted, err := listener.Accept()
+		if err != nil {
+			return
+		}
+
+		t.Cleanup(func() { _ = accepted.Close() })
+
+		conn <- accepted
 	}()
 
 	return listener.Addr().String(), conn
