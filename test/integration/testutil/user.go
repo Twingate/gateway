@@ -118,7 +118,7 @@ type PostgreSQLUser struct {
 	client  *fake.Client
 }
 
-func NewPostgreSQLUser(user *token.User, gatewayPort int, upstreamAddress, controllerURL string, auths token.Auths, opts ...fake.Option) *PostgreSQLUser {
+func NewPostgreSQLUser(user *token.User, gatewayPort int, upstreamAddress, controllerURL string, auths []token.Auth, opts ...fake.Option) *PostgreSQLUser {
 	client := fake.NewClient(
 		user,
 		token.GeoIPLocation{},

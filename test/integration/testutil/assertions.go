@@ -199,7 +199,8 @@ func AssertLogsForPostgreSQLSession(t *testing.T, entries []observer.LoggedEntry
 		fields := entry.ContextMap()
 
 		// Only the logs of a relayed session name the database.
-		if _, ok := fields["db"]; entry.LoggerName != logging.AuditLoggerName || !ok {
+		db, ok := fields["db"].(map[string]any)
+		if entry.LoggerName != logging.AuditLoggerName || !ok || db["name"] == nil {
 			continue
 		}
 
@@ -232,7 +233,7 @@ func AssertLogsForPostgreSQLCancel(t *testing.T, entries []observer.LoggedEntry,
 
 	require.Len(t, cancelLogs, 1)
 	assert.Equal(t, expectedUser, cancelLogs[0].ContextMap()["user"])
-	assert.Equal(t, expectedProcessID, cancelLogs[0].ContextMap()["process_id"])
+	assert.Equal(t, map[string]any{"process_id": expectedProcessID}, cancelLogs[0].ContextMap()["db"])
 }
 
 func matchesExpected(actual, expected map[string]any) bool {

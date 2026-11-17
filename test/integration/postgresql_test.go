@@ -73,7 +73,7 @@ func TestPostgreSQL(t *testing.T) {
 
 	testutil.GatewayHealthCheck(t, postgreSQLGatewayPort)
 
-	auths := token.Auths{{
+	auths := []token.Auth{{
 		Type:     token.AuthTypePassword,
 		User:     testutil.PostgreSQLUsername,
 		Password: &token.PasswordAuth{Credential: postgreSQLCredential},
@@ -111,14 +111,19 @@ func TestPostgreSQL(t *testing.T) {
 
 			expectedDatabase := map[string]any{
 				"db": map[string]any{
-					"user": testutil.PostgreSQLUsername,
-					"name": testutil.PostgreSQLDatabase,
+					"user":       testutil.PostgreSQLUsername,
+					"name":       testutil.PostgreSQLDatabase,
+					"process_id": conn.PgConn().PID(),
 				},
-				"process_id": conn.PgConn().PID(),
 			}
+			dbField := zap.Dict("db",
+				zap.String("user", testutil.PostgreSQLUsername),
+				zap.String("name", testutil.PostgreSQLDatabase),
+				zap.Uint32("process_id", conn.PgConn().PID()),
+			)
 
 			require.Eventually(t, func() bool {
-				return logs.FilterMessage("pg_connect").FilterField(zap.Uint32("process_id", conn.PgConn().PID())).Len() == 1
+				return logs.FilterMessage("pg_connect").FilterField(dbField).Len() == 1
 			}, 5*time.Second, 10*time.Millisecond)
 
 			t.Run("single statement query", func(t *testing.T) {
@@ -211,7 +216,7 @@ func TestPostgreSQL(t *testing.T) {
 
 				// PostgreSQL ignores a cancel that reaches an idle backend, so wait until the Gateway relays the query.
 				require.Eventually(t, func() bool {
-					return logs.FilterMessage("pg_query").FilterField(zap.String("sql", query)).FilterField(zap.Uint32("process_id", conn.PgConn().PID())).Len() == 1
+					return logs.FilterMessage("pg_query").FilterField(zap.String("sql", query)).FilterField(dbField).Len() == 1
 				}, 5*time.Second, 10*time.Millisecond)
 
 				require.NoError(t, conn.PgConn().CancelRequest(t.Context()))
@@ -239,7 +244,7 @@ func TestPostgreSQL(t *testing.T) {
 			require.NoError(t, conn.Close(t.Context()))
 
 			require.Eventually(t, func() bool {
-				return logs.FilterMessage("pg_disconnect").FilterField(zap.Uint32("process_id", conn.PgConn().PID())).Len() == 1
+				return logs.FilterMessage("pg_disconnect").FilterField(dbField).Len() == 1
 			}, 5*time.Second, 10*time.Millisecond)
 		})
 	}

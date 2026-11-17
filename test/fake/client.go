@@ -51,7 +51,7 @@ type Client struct {
 	upstreamTLSMode       token.TLSClientMode
 	resourceType          token.ResourceType
 	requestHeaderRewrites map[string]string
-	auths                 token.Auths
+	auths                 []token.Auth
 
 	cancel context.CancelFunc
 	wg     *sync.WaitGroup
@@ -78,7 +78,7 @@ func WithRequestHeaderRewrites(rewrites map[string]string) Option {
 }
 
 // WithAuths sets the PostgreSQL auth entries carried in the GAT.
-func WithAuths(auths token.Auths) Option {
+func WithAuths(auths []token.Auth) Option {
 	return func(c *Client) {
 		c.auths = auths
 	}
