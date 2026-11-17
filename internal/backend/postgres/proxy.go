@@ -183,7 +183,12 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 	if err != nil {
 		logger.System.Error("Failed to get the database credential", zap.Error(err))
 		logger.Audit.Error("pg_connect", zap.String("error", "credential_failed"))
-		p.config.metrics.RecordSession(metrics.DBSessionOutcomeCredentialError)
+
+		// A failure caused by shutdown is not a credential error.
+		if ctx.Err() == nil {
+			p.config.metrics.RecordSession(metrics.DBSessionOutcomeCredentialError)
+		}
+
 		downstream.reject(errFailedToGetCredential)
 
 		return errFailedToGetCredential
@@ -197,7 +202,10 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 	if err != nil {
 		logger.System.Error("Failed to connect to the database", zap.Error(err))
 
-		p.config.metrics.RecordSession(metrics.DBSessionOutcomeUpstreamConnectError)
+		// A failure caused by shutdown is not an upstream error.
+		if ctx.Err() == nil {
+			p.config.metrics.RecordSession(metrics.DBSessionOutcomeUpstreamConnectError)
+		}
 
 		reason := "login_rejected"
 
