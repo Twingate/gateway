@@ -29,6 +29,7 @@ import (
 	"gateway/internal/frontend"
 	"gateway/internal/logging"
 	"gateway/internal/token"
+	"gateway/internal/util/testutil"
 	"gateway/internal/vault"
 )
 
@@ -628,7 +629,7 @@ func newProxyConn(conn net.Conn, upstreamAddr string) *frontend.ProxyConn {
 func newDownstreamConn(t *testing.T, upstreamAddr string) (client net.Conn, server *frontend.ProxyConn) {
 	t.Helper()
 
-	clientConn, serverConn := netPipe(t)
+	clientConn, serverConn := testutil.TCPPipe(t)
 
 	return clientConn, newProxyConn(serverConn, upstreamAddr)
 }
