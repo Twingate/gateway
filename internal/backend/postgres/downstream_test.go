@@ -162,37 +162,42 @@ func TestDownstreamConn_NegotiateProtocolVersion_SendFails(t *testing.T) {
 }
 
 func TestDownstreamConn_CompleteLogin(t *testing.T) {
-	clientConn, serverConn := testutil.TCPPipe(t)
-
-	dbConn := &pgconn.HijackedConn{
-		PID:               42,
-		SecretKey:         []byte{1, 2, 3, 4},
-		ParameterStatuses: map[string]string{"server_version": "17.0"},
-		TxStatus:          'I',
+	tests := []struct {
+		name   string
+		dbConn *pgconn.HijackedConn
+		want   []pgproto3.BackendMessage
+	}{
+		{
+			name: "with cancel key",
+			dbConn: &pgconn.HijackedConn{
+				PID:               42,
+				SecretKey:         []byte{1, 2, 3, 4},
+				ParameterStatuses: map[string]string{"server_version": "17.0"},
+				TxStatus:          'I',
+			},
+			want: loginMessages,
+		},
+		{
+			name:   "without cancel key",
+			dbConn: &pgconn.HijackedConn{TxStatus: 'I'},
+			want:   []pgproto3.BackendMessage{&pgproto3.AuthenticationOk{}, &pgproto3.ReadyForQuery{TxStatus: 'I'}},
+		},
 	}
 
-	require.NoError(t, newDownstreamConn(serverConn).completeLogin(dbConn))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			clientConn, serverConn := testutil.TCPPipe(t)
 
-	client := pgproto3.NewFrontend(clientConn, clientConn)
+			require.NoError(t, newDownstreamConn(serverConn).completeLogin(tt.dbConn))
 
-	for _, want := range loginMessages {
-		got, err := client.Receive()
-		require.NoError(t, err)
-		assert.Equal(t, want, got)
-	}
-}
+			client := pgproto3.NewFrontend(clientConn, clientConn)
 
-func TestDownstreamConn_CompleteLogin_NoCancelKey(t *testing.T) {
-	clientConn, serverConn := tcpPipe(t)
-
-	require.NoError(t, newDownstreamConn(serverConn).completeLogin(&pgconn.HijackedConn{TxStatus: 'I'}))
-
-	client := pgproto3.NewFrontend(clientConn, clientConn)
-
-	for _, want := range []pgproto3.BackendMessage{&pgproto3.AuthenticationOk{}, &pgproto3.ReadyForQuery{TxStatus: 'I'}} {
-		got, err := client.Receive()
-		require.NoError(t, err)
-		assert.Equal(t, want, got)
+			for _, want := range tt.want {
+				got, err := client.Receive()
+				require.NoError(t, err)
+				assert.Equal(t, want, got)
+			}
+		})
 	}
 }
 
