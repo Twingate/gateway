@@ -153,6 +153,97 @@ tests:
       - equal:
           path: spec.remoteNetworkId
           value: "UmVtb3RlTmV0d29yazoxMjMK"
+  - it: references the Service and omits address when none is set
+    set:
+      twingateOperator:
+        gateway:
+          enabled: true
+    kubernetesProvider: *clusterNamespace
+    documentSelector:
+      path: kind
+      value: TwingateGateway
+    asserts:
+      - notExists:
+          path: spec.address
+      - equal:
+          path: spec.serviceRef
+          value:
+            name: RELEASE-NAME-gateway
+            namespace: NAMESPACE
+            port: 443
+  - it: sets address in place of serviceRef
+    set:
+      twingateOperator:
+        gateway:
+          enabled: true
+          address:
+            host: gateway.corp.internal
+            port: 8443
+    kubernetesProvider: *clusterNamespace
+    documentSelector:
+      path: kind
+      value: TwingateGateway
+    asserts:
+      - equal:
+          path: spec.address
+          value:
+            host: gateway.corp.internal
+            port: 8443
+      - notExists:
+          path: spec.serviceRef
+  - it: fails when address has no host
+    set:
+      twingateOperator:
+        gateway:
+          enabled: true
+          address:
+            port: 8443
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/twingateOperator/gateway/address': missing property 'host'"
+  - it: fails when address has no port
+    set:
+      twingateOperator:
+        gateway:
+          enabled: true
+          address:
+            host: gateway.corp.internal
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/twingateOperator/gateway/address': missing property 'port'"
+  - it: fails when address host is empty
+    set:
+      twingateOperator:
+        gateway:
+          enabled: true
+          address:
+            host: ""
+            port: 8443
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/twingateOperator/gateway/address/host': minLength: got 0, want 1"
+  - it: fails when address port is below 1
+    set:
+      twingateOperator:
+        gateway:
+          enabled: true
+          address:
+            host: gateway.corp.internal
+            port: 0
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/twingateOperator/gateway/address/port': minimum: got 0, want 1"
+  - it: fails when address port is above 65535
+    set:
+      twingateOperator:
+        gateway:
+          enabled: true
+          address:
+            host: gateway.corp.internal
+            port: 65536
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/twingateOperator/gateway/address/port': maximum: got 65,536, want 65,535"
   - it: suffixes the CA name with a hash of the cluster and namespace
     set:
       twingateOperator:
