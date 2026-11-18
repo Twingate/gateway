@@ -137,8 +137,11 @@ cut-release-prod: ##@release Cut a production release (create a version tag and 
 		echo "❌ Error: cut-release-prod can only be run on master branch. Current branch: $$(git rev-parse --abbrev-ref HEAD)"; \
 		exit 1; \
 	fi
-	echo "🚀 Cutting a new production release - $(shell go tool svu next)"
-	git tag "$(shell go tool svu next)"
+	@# svu bumps from the latest tag, which could be a dev version, so pin it to the last production tag.
+	@base="$$(git describe --tags --abbrev=0 --exclude '*-*')" && \
+	version="$$(go tool svu next --tag.pattern "$$base")" && \
+	echo "🚀 Cutting a new production release - $$version" && \
+	git tag "$$version"
 	git push --tags
 
 .PHONY: cut-release-dev
