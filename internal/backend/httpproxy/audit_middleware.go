@@ -122,22 +122,22 @@ func auditMiddleware(config auditMiddlewareConfig) http.Handler {
 			if recovered != nil && recovered != http.ErrAbortHandler { //nolint:err113,errorlint
 				logger.Audit.Error("API request failed",
 					zap.Any("request", map[string]any{
-						fieldHeaders: r.Header,
+						fieldHeaders: redactCredentialHeaders(r.Header),
 					}),
 					zap.Any("response", map[string]any{
 						"status_code": rw.statusCode,
-						fieldHeaders:  rw.headers,
+						fieldHeaders:  redactCredentialHeaders(rw.headers),
 					}),
 					zap.Any("panic", recovered),
 				)
 			} else {
 				logger.Audit.Info("API request completed",
 					zap.Any("request", map[string]any{
-						fieldHeaders: r.Header,
+						fieldHeaders: redactCredentialHeaders(r.Header),
 					}),
 					zap.Any("response", map[string]any{
 						"status_code": rw.statusCode,
-						fieldHeaders:  rw.headers,
+						fieldHeaders:  redactCredentialHeaders(rw.headers),
 					}),
 				)
 			}
@@ -151,4 +151,25 @@ func auditMiddleware(config auditMiddlewareConfig) http.Handler {
 		ctx := context.WithValue(r.Context(), LoggerKey{}, logger)
 		config.next.ServeHTTP(rw, r.WithContext(ctx))
 	})
+}
+
+const redactedHeaderValue = "REDACTED"
+
+var credentialHeaders = map[string]struct{}{
+	"Authorization":       {},
+	"Proxy-Authorization": {},
+	"Cookie":              {},
+	"Set-Cookie":          {},
+}
+
+func redactCredentialHeaders(headers http.Header) http.Header {
+	redacted := headers.Clone()
+
+	for name := range redacted {
+		if _, ok := credentialHeaders[http.CanonicalHeaderKey(name)]; ok {
+			redacted[name] = []string{redactedHeaderValue}
+		}
+	}
+
+	return redacted
 }
