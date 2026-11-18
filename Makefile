@@ -137,8 +137,7 @@ cut-release-prod: ##@release Cut a production release (create a version tag and 
 		echo "❌ Error: cut-release-prod can only be run on master branch. Current branch: $$(git rev-parse --abbrev-ref HEAD)"; \
 		exit 1; \
 	fi
-	@# Bump from the last production release over every commit since it. Left to pick its own base,
-	@# svu starts from the newest dev pre-release tag and bumps on top of it again.
+	@# Without --tag.pattern, svu bumps from the newest dev tag and would bump the version a second time.
 	@version="$$(go tool svu next --tag.pattern "$$(git describe --tags --abbrev=0 --exclude '*-*')")"; \
 	echo "🚀 Cutting a new production release - $$version"; \
 	git tag "$$version"
