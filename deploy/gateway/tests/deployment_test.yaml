@@ -2,6 +2,61 @@ suite: Deployment
 templates:
   - deployment.yaml
 tests:
+  - it: should use an existing service account when `serviceAccount.create` is false
+    set:
+      serviceAccount:
+        create: false
+        name: existing-gateway
+    asserts:
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: existing-gateway
+  - it: should error when `serviceAccount.create` is false and `serviceAccount.name` is empty
+    set:
+      serviceAccount:
+        create: false
+    asserts:
+      - failedTemplate:
+          errorPattern: "serviceAccount.name is required when serviceAccount.create is false"
+  - it: should error when `serviceAccount.create` is false and `serviceAccount.name` is `default`
+    set:
+      serviceAccount:
+        create: false
+        name: default
+    asserts:
+      - failedTemplate:
+          errorPattern: "service account cannot be \"default\""
+  - it: should error when `serviceAccount.create` is true and `serviceAccount.name` is `default`
+    set:
+      serviceAccount:
+        name: default
+    asserts:
+      - failedTemplate:
+          errorPattern: "service account cannot be \"default\""
+  - it: should error when the generated service account name is `default`
+    set:
+      fullnameOverride: default
+    asserts:
+      - failedTemplate:
+          errorPattern: "service account cannot be \"default\""
+  - it: should not render `serviceAccount.name` as `default` when it has leading whitespace
+    set:
+      serviceAccount:
+        create: false
+        name: " default"
+    asserts:
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: " default"
+  - it: should not render `serviceAccount.name` as `default` when it has a trailing YAML comment
+    set:
+      serviceAccount:
+        create: false
+        name: "default # dedicated"
+    asserts:
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: "default # dedicated"
   - it: should keep Gateway volumes and volume mounts when other volumes are specified
     set:
       volumes:

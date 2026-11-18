@@ -34,7 +34,7 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      serviceAccountName: {{ include "gateway.serviceAccountName" . }}
+      serviceAccountName: {{ include "gateway.serviceAccountName" . | quote }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       {{- with .Values.initContainers }}
