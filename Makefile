@@ -138,8 +138,9 @@ cut-release-prod: ##@release Cut a production release (create a version tag and 
 		exit 1; \
 	fi
 	@# svu bumps from the latest tag, which could be a dev version, so pin it to the last production tag.
-	@version="$$(go tool svu next --tag.pattern "$$(git describe --tags --abbrev=0 --exclude '*-*')")"; \
-	echo "🚀 Cutting a new production release - $$version"; \
+	@base="$$(git describe --tags --abbrev=0 --exclude '*-*')" && \
+	version="$$(go tool svu next --tag.pattern "$$base")" && \
+	echo "🚀 Cutting a new production release - $$version" && \
 	git tag "$$version"
 	git push --tags
 
