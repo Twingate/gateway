@@ -54,11 +54,14 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 Create the name of the service account to use
 */}}
 {{- define "gateway.serviceAccountName" -}}
+{{- $name := .Values.serviceAccount.name }}
 {{- if .Values.serviceAccount.create }}
-{{- default (include "gateway.fullname" .) .Values.serviceAccount.name }}
-{{- else }}
-{{- default "default" .Values.serviceAccount.name }}
+{{- $name = default (include "gateway.fullname" .) $name }}
 {{- end }}
+{{- if eq (toString $name) "default" }}
+{{- fail "The Gateway's service account cannot be \"default\" because the chart allows it to impersonate any user or group. Set serviceAccount.name to a service account used only by the Gateway." }}
+{{- end }}
+{{- required "serviceAccount.name is required when serviceAccount.create is false" $name }}
 {{- end }}
 
 {{/*

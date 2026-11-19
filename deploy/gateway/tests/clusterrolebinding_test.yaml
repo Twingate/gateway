@@ -1,0 +1,37 @@
+suite: ClusterRoleBinding
+templates:
+  - clusterrolebinding.yaml
+set:
+  serviceAccount:
+    create: false
+tests:
+  - it: should bind the existing service account
+    set:
+      serviceAccount:
+        name: existing-gateway
+    asserts:
+      - equal:
+          path: subjects[0].name
+          value: existing-gateway
+      - equal:
+          path: roleRef.name
+          value: existing-gateway-cluster-role
+  - it: should not bind `default` when `serviceAccount.name` has leading whitespace
+    set:
+      serviceAccount:
+        name: " default"
+    asserts:
+      - equal:
+          path: subjects[0].name
+          value: " default"
+  - it: should not bind `default` when `serviceAccount.name` has a trailing YAML comment
+    set:
+      serviceAccount:
+        name: "default # dedicated"
+    asserts:
+      - equal:
+          path: subjects[0].name
+          value: "default # dedicated"
+      - equal:
+          path: roleRef.name
+          value: "default # dedicated-cluster-role"

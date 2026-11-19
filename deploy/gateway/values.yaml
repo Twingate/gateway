@@ -200,7 +200,8 @@ serviceAccount:
   # Annotations to add to the service account
   annotations: {}
   # The name of the service account to use.
-  # If not set and create is true, a name is generated using the fullname template
+  # If not set and create is true, a name is generated using the fullname template.
+  # Required when create is false.
   name: ""
 
 # This is for setting Kubernetes Annotations to a Pod.
