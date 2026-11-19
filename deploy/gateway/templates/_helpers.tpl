@@ -54,7 +54,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 Create the name of the service account to use
 */}}
 {{- define "gateway.serviceAccountName" -}}
-{{- $name := .Values.serviceAccount.name | default "" }}
+{{- $name := .Values.serviceAccount.name }}
 {{- if .Values.serviceAccount.create }}
 {{- $name = default (include "gateway.fullname" .) $name }}
 {{- end }}
