@@ -12,6 +12,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 
 	"go.uber.org/zap"
@@ -136,10 +137,38 @@ func createTransport(bearerToken, bearerTokenFile, caFile string) (http.RoundTri
 }
 
 func shouldSkipWebSocketRequest(r *http.Request) bool {
-	// Skip tunneling requests (e.g. `kubectl proxy`)
-	return wsstream.IsWebSocketRequestWithTunnelingProtocol(r) ||
+	switch {
+	case strings.HasSuffix(r.URL.Path, "/portforward"):
+		return true
+	case strings.HasSuffix(r.URL.Path, "/exec"):
 		// Skip file transferring from `kubectl cp`
-		r.Header.Get("Kubectl-Command") == "kubectl cp" ||
-		// Skip executing `tar` command
-		r.URL.Query().Get("command") == "tar"
+		return isKubectlCpCommand(r.URL.Query()["command"])
+	default:
+		return false
+	}
+}
+
+// isKubectlCpCommand reports whether command is exactly an argument list that `kubectl cp` runs
+// in a container. Any other `tar` invocation is not matched because `tar` options such as
+// `--checkpoint-action` and `--to-command` run arbitrary commands.
+func isKubectlCpCommand(command []string) bool {
+	if len(command) == 0 || command[0] != "tar" {
+		return false
+	}
+
+	args := command[1:]
+
+	// Copy from the container: tar cf - <path>
+	if len(args) == 3 && slices.Equal(args[:2], []string{"cf", "-"}) {
+		// A path starting with `-` is parsed by `tar` as an option.
+		return !strings.HasPrefix(args[2], "-")
+	}
+
+	// Copy to the container: tar [--no-same-permissions --no-same-owner] -xmf - [-C <dir>]
+	if n := len(args); n >= 2 && args[n-2] == "-C" {
+		args = args[:n-2]
+	}
+
+	return slices.Equal(args, []string{"-xmf", "-"}) ||
+		slices.Equal(args, []string{"--no-same-permissions", "--no-same-owner", "-xmf", "-"})
 }

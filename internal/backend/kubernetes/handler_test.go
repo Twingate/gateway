@@ -80,53 +80,149 @@ func TestCreateTransport(t *testing.T) {
 }
 
 func TestShouldSkipWebSocketRequest(t *testing.T) {
+	const execPath = "/api/v1/namespaces/default/pods/pod-1/exec"
+
 	tests := []struct {
-		name         string
-		newRequestFn func() *http.Request
-		expected     bool
+		name     string
+		target   string
+		headers  map[string]string
+		expected bool
 	}{
 		{
-			name: "WebSocket request with tunneling protocol",
-			newRequestFn: func() *http.Request {
-				r := httptest.NewRequest(http.MethodGet, "/", nil)
-				r.Header.Set("Upgrade", "websocket")
-				r.Header.Set("Connection", "upgrade")
-				r.Header.Set("Sec-WebSocket-Protocol", "SPDY/3.1+portforward.k8s.io")
-
-				return r
-			},
+			name:     "Port-forward request",
+			target:   "/api/v1/namespaces/default/pods/pod-1/portforward",
 			expected: true,
 		},
 		{
-			name: "WebSocket request with `kubectl cp` command",
-			newRequestFn: func() *http.Request {
-				r := httptest.NewRequest(http.MethodGet, "/", nil)
-				r.Header.Set("Kubectl-Command", "kubectl cp")
-
-				return r
-			},
+			name:     "Exec request with `kubectl cp` command",
+			target:   execPath + "?command=tar&command=cf&command=-&command=%2Fetc%2Fhostname",
 			expected: true,
 		},
 		{
-			name: "WebSocket request with tar command",
-			newRequestFn: func() *http.Request {
-				return httptest.NewRequest(http.MethodGet, "/api/v1/namespaces/default/pods/pod-1/exec?command=tar", nil)
-			},
-			expected: true,
+			name:     "Exec request with other tar command",
+			target:   execPath + "?command=tar&command=cf&command=-&command=%2Fetc%2Fhostname&command=--checkpoint-action%3Dexec%3Dsh",
+			expected: false,
 		},
 		{
-			name: "WebSocket request with other command",
-			newRequestFn: func() *http.Request {
-				return httptest.NewRequest(http.MethodGet, "/api/v1/namespaces/default/pods/pod-1/exec?command=ls", nil)
-			},
+			name:     "Exec request with other command",
+			target:   execPath + "?command=ls",
+			expected: false,
+		},
+		{
+			name:     "Exec request with `kubectl cp` header",
+			target:   execPath + "?command=ls",
+			headers:  map[string]string{"Kubectl-Command": "kubectl cp"},
+			expected: false,
+		},
+		{
+			name:     "Exec request offering a tunneling protocol",
+			target:   execPath + "?command=ls",
+			headers:  map[string]string{"Sec-WebSocket-Protocol": "v5.channel.k8s.io, SPDY/3.1+portforward.k8s.io"},
+			expected: false,
+		},
+		{
+			name:     "Attach request with `kubectl cp` command",
+			target:   "/api/v1/namespaces/default/pods/pod-1/attach?command=tar&command=cf&command=-&command=%2Fetc%2Fhostname",
 			expected: false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := shouldSkipWebSocketRequest(tt.newRequestFn())
-			assert.Equal(t, tt.expected, result)
+			r := httptest.NewRequest(http.MethodGet, tt.target, nil)
+			r.Header.Set("Upgrade", "websocket")
+			r.Header.Set("Connection", "upgrade")
+
+			for k, v := range tt.headers {
+				r.Header.Set(k, v)
+			}
+
+			assert.Equal(t, tt.expected, shouldSkipWebSocketRequest(r))
+		})
+	}
+}
+
+func TestIsKubectlCpCommand(t *testing.T) {
+	tests := []struct {
+		name     string
+		command  []string
+		expected bool
+	}{
+		{
+			name:     "Copy from the container",
+			command:  []string{"tar", "cf", "-", "/etc/hostname"},
+			expected: true,
+		},
+		{
+			name:     "Copy to the container",
+			command:  []string{"tar", "-xmf", "-"},
+			expected: true,
+		},
+		{
+			name:     "Copy to a directory in the container",
+			command:  []string{"tar", "-xmf", "-", "-C", "/tmp"},
+			expected: true,
+		},
+		{
+			name:     "Copy to the container without preserving ownership and permissions",
+			command:  []string{"tar", "--no-same-permissions", "--no-same-owner", "-xmf", "-"},
+			expected: true,
+		},
+		{
+			name:     "Copy to a directory in the container without preserving ownership and permissions",
+			command:  []string{"tar", "--no-same-permissions", "--no-same-owner", "-xmf", "-", "-C", "/tmp"},
+			expected: true,
+		},
+		{
+			name:     "No command",
+			command:  nil,
+			expected: false,
+		},
+		{
+			name:     "Only tar",
+			command:  []string{"tar"},
+			expected: false,
+		},
+		{
+			name:     "Option in place of the path to copy from",
+			command:  []string{"tar", "cf", "-", "--use-compress-program=sh"},
+			expected: false,
+		},
+		{
+			name:     "Extra argument when copying from the container",
+			command:  []string{"tar", "cf", "-", "/etc/hostname", "--checkpoint-action=exec=sh"},
+			expected: false,
+		},
+		{
+			name:     "Extra argument when copying to the container",
+			command:  []string{"tar", "-xmf", "-", "--to-command=sh"},
+			expected: false,
+		},
+		{
+			name:     "Extra argument before the directory to copy to",
+			command:  []string{"tar", "-xmf", "-", "--to-command=sh", "-C", "/tmp"},
+			expected: false,
+		},
+		{
+			name:     "Missing directory to copy to",
+			command:  []string{"tar", "-xmf", "-", "-C"},
+			expected: false,
+		},
+		{
+			name:     "Different flags for the same operation",
+			command:  []string{"tar", "-cf", "-", "/etc/hostname"},
+			expected: false,
+		},
+		{
+			name:     "Shell running tar",
+			command:  []string{"sh", "-c", "tar cf - '/etc/hostname' | tail -c+0"},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, isKubectlCpCommand(tt.command))
 		})
 	}
 }
