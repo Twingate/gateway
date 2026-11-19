@@ -58,14 +58,14 @@ func RegisterDBMetrics(registry *prometheus.Registry) *DBMetrics {
 			Namespace: Namespace,
 			Name:      "db_credential_retrieval_duration_seconds",
 			Help:      "Time taken to retrieve the credential for the upstream database in seconds",
-			Buckets:   prometheus.DefBuckets,
+			Buckets:   []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60},
 		}, []string{labelResourceType, labelAuthType, labelOutcome}),
 
 		upstreamConnectDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: Namespace,
 			Name:      "db_upstream_connect_duration_seconds",
 			Help:      "Time taken to connect and log in to the upstream database in seconds",
-			Buckets:   prometheus.DefBuckets,
+			Buckets:   []float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 15, 30},
 		}, []string{labelResourceType, labelAuthType, labelOutcome}),
 	}
 
