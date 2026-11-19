@@ -126,9 +126,14 @@ func TestAuditMiddleware(t *testing.T) {
 			ctx := context.WithValue(t.Context(), ConnContextKey{}, conn)
 			request := httptest.NewRequestWithContext(ctx, "GET", "/api", nil)
 			request.Header.Set("Kubectl-Command", "kubectl exec")
+			request.Header.Set("Authorization", "Bearer client-token")
+			request.Header.Set("Proxy-Authorization", "Basic cHJveHk6c2VjcmV0")
+			request.Header.Set("Cookie", "session=client-session")
 
 			recorder := &responseRecorder{ResponseRecorder: *httptest.NewRecorder()}
 			recorder.Header().Set("Audit-Id", "audit-id-1")
+			recorder.Header().Add("Set-Cookie", "session=upstream-session; HttpOnly")
+			recorder.Header().Add("Set-Cookie", "csrf=upstream-csrf")
 
 			core, logs := observer.New(zap.DebugLevel)
 
@@ -160,11 +165,19 @@ func TestAuditMiddleware(t *testing.T) {
 				"conn_id":     "conn-id-1",
 				"user":        map[string]any{"id": "user-id-1", "username": "user@acme.com", "groups": []any{"OnCall", "Engineering"}},
 				"request": map[string]any{
-					"headers": http.Header{"Kubectl-Command": {"kubectl exec"}},
+					"headers": http.Header{
+						"Kubectl-Command":     {"kubectl exec"},
+						"Authorization":       {"REDACTED"},
+						"Proxy-Authorization": {"REDACTED"},
+						"Cookie":              {"REDACTED"},
+					},
 				},
 				"response": map[string]any{
 					"status_code": tt.expectedStatusCode,
-					"headers":     http.Header{"Audit-Id": {"audit-id-1"}},
+					"headers": http.Header{
+						"Audit-Id":   {"audit-id-1"},
+						"Set-Cookie": {"REDACTED"},
+					},
 				},
 			})
 			assert.NotEmpty(t, logContext["request_id"])
