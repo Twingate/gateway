@@ -58,7 +58,7 @@ Create the name of the service account to use
 {{- if .Values.serviceAccount.create }}
 {{- $name = default (include "gateway.fullname" .) $name }}
 {{- end }}
-{{- if eq $name "default" }}
+{{- if eq (toString $name) "default" }}
 {{- fail "The Gateway's service account cannot be \"default\" because the chart allows it to impersonate any user or group. Set serviceAccount.name to a service account used only by the Gateway." }}
 {{- end }}
 {{- required "serviceAccount.name is required when serviceAccount.create is false" $name }}

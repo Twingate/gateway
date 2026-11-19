@@ -177,6 +177,15 @@ tests:
       - equal:
           path: spec.template.spec.serviceAccountName
           value: "default # dedicated"
+  - it: should render a numeric `serviceAccount.name` without a comparison error
+    set:
+      serviceAccount:
+        create: false
+        name: 123
+    asserts:
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: "123"
 ---
 suite: Deployment with SSH
 templates:
