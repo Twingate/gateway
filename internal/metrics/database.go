@@ -15,22 +15,15 @@ const (
 	labelAuthType = "auth_type"
 )
 
-// DBSessionOutcome is how the setup of a database session ended.
-type DBSessionOutcome string
+// DBOutcome is how the setup of a database session ended.
+type DBOutcome string
 
 const (
-	DBSessionOutcomeSuccess              DBSessionOutcome = "success"
-	DBSessionOutcomeClientError          DBSessionOutcome = "client_error"
-	DBSessionOutcomeCredentialError      DBSessionOutcome = "credential_error" // #nosec G101 -- metric label value, not a credential
-	DBSessionOutcomeUpstreamConnectError DBSessionOutcome = "upstream_connect_error"
-)
-
-// DBCancelOutcome is whether a query cancel request reached the database.
-type DBCancelOutcome string
-
-const (
-	DBCancelOutcomeSuccess DBCancelOutcome = "success"
-	DBCancelOutcomeFailure DBCancelOutcome = "failure"
+	DBOutcomeSuccess              DBOutcome = "success"
+	DBOutcomeFailure              DBOutcome = "failure"
+	DBOutcomeClientError          DBOutcome = "client_error"
+	DBOutcomeCredentialError      DBOutcome = "credential_error" // #nosec G101 -- metric label value, not a credential
+	DBOutcomeUpstreamConnectError DBOutcome = "upstream_connect_error"
 )
 
 type DBMetrics struct {
@@ -66,14 +59,14 @@ func RegisterDBMetrics(registry *prometheus.Registry) *DBMetrics {
 			Name:      "db_credential_retrieval_duration_seconds",
 			Help:      "Time taken to retrieve the credential for the upstream database in seconds",
 			Buckets:   prometheus.DefBuckets,
-		}, []string{labelResourceType, labelAuthType}),
+		}, []string{labelResourceType, labelAuthType, labelOutcome}),
 
 		upstreamConnectDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: Namespace,
 			Name:      "db_upstream_connect_duration_seconds",
 			Help:      "Time taken to connect and log in to the upstream database in seconds",
 			Buckets:   prometheus.DefBuckets,
-		}, []string{labelResourceType}),
+		}, []string{labelResourceType, labelOutcome}),
 	}
 
 	registry.MustRegister(m.activeSessions, m.sessionsTotal, m.cancelTotal, m.credentialRetrievalDuration, m.upstreamConnectDuration)
@@ -95,20 +88,20 @@ func (m *DBMetrics) WithResourceType(resourceType ResourceType) *DBMetrics {
 	}
 }
 
-func (m *DBMetrics) RecordSession(outcome DBSessionOutcome) {
+func (m *DBMetrics) RecordSession(outcome DBOutcome) {
 	m.sessionsTotal.WithLabelValues(string(outcome)).Inc()
 }
 
-func (m *DBMetrics) RecordCancel(outcome DBCancelOutcome) {
+func (m *DBMetrics) RecordCancel(outcome DBOutcome) {
 	m.cancelTotal.WithLabelValues(string(outcome)).Inc()
 }
 
-func (m *DBMetrics) RecordCredentialRetrieval(authType string, duration time.Duration) {
-	m.credentialRetrievalDuration.WithLabelValues(authType).Observe(duration.Seconds())
+func (m *DBMetrics) RecordCredentialRetrieval(authType string, outcome DBOutcome, duration time.Duration) {
+	m.credentialRetrievalDuration.WithLabelValues(authType, string(outcome)).Observe(duration.Seconds())
 }
 
-func (m *DBMetrics) RecordUpstreamConnect(duration time.Duration) {
-	m.upstreamConnectDuration.WithLabelValues().Observe(duration.Seconds())
+func (m *DBMetrics) RecordUpstreamConnect(outcome DBOutcome, duration time.Duration) {
+	m.upstreamConnectDuration.WithLabelValues(string(outcome)).Observe(duration.Seconds())
 }
 
 // TrackActiveSession counts a session as active until the returned function is called.

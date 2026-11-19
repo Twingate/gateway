@@ -22,10 +22,10 @@ func TestDBMetrics(t *testing.T) {
 	dbMetrics := RegisterDBMetrics(testRegistry)
 	pgMetrics := dbMetrics.WithResourceType(ResourceTypePostgreSQL)
 
-	pgMetrics.RecordSession(DBSessionOutcomeSuccess)
-	pgMetrics.RecordCancel(DBCancelOutcomeSuccess)
-	pgMetrics.RecordCredentialRetrieval("password", time.Second)
-	pgMetrics.RecordUpstreamConnect(2 * time.Second)
+	pgMetrics.RecordSession(DBOutcomeSuccess)
+	pgMetrics.RecordCancel(DBOutcomeSuccess)
+	pgMetrics.RecordCredentialRetrieval("password", DBOutcomeSuccess, time.Second)
+	pgMetrics.RecordUpstreamConnect(DBOutcomeFailure, 2*time.Second)
 	sessionEnded := pgMetrics.TrackActiveSession()
 
 	metricFamilies, err := testRegistry.Gather()
@@ -47,9 +47,11 @@ func TestDBMetrics(t *testing.T) {
 		"twingate_gateway_db_credential_retrieval_duration_seconds": {
 			"resource_type": "postgresql",
 			"auth_type":     "password",
+			"outcome":       "success",
 		},
 		"twingate_gateway_db_upstream_connect_duration_seconds": {
 			"resource_type": "postgresql",
+			"outcome":       "failure",
 		},
 	}
 	assert.Equal(t, expectedLabels, labelsByMetric)
