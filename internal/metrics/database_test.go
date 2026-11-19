@@ -25,7 +25,7 @@ func TestDBMetrics(t *testing.T) {
 	pgMetrics.RecordSession(DBOutcomeSuccess)
 	pgMetrics.RecordCancel(DBOutcomeSuccess)
 	pgMetrics.RecordCredentialRetrieval("password", DBOutcomeSuccess, time.Second)
-	pgMetrics.RecordUpstreamConnect(DBOutcomeFailure, 2*time.Second)
+	pgMetrics.RecordUpstreamConnect("password", DBOutcomeFailure, 2*time.Second)
 	sessionEnded := pgMetrics.TrackActiveSession()
 
 	metricFamilies, err := testRegistry.Gather()
@@ -51,6 +51,7 @@ func TestDBMetrics(t *testing.T) {
 		},
 		"twingate_gateway_db_upstream_connect_duration_seconds": {
 			"resource_type": "postgresql",
+			"auth_type":     "password",
 			"outcome":       "failure",
 		},
 	}

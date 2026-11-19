@@ -66,7 +66,7 @@ func RegisterDBMetrics(registry *prometheus.Registry) *DBMetrics {
 			Name:      "db_upstream_connect_duration_seconds",
 			Help:      "Time taken to connect and log in to the upstream database in seconds",
 			Buckets:   prometheus.DefBuckets,
-		}, []string{labelResourceType, labelOutcome}),
+		}, []string{labelResourceType, labelAuthType, labelOutcome}),
 	}
 
 	registry.MustRegister(m.activeSessions, m.sessionsTotal, m.cancelTotal, m.credentialRetrievalDuration, m.upstreamConnectDuration)
@@ -100,8 +100,8 @@ func (m *DBMetrics) RecordCredentialRetrieval(authType string, outcome DBOutcome
 	m.credentialRetrievalDuration.WithLabelValues(authType, string(outcome)).Observe(duration.Seconds())
 }
 
-func (m *DBMetrics) RecordUpstreamConnect(outcome DBOutcome, duration time.Duration) {
-	m.upstreamConnectDuration.WithLabelValues(string(outcome)).Observe(duration.Seconds())
+func (m *DBMetrics) RecordUpstreamConnect(authType string, outcome DBOutcome, duration time.Duration) {
+	m.upstreamConnectDuration.WithLabelValues(authType, string(outcome)).Observe(duration.Seconds())
 }
 
 // TrackActiveSession counts a session as active until the returned function is called.

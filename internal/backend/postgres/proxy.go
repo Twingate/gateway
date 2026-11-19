@@ -198,7 +198,7 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 	if err != nil {
 		logger.System.Error("Failed to connect to the database", zap.Error(err))
 		p.recordSessionError(ctx, metrics.DBOutcomeUpstreamConnectError)
-		p.recordUpstreamConnectError(ctx, time.Since(connectStart))
+		p.recordUpstreamConnectError(ctx, string(auth.Type), time.Since(connectStart))
 
 		reason := "login_rejected"
 
@@ -214,7 +214,7 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 		return err
 	}
 
-	p.config.metrics.RecordUpstreamConnect(metrics.DBOutcomeSuccess, time.Since(connectStart))
+	p.config.metrics.RecordUpstreamConnect(string(auth.Type), metrics.DBOutcomeSuccess, time.Since(connectStart))
 
 	defer func() { _ = dbConn.Conn.Close() }()
 
@@ -273,12 +273,12 @@ func (p *Proxy) recordCredentialRetrievalError(ctx context.Context, authType str
 }
 
 // recordUpstreamConnectError observes a failed upstream connect. A failure caused by shutdown is not observed.
-func (p *Proxy) recordUpstreamConnectError(ctx context.Context, duration time.Duration) {
+func (p *Proxy) recordUpstreamConnectError(ctx context.Context, authType string, duration time.Duration) {
 	if ctx.Err() != nil {
 		return
 	}
 
-	p.config.metrics.RecordUpstreamConnect(metrics.DBOutcomeFailure, duration)
+	p.config.metrics.RecordUpstreamConnect(authType, metrics.DBOutcomeFailure, duration)
 }
 
 func closeOnPanic(logger *zap.Logger, closeFn func()) {
