@@ -18,6 +18,18 @@ import (
 
 const Namespace = "twingate_gateway"
 
+// Metric label names.
+const labelResourceType = "resource_type"
+
+// ResourceType identifies the upstream resource type in metric labels.
+type ResourceType string
+
+const (
+	ResourceTypeKubernetes ResourceType = "kubernetes"
+	ResourceTypeWebApp     ResourceType = "web_app"
+	ResourceTypePostgreSQL ResourceType = "postgresql"
+)
+
 type Config struct {
 	Registry *prometheus.Registry
 	Logger   *zap.Logger

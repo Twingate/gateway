@@ -7,6 +7,8 @@
 {{- $tlsSecretNames := include "gateway.tlsSecretNames" . | fromJsonArray -}}
 {{- $tlsLocalIssuerEnabled := and .Values.tls.automation.enabled .Values.tls.automation.issuer.local -}}
 {{- $upstreamTrustedCABundles := include "gateway.upstreamTrustedCABundleSources" . | fromJsonArray -}}
+{{- $postgresqlPasswordSecretNames := include "gateway.postgresqlPasswordSecretNames" . | fromJsonArray -}}
+{{- $postgresqlClientCertificateSecretNames := include "gateway.postgresqlClientCertificateSecretNames" . | fromJsonArray -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -112,6 +114,13 @@ spec:
               readOnly: true
             {{- end }}
             {{- end }}
+            {{- if .Values.postgresql.enabled }}
+            {{- range $i, $name := $postgresqlPasswordSecretNames }}
+            - name: postgresql-credential-{{ $i }}
+              mountPath: /etc/gateway/postgresql/{{ $i }}
+              readOnly: true
+            {{- end }}
+            {{- end }}
           {{- with .Values.volumeMounts }}
             {{- toYaml . | nindent 12 }}
           {{- end }}
@@ -162,6 +171,27 @@ spec:
         - name: ssh-vault-approle-secret-id
           secret:
             secretName: {{ include "gateway.sshVaultAppRoleSecretIdSecretName" . }}
+        {{- end }}
+        {{- end }}
+        {{- if .Values.postgresql.enabled }}
+        {{- range $i, $name := $postgresqlPasswordSecretNames }}
+        - name: postgresql-credential-{{ $i }}
+          projected:
+            sources:
+              - secret:
+                  name: {{ $name }}
+                  items:
+                    - key: password
+                      path: password
+              {{- with index $postgresqlClientCertificateSecretNames $i }}
+              - secret:
+                  name: {{ . }}
+                  items:
+                    - key: tls.crt
+                      path: tls.crt
+                    - key: tls.key
+                      path: tls.key
+              {{- end }}
         {{- end }}
         {{- end }}
       {{- with .Values.volumes }}

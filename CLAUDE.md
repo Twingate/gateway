@@ -272,7 +272,7 @@ Resources: Deployment, Service, ServiceAccount, ClusterRole/Binding, Secret (TLS
 - `gateway_http_request_duration_seconds`: Request latency
 - `gateway_session_recordings_total`: Recording counts
 
-**Secrets**: TLS cert/key, SSH CA key (local CA mode), Vault AppRole SecretID, upstream K8s tokens
+**Secrets**: TLS cert/key, SSH CA key (local CA mode), Vault AppRole SecretID, upstream K8s tokens, PostgreSQL credential passwords and client certificates
 
 ## Troubleshooting
 

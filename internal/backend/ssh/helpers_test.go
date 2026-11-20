@@ -16,6 +16,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"gateway/internal/logging"
+	"gateway/internal/util/testutil"
 )
 
 // testTimeout bounds every blocking wait in these tests.
@@ -52,32 +53,9 @@ func testSigner(t *testing.T) ssh.Signer {
 	return signer
 }
 
-// netPipe is analogous to net.Pipe, but it uses a real loopback TCP connection, and therefore
-// is buffered (net.Pipe deadlocks if both sides start with a write).
-func netPipe(t *testing.T) (client, server net.Conn) {
-	t.Helper()
-
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-
-	defer listener.Close()
-
-	client, err = net.Dial("tcp", listener.Addr().String())
-	require.NoError(t, err)
-
-	server, err = listener.Accept()
-	require.NoError(t, err)
-
-	t.Cleanup(func() {
-		_ = client.Close()
-		_ = server.Close()
-	})
-
-	return client, server
-}
-
-// sshPipe establishes a real SSH connection over netPipe and returns the client and server
-// sides. Both sides are torn down on test cleanup when netPipe closes the underlying conns.
+// sshPipe establishes a real SSH connection over testutil.TCPPipe and returns the client and
+// server sides. Both sides are torn down on test cleanup when testutil.TCPPipe closes the
+// underlying conns.
 func sshPipe(t *testing.T) (client, server *connection) {
 	t.Helper()
 
@@ -89,7 +67,7 @@ func sshPipe(t *testing.T) (client, server *connection) {
 func sshPipeWithClose(t *testing.T, clientCloseErr, serverCloseErr error) (client, server *connection) {
 	t.Helper()
 
-	clientNetConn, serverNetConn := netPipe(t)
+	clientNetConn, serverNetConn := testutil.TCPPipe(t)
 
 	if clientCloseErr != nil {
 		clientNetConn = &closeErrConn{Conn: clientNetConn, closeErr: clientCloseErr}
@@ -285,25 +263,6 @@ func readInFull(t *testing.T, reader io.Reader, n int) []byte {
 		t.Fatal("timed out reading")
 
 		return nil
-	}
-}
-
-// assertEOF asserts the next read returns io.EOF within testTimeout.
-func assertEOF(t *testing.T, reader io.Reader) {
-	t.Helper()
-
-	done := make(chan error, 1)
-
-	go func() {
-		_, err := reader.Read(make([]byte, 1))
-		done <- err
-	}()
-
-	select {
-	case err := <-done:
-		require.ErrorIs(t, err, io.EOF)
-	case <-time.After(testTimeout):
-		t.Fatal("timed out waiting for EOF")
 	}
 }
 

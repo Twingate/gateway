@@ -56,11 +56,15 @@ linters:
         - error
         - empty
         - stdlib
+        - generic
         # custom values
         - Recorder
         - ca
         - caProvider
+        - credentialProvider
         - issuer
+        # cloud.google.com/go/auth
+        - TokenProvider
         # golang.org/x/crypto/ssh
         - Signer
         - PublicKey
