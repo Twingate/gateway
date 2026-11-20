@@ -24,12 +24,11 @@ import (
 	"gateway/test/integration/testutil"
 )
 
-const (
-	postgreSQLGatewayPort = 8451
-	postgreSQLCredential  = "integration-test"
-)
+const postgreSQLCredential = "integration-test"
 
 func TestPostgreSQL(t *testing.T) {
+	const gatewayPort = 8454
+
 	_, serverPort := testutil.SetupPostgreSQLServer(t)
 
 	controller := fake.NewController(network, 8080)
@@ -41,7 +40,7 @@ func TestPostgreSQL(t *testing.T) {
 			Network: network,
 			Host:    host,
 		},
-		Port:        postgreSQLGatewayPort,
+		Port:        gatewayPort,
 		MetricsPort: 0,
 		TLS: gatewayconfig.TLSConfig{
 			Certificates: &gatewayconfig.TLSCertificateSources{
@@ -71,7 +70,7 @@ func TestPostgreSQL(t *testing.T) {
 		t.Logf("Failed to start Gateway: %v", err)
 	}()
 
-	testutil.GatewayHealthCheck(t, postgreSQLGatewayPort)
+	testutil.GatewayHealthCheck(t, gatewayPort)
 
 	auths := []token.Auth{{
 		Type:     token.AuthTypePassword,
@@ -95,7 +94,7 @@ func TestPostgreSQL(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			user := testutil.NewPostgreSQLUser(
 				&token.User{ID: "user-postgresql-1", Username: "alex@acme.com", Groups: []string{"OnCall", "Engineering"}},
-				postgreSQLGatewayPort,
+				gatewayPort,
 				fmt.Sprintf("127.0.0.1:%d", serverPort),
 				controller.URL,
 				auths,
