@@ -19,7 +19,7 @@ func TestNewConfig_Error(t *testing.T) {
 	invalidPEMFile := filepath.Join(t.TempDir(), "invalid.crt")
 	require.NoError(t, os.WriteFile(invalidPEMFile, []byte("not a pem"), 0o600))
 
-	_, err := NewConfig(&gatewayconfig.PostgreSQLConfig{}, []gatewayconfig.UpstreamTrustedCABundle{{File: invalidPEMFile}}, logging.NewNop())
+	_, err := NewConfig(&gatewayconfig.PostgreSQLConfig{}, []gatewayconfig.UpstreamTrustedCABundle{{File: invalidPEMFile}}, nil, logging.NewNop())
 
 	assert.ErrorContains(t, err, "invalid.crt")
 }

@@ -109,7 +109,9 @@ func NewProxy(config *gatewayconfig.Config, registry *prometheus.Registry, logge
 	var postgresProxy *postgres.Proxy
 
 	if config.PostgreSQL != nil {
-		postgresConfig, err := postgres.NewConfig(config.PostgreSQL, config.UpstreamTrustedCABundles, logger)
+		dbMetrics := metrics.RegisterDBMetrics(registry)
+
+		postgresConfig, err := postgres.NewConfig(config.PostgreSQL, config.UpstreamTrustedCABundles, dbMetrics, logger)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create PostgreSQL config: %w", err)
 		}
