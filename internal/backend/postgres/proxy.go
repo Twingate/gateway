@@ -8,12 +8,14 @@ import (
 	"errors"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"go.uber.org/zap"
 
 	backendtls "gateway/internal/backend/tls"
 	"gateway/internal/frontend"
+	"gateway/internal/metrics"
 )
 
 var errShuttingDown = errors.New("shutting down")
@@ -119,6 +121,7 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 		}
 
 		logger.Audit.Error("pg_connect", zap.String("error", reason))
+		p.recordSessionError(ctx, metrics.DBOutcomeClientError)
 		downstream.reject(err)
 
 		return err
@@ -138,8 +141,14 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 			}
 
 			logger.Audit.Error("pg_cancel", zap.Dict("db", zap.Uint32("process_id", cancel.ProcessID)), zap.String("error", reason))
+
+			// A failure caused by shutdown is not a failed cancel.
+			if ctx.Err() == nil {
+				p.config.metrics.RecordCancel(metrics.DBOutcomeFailure)
+			}
 		} else {
 			logger.Audit.Info("pg_cancel", zap.Dict("db", zap.Uint32("process_id", cancel.ProcessID)))
+			p.config.metrics.RecordCancel(metrics.DBOutcomeSuccess)
 		}
 
 		_ = conn.Close()
@@ -150,6 +159,7 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 	if err := downstream.negotiateProtocolVersion(startup); err != nil {
 		logger.System.Error("Failed to negotiate the protocol version", zap.Error(err))
 		logger.Audit.Error("pg_connect", zap.String("error", "startup_failed"))
+		p.recordSessionError(ctx, metrics.DBOutcomeClientError)
 		downstream.reject(err)
 
 		return err
@@ -161,23 +171,34 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 	if err != nil {
 		logger.System.Error("Failed to get the database credential", zap.Error(err))
 		logger.Audit.Error("pg_connect", zap.String("error", "credential_failed"))
+		p.recordSessionError(ctx, metrics.DBOutcomeCredentialError)
 		downstream.reject(errFailedToGetCredential)
 
 		return errFailedToGetCredential
 	}
+
+	credentialStart := time.Now()
 
 	cred, err := provider.get(ctx)
 	if err != nil {
 		logger.System.Error("Failed to get the database credential", zap.Error(err))
 		logger.Audit.Error("pg_connect", zap.String("error", "credential_failed"))
+		p.recordSessionError(ctx, metrics.DBOutcomeCredentialError)
+		p.recordCredentialRetrievalError(ctx, string(auth.Type), time.Since(credentialStart))
 		downstream.reject(errFailedToGetCredential)
 
 		return errFailedToGetCredential
 	}
 
+	p.config.metrics.RecordCredentialRetrieval(string(auth.Type), metrics.DBOutcomeSuccess, time.Since(credentialStart))
+
+	connectStart := time.Now()
+
 	dbConn, err := upstream.connect(ctx, startup, cred)
 	if err != nil {
 		logger.System.Error("Failed to connect to the database", zap.Error(err))
+		p.recordSessionError(ctx, metrics.DBOutcomeUpstreamConnectError)
+		p.recordUpstreamConnectError(ctx, string(auth.Type), time.Since(connectStart))
 
 		reason := "login_rejected"
 
@@ -193,15 +214,23 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 		return err
 	}
 
+	p.config.metrics.RecordUpstreamConnect(string(auth.Type), metrics.DBOutcomeSuccess, time.Since(connectStart))
+
 	defer func() { _ = dbConn.Conn.Close() }()
 
 	if err := downstream.completeLogin(dbConn); err != nil {
 		logger.System.Error("Failed to accept the PostgreSQL client", zap.Error(err))
 		logger.Audit.Error("pg_connect", zap.String("error", "startup_failed"))
+		p.recordSessionError(ctx, metrics.DBOutcomeClientError)
 		downstream.reject(err)
 
 		return err
 	}
+
+	p.config.metrics.RecordSession(metrics.DBOutcomeSuccess)
+
+	sessionEnded := p.config.metrics.TrackActiveSession()
+	defer sessionEnded()
 
 	logger.Audit = logger.Audit.With(
 		zap.Dict("db",
@@ -223,6 +252,33 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 	}
 
 	return err
+}
+
+// recordSessionError counts a session whose setup failed. A failure caused by shutdown is not counted.
+func (p *Proxy) recordSessionError(ctx context.Context, outcome metrics.DBOutcome) {
+	if ctx.Err() != nil {
+		return
+	}
+
+	p.config.metrics.RecordSession(outcome)
+}
+
+// recordCredentialRetrievalError observes a failed credential retrieval. A failure caused by shutdown is not observed.
+func (p *Proxy) recordCredentialRetrievalError(ctx context.Context, authType string, duration time.Duration) {
+	if ctx.Err() != nil {
+		return
+	}
+
+	p.config.metrics.RecordCredentialRetrieval(authType, metrics.DBOutcomeFailure, duration)
+}
+
+// recordUpstreamConnectError observes a failed upstream connect. A failure caused by shutdown is not observed.
+func (p *Proxy) recordUpstreamConnectError(ctx context.Context, authType string, duration time.Duration) {
+	if ctx.Err() != nil {
+		return
+	}
+
+	p.config.metrics.RecordUpstreamConnect(authType, metrics.DBOutcomeFailure, duration)
 }
 
 func closeOnPanic(logger *zap.Logger, closeFn func()) {

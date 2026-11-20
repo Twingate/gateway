@@ -11,18 +11,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-// Metric label names.
-
-const labelResourceType = "resource_type"
-
-// ResourceType identifies the upstream resource type in metric labels.
-type ResourceType string
-
-const (
-	ResourceTypeKubernetes ResourceType = "kubernetes"
-	ResourceTypeWebApp     ResourceType = "web_app"
-)
-
 type RoundTripperMetrics struct {
 	requestsTotal   *prometheus.CounterVec
 	activeRequests  *prometheus.GaugeVec
