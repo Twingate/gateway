@@ -320,6 +320,7 @@ kubernetes:
 
       # The path to a PEM CA bundle that verifies the API server's TLS certificate. The system trust
       # store is not used.
+      # Required.
       caFile: ""
 
 # Configures proxying to SSH servers.

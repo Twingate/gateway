@@ -255,7 +255,7 @@ type KubernetesUpstream struct {
 	BearerTokenFile string `yaml:"bearerTokenFile,omitempty"`
 	// CAFile is the path to a PEM CA bundle that verifies the API server's TLS certificate. The
 	// system trust store is not used.
-	CAFile string `yaml:"caFile,omitempty"`
+	CAFile string `yaml:"caFile" jsonschema:"required"`
 }
 
 // SSHConfig configures proxying to SSH servers.
@@ -966,6 +966,10 @@ func (k *KubernetesUpstream) Validate() error {
 
 	if k.BearerToken == "" && k.BearerTokenFile == "" {
 		return fmt.Errorf("%w: either bearerToken or bearerTokenFile is required", ErrRequired)
+	}
+
+	if k.CAFile == "" {
+		return fmt.Errorf("%w: caFile", ErrRequired)
 	}
 
 	return nil

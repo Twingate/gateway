@@ -1813,7 +1813,7 @@ func TestKubernetesConfig_Validate(t *testing.T) {
 			name: "valid with external upstream",
 			k8s: KubernetesConfig{
 				Upstreams: []KubernetesUpstream{
-					{Name: "k8s", BearerToken: "token"},
+					{Name: "k8s", BearerToken: "token", CAFile: "/path/to/ca.crt"},
 				},
 			},
 			wantErr: false,
@@ -1829,8 +1829,8 @@ func TestKubernetesConfig_Validate(t *testing.T) {
 			name: "duplicate upstream names",
 			k8s: KubernetesConfig{
 				Upstreams: []KubernetesUpstream{
-					{Name: "prod-k8s", BearerToken: "token"},
-					{Name: "prod-k8s", BearerToken: "token"},
+					{Name: "prod-k8s", BearerToken: "token", CAFile: "/path/to/ca.crt"},
+					{Name: "prod-k8s", BearerToken: "token", CAFile: "/path/to/ca.crt"},
 				},
 			},
 			wantErr:     true,
@@ -1944,6 +1944,7 @@ func TestKubernetesUpstream_Validate(t *testing.T) {
 			upstream: KubernetesUpstream{
 				Name:        "k8s",
 				BearerToken: "token",
+				CAFile:      "/path/to/ca.crt",
 			},
 			wantErr: false,
 		},
@@ -1952,20 +1953,27 @@ func TestKubernetesUpstream_Validate(t *testing.T) {
 			upstream: KubernetesUpstream{
 				Name:            "k8s",
 				BearerTokenFile: "/path/to/token",
+				CAFile:          "/path/to/ca.crt",
 			},
 			wantErr: false,
 		},
 		{
 			name:        "missing name",
-			upstream:    KubernetesUpstream{BearerToken: "token"},
+			upstream:    KubernetesUpstream{BearerToken: "token", CAFile: "/path/to/ca.crt"},
 			wantErr:     true,
 			errContains: "name",
 		},
 		{
 			name:        "missing auth",
-			upstream:    KubernetesUpstream{Name: "k8s"},
+			upstream:    KubernetesUpstream{Name: "k8s", CAFile: "/path/to/ca.crt"},
 			wantErr:     true,
 			errContains: "bearerToken or bearerTokenFile is required",
+		},
+		{
+			name:        "missing CA file",
+			upstream:    KubernetesUpstream{Name: "k8s", BearerToken: "token"},
+			wantErr:     true,
+			errContains: "caFile",
 		},
 	}
 
