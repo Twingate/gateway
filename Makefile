@@ -121,6 +121,10 @@ upload-coverage: ##@test Upload code coverage to CodeCov (requires CI environmen
 	@echo "Coverage files ready: $(COVPROFILE_UNIT), $(COVPROFILE_INTEGRATION)"
 
 
+.PHONY: generate-docs
+generate-docs: ##@build Generate the configuration reference docs/config.reference.yaml
+	go generate ./tools/docgen
+
 .PHONY: prepare-buildx
 prepare-buildx: ##@build Prepare buildx
 	@echo "Preparing buildx..."

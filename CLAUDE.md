@@ -108,6 +108,10 @@ main.go → cmd/start.go → proxy.NewProxy() → proxy.Start()
 │   ├── vault/              # Vault client
 │   └── util/               # Helpers that import nothing else under internal/ (enforced by depguard)
 ├── deploy/gateway/         # Helm chart
+├── docs/                   # Generated configuration reference
+├── tools/                  # Developer programs, not shipped
+│   ├── docgen/             # Generates docs/config.reference.yaml
+│   └── local/              # Local development environment
 ├── test/
 │   ├── integration/        # Kind cluster tests
 │   ├── e2e/                # End-to-end tests
@@ -142,6 +146,7 @@ Versions tracked in `.tool-versions`.
 | Lint Go | `make lint` |
 | Lint Dockerfile | `make lint-dockerfile` |
 | Lint Markdown | `make lint-markdown` |
+| Generate Config Reference | `make generate-docs` |
 | Version | `make version` |
 | Cut Dev Release | `make cut-release-dev` |
 | Cut Prod Release | `make cut-release-prod` |
@@ -154,6 +159,7 @@ Versions tracked in `.tool-versions`.
 - **Dockerfiles**: `make lint-dockerfile`
 - **Markdown** (`*.md`): `make lint-markdown`
 - **Helm charts**: `make test-helm`
+- **Config structs** (`internal/config/config.go`): `make generate-docs`
 
 **Full suite**: `make lint && make lint-dockerfile && make lint-markdown && make test && make test-integration && make test-helm`
 
@@ -315,7 +321,7 @@ go test -race ./...                                        # Race detector
 2. **Security critical**: Never bypass auth, token validation, or cert verification
 3. **Run checks before committing**: See "Before Committing" section
 4. **Update tests**: Add/update tests for any code changes
-5. **Document config changes**: Update Helm values and this guide
+5. **Document config changes**: Update Helm values, `docs/config.reference.yaml` (`make generate-docs`) and this guide
 6. **Backwards compatibility**: Avoid breaking config schema or API changes
 7. **Conventional commits**: Required for automated versioning
 8. **Multi-protocol**: Changes may affect multiple backends

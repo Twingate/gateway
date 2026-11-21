@@ -66,19 +66,22 @@ const (
 
 type Config struct {
 	Twingate                 TwingateConfig            `yaml:"twingate"`
-	Port                     int                       `yaml:"port"`
-	MetricsPort              int                       `yaml:"metricsPort"`
+	Port                     int                       `yaml:"port"                               jsonschema:"default=8443"`
+	MetricsPort              int                       `yaml:"metricsPort"                        jsonschema:"default=9090"`
 	Log                      LogConfig                 `yaml:"log"`
 	TLS                      TLSConfig                 `yaml:"tls"`
 	UpstreamTrustedCABundles []UpstreamTrustedCABundle `yaml:"upstreamTrustedCABundles,omitempty"`
-	Kubernetes               *KubernetesConfig         `yaml:"kubernetes,omitempty"`
-	SSH                      *SSHConfig                `yaml:"ssh,omitempty"`
-	WebApp                   *WebAppConfig             `yaml:"webApp,omitempty"`
+
+	// At least one of kubernetes, ssh or webApp must be set.
+	Kubernetes *KubernetesConfig `yaml:"kubernetes,omitempty"`
+	SSH        *SSHConfig        `yaml:"ssh,omitempty"`
+	WebApp     *WebAppConfig     `yaml:"webApp,omitempty"`
 }
 
 type TwingateConfig struct {
+	// The Twingate network name, such as "acme" for acme.twingate.com.
 	Network string `yaml:"network"`
-	Host    string `yaml:"host"`
+	Host    string `yaml:"host"    jsonschema:"default=twingate.com"`
 }
 
 // JWKSURL returns the controller endpoint for fetching GAT signing keys.
@@ -98,7 +101,7 @@ type LogConfig struct {
 }
 
 type LogSystemConfig struct {
-	Level  zapcore.Level   `yaml:"level"`
+	Level  zapcore.Level   `yaml:"level"  jsonschema:"default=info"`
 	Output LogOutputConfig `yaml:"output"`
 }
 
@@ -106,12 +109,14 @@ type LogAuditConfig struct {
 	Output LogOutputConfig `yaml:"output"`
 }
 
-// SessionRecordingConfig represents the recording configuration for interactive sessions.
+// SessionRecordingConfig configures recording of interactive sessions.
 type SessionRecordingConfig struct {
 	Segment SessionRecordingSegmentConfig `yaml:"segment"`
 	Output  LogOutputConfig               `yaml:"output"`
 }
 
+// LogOutputConfig configures where logs are written. At most one of stderr, stdout or file may be
+// set; when none is set, logs are written to stderr.
 type LogOutputConfig struct {
 	Stderr *LogStandardErrorConfig  `yaml:"stderr,omitempty"`
 	Stdout *LogStandardOutputConfig `yaml:"stdout,omitempty"`
@@ -124,7 +129,7 @@ type LogStandardErrorConfig struct{}
 // LogStandardOutputConfig configures the process's stdout stream.
 type LogStandardOutputConfig struct{}
 
-// LogFileOutputConfig appends the logs to the file at Path and rotates it.
+// LogFileOutputConfig configures writing logs to a file. Logs are appended to an existing file.
 type LogFileOutputConfig struct {
 	// Path is the log file. If it already exists, it must be a regular file, not a directory,
 	// device or symlink.
@@ -132,38 +137,38 @@ type LogFileOutputConfig struct {
 	Rotation LogFileRotationConfig `yaml:"rotation"`
 }
 
-// LogFileRotationConfig sets when the active log file is renamed to a backup and how long the
-// backups are kept. Every field is optional.
+// LogFileRotationConfig configures file rotation: when the file is rotated into a backup, and how
+// backups are kept.
 type LogFileRotationConfig struct {
 	// MaxSize is the file size at which the active file is rotated, such as "100MiB". It is
-	// rounded up to whole mebibytes (1MiB is 1,048,576 bytes). When it is omitted or 0, the file
-	// rotates at 100MiB. It can be at most 1GiB.
-	MaxSize yamlutil.ByteSize `yaml:"maxSize"`
-	// MaxBackupFiles is how many backups are kept; the oldest is deleted beyond that. When it is
-	// omitted or 0, 3 backups are kept.
-	MaxBackupFiles int `yaml:"maxBackupFiles"`
+	// rounded up to whole mebibytes (1MiB is 1,048,576 bytes), and 0 means the default. It can be
+	// at most 1GiB.
+	MaxSize yamlutil.ByteSize `yaml:"maxSize" jsonschema:"default=100MiB"`
+	// MaxBackupFiles is how many backups are kept; the oldest is deleted beyond that. 0 means the
+	// default.
+	MaxBackupFiles int `yaml:"maxBackupFiles" jsonschema:"default=3"`
 	// MaxBackupAge is how long a backup is kept before it is deleted, such as "7d" or "36h". It is
 	// rounded up to whole days, so "36h" keeps backups for 2 days. When it is omitted or 0, backups
-	// are kept until MaxBackupFiles deletes them. It can be at most 365 days (1 year).
+	// are kept until maxBackupFiles deletes them. It can be at most 365 days (1 year).
 	MaxBackupAge yamlutil.Duration `yaml:"maxBackupAge"`
-	// Compression compresses each backup after rotation using the selected compression algorithm:
-	// "none", "gzip" or "zstd". When it is omitted, backups are not compressed.
-	Compression string `yaml:"compression"`
+	// Compression is the algorithm that compresses each backup after rotation.
+	Compression string `yaml:"compression" jsonschema:"default=none,enum=none,enum=gzip,enum=zstd"`
 }
 
-// SessionRecordingSegmentConfig sets the limits at which a recording is split into a new segment.
+// SessionRecordingSegmentConfig configures when a recording is split into a new segment.
 type SessionRecordingSegmentConfig struct {
-	MaxDuration time.Duration     `yaml:"maxDuration"`
-	MaxSize     yamlutil.ByteSize `yaml:"maxSize"`
+	MaxDuration time.Duration     `yaml:"maxDuration" jsonschema:"default=5m"`
+	MaxSize     yamlutil.ByteSize `yaml:"maxSize"     jsonschema:"default=64KiB"`
 }
 
-// TLSConfig represents the downstream TLS configuration.
+// TLSConfig configures the certificates the Gateway serves to clients. At least one of certificates
+// or automation must be set.
 type TLSConfig struct {
 	Certificates *TLSCertificateSources `yaml:"certificates,omitempty"`
 	Automation   *TLSAutomationConfig   `yaml:"automation,omitempty"`
 }
 
-// TLSCertificateSources lists the TLS certificates the Gateway can serve.
+// TLSCertificateSources configures the TLS certificates the Gateway can serve.
 type TLSCertificateSources struct {
 	Files []TLSCertificateFileKeyPair `yaml:"files"`
 }
@@ -186,15 +191,19 @@ type TLSAutomationConfig struct {
 
 type TLSAutomationCertificateConfig struct {
 	CommonName string                  `yaml:"commonName"`
-	TTL        time.Duration           `yaml:"ttl"`
+	TTL        time.Duration           `yaml:"ttl"        jsonschema:"default=24h"`
 	Key        TLSCertificateKeyConfig `yaml:"key"`
 }
 
 type TLSCertificateKeyConfig struct {
-	Type string `yaml:"type"` // ecdsa or rsa. Defaults to ecdsa.
-	Bits int    `yaml:"bits"` // ECDSA: 256/384/521, RSA: 2048/3072/4096. Defaults to 256 for ECDSA, 2048 for RSA.
+	Type string `yaml:"type" jsonschema:"default=ecdsa,enum=ecdsa,enum=rsa"`
+	// Bits is the key size: 256, 384 or 521 for ECDSA, and 2048, 3072 or 4096 for RSA. When it is
+	// omitted, it is 256 for ECDSA and 2048 for RSA.
+	Bits int `yaml:"bits"`
 }
 
+// TLSIssuerConfig configures the CA that signs automated certificates. Exactly one of local, vault
+// or gcpPrivateCA must be set.
 type TLSIssuerConfig struct {
 	Local        *TLSLocalIssuerConfig        `yaml:"local,omitempty"`
 	Vault        *TLSVaultIssuerConfig        `yaml:"vault,omitempty"`
@@ -209,7 +218,7 @@ type TLSLocalIssuerConfig struct {
 type TLSVaultIssuerConfig struct {
 	VaultConfig `yaml:",inline"`
 
-	Mount string `yaml:"mount,omitempty"`
+	Mount string `yaml:"mount,omitempty" jsonschema:"default=pki"`
 	Role  string `yaml:"role"`
 }
 
@@ -220,13 +229,16 @@ type TLSGCPPrivateCAIssuerConfig struct {
 	// Pins issuance to one CA in the pool, bypassing the pool's load balancing.
 	IssuingCertificateAuthorityID string `yaml:"issuingCertificateAuthorityID,omitempty"`
 
-	CredentialsFile string `yaml:"credentialsFile,omitempty"` // Defaults to Application Default Credentials
+	// When it is omitted, Application Default Credentials are used.
+	CredentialsFile string `yaml:"credentialsFile,omitempty"`
 }
 
 type KubernetesConfig struct {
 	Upstreams []KubernetesUpstream `yaml:"upstreams"`
 }
 
+// KubernetesUpstream is an external Kubernetes API server. At least one of bearerToken or
+// bearerTokenFile must be set.
 type KubernetesUpstream struct {
 	Name            string `yaml:"name"`
 	BearerToken     string `yaml:"bearerToken,omitempty"`
@@ -240,22 +252,30 @@ type SSHConfig struct {
 }
 
 type SSHGatewayConfig struct {
-	Username        string               `yaml:"username"` // username for upstream connections
-	Key             SSHKeyConfig         `yaml:"key"`
+	// Username is the user the Gateway connects to upstreams as.
+	Username string       `yaml:"username"`
+	Key      SSHKeyConfig `yaml:"key"`
+	// HostCertificate is the certificate the Gateway presents to clients. Its ttl defaults to 24h.
 	HostCertificate SSHCertificateConfig `yaml:"hostCertificate"`
+	// UserCertificate is the certificate the Gateway presents to upstreams. Its ttl defaults to 5m.
 	UserCertificate SSHCertificateConfig `yaml:"userCertificate"`
 }
 
 type SSHKeyConfig struct {
-	Type string `yaml:"type"` // ed25519, ecdsa, rsa or SSH key type identifiers e.g. ssh-rsa, ssh-ed25519, ecdsa-sha2-nistp256, ecdsa-sha2-nistp384, ecdsa-sha2-nistp521. Defaults to ed25519
-	Bits int    `yaml:"bits"` // ECDSA: 256/384/521, RSA: 2048/3072/4096. Defaults to 256 for ECDSA, 2048 for RSA.
+	// Type is the key type: ed25519, ecdsa, rsa, or an SSH key type identifier such as ssh-ed25519,
+	// ssh-rsa, ecdsa-sha2-nistp256, ecdsa-sha2-nistp384 or ecdsa-sha2-nistp521.
+	Type string `yaml:"type" jsonschema:"default=ed25519"`
+	// Bits is the key size: 256, 384 or 521 for ECDSA, and 2048, 3072 or 4096 for RSA. When it is
+	// omitted, it is 256 for ECDSA and 4096 for RSA.
+	Bits int `yaml:"bits"`
 }
 
 type SSHCertificateConfig struct {
 	TTL time.Duration `yaml:"ttl"`
 }
 
-// SSHCAConfig represents the CA configuration. Exactly one of Local or Vault must be set.
+// SSHCAConfig configures the CA that signs the Gateway's SSH certificates. Exactly one of local or
+// vault must be set.
 type SSHCAConfig struct {
 	Local *SSHCALocalConfig `yaml:"local,omitempty"`
 	Vault *SSHCAVaultConfig `yaml:"vault,omitempty"`
@@ -263,22 +283,24 @@ type SSHCAConfig struct {
 
 // SSHCALocalConfig configures a CA that signs locally on the Gateway.
 type SSHCALocalConfig struct {
-	PrivateKeyFile string `yaml:"privateKeyFile"` // Path to the unencrypted CA private key (OpenSSH or PEM encoded)
+	// PrivateKeyFile is the path to the unencrypted CA private key, OpenSSH or PEM encoded.
+	PrivateKeyFile string `yaml:"privateKeyFile"`
 }
 
 // SSHCAVaultConfig configures CAs backed by Vault's SSH secrets engine.
 type SSHCAVaultConfig struct {
 	VaultConfig `yaml:",inline"`
 
-	// Default SSH secrets engine mount point and role (used for all CAs unless
-	// overridden below).
-	Mount string `yaml:"mount,omitempty"` // Defaults to "ssh"
+	// SSH secrets engine mount and role of every CA that does not override them below.
+	Mount string `yaml:"mount,omitempty" jsonschema:"default=ssh"`
 	Role  string `yaml:"role,omitempty"`
 
-	// Optional overrides for advanced setups with separate CAs
-	GatewayHostCA  *SSHCAVaultCertConfig  `yaml:"gatewayHostCA,omitempty"`  // CA for signing Gateway's host certificates (presented to clients)
-	GatewayUserCA  *SSHCAVaultCertConfig  `yaml:"gatewayUserCA,omitempty"`  // CA for signing Gateway's user certificates (presented to upstreams)
-	UpstreamHostCA *SSHCAVaultMountConfig `yaml:"upstreamHostCA,omitempty"` // CA for verifying upstreams' host certificates (no role needed)
+	// GatewayHostCA is the CA that signs the host certificates the Gateway presents to clients.
+	GatewayHostCA *SSHCAVaultCertConfig `yaml:"gatewayHostCA,omitempty"`
+	// GatewayUserCA is the CA that signs the user certificates the Gateway presents to upstreams.
+	GatewayUserCA *SSHCAVaultCertConfig `yaml:"gatewayUserCA,omitempty"`
+	// UpstreamHostCA is the CA that verifies the host certificates of upstreams.
+	UpstreamHostCA *SSHCAVaultMountConfig `yaml:"upstreamHostCA,omitempty"`
 }
 
 // SSHCAVaultCertConfig allows overriding the default mount/role for certificate signing.
@@ -294,56 +316,76 @@ type SSHCAVaultMountConfig struct {
 
 // VaultConfig holds the connection settings shared by every Vault-backed CA.
 type VaultConfig struct {
-	Address      string          `yaml:"address"`                // Vault server address, e.g. https://vault.example.com:8200
-	CABundleFile string          `yaml:"caBundleFile,omitempty"` // Path to a PEM CA bundle for verifying Vault's TLS certificate; omit to use the system trust store
+	// Address is the Vault server address, such as https://vault.example.com:8200.
+	Address string `yaml:"address"`
+	// CABundleFile is the path to a PEM CA bundle that verifies Vault's TLS certificate. When it is
+	// omitted, the system trust store is used.
+	CABundleFile string          `yaml:"caBundleFile,omitempty"`
 	Auth         VaultAuthConfig `yaml:"auth"`
 
-	Namespace string `yaml:"namespace,omitempty"` // Optional Vault namespace
+	// Namespace is the Vault namespace.
+	Namespace string `yaml:"namespace,omitempty"`
 }
 
 // VaultAuthConfig configures how the Gateway authenticates to Vault.
 // At most one method may be set. If none is set, the token is read from the
 // VAULT_TOKEN environment variable.
 type VaultAuthConfig struct {
-	Token   string              `yaml:"token,omitempty"` // Static Vault token. Inline tokens are for dev/testing only; in production deliver the token via the VAULT_TOKEN environment variable sourced from a secret store
+	// Token is a static Vault token, for development and testing only. In production, deliver the
+	// token through the VAULT_TOKEN environment variable from a secret store.
+	Token   string              `yaml:"token,omitempty"`
 	AppRole *VaultAppRoleConfig `yaml:"appRole,omitempty"`
 	GCP     *VaultGCPConfig     `yaml:"gcp,omitempty"`
 	AWS     *VaultAWSConfig     `yaml:"aws,omitempty"`
 }
 
 // VaultAppRoleConfig configures Vault AppRole authentication.
-// Exactly one of SecretID or SecretIDFile must be set.
+// Exactly one of secretID or secretIDFile must be set.
 type VaultAppRoleConfig struct {
-	Mount        string `yaml:"mount,omitempty"` // AppRole auth mount path. Defaults to "approle"
-	RoleID       string `yaml:"roleID"`
-	SecretID     string `yaml:"secretID"`     // Inline SecretID, for dev/testing only
-	SecretIDFile string `yaml:"secretIDFile"` // Path to a file containing the SecretID; preferred in production
+	// Mount is the AppRole auth mount path.
+	Mount  string `yaml:"mount,omitempty" jsonschema:"default=approle"`
+	RoleID string `yaml:"roleID"`
+	// SecretID is the SecretID inline, for development and testing only.
+	SecretID string `yaml:"secretID"`
+	// SecretIDFile is the path to a file containing the SecretID. Use it in production.
+	SecretIDFile string `yaml:"secretIDFile"`
 }
 
 // VaultGCPConfig configures Vault GCP authentication.
 type VaultGCPConfig struct {
-	Mount string `yaml:"mount,omitempty"` // GCP auth mount path. Defaults to "gcp"
-	Role  string `yaml:"role"`            // Vault GCP auth role to login as
-	Type  string `yaml:"type"`            // "gce" or "iam"
+	// Mount is the GCP auth mount path.
+	Mount string `yaml:"mount,omitempty" jsonschema:"default=gcp"`
+	// Role is the Vault GCP auth role to log in as.
+	Role string `yaml:"role"`
+	Type string `yaml:"type" jsonschema:"enum=gce,enum=iam"`
 
-	// Fields for type "iam".
-	ServiceAccountEmail string `yaml:"serviceAccountEmail,omitempty"` // Required
+	// ServiceAccountEmail is the service account to authenticate as. It is required when type is
+	// "iam".
+	ServiceAccountEmail string `yaml:"serviceAccountEmail,omitempty"`
 }
 
 // VaultAWSConfig configures Vault AWS authentication.
 type VaultAWSConfig struct {
-	Mount             string `yaml:"mount,omitempty"` // AWS auth mount path. Defaults to "aws"
-	Role              string `yaml:"role"`            // Vault AWS auth role to login as
-	Type              string `yaml:"type"`            // "iam" or "ec2"
-	Region            string `yaml:"region,omitempty"`
-	IAMServerIDHeader string `yaml:"iamServerIDHeader,omitempty"` // Value for the X-Vault-AWS-IAM-Server-ID header
+	// Mount is the AWS auth mount path.
+	Mount string `yaml:"mount,omitempty" jsonschema:"default=aws"`
+	// Role is the Vault AWS auth role to log in as.
+	Role   string `yaml:"role"`
+	Type   string `yaml:"type"             jsonschema:"enum=iam,enum=ec2"`
+	Region string `yaml:"region,omitempty"`
+	// IAMServerIDHeader is the value of the X-Vault-AWS-IAM-Server-ID header.
+	IAMServerIDHeader string `yaml:"iamServerIDHeader,omitempty"`
 
-	// Fields for type "ec2".
-	SignatureType string `yaml:"signatureType,omitempty"` // "rsa2048" (default), "identity", or "pkcs7"
-	Nonce         string `yaml:"nonce,omitempty"`
+	// SignatureType is the signature type of the EC2 instance identity document. It is used when
+	// type is "ec2".
+	SignatureType string `yaml:"signatureType,omitempty" jsonschema:"default=rsa2048,enum=rsa2048,enum=identity,enum=pkcs7"`
+	// Nonce is the client nonce for EC2 authentication. It is used when type is "ec2".
+	Nonce string `yaml:"nonce,omitempty"`
 }
 
 type WebAppConfig struct {
+	// RequestHeaders maps header names to the values set on requests to the upstream. A value may
+	// contain one {{key}}, such as "Bearer {{jwt}}", where key is jwt, username, groups,
+	// clientGeoLatLong, clientGeoCity, clientGeoRegion or clientGeoCountry.
 	RequestHeaders map[string]string `yaml:"requestHeaders,omitempty"`
 }
 
@@ -587,15 +629,7 @@ func (s *SessionRecordingSegmentConfig) Validate() error {
 }
 
 func (o *LogOutputConfig) Validate() error {
-	outputs := 0
-
-	for _, set := range []bool{o.Stderr != nil, o.Stdout != nil, o.File != nil} {
-		if set {
-			outputs++
-		}
-	}
-
-	if outputs > 1 {
+	if countTrue(o.Stderr != nil, o.Stdout != nil, o.File != nil) > 1 {
 		return errMultipleOutputs
 	}
 
@@ -791,28 +825,16 @@ func (c *TLSAutomationCertificateConfig) Validate() error {
 }
 
 func (k *TLSCertificateKeyConfig) Validate() error {
-	validTypes := map[string]bool{
-		"ecdsa": true,
-		"rsa":   true,
-	}
-
-	if k.Type != "" && !validTypes[k.Type] {
+	switch k.Type {
+	case "", "ecdsa", "rsa":
+		return nil
+	default:
 		return fmt.Errorf("%w: %q", ErrInvalidTLSKeyType, k.Type)
 	}
-
-	return nil
 }
 
 func (i *TLSIssuerConfig) Validate() error {
-	configured := 0
-
-	for _, set := range []bool{i.Local != nil, i.Vault != nil, i.GCPPrivateCA != nil} {
-		if set {
-			configured++
-		}
-	}
-
-	switch {
+	switch configured := countTrue(i.Local != nil, i.Vault != nil, i.GCPPrivateCA != nil); {
 	case configured == 0:
 		return ErrMissingTLSIssuerConfig
 	case configured > 1:
@@ -992,22 +1014,13 @@ func (g *SSHGatewayConfig) Validate() error {
 }
 
 func (k *SSHKeyConfig) Validate() error {
-	validTypes := map[string]bool{
-		"ed25519":           true,
-		"ecdsa":             true,
-		"rsa":               true,
-		ssh.KeyAlgoED25519:  true,
-		ssh.KeyAlgoECDSA256: true,
-		ssh.KeyAlgoECDSA384: true,
-		ssh.KeyAlgoECDSA521: true,
-		ssh.KeyAlgoRSA:      true,
-	}
-
-	if k.Type != "" && !validTypes[k.Type] {
+	switch k.Type {
+	case "", "ed25519", "ecdsa", "rsa",
+		ssh.KeyAlgoED25519, ssh.KeyAlgoECDSA256, ssh.KeyAlgoECDSA384, ssh.KeyAlgoECDSA521, ssh.KeyAlgoRSA:
+		return nil
+	default:
 		return ErrInvalidSSHKeyType
 	}
-
-	return nil
 }
 
 func (c *SSHCertificateConfig) Validate() error {
@@ -1060,15 +1073,6 @@ func (v *SSHCAVaultConfig) Validate() error {
 		return err
 	}
 
-	// Validate that we can resolve Gateway host and user cert mounts/roles
-	if v.GetGatewayHostCAMount() == "" {
-		return fmt.Errorf("%w: mount is required (either at top level or in gatewayHostCA)", ErrRequired)
-	}
-
-	if v.GetGatewayUserCAMount() == "" {
-		return fmt.Errorf("%w: mount is required (either at top level or in gatewayUserCA)", ErrRequired)
-	}
-
 	if v.GetGatewayHostCARole() == "" {
 		return fmt.Errorf("%w: role is required (either at top level or in gatewayHostCA)", ErrRequired)
 	}
@@ -1089,8 +1093,7 @@ var (
 )
 
 func (a *VaultAuthConfig) Validate() error {
-	configuredMethods := a.countConfiguredMethods()
-	if configuredMethods > 1 {
+	if countTrue(a.Token != "", a.AppRole != nil, a.GCP != nil, a.AWS != nil) > 1 {
 		return ErrConflictingAuthConfig
 	}
 
@@ -1113,28 +1116,6 @@ func (a *VaultAuthConfig) Validate() error {
 	}
 
 	return nil
-}
-
-func (a *VaultAuthConfig) countConfiguredMethods() int {
-	count := 0
-
-	if a.Token != "" {
-		count++
-	}
-
-	if a.AppRole != nil {
-		count++
-	}
-
-	if a.GCP != nil {
-		count++
-	}
-
-	if a.AWS != nil {
-		count++
-	}
-
-	return count
 }
 
 const defaultAppRoleMount = "approle"
@@ -1350,4 +1331,16 @@ func validatePort(port int, fieldName string) error {
 	}
 
 	return nil
+}
+
+func countTrue(values ...bool) int {
+	count := 0
+
+	for _, v := range values {
+		if v {
+			count++
+		}
+	}
+
+	return count
 }
