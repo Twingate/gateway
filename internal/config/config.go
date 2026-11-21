@@ -114,24 +114,24 @@ type SessionRecordingConfig struct {
 	Output  LogOutputConfig               `yaml:"output"`
 }
 
-// LogOutputConfig configures where logs are written. At most one of stderr, stdout or file may be
-// set; when none is set, logs are written to stderr.
+// LogOutputConfig configures where output is written. At most one of stderr, stdout or file may be
+// set; when none is set, output is written to stderr.
 type LogOutputConfig struct {
 	Stderr *LogStandardErrorConfig  `yaml:"stderr,omitempty"`
 	Stdout *LogStandardOutputConfig `yaml:"stdout,omitempty"`
 	File   *LogFileOutputConfig     `yaml:"file,omitempty"`
 }
 
-// LogStandardErrorConfig configures the process's stderr stream.
+// LogStandardErrorConfig writes output to the process's standard error stream.
 type LogStandardErrorConfig struct{}
 
-// LogStandardOutputConfig configures the process's stdout stream.
+// LogStandardOutputConfig writes output to the process's standard output stream.
 type LogStandardOutputConfig struct{}
 
-// LogFileOutputConfig configures writing logs to a file. Logs are appended to an existing file.
+// LogFileOutputConfig writes output to a file. If the file already exists, output is appended to it.
 type LogFileOutputConfig struct {
-	// Path is the log file. If it already exists, it must be a regular file, not a directory,
-	// device or symlink.
+	// Path is the file to write to. If it already exists, it must be a regular file, not a
+	// directory, device or symlink.
 	Path     string                `yaml:"path"`
 	Rotation LogFileRotationConfig `yaml:"rotation"`
 }
@@ -182,7 +182,7 @@ type UpstreamTrustedCABundle struct {
 	File string `yaml:"file"`
 }
 
-// TLSAutomationConfig configures on-demand issuing of downstream certificates.
+// TLSAutomationConfig configures issuing the certificates served to clients on demand.
 type TLSAutomationConfig struct {
 	Certificate TLSAutomationCertificateConfig `yaml:"certificate"`
 	Issuer      TLSIssuerConfig                `yaml:"issuer"`
@@ -225,10 +225,11 @@ type TLSGCPPrivateCAIssuerConfig struct {
 	Project  string `yaml:"project"`
 	Location string `yaml:"location"`
 	CAPoolID string `yaml:"caPoolID"`
-	// Pins issuance to one CA in the pool, bypassing the pool's load balancing.
+	// Issues certificates from this CA in the pool instead of letting the pool choose one.
 	IssuingCertificateAuthorityID string `yaml:"issuingCertificateAuthorityID,omitempty"`
 
-	// When it is omitted, Application Default Credentials are used.
+	// The path to a Google Cloud credentials file. When it is omitted, Application Default
+	// Credentials are used.
 	CredentialsFile string `yaml:"credentialsFile,omitempty"`
 }
 
@@ -292,7 +293,8 @@ type SSHCALocalConfig struct {
 type SSHCAVaultConfig struct {
 	VaultConfig `yaml:",inline"`
 
-	// SSH secrets engine mount and role of every CA that does not override them below.
+	// The default SSH secrets engine mount and role, used by every CA that does not override them
+	// below.
 	Mount string `yaml:"mount,omitempty" jsonschema:"default=ssh"`
 	Role  string `yaml:"role,omitempty"`
 
@@ -300,7 +302,7 @@ type SSHCAVaultConfig struct {
 	GatewayHostCA *SSHCAVaultCertConfig `yaml:"gatewayHostCA,omitempty"`
 	// GatewayUserCA is the CA that signs the user certificates the Gateway presents to upstreams.
 	GatewayUserCA *SSHCAVaultCertConfig `yaml:"gatewayUserCA,omitempty"`
-	// UpstreamHostCA is the CA that verifies the host certificates of upstreams.
+	// UpstreamHostCA is the CA whose public key verifies the host certificates of upstreams.
 	UpstreamHostCA *SSHCAVaultMountConfig `yaml:"upstreamHostCA,omitempty"`
 }
 

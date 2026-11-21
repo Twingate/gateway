@@ -23,19 +23,19 @@ log:
     # Default: info
     level: info
 
-    # Configures where logs are written. At most one of stderr, stdout or file may be set; when none
-    # is set, logs are written to stderr.
+    # Configures where output is written. At most one of stderr, stdout or file may be set; when
+    # none is set, output is written to stderr.
     output:
-      # Configures the process's stderr stream.
+      # Writes output to the process's standard error stream.
       stderr: {}
 
-      # Configures the process's stdout stream.
+      # Writes output to the process's standard output stream.
       stdout: {}
 
-      # Configures writing logs to a file. Logs are appended to an existing file.
+      # Writes output to a file. If the file already exists, output is appended to it.
       file:
-        # The log file. If it already exists, it must be a regular file, not a directory, device or
-        # symlink.
+        # The file to write to. If it already exists, it must be a regular file, not a directory,
+        # device or symlink.
         path: ""
 
         # Configures file rotation: when the file is rotated into a backup, and how backups are
@@ -62,19 +62,19 @@ log:
           compression: none
 
   audit:
-    # Configures where logs are written. At most one of stderr, stdout or file may be set; when none
-    # is set, logs are written to stderr.
+    # Configures where output is written. At most one of stderr, stdout or file may be set; when
+    # none is set, output is written to stderr.
     output:
-      # Configures the process's stderr stream.
+      # Writes output to the process's standard error stream.
       stderr: {}
 
-      # Configures the process's stdout stream.
+      # Writes output to the process's standard output stream.
       stdout: {}
 
-      # Configures writing logs to a file. Logs are appended to an existing file.
+      # Writes output to a file. If the file already exists, output is appended to it.
       file:
-        # The log file. If it already exists, it must be a regular file, not a directory, device or
-        # symlink.
+        # The file to write to. If it already exists, it must be a regular file, not a directory,
+        # device or symlink.
         path: ""
 
         # Configures file rotation: when the file is rotated into a backup, and how backups are
@@ -110,19 +110,19 @@ log:
       # Default: 64KiB
       maxSize: 64KiB
 
-    # Configures where logs are written. At most one of stderr, stdout or file may be set; when none
-    # is set, logs are written to stderr.
+    # Configures where output is written. At most one of stderr, stdout or file may be set; when
+    # none is set, output is written to stderr.
     output:
-      # Configures the process's stderr stream.
+      # Writes output to the process's standard error stream.
       stderr: {}
 
-      # Configures the process's stdout stream.
+      # Writes output to the process's standard output stream.
       stdout: {}
 
-      # Configures writing logs to a file. Logs are appended to an existing file.
+      # Writes output to a file. If the file already exists, output is appended to it.
       file:
-        # The log file. If it already exists, it must be a regular file, not a directory, device or
-        # symlink.
+        # The file to write to. If it already exists, it must be a regular file, not a directory,
+        # device or symlink.
         path: ""
 
         # Configures file rotation: when the file is rotated into a backup, and how backups are
@@ -158,7 +158,7 @@ tls:
 
         privateKeyFile: ""
 
-  # Configures on-demand issuing of downstream certificates.
+  # Configures issuing the certificates served to clients on demand.
   automation:
     certificate:
       commonName: ""
@@ -269,10 +269,11 @@ tls:
 
         caPoolID: ""
 
-        # Pins issuance to one CA in the pool, bypassing the pool's load balancing.
+        # Issues certificates from this CA in the pool instead of letting the pool choose one.
         issuingCertificateAuthorityID: ""
 
-        # When it is omitted, Application Default Credentials are used.
+        # The path to a Google Cloud credentials file. When it is omitted, Application Default
+        # Credentials are used.
         credentialsFile: ""
 
 # A PEM file of certificate authorities the Gateway trusts when verifying upstream TLS connections.
@@ -397,7 +398,8 @@ ssh:
       # The Vault namespace.
       namespace: ""
 
-      # SSH secrets engine mount and role of every CA that does not override them below.
+      # The default SSH secrets engine mount and role, used by every CA that does not override them
+      # below.
       # Default: ssh
       mount: ssh
 
@@ -415,7 +417,7 @@ ssh:
 
         role: ""
 
-      # The CA that verifies the host certificates of upstreams.
+      # The CA whose public key verifies the host certificates of upstreams.
       upstreamHostCA:
         mount: ""
 
