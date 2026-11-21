@@ -72,7 +72,6 @@ type Config struct {
 	TLS                      TLSConfig                 `yaml:"tls"`
 	UpstreamTrustedCABundles []UpstreamTrustedCABundle `yaml:"upstreamTrustedCABundles,omitempty"`
 
-	// At least one of kubernetes, ssh or webApp must be set.
 	Kubernetes *KubernetesConfig `yaml:"kubernetes,omitempty"`
 	SSH        *SSHConfig        `yaml:"ssh,omitempty"`
 	WebApp     *WebAppConfig     `yaml:"webApp,omitempty"`
@@ -233,6 +232,7 @@ type TLSGCPPrivateCAIssuerConfig struct {
 	CredentialsFile string `yaml:"credentialsFile,omitempty"`
 }
 
+// KubernetesConfig configures proxying to Kubernetes API servers.
 type KubernetesConfig struct {
 	Upstreams []KubernetesUpstream `yaml:"upstreams"`
 }
@@ -246,6 +246,7 @@ type KubernetesUpstream struct {
 	CAFile          string `yaml:"caFile,omitempty"`
 }
 
+// SSHConfig configures proxying to SSH servers.
 type SSHConfig struct {
 	Gateway SSHGatewayConfig `yaml:"gateway"`
 	CA      SSHCAConfig      `yaml:"ca"`
@@ -382,6 +383,7 @@ type VaultAWSConfig struct {
 	Nonce string `yaml:"nonce,omitempty"`
 }
 
+// WebAppConfig configures proxying to HTTP web apps.
 type WebAppConfig struct {
 	// RequestHeaders maps header names to the values set on requests to the upstream. A value may
 	// contain one {{key}}, such as "Bearer {{jwt}}", where key is jwt, username, groups,

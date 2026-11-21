@@ -279,7 +279,7 @@ tls:
 upstreamTrustedCABundles:
   - file: ""
 
-# At least one of kubernetes, ssh or webApp must be set.
+# Configures proxying to Kubernetes API servers.
 kubernetes:
   # An external Kubernetes API server. At least one of bearerToken or bearerTokenFile must be set.
   upstreams:
@@ -291,6 +291,7 @@ kubernetes:
 
       caFile: ""
 
+# Configures proxying to SSH servers.
 ssh:
   gateway:
     # The user the Gateway connects to upstreams as.
@@ -418,6 +419,7 @@ ssh:
       upstreamHostCA:
         mount: ""
 
+# Configures proxying to HTTP web apps.
 webApp:
   # Maps header names to the values set on requests to the upstream. A value may contain one
   # {{key}}, such as "Bearer {{jwt}}", where key is jwt, username, groups, clientGeoLatLong,
