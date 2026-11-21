@@ -108,7 +108,8 @@ type LogAuditConfig struct {
 	Output LogOutputConfig `yaml:"output"`
 }
 
-// SessionRecordingConfig configures recording of interactive sessions.
+// SessionRecordingConfig configures recording of interactive terminal sessions, such as
+// `kubectl exec` and SSH shells.
 type SessionRecordingConfig struct {
 	Segment SessionRecordingSegmentConfig `yaml:"segment"`
 	Output  LogOutputConfig               `yaml:"output"`
@@ -137,7 +138,7 @@ type LogFileOutputConfig struct {
 }
 
 // LogFileRotationConfig configures file rotation: when the file is rotated into a backup, and how
-// backups are kept.
+// backups are kept. Rotation is always enabled.
 type LogFileRotationConfig struct {
 	// MaxSize is the file size at which the active file is rotated, such as "100MiB". It is
 	// rounded up to whole mebibytes (1MiB is 1,048,576 bytes), and 0 means the default. It can be
@@ -189,6 +190,8 @@ type TLSAutomationConfig struct {
 }
 
 type TLSAutomationCertificateConfig struct {
+	// CommonName is the common name in the TLS certificate. It is required only for the gcpPrivateCA
+	// issuer.
 	CommonName string                  `yaml:"commonName"`
 	TTL        time.Duration           `yaml:"ttl"        jsonschema:"default=24h"`
 	Key        TLSCertificateKeyConfig `yaml:"key"`
@@ -209,11 +212,15 @@ type TLSIssuerConfig struct {
 	GCPPrivateCA *TLSGCPPrivateCAIssuerConfig `yaml:"gcpPrivateCA,omitempty"`
 }
 
+// TLSLocalIssuerConfig configures a CA that signs locally on the Gateway, using the CA certificate
+// and private key in the given files.
 type TLSLocalIssuerConfig struct {
 	CertificateFile string `yaml:"certificateFile"`
 	PrivateKeyFile  string `yaml:"privateKeyFile"`
 }
 
+// TLSVaultIssuerConfig configures a CA backed by Vault's PKI secrets engine, see
+// https://developer.hashicorp.com/vault/docs/secrets/pki
 type TLSVaultIssuerConfig struct {
 	VaultConfig `yaml:",inline"`
 
@@ -221,6 +228,8 @@ type TLSVaultIssuerConfig struct {
 	Role  string `yaml:"role"`
 }
 
+// TLSGCPPrivateCAIssuerConfig configures a CA pool in Google Cloud Certificate Authority Service, see
+// https://cloud.google.com/certificate-authority-service/docs
 type TLSGCPPrivateCAIssuerConfig struct {
 	Project  string `yaml:"project"`
 	Location string `yaml:"location"`
@@ -289,7 +298,8 @@ type SSHCALocalConfig struct {
 	PrivateKeyFile string `yaml:"privateKeyFile"`
 }
 
-// SSHCAVaultConfig configures CAs backed by Vault's SSH secrets engine.
+// SSHCAVaultConfig configures CAs backed by Vault's SSH secrets engine, see
+// https://developer.hashicorp.com/vault/docs/secrets/ssh
 type SSHCAVaultConfig struct {
 	VaultConfig `yaml:",inline"`
 

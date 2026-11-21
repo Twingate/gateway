@@ -39,7 +39,7 @@ log:
         path: ""
 
         # Configures file rotation: when the file is rotated into a backup, and how backups are
-        # kept.
+        # kept. Rotation is always enabled.
         rotation:
           # The file size at which the active file is rotated, such as "100MiB". It is rounded up to
           # whole mebibytes (1MiB is 1,048,576 bytes), and 0 means the default. It can be at most
@@ -78,7 +78,7 @@ log:
         path: ""
 
         # Configures file rotation: when the file is rotated into a backup, and how backups are
-        # kept.
+        # kept. Rotation is always enabled.
         rotation:
           # The file size at which the active file is rotated, such as "100MiB". It is rounded up to
           # whole mebibytes (1MiB is 1,048,576 bytes), and 0 means the default. It can be at most
@@ -100,7 +100,7 @@ log:
           # Default: none
           compression: none
 
-  # Configures recording of interactive sessions.
+  # Configures recording of interactive terminal sessions, such as `kubectl exec` and SSH shells.
   sessionRecording:
     # Configures when a recording is split into a new segment.
     segment:
@@ -126,7 +126,7 @@ log:
         path: ""
 
         # Configures file rotation: when the file is rotated into a backup, and how backups are
-        # kept.
+        # kept. Rotation is always enabled.
         rotation:
           # The file size at which the active file is rotated, such as "100MiB". It is rounded up to
           # whole mebibytes (1MiB is 1,048,576 bytes), and 0 means the default. It can be at most
@@ -161,6 +161,7 @@ tls:
   # Configures issuing the certificates served to clients on demand.
   automation:
     certificate:
+      # The common name in the TLS certificate. It is required only for the gcpPrivateCA issuer.
       commonName: ""
 
       # Default: 24h
@@ -178,11 +179,15 @@ tls:
     # Configures the CA that signs automated certificates. Exactly one of local, vault or
     # gcpPrivateCA must be set.
     issuer:
+      # Configures a CA that signs locally on the Gateway, using the CA certificate and private key
+      # in the given files.
       local:
         certificateFile: ""
 
         privateKeyFile: ""
 
+      # Configures a CA backed by Vault's PKI secrets engine, see
+      # https://developer.hashicorp.com/vault/docs/secrets/pki
       vault:
         # The Vault server address, such as https://vault.example.com:8200.
         address: ""
@@ -262,6 +267,8 @@ tls:
 
         role: ""
 
+      # Configures a CA pool in Google Cloud Certificate Authority Service, see
+      # https://cloud.google.com/certificate-authority-service/docs
       gcpPrivateCA:
         project: ""
 
@@ -324,7 +331,8 @@ ssh:
       # The path to the unencrypted CA private key, OpenSSH or PEM encoded.
       privateKeyFile: ""
 
-    # Configures CAs backed by Vault's SSH secrets engine.
+    # Configures CAs backed by Vault's SSH secrets engine, see
+    # https://developer.hashicorp.com/vault/docs/secrets/ssh
     vault:
       # The Vault server address, such as https://vault.example.com:8200.
       address: ""
