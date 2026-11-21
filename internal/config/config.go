@@ -79,7 +79,7 @@ type Config struct {
 
 type TwingateConfig struct {
 	// The Twingate network name, such as "acme" for acme.twingate.com.
-	Network string `yaml:"network"`
+	Network string `yaml:"network" jsonschema:"required"`
 	Host    string `yaml:"host"    jsonschema:"default=twingate.com"`
 }
 
@@ -133,7 +133,7 @@ type LogStandardOutputConfig struct{}
 type LogFileOutputConfig struct {
 	// Path is the file to write to. If it already exists, it must be a regular file, not a
 	// directory, device or symlink.
-	Path     string                `yaml:"path"`
+	Path     string                `yaml:"path"     jsonschema:"required"`
 	Rotation LogFileRotationConfig `yaml:"rotation"`
 }
 
@@ -170,17 +170,17 @@ type TLSConfig struct {
 
 // TLSCertificateSources configures the TLS certificates the Gateway can serve.
 type TLSCertificateSources struct {
-	Files []TLSCertificateFileKeyPair `yaml:"files"`
+	Files []TLSCertificateFileKeyPair `yaml:"files" jsonschema:"required"`
 }
 
 type TLSCertificateFileKeyPair struct {
-	CertificateFile string `yaml:"certificateFile"`
-	PrivateKeyFile  string `yaml:"privateKeyFile"`
+	CertificateFile string `yaml:"certificateFile" jsonschema:"required"`
+	PrivateKeyFile  string `yaml:"privateKeyFile"  jsonschema:"required"`
 }
 
 // UpstreamTrustedCABundle is a PEM file of certificate authorities the Gateway trusts when verifying upstream TLS connections.
 type UpstreamTrustedCABundle struct {
-	File string `yaml:"file"`
+	File string `yaml:"file" jsonschema:"required"`
 }
 
 // TLSAutomationConfig configures issuing the certificates served to clients on demand.
@@ -215,8 +215,8 @@ type TLSIssuerConfig struct {
 // TLSLocalIssuerConfig configures a CA that signs locally on the Gateway, using the CA certificate
 // and private key in the given files.
 type TLSLocalIssuerConfig struct {
-	CertificateFile string `yaml:"certificateFile"`
-	PrivateKeyFile  string `yaml:"privateKeyFile"`
+	CertificateFile string `yaml:"certificateFile" jsonschema:"required"`
+	PrivateKeyFile  string `yaml:"privateKeyFile"  jsonschema:"required"`
 }
 
 // TLSVaultIssuerConfig configures a CA backed by Vault's PKI secrets engine, see
@@ -225,15 +225,15 @@ type TLSVaultIssuerConfig struct {
 	VaultConfig `yaml:",inline"`
 
 	Mount string `yaml:"mount,omitempty" jsonschema:"default=pki"`
-	Role  string `yaml:"role"`
+	Role  string `yaml:"role"            jsonschema:"required"`
 }
 
 // TLSGCPPrivateCAIssuerConfig configures a CA pool in Google Cloud Certificate Authority Service, see
 // https://cloud.google.com/certificate-authority-service/docs
 type TLSGCPPrivateCAIssuerConfig struct {
-	Project  string `yaml:"project"`
-	Location string `yaml:"location"`
-	CAPoolID string `yaml:"caPoolID"`
+	Project  string `yaml:"project"  jsonschema:"required"`
+	Location string `yaml:"location" jsonschema:"required"`
+	CAPoolID string `yaml:"caPoolID" jsonschema:"required"`
 	// Issues certificates from this CA in the pool instead of letting the pool choose one.
 	IssuingCertificateAuthorityID string `yaml:"issuingCertificateAuthorityID,omitempty"`
 
@@ -250,10 +250,12 @@ type KubernetesConfig struct {
 // KubernetesUpstream is an external Kubernetes API server. At least one of bearerToken or
 // bearerTokenFile must be set.
 type KubernetesUpstream struct {
-	Name            string `yaml:"name"`
+	Name            string `yaml:"name"                      jsonschema:"required"`
 	BearerToken     string `yaml:"bearerToken,omitempty"`
 	BearerTokenFile string `yaml:"bearerTokenFile,omitempty"`
-	CAFile          string `yaml:"caFile,omitempty"`
+	// CAFile is the path to a PEM CA bundle that verifies the API server's TLS certificate. The
+	// system trust store is not used.
+	CAFile string `yaml:"caFile,omitempty"`
 }
 
 // SSHConfig configures proxying to SSH servers.
@@ -264,7 +266,7 @@ type SSHConfig struct {
 
 type SSHGatewayConfig struct {
 	// Username is the user the Gateway connects to upstreams as.
-	Username string       `yaml:"username"`
+	Username string       `yaml:"username" jsonschema:"required"`
 	Key      SSHKeyConfig `yaml:"key"`
 	// HostCertificate is the certificate the Gateway presents to clients. Its ttl defaults to 24h.
 	HostCertificate SSHCertificateConfig `yaml:"hostCertificate"`
@@ -295,7 +297,7 @@ type SSHCAConfig struct {
 // SSHCALocalConfig configures a CA that signs locally on the Gateway.
 type SSHCALocalConfig struct {
 	// PrivateKeyFile is the path to the unencrypted CA private key, OpenSSH or PEM encoded.
-	PrivateKeyFile string `yaml:"privateKeyFile"`
+	PrivateKeyFile string `yaml:"privateKeyFile" jsonschema:"required"`
 }
 
 // SSHCAVaultConfig configures CAs backed by Vault's SSH secrets engine, see
@@ -330,7 +332,7 @@ type SSHCAVaultMountConfig struct {
 // VaultConfig holds the connection settings shared by every Vault-backed CA.
 type VaultConfig struct {
 	// Address is the Vault server address, such as https://vault.example.com:8200.
-	Address string `yaml:"address"`
+	Address string `yaml:"address" jsonschema:"required"`
 	// CABundleFile is the path to a PEM CA bundle that verifies Vault's TLS certificate. When it is
 	// omitted, the system trust store is used.
 	CABundleFile string          `yaml:"caBundleFile,omitempty"`
@@ -357,7 +359,7 @@ type VaultAuthConfig struct {
 type VaultAppRoleConfig struct {
 	// Mount is the AppRole auth mount path.
 	Mount  string `yaml:"mount,omitempty" jsonschema:"default=approle"`
-	RoleID string `yaml:"roleID"`
+	RoleID string `yaml:"roleID"          jsonschema:"required"`
 	// SecretID is the SecretID inline, for development and testing only.
 	SecretID string `yaml:"secretID"`
 	// SecretIDFile is the path to a file containing the SecretID. Use it in production.
@@ -369,8 +371,8 @@ type VaultGCPConfig struct {
 	// Mount is the GCP auth mount path.
 	Mount string `yaml:"mount,omitempty" jsonschema:"default=gcp"`
 	// Role is the Vault GCP auth role to log in as.
-	Role string `yaml:"role"`
-	Type string `yaml:"type" jsonschema:"enum=gce,enum=iam"`
+	Role string `yaml:"role" jsonschema:"required"`
+	Type string `yaml:"type" jsonschema:"required,enum=gce,enum=iam"`
 
 	// ServiceAccountEmail is the service account to authenticate as. It is required when type is
 	// "iam".
@@ -382,8 +384,8 @@ type VaultAWSConfig struct {
 	// Mount is the AWS auth mount path.
 	Mount string `yaml:"mount,omitempty" jsonschema:"default=aws"`
 	// Role is the Vault AWS auth role to log in as.
-	Role   string `yaml:"role"`
-	Type   string `yaml:"type"             jsonschema:"enum=iam,enum=ec2"`
+	Role   string `yaml:"role"             jsonschema:"required"`
+	Type   string `yaml:"type"             jsonschema:"required,enum=iam,enum=ec2"`
 	Region string `yaml:"region,omitempty"`
 	// IAMServerIDHeader is the value of the X-Vault-AWS-IAM-Server-ID header.
 	IAMServerIDHeader string `yaml:"iamServerIDHeader,omitempty"`

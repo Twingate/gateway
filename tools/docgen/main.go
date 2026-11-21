@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"slices"
 	"strings"
 	"time"
 
@@ -82,9 +83,10 @@ func render() ([]byte, error) {
 
 func reflectSchema() (*jsonschema.Schema, error) {
 	r := &jsonschema.Reflector{
-		FieldNameTag:   "yaml",
-		DoNotReference: true,
-		Mapper:         mapType,
+		FieldNameTag:               "yaml",
+		RequiredFromJSONSchemaTags: true,
+		DoNotReference:             true,
+		Mapper:                     mapType,
 	}
 
 	// Comments are keyed by import path, which AddGoComments derives by joining the base with
@@ -179,20 +181,24 @@ func writeObject(b *bytes.Buffer, schema *jsonschema.Schema, firstIndent, indent
 			b.WriteString("\n")
 		}
 
-		writeComment(b, indent, comment(prop))
+		writeComment(b, indent, comment(prop, slices.Contains(schema.Required, key)))
 		writeKey(b, key, prop, keyIndent, indent)
 
 		keyIndent = indent
 	}
 }
 
-// comment returns the lines of the comment above the property's key: its description, its
-// allowed values and its default.
-func comment(prop *jsonschema.Schema) []string {
+// comment returns the lines of the comment above the property's key: its description, whether it
+// is required, its allowed values and its default.
+func comment(prop *jsonschema.Schema, required bool) []string {
 	var lines []string
 
 	if prop.Description != "" {
 		lines = append(lines, prop.Description)
+	}
+
+	if required {
+		lines = append(lines, "Required.")
 	}
 
 	if len(prop.Enum) > 0 {

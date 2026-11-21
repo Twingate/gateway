@@ -6,6 +6,7 @@
 
 twingate:
   # The Twingate network name, such as "acme" for acme.twingate.com.
+  # Required.
   network: ""
 
   # Default: twingate.com
@@ -36,6 +37,7 @@ log:
       file:
         # The file to write to. If it already exists, it must be a regular file, not a directory,
         # device or symlink.
+        # Required.
         path: ""
 
         # Configures file rotation: when the file is rotated into a backup, and how backups are
@@ -75,6 +77,7 @@ log:
       file:
         # The file to write to. If it already exists, it must be a regular file, not a directory,
         # device or symlink.
+        # Required.
         path: ""
 
         # Configures file rotation: when the file is rotated into a backup, and how backups are
@@ -123,6 +126,7 @@ log:
       file:
         # The file to write to. If it already exists, it must be a regular file, not a directory,
         # device or symlink.
+        # Required.
         path: ""
 
         # Configures file rotation: when the file is rotated into a backup, and how backups are
@@ -153,9 +157,12 @@ log:
 tls:
   # Configures the TLS certificates the Gateway can serve.
   certificates:
+    # Required.
     files:
+        # Required.
       - certificateFile: ""
 
+        # Required.
         privateKeyFile: ""
 
   # Configures issuing the certificates served to clients on demand.
@@ -182,14 +189,17 @@ tls:
       # Configures a CA that signs locally on the Gateway, using the CA certificate and private key
       # in the given files.
       local:
+        # Required.
         certificateFile: ""
 
+        # Required.
         privateKeyFile: ""
 
       # Configures a CA backed by Vault's PKI secrets engine, see
       # https://developer.hashicorp.com/vault/docs/secrets/pki
       vault:
         # The Vault server address, such as https://vault.example.com:8200.
+        # Required.
         address: ""
 
         # The path to a PEM CA bundle that verifies Vault's TLS certificate. When it is omitted, the
@@ -210,6 +220,7 @@ tls:
             # Default: approle
             mount: approle
 
+            # Required.
             roleID: ""
 
             # The SecretID inline, for development and testing only.
@@ -225,8 +236,10 @@ tls:
             mount: gcp
 
             # The Vault GCP auth role to log in as.
+            # Required.
             role: ""
 
+            # Required.
             # One of: gce, iam
             type: ""
 
@@ -240,8 +253,10 @@ tls:
             mount: aws
 
             # The Vault AWS auth role to log in as.
+            # Required.
             role: ""
 
+            # Required.
             # One of: iam, ec2
             type: ""
 
@@ -265,15 +280,19 @@ tls:
         # Default: pki
         mount: pki
 
+        # Required.
         role: ""
 
       # Configures a CA pool in Google Cloud Certificate Authority Service, see
       # https://cloud.google.com/certificate-authority-service/docs
       gcpPrivateCA:
+        # Required.
         project: ""
 
+        # Required.
         location: ""
 
+        # Required.
         caPoolID: ""
 
         # Issues certificates from this CA in the pool instead of letting the pool choose one.
@@ -285,24 +304,29 @@ tls:
 
 # A PEM file of certificate authorities the Gateway trusts when verifying upstream TLS connections.
 upstreamTrustedCABundles:
+    # Required.
   - file: ""
 
 # Configures proxying to Kubernetes API servers.
 kubernetes:
   # An external Kubernetes API server. At least one of bearerToken or bearerTokenFile must be set.
   upstreams:
+      # Required.
     - name: ""
 
       bearerToken: ""
 
       bearerTokenFile: ""
 
+      # The path to a PEM CA bundle that verifies the API server's TLS certificate. The system trust
+      # store is not used.
       caFile: ""
 
 # Configures proxying to SSH servers.
 ssh:
   gateway:
     # The user the Gateway connects to upstreams as.
+    # Required.
     username: ""
 
     key:
@@ -329,12 +353,14 @@ ssh:
     # Configures a CA that signs locally on the Gateway.
     local:
       # The path to the unencrypted CA private key, OpenSSH or PEM encoded.
+      # Required.
       privateKeyFile: ""
 
     # Configures CAs backed by Vault's SSH secrets engine, see
     # https://developer.hashicorp.com/vault/docs/secrets/ssh
     vault:
       # The Vault server address, such as https://vault.example.com:8200.
+      # Required.
       address: ""
 
       # The path to a PEM CA bundle that verifies Vault's TLS certificate. When it is omitted, the
@@ -355,6 +381,7 @@ ssh:
           # Default: approle
           mount: approle
 
+          # Required.
           roleID: ""
 
           # The SecretID inline, for development and testing only.
@@ -370,8 +397,10 @@ ssh:
           mount: gcp
 
           # The Vault GCP auth role to log in as.
+          # Required.
           role: ""
 
+          # Required.
           # One of: gce, iam
           type: ""
 
@@ -385,8 +414,10 @@ ssh:
           mount: aws
 
           # The Vault AWS auth role to log in as.
+          # Required.
           role: ""
 
+          # Required.
           # One of: iam, ec2
           type: ""
 
