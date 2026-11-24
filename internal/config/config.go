@@ -406,19 +406,28 @@ type WebAppConfig struct {
 	RequestHeaders map[string]string `yaml:"requestHeaders,omitempty"`
 }
 
+// PostgreSQLConfig configures proxying to PostgreSQL databases.
 type PostgreSQLConfig struct {
 	Credentials []PostgreSQLCredential `yaml:"credentials"`
 }
 
-// PostgreSQLCredential is the credential that the Gateway uses to authenticate to the database.
+// PostgreSQLCredential is a password the Gateway logs in to PostgreSQL databases with. Exactly one
+// of password or passwordFile must be set.
 type PostgreSQLCredential struct {
-	Name         string `yaml:"name"`
-	Password     string `yaml:"password,omitempty"`
+	// Name identifies the credential. A PostgreSQL resource that uses password authentication
+	// selects the credential by this name. Names must be unique.
+	Name string `yaml:"name" jsonschema:"required"`
+	// Password is the password inline, for development and testing only.
+	Password string `yaml:"password,omitempty"`
+	// PasswordFile is the path to a file containing the password. Use it in production. Trailing
+	// newlines in the file are ignored.
 	PasswordFile string `yaml:"passwordFile,omitempty"`
-	// The Gateway's own certificate and key, presented when the database asks for a client
-	// certificate during the TLS handshake.
+	// ClientCertificateFile is the path to a PEM client certificate the Gateway presents when the
+	// database asks for one during the TLS handshake. It must be set together with
+	// clientPrivateKeyFile.
 	ClientCertificateFile string `yaml:"clientCertificateFile,omitempty"`
-	ClientPrivateKeyFile  string `yaml:"clientPrivateKeyFile,omitempty"`
+	// ClientPrivateKeyFile is the path to the PEM private key of clientCertificateFile.
+	ClientPrivateKeyFile string `yaml:"clientPrivateKeyFile,omitempty"`
 }
 
 func newDefaultConfig() *Config {
