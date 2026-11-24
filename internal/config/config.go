@@ -131,7 +131,7 @@ type LogStandardOutputConfig struct{}
 
 // LogFileOutputConfig writes output to a file. If the file already exists, output is appended to it.
 type LogFileOutputConfig struct {
-	// Path is the file to write to. If it already exists, it must be a regular file, not a
+	// Path is the file to write to. It must be a regular file, not a
 	// directory, device or symlink.
 	Path     string                `yaml:"path"     jsonschema:"required"`
 	Rotation LogFileRotationConfig `yaml:"rotation"`
