@@ -75,6 +75,7 @@ type Config struct {
 	Kubernetes *KubernetesConfig `yaml:"kubernetes,omitempty"`
 	SSH        *SSHConfig        `yaml:"ssh,omitempty"`
 	WebApp     *WebAppConfig     `yaml:"webApp,omitempty"`
+	PostgreSQL *PostgreSQLConfig `yaml:"postgresql,omitempty"`
 }
 
 type TwingateConfig struct {
@@ -405,6 +406,30 @@ type WebAppConfig struct {
 	RequestHeaders map[string]string `yaml:"requestHeaders,omitempty"`
 }
 
+// PostgreSQLConfig configures proxying to PostgreSQL databases.
+type PostgreSQLConfig struct {
+	Credentials []PostgreSQLCredential `yaml:"credentials"`
+}
+
+// PostgreSQLCredential is a password the Gateway logs in to PostgreSQL databases with. Exactly one
+// of password or passwordFile must be set.
+type PostgreSQLCredential struct {
+	// Name identifies the credential. A PostgreSQL resource that uses password authentication
+	// selects the credential by this name. Names must be unique.
+	Name string `yaml:"name" jsonschema:"required"`
+	// Password is the password inline, for development and testing only.
+	Password string `yaml:"password,omitempty"`
+	// PasswordFile is the path to a file containing the password. Use it in production. Trailing
+	// newlines in the file are ignored.
+	PasswordFile string `yaml:"passwordFile,omitempty"`
+	// ClientCertificateFile is the path to a PEM client certificate the Gateway presents when the
+	// database asks for one during the TLS handshake. It must be set together with
+	// clientPrivateKeyFile.
+	ClientCertificateFile string `yaml:"clientCertificateFile,omitempty"`
+	// ClientPrivateKeyFile is the path to the PEM private key of clientCertificateFile.
+	ClientPrivateKeyFile string `yaml:"clientPrivateKeyFile,omitempty"`
+}
+
 func newDefaultConfig() *Config {
 	return &Config{
 		Port:        defaultPort,
@@ -543,9 +568,15 @@ func (c *Config) Validate() error {
 		}
 	}
 
+	if c.PostgreSQL != nil {
+		if err := c.PostgreSQL.Validate(); err != nil {
+			return fmt.Errorf("postgresql config: %w", err)
+		}
+	}
+
 	// Check that at least one protocol is configured
-	if c.Kubernetes == nil && c.SSH == nil && c.WebApp == nil {
-		return fmt.Errorf("%w: at least one protocol (Kubernetes, SSH, or WebApp) must be configured", ErrRequired)
+	if c.Kubernetes == nil && c.SSH == nil && c.WebApp == nil && c.PostgreSQL == nil {
+		return fmt.Errorf("%w: at least one protocol (Kubernetes, SSH, WebApp, or PostgreSQL) must be configured", ErrRequired)
 	}
 
 	return nil
@@ -1315,6 +1346,49 @@ func (v *SSHCAVaultConfig) GetUpstreamHostCAMount() string {
 	}
 
 	return defaultVaultSSHMount
+}
+
+var (
+	errDuplicateCredential       = errors.New("duplicate credential name")
+	errConflictingPasswordConfig = errors.New("only one of 'password' or 'passwordFile' can be specified")
+)
+
+func (p *PostgreSQLConfig) Validate() error {
+	credentialNames := make(map[string]struct{})
+
+	for i, credential := range p.Credentials {
+		if err := credential.Validate(); err != nil {
+			return fmt.Errorf("credentials[%d] (name: %q): %w", i, credential.Name, err)
+		}
+
+		if _, exists := credentialNames[credential.Name]; exists {
+			return fmt.Errorf("%w: %q", errDuplicateCredential, credential.Name)
+		}
+
+		credentialNames[credential.Name] = struct{}{}
+	}
+
+	return nil
+}
+
+func (c *PostgreSQLCredential) Validate() error {
+	if c.Name == "" {
+		return fmt.Errorf("%w: name", ErrRequired)
+	}
+
+	if c.Password != "" && c.PasswordFile != "" {
+		return errConflictingPasswordConfig
+	}
+
+	if c.Password == "" && c.PasswordFile == "" {
+		return fmt.Errorf("%w: either 'password' or 'passwordFile' is required", ErrRequired)
+	}
+
+	if (c.ClientCertificateFile == "") != (c.ClientPrivateKeyFile == "") {
+		return fmt.Errorf("%w: both 'clientCertificateFile' and 'clientPrivateKeyFile' are required when either is set", ErrRequired)
+	}
+
+	return nil
 }
 
 // validateHost checks host is a well-formed hostname for a trusted Twingate controller domain.

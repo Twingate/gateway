@@ -464,3 +464,27 @@ webApp:
   # {{key}}, such as "Bearer {{jwt}}", where key is jwt, username, groups, clientGeoLatLong,
   # clientGeoCity, clientGeoRegion or clientGeoCountry.
   requestHeaders: {}
+
+# Configures proxying to PostgreSQL databases.
+postgresql:
+  # A password the Gateway logs in to PostgreSQL databases with. Exactly one of password or
+  # passwordFile must be set.
+  credentials:
+      # Identifies the credential. A PostgreSQL resource that uses password authentication selects
+      # the credential by this name. Names must be unique.
+      # Required.
+    - name: ""
+
+      # The password inline, for development and testing only.
+      password: ""
+
+      # The path to a file containing the password. Use it in production. Trailing newlines in the
+      # file are ignored.
+      passwordFile: ""
+
+      # The path to a PEM client certificate the Gateway presents when the database asks for one
+      # during the TLS handshake. It must be set together with clientPrivateKeyFile.
+      clientCertificateFile: ""
+
+      # The path to the PEM private key of clientCertificateFile.
+      clientPrivateKeyFile: ""
