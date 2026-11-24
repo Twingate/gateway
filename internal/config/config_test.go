@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -17,6 +18,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+
+	goyaml "go.yaml.in/yaml/v4"
 
 	yamlutil "gateway/internal/util/yaml"
 )
@@ -492,6 +495,53 @@ func TestLoad_FileNotFound(t *testing.T) {
 	_, err := Load("/nonexistent/config.yaml")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to read config file")
+}
+
+func TestDefaultTags(t *testing.T) {
+	defaults := newDefaultConfig()
+
+	tests := []struct {
+		name   string
+		parent any
+		field  string
+		want   any
+	}{
+		{"port", Config{}, "Port", defaults.Port},
+		{"metricsPort", Config{}, "MetricsPort", defaults.MetricsPort},
+		{"twingate.host", TwingateConfig{}, "Host", defaults.Twingate.Host},
+		{"log.system.level", LogSystemConfig{}, "Level", defaults.Log.System.Level},
+		{"rotation.maxSize", LogFileRotationConfig{}, "MaxSize", yamlutil.ByteSize(defaultLogFileRotationMaxSize)},
+		{"rotation.maxBackupFiles", LogFileRotationConfig{}, "MaxBackupFiles", (&LogFileRotationConfig{}).GetMaxBackupFiles()},
+		{"rotation.compression", LogFileRotationConfig{}, "Compression", (&LogFileRotationConfig{}).GetCompression()},
+		{"segment.maxDuration", SessionRecordingSegmentConfig{}, "MaxDuration", defaults.Log.SessionRecording.Segment.MaxDuration},
+		{"segment.maxSize", SessionRecordingSegmentConfig{}, "MaxSize", defaults.Log.SessionRecording.Segment.MaxSize},
+		{"tls vault mount", TLSVaultIssuerConfig{}, "Mount", (&TLSVaultIssuerConfig{}).GetMount()},
+		{"ssh vault mount", SSHCAVaultConfig{}, "Mount", (&SSHCAVaultConfig{}).GetGatewayHostCAMount()},
+		{"appRole mount", VaultAppRoleConfig{}, "Mount", (&VaultAppRoleConfig{}).GetMount()},
+		{"gcp mount", VaultGCPConfig{}, "Mount", (&VaultGCPConfig{}).GetMount()},
+		{"aws mount", VaultAWSConfig{}, "Mount", (&VaultAWSConfig{}).GetMount()},
+		{"aws signatureType", VaultAWSConfig{}, "SignatureType", (&VaultAWSConfig{}).GetSignatureType()},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			field, ok := reflect.TypeOf(tt.parent).FieldByName(tt.field)
+			require.True(t, ok)
+
+			var tag string
+
+			for option := range strings.SplitSeq(field.Tag.Get("jsonschema"), ",") {
+				if value, found := strings.CutPrefix(option, "default="); found {
+					tag = value
+				}
+			}
+
+			got := reflect.New(field.Type)
+			require.NoError(t, goyaml.Unmarshal([]byte(tag), got.Interface()))
+
+			assert.Equal(t, tt.want, got.Elem().Interface())
+		})
+	}
 }
 
 func TestConfig_Validate(t *testing.T) {
@@ -1828,7 +1878,7 @@ func TestKubernetesConfig_Validate(t *testing.T) {
 			name: "valid with external upstream",
 			k8s: KubernetesConfig{
 				Upstreams: []KubernetesUpstream{
-					{Name: "k8s", BearerToken: "token"},
+					{Name: "k8s", BearerToken: "token", CAFile: "/path/to/ca.crt"},
 				},
 			},
 			wantErr: false,
@@ -1844,8 +1894,8 @@ func TestKubernetesConfig_Validate(t *testing.T) {
 			name: "duplicate upstream names",
 			k8s: KubernetesConfig{
 				Upstreams: []KubernetesUpstream{
-					{Name: "prod-k8s", BearerToken: "token"},
-					{Name: "prod-k8s", BearerToken: "token"},
+					{Name: "prod-k8s", BearerToken: "token", CAFile: "/path/to/ca.crt"},
+					{Name: "prod-k8s", BearerToken: "token", CAFile: "/path/to/ca.crt"},
 				},
 			},
 			wantErr:     true,
@@ -1959,6 +2009,7 @@ func TestKubernetesUpstream_Validate(t *testing.T) {
 			upstream: KubernetesUpstream{
 				Name:        "k8s",
 				BearerToken: "token",
+				CAFile:      "/path/to/ca.crt",
 			},
 			wantErr: false,
 		},
@@ -1967,20 +2018,27 @@ func TestKubernetesUpstream_Validate(t *testing.T) {
 			upstream: KubernetesUpstream{
 				Name:            "k8s",
 				BearerTokenFile: "/path/to/token",
+				CAFile:          "/path/to/ca.crt",
 			},
 			wantErr: false,
 		},
 		{
 			name:        "missing name",
-			upstream:    KubernetesUpstream{BearerToken: "token"},
+			upstream:    KubernetesUpstream{BearerToken: "token", CAFile: "/path/to/ca.crt"},
 			wantErr:     true,
 			errContains: "name",
 		},
 		{
 			name:        "missing auth",
-			upstream:    KubernetesUpstream{Name: "k8s"},
+			upstream:    KubernetesUpstream{Name: "k8s", CAFile: "/path/to/ca.crt"},
 			wantErr:     true,
 			errContains: "bearerToken or bearerTokenFile is required",
+		},
+		{
+			name:        "missing CA file",
+			upstream:    KubernetesUpstream{Name: "k8s", BearerToken: "token"},
+			wantErr:     true,
+			errContains: "caFile",
 		},
 	}
 

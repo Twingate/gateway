@@ -117,6 +117,10 @@ linters:
             case: goCamel
             initialism-overrides:
               CA: true
+    tagalign:
+      order:
+        - yaml
+        - jsonschema
 
 formatters:
   enable:
