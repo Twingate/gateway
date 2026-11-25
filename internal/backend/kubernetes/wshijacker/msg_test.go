@@ -257,12 +257,9 @@ func TestMessage_Parse_ControlMessageCloseMasked(t *testing.T) {
 	// 0x79 ^ 0x04 = 0x7D  (Second byte of reason "y" masked)
 	// 0x65 ^ 0x01 = 0x64  (Third byte of reason "e" masked - key wraps around to 0x01)
 	data := []byte{
-		0x88, // Byte 0: FIN=1 (final fragment), RSV1-3=0, opcode=8 (CLOSE)
-		0x85, // Byte 1: MASK=1 (message is masked), payload length=5 (bytes that follow the masking key)
-		0x01,
-		0x02,
-		0x03,
-		0x04, // Bytes 2-5: Masking key (4 bytes)
+		0x88,                   // Byte 0: FIN=1 (final fragment), RSV1-3=0, opcode=8 (CLOSE)
+		0x85,                   // Byte 1: MASK=1 (message is masked), payload length=5 (bytes after the masking key)
+		0x01, 0x02, 0x03, 0x04, // Bytes 2-5: Masking key (4 bytes)
 		0x02, // Masked payload byte 1: Represents unmasked 0x03 (Status Code MSB)
 		0xEA, // Masked payload byte 2: Represents unmasked 0xE8 (Status Code LSB)
 		0x41, // Masked payload byte 3: Represents unmasked 0x42 (Reason 'B')
