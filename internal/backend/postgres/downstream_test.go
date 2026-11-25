@@ -29,8 +29,15 @@ func TestDownstreamConn_HandleStartupMessage(t *testing.T) {
 		wantAnswer string
 		wantErr    error
 	}{
-		{name: "startup", sends: []pgproto3.FrontendMessage{startup}},
-		{name: "SSL refused", sends: []pgproto3.FrontendMessage{&pgproto3.SSLRequest{}, startup}, wantAnswer: "N"},
+		{
+			name:  "startup",
+			sends: []pgproto3.FrontendMessage{startup},
+		},
+		{
+			name:       "SSL refused",
+			sends:      []pgproto3.FrontendMessage{&pgproto3.SSLRequest{}, startup},
+			wantAnswer: "N",
+		},
 		{
 			name:       "GSS encryption refused",
 			sends:      []pgproto3.FrontendMessage{&pgproto3.GSSEncRequest{}, startup},
