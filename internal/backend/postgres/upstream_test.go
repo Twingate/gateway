@@ -168,7 +168,10 @@ func TestUpstream_ConnectConfig_TLS(t *testing.T) {
 		certificate      *tls.Certificate
 		wantCertificates []tls.Certificate
 	}{
-		{name: "plaintext ignores the client certificate", certificate: certificate},
+		{
+			name:        "plaintext ignores the client certificate",
+			certificate: certificate,
+		},
 		{
 			name:      "TLS, no client certificate",
 			tlsConfig: &tls.Config{ServerName: "db.acme.int", MinVersion: tls.VersionTLS12},

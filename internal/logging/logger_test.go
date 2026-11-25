@@ -27,8 +27,19 @@ func TestNew(t *testing.T) {
 		wantLevel  zapcore.Level
 		wantCaller bool
 	}{
-		{name: "system", logger: logger.System, wantName: "system", wantLevel: zapcore.DebugLevel, wantCaller: true},
-		{name: "audit", logger: logger.Audit, wantName: "audit", wantLevel: zapcore.InfoLevel},
+		{
+			name:       "system",
+			logger:     logger.System,
+			wantName:   "system",
+			wantLevel:  zapcore.DebugLevel,
+			wantCaller: true,
+		},
+		{
+			name:      "audit",
+			logger:    logger.Audit,
+			wantName:  "audit",
+			wantLevel: zapcore.InfoLevel,
+		},
 		{
 			name:       "session_recording",
 			logger:     logger.Session,

@@ -31,17 +31,42 @@ func TestStripNetworkPrefix(t *testing.T) {
 		network  string
 		expected string
 	}{
-		{name: "sharded host", hostname: "acme.us1.test.com", network: "acme", expected: "us1.test.com"},
-		{name: "non-sharded host", hostname: "acme.test.com", network: "acme", expected: "test.com"},
-		{name: "no network prefix", hostname: "test.com", network: "acme", expected: "test.com"},
-		{name: "empty network", hostname: "us1.twingate.com", network: "", expected: "us1.twingate.com"},
+		{
+			name:     "sharded host",
+			hostname: "acme.us1.test.com",
+			network:  "acme",
+			expected: "us1.test.com",
+		},
+		{
+			name:     "non-sharded host",
+			hostname: "acme.test.com",
+			network:  "acme",
+			expected: "test.com",
+		},
+		{
+			name:     "no network prefix",
+			hostname: "test.com",
+			network:  "acme",
+			expected: "test.com",
+		},
+		{
+			name:     "empty network",
+			hostname: "us1.twingate.com",
+			network:  "",
+			expected: "us1.twingate.com",
+		},
 		{
 			name:     "uppercase host prefix",
 			hostname: "ACME.us1.twingate.com",
 			network:  "acme",
 			expected: "us1.twingate.com",
 		},
-		{name: "uppercase network", hostname: "acme.us1.twingate.com", network: "ACME", expected: "us1.twingate.com"},
+		{
+			name:     "uppercase network",
+			hostname: "acme.us1.twingate.com",
+			network:  "ACME",
+			expected: "us1.twingate.com",
+		},
 	}
 
 	for _, tt := range tests {
@@ -516,31 +541,96 @@ func TestDefaultTags(t *testing.T) {
 		field  string
 		want   any
 	}{
-		{"port", Config{}, "Port", defaults.Port},
-		{"metricsPort", Config{}, "MetricsPort", defaults.MetricsPort},
-		{"twingate.host", TwingateConfig{}, "Host", defaults.Twingate.Host},
-		{"log.system.level", LogSystemConfig{}, "Level", defaults.Log.System.Level},
-		{"rotation.maxSize", LogFileRotationConfig{}, "MaxSize", yamlutil.ByteSize(defaultLogFileRotationMaxSize)},
+		{
+			"port",
+			Config{},
+			"Port",
+			defaults.Port,
+		},
+		{
+			"metricsPort",
+			Config{},
+			"MetricsPort",
+			defaults.MetricsPort,
+		},
+		{
+			"twingate.host",
+			TwingateConfig{},
+			"Host",
+			defaults.Twingate.Host,
+		},
+		{
+			"log.system.level",
+			LogSystemConfig{},
+			"Level",
+			defaults.Log.System.Level,
+		},
+		{
+			"rotation.maxSize",
+			LogFileRotationConfig{},
+			"MaxSize",
+			yamlutil.ByteSize(defaultLogFileRotationMaxSize),
+		},
 		{
 			"rotation.maxBackupFiles",
 			LogFileRotationConfig{},
 			"MaxBackupFiles",
 			(&LogFileRotationConfig{}).GetMaxBackupFiles(),
 		},
-		{"rotation.compression", LogFileRotationConfig{}, "Compression", (&LogFileRotationConfig{}).GetCompression()},
+		{
+			"rotation.compression",
+			LogFileRotationConfig{},
+			"Compression",
+			(&LogFileRotationConfig{}).GetCompression(),
+		},
 		{
 			"segment.maxDuration",
 			SessionRecordingSegmentConfig{},
 			"MaxDuration",
 			defaults.Log.SessionRecording.Segment.MaxDuration,
 		},
-		{"segment.maxSize", SessionRecordingSegmentConfig{}, "MaxSize", defaults.Log.SessionRecording.Segment.MaxSize},
-		{"tls vault mount", TLSVaultIssuerConfig{}, "Mount", (&TLSVaultIssuerConfig{}).GetMount()},
-		{"ssh vault mount", SSHCAVaultConfig{}, "Mount", (&SSHCAVaultConfig{}).GetGatewayHostCAMount()},
-		{"appRole mount", VaultAppRoleConfig{}, "Mount", (&VaultAppRoleConfig{}).GetMount()},
-		{"gcp mount", VaultGCPConfig{}, "Mount", (&VaultGCPConfig{}).GetMount()},
-		{"aws mount", VaultAWSConfig{}, "Mount", (&VaultAWSConfig{}).GetMount()},
-		{"aws signatureType", VaultAWSConfig{}, "SignatureType", (&VaultAWSConfig{}).GetSignatureType()},
+		{
+			"segment.maxSize",
+			SessionRecordingSegmentConfig{},
+			"MaxSize",
+			defaults.Log.SessionRecording.Segment.MaxSize,
+		},
+		{
+			"tls vault mount",
+			TLSVaultIssuerConfig{},
+			"Mount",
+			(&TLSVaultIssuerConfig{}).GetMount(),
+		},
+		{
+			"ssh vault mount",
+			SSHCAVaultConfig{},
+			"Mount",
+			(&SSHCAVaultConfig{}).GetGatewayHostCAMount(),
+		},
+		{
+			"appRole mount",
+			VaultAppRoleConfig{},
+			"Mount",
+			(&VaultAppRoleConfig{}).GetMount(),
+		},
+		{
+			"gcp mount",
+			VaultGCPConfig{},
+			"Mount",
+			(&VaultGCPConfig{}).GetMount(),
+		},
+		{
+			"aws mount",
+			VaultAWSConfig{},
+			"Mount",
+			(&VaultAWSConfig{}).GetMount(),
+		},
+		{
+			"aws signatureType",
+			VaultAWSConfig{},
+			"SignatureType",
+			(&VaultAWSConfig{}).GetSignatureType(),
+		},
 	}
 
 	for _, tt := range tests {

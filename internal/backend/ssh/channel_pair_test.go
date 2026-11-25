@@ -193,7 +193,11 @@ func TestChannelPair_RequestLogLevelByType(t *testing.T) {
 		payload   []byte
 		wantLevel zapcore.Level
 	}{
-		{name: "unknown custom type", reqType: "probe@example.com", wantLevel: zap.InfoLevel},
+		{
+			name:      "unknown custom type",
+			reqType:   "probe@example.com",
+			wantLevel: zap.InfoLevel,
+		},
 		{
 			name:      "terminal mechanic",
 			reqType:   requestTypeWindowChange,
@@ -458,15 +462,27 @@ func TestChannelPair_SessionWaitsForStart(t *testing.T) {
 		payload   []byte
 		wantReply bool
 	}{
-		{name: "shell", reqType: requestTypeShell, wantReply: true},
-		{name: "exec", reqType: requestTypeExec, payload: ssh.Marshal(execReq{Command: "whoami"}), wantReply: true},
+		{
+			name:      "shell",
+			reqType:   requestTypeShell,
+			wantReply: true,
+		},
+		{
+			name:      "exec",
+			reqType:   requestTypeExec,
+			payload:   ssh.Marshal(execReq{Command: "whoami"}),
+			wantReply: true,
+		},
 		{
 			name:      "subsystem",
 			reqType:   requestTypeSubsystem,
 			payload:   ssh.Marshal(subsystemReq{Name: "sftp"}),
 			wantReply: true,
 		},
-		{name: "shell without reply", reqType: requestTypeShell},
+		{
+			name:    "shell without reply",
+			reqType: requestTypeShell,
+		},
 	}
 
 	for _, tt := range tests {

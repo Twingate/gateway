@@ -301,14 +301,26 @@ func TestRewrite_UpstreamScheme(t *testing.T) {
 		upstreamTLSMode token.TLSClientMode
 		wantScheme      string
 	}{
-		{name: "plain HTTP when TLS mode is none", upstreamTLSMode: token.TLSClientModeNone, wantScheme: "http"},
+		{
+			name:            "plain HTTP when TLS mode is none",
+			upstreamTLSMode: token.TLSClientModeNone,
+			wantScheme:      "http",
+		},
 		{
 			name:            "HTTPS when TLS mode is verify_full",
 			upstreamTLSMode: token.TLSClientModeVerifyFull,
 			wantScheme:      "https",
 		},
-		{name: "HTTPS when TLS mode is verify_ca", upstreamTLSMode: token.TLSClientModeVerifyCA, wantScheme: "https"},
-		{name: "HTTPS when TLS mode is insecure", upstreamTLSMode: token.TLSClientModeInsecure, wantScheme: "https"},
+		{
+			name:            "HTTPS when TLS mode is verify_ca",
+			upstreamTLSMode: token.TLSClientModeVerifyCA,
+			wantScheme:      "https",
+		},
+		{
+			name:            "HTTPS when TLS mode is insecure",
+			upstreamTLSMode: token.TLSClientModeInsecure,
+			wantScheme:      "https",
+		},
 	}
 
 	for _, tt := range tests {

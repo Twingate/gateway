@@ -552,9 +552,20 @@ func TestVaultCA_Sign_Error(t *testing.T) {
 		responseData map[string]any
 		wantErr      error
 	}{
-		{name: "missing signed key", responseData: map[string]any{}, wantErr: errVaultSignFailed},
-		{name: "empty signed key", responseData: map[string]any{"signed_key": ""}, wantErr: errVaultSignFailed},
-		{name: "unparseable signed key", responseData: map[string]any{"signed_key": "not-a-certificate"}},
+		{
+			name:         "missing signed key",
+			responseData: map[string]any{},
+			wantErr:      errVaultSignFailed,
+		},
+		{
+			name:         "empty signed key",
+			responseData: map[string]any{"signed_key": ""},
+			wantErr:      errVaultSignFailed,
+		},
+		{
+			name:         "unparseable signed key",
+			responseData: map[string]any{"signed_key": "not-a-certificate"},
+		},
 		{
 			name:         "certificate violates policy",
 			responseData: map[string]any{"signed_key": string(ssh.MarshalAuthorizedKey(overBroadCert))},

@@ -50,7 +50,10 @@ func TestReloader_load(t *testing.T) {
 		keyPair config.TLSCertificateFileKeyPair
 		wantErr bool
 	}{
-		{name: "valid cert and key", keyPair: keyPair},
+		{
+			name:    "valid cert and key",
+			keyPair: keyPair,
+		},
 		{
 			name: "mismatched cert and key",
 			keyPair: config.TLSCertificateFileKeyPair{

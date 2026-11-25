@@ -454,15 +454,31 @@ func TestVaultIssuer_sign_Error(t *testing.T) {
 		responseData map[string]any // nil sends no response body
 		wantErr      error
 	}{
-		{name: "no response body", responseData: nil, wantErr: errVaultIssueFailed},
-		{name: "missing certificate", responseData: map[string]any{"expiration": 1}, wantErr: errVaultIssueFailed},
-		{name: "empty certificate", responseData: map[string]any{"certificate": ""}, wantErr: errVaultIssueFailed},
+		{
+			name:         "no response body",
+			responseData: nil,
+			wantErr:      errVaultIssueFailed,
+		},
+		{
+			name:         "missing certificate",
+			responseData: map[string]any{"expiration": 1},
+			wantErr:      errVaultIssueFailed,
+		},
+		{
+			name:         "empty certificate",
+			responseData: map[string]any{"certificate": ""},
+			wantErr:      errVaultIssueFailed,
+		},
 		{
 			name:         "unparseable certificate",
 			responseData: map[string]any{"certificate": "garbage"},
 			wantErr:      errCertChainNotPEM,
 		},
-		{name: "blank certificate", responseData: map[string]any{"certificate": " \n "}, wantErr: errCertChainNotPEM},
+		{
+			name:         "blank certificate",
+			responseData: map[string]any{"certificate": " \n "},
+			wantErr:      errCertChainNotPEM,
+		},
 		{
 			name:         "certificate does not match the request",
 			responseData: map[string]any{"certificate": caPEM(ca)},
