@@ -251,11 +251,9 @@ func TestPostgreSQL(t *testing.T) {
 
 				// PostgreSQL ignores a cancel that reaches an idle backend, so wait until the Gateway relays the query.
 				require.Eventually(t, func() bool {
-					return logs.FilterMessage("pg_query").
-						FilterField(zap.String("sql", query)).
-						FilterField(dbField).
-						Len() ==
-						1
+					relayed := logs.FilterMessage("pg_query").FilterField(zap.String("sql", query))
+
+					return relayed.FilterField(dbField).Len() == 1
 				}, 5*time.Second, 10*time.Millisecond)
 
 				require.NoError(t, conn.PgConn().CancelRequest(t.Context()))
