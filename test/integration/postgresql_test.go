@@ -93,7 +93,11 @@ func TestPostgreSQL(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			user := testutil.NewPostgreSQLUser(
-				&token.User{ID: "user-postgresql-1", Username: "alex@acme.com", Groups: []string{"OnCall", "Engineering"}},
+				&token.User{
+					ID:       "user-postgresql-1",
+					Username: "alex@acme.com",
+					Groups:   []string{"OnCall", "Engineering"},
+				},
 				gatewayPort,
 				fmt.Sprintf("127.0.0.1:%d", serverPort),
 				controller.URL,
@@ -103,7 +107,10 @@ func TestPostgreSQL(t *testing.T) {
 
 			t.Cleanup(func() { user.Close() })
 
-			conn, err := pgx.Connect(t.Context(), fmt.Sprintf("postgres://client:unused@%s/%s", user.Address, testutil.PostgreSQLDatabase))
+			conn, err := pgx.Connect(
+				t.Context(),
+				fmt.Sprintf("postgres://client:unused@%s/%s", user.Address, testutil.PostgreSQLDatabase),
+			)
 			require.NoError(t, err, "failed to connect to PostgreSQL through the Gateway")
 
 			t.Cleanup(func() { _ = conn.Close(t.Context()) })
@@ -146,14 +153,27 @@ func TestPostgreSQL(t *testing.T) {
 				assert.Equal(t, testutil.PostgreSQLDatabase, currentDatabase)
 				assert.Equal(t, tt.tlsMode != token.TLSClientModeNone, ssl)
 
-				testutil.AssertLogsForPostgreSQLSession(t, logs.All()[seen:], expectedUser, expectedDatabase, []testutil.PostgreSQLAuditLog{
-					{Message: "pg_parse", Fields: map[string]any{"statement_name": statementName, "sql": query}},
-					{Message: "pg_completed", Fields: map[string]any{}},
-					{Message: "pg_bind", Fields: map[string]any{"statement_name": statementName, "portal_name": "", "parameters": []any{}}},
-					{Message: "pg_execute", Fields: map[string]any{"portal_name": "", "max_rows": uint32(0)}},
-					{Message: "pg_result", Fields: map[string]any{"command": "SELECT", "row_count": int64(1)}},
-					{Message: "pg_completed", Fields: map[string]any{}},
-				})
+				testutil.AssertLogsForPostgreSQLSession(
+					t,
+					logs.All()[seen:],
+					expectedUser,
+					expectedDatabase,
+					[]testutil.PostgreSQLAuditLog{
+						{Message: "pg_parse", Fields: map[string]any{"statement_name": statementName, "sql": query}},
+						{Message: "pg_completed", Fields: map[string]any{}},
+						{
+							Message: "pg_bind",
+							Fields: map[string]any{
+								"statement_name": statementName,
+								"portal_name":    "",
+								"parameters":     []any{},
+							},
+						},
+						{Message: "pg_execute", Fields: map[string]any{"portal_name": "", "max_rows": uint32(0)}},
+						{Message: "pg_result", Fields: map[string]any{"command": "SELECT", "row_count": int64(1)}},
+						{Message: "pg_completed", Fields: map[string]any{}},
+					},
+				)
 			})
 
 			t.Run("multiple statements query", func(t *testing.T) {
@@ -164,13 +184,19 @@ func TestPostgreSQL(t *testing.T) {
 				_, err := conn.Exec(t.Context(), query)
 				require.NoError(t, err)
 
-				testutil.AssertLogsForPostgreSQLSession(t, logs.All()[seen:], expectedUser, expectedDatabase, []testutil.PostgreSQLAuditLog{
-					{Message: "pg_query", Fields: map[string]any{"sql": query}},
-					{Message: "pg_result", Fields: map[string]any{"command": "BEGIN"}},
-					{Message: "pg_result", Fields: map[string]any{"command": "SELECT", "row_count": int64(1)}},
-					{Message: "pg_result", Fields: map[string]any{"command": "COMMIT"}},
-					{Message: "pg_completed", Fields: map[string]any{}},
-				})
+				testutil.AssertLogsForPostgreSQLSession(
+					t,
+					logs.All()[seen:],
+					expectedUser,
+					expectedDatabase,
+					[]testutil.PostgreSQLAuditLog{
+						{Message: "pg_query", Fields: map[string]any{"sql": query}},
+						{Message: "pg_result", Fields: map[string]any{"command": "BEGIN"}},
+						{Message: "pg_result", Fields: map[string]any{"command": "SELECT", "row_count": int64(1)}},
+						{Message: "pg_result", Fields: map[string]any{"command": "COMMIT"}},
+						{Message: "pg_completed", Fields: map[string]any{}},
+					},
+				)
 			})
 
 			t.Run("copy", func(t *testing.T) {
@@ -179,7 +205,8 @@ func TestPostgreSQL(t *testing.T) {
 				_, err := conn.Exec(t.Context(), "CREATE TEMPORARY TABLE items (id int, name text)")
 				require.NoError(t, err)
 
-				copied, err := conn.PgConn().CopyFrom(t.Context(), strings.NewReader("1\tone\n2\ttwo\n"), "COPY items FROM STDIN")
+				copied, err := conn.PgConn().
+					CopyFrom(t.Context(), strings.NewReader("1\tone\n2\ttwo\n"), "COPY items FROM STDIN")
 				require.NoError(t, err)
 				assert.EqualValues(t, 2, copied.RowsAffected())
 
@@ -189,17 +216,26 @@ func TestPostgreSQL(t *testing.T) {
 				require.NoError(t, err)
 				assert.Equal(t, "1\tone\n2\ttwo\n", out.String())
 
-				testutil.AssertLogsForPostgreSQLSession(t, logs.All()[seen:], expectedUser, expectedDatabase, []testutil.PostgreSQLAuditLog{
-					{Message: "pg_query", Fields: map[string]any{"sql": "CREATE TEMPORARY TABLE items (id int, name text)"}},
-					{Message: "pg_result", Fields: map[string]any{"command": "CREATE TABLE"}},
-					{Message: "pg_completed", Fields: map[string]any{}},
-					{Message: "pg_query", Fields: map[string]any{"sql": "COPY items FROM STDIN"}},
-					{Message: "pg_result", Fields: map[string]any{"command": "COPY", "row_count": int64(2)}},
-					{Message: "pg_completed", Fields: map[string]any{}},
-					{Message: "pg_query", Fields: map[string]any{"sql": "COPY items TO STDOUT"}},
-					{Message: "pg_result", Fields: map[string]any{"command": "COPY", "row_count": int64(2)}},
-					{Message: "pg_completed", Fields: map[string]any{}},
-				})
+				testutil.AssertLogsForPostgreSQLSession(
+					t,
+					logs.All()[seen:],
+					expectedUser,
+					expectedDatabase,
+					[]testutil.PostgreSQLAuditLog{
+						{
+							Message: "pg_query",
+							Fields:  map[string]any{"sql": "CREATE TEMPORARY TABLE items (id int, name text)"},
+						},
+						{Message: "pg_result", Fields: map[string]any{"command": "CREATE TABLE"}},
+						{Message: "pg_completed", Fields: map[string]any{}},
+						{Message: "pg_query", Fields: map[string]any{"sql": "COPY items FROM STDIN"}},
+						{Message: "pg_result", Fields: map[string]any{"command": "COPY", "row_count": int64(2)}},
+						{Message: "pg_completed", Fields: map[string]any{}},
+						{Message: "pg_query", Fields: map[string]any{"sql": "COPY items TO STDOUT"}},
+						{Message: "pg_result", Fields: map[string]any{"command": "COPY", "row_count": int64(2)}},
+						{Message: "pg_completed", Fields: map[string]any{}},
+					},
+				)
 			})
 
 			t.Run("cancel", func(t *testing.T) {
@@ -215,7 +251,9 @@ func TestPostgreSQL(t *testing.T) {
 
 				// PostgreSQL ignores a cancel that reaches an idle backend, so wait until the Gateway relays the query.
 				require.Eventually(t, func() bool {
-					return logs.FilterMessage("pg_query").FilterField(zap.String("sql", query)).FilterField(dbField).Len() == 1
+					relayed := logs.FilterMessage("pg_query").FilterField(zap.String("sql", query))
+
+					return relayed.FilterField(dbField).Len() == 1
 				}, 5*time.Second, 10*time.Millisecond)
 
 				require.NoError(t, conn.PgConn().CancelRequest(t.Context()))
@@ -232,11 +270,17 @@ func TestPostgreSQL(t *testing.T) {
 
 				entries := logs.All()[seen:]
 
-				testutil.AssertLogsForPostgreSQLSession(t, entries, expectedUser, expectedDatabase, []testutil.PostgreSQLAuditLog{
-					{Message: "pg_query", Fields: map[string]any{"sql": query}},
-					{Message: "pg_result", Fields: map[string]any{"error_code": "57014"}},
-					{Message: "pg_completed", Fields: map[string]any{}},
-				})
+				testutil.AssertLogsForPostgreSQLSession(
+					t,
+					entries,
+					expectedUser,
+					expectedDatabase,
+					[]testutil.PostgreSQLAuditLog{
+						{Message: "pg_query", Fields: map[string]any{"sql": query}},
+						{Message: "pg_result", Fields: map[string]any{"error_code": "57014"}},
+						{Message: "pg_completed", Fields: map[string]any{}},
+					},
+				)
 				testutil.AssertLogsForPostgreSQLCancel(t, entries, expectedUser, conn.PgConn().PID())
 			})
 

@@ -73,7 +73,12 @@ func NewController(network string, port int) *httptest.Server {
 			return
 		}
 
-		logger.Info("Received GAT request", zap.Any("user", &requestBody.User), zap.Any("device", &requestBody.Device), zap.Any("resource", &requestBody.Resource))
+		logger.Info(
+			"Received GAT request",
+			zap.Any("user", &requestBody.User),
+			zap.Any("device", &requestBody.Device),
+			zap.Any("resource", &requestBody.Resource),
+		)
 
 		claims := token.GATClaims{
 			Issuer:          issuer,

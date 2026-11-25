@@ -104,7 +104,13 @@ func WithDownstreamTLS() Option {
 // the backend actually listens on. The client-facing downstream port used in the CONNECT request
 // is derived from resourceType. The Gateway rewrites it to the upstream port before forwarding
 // to the backend.
-func NewClient(user *token.User, geoIPLocation token.GeoIPLocation, proxyAddress, controllerURL, upstreamAddress string, resourceType token.ResourceType, opts ...Option) *Client {
+func NewClient(
+	user *token.User,
+	geoIPLocation token.GeoIPLocation,
+	proxyAddress, controllerURL, upstreamAddress string,
+	resourceType token.ResourceType,
+	opts ...Option,
+) *Client {
 	logger := zap.Must(zap.NewDevelopment()).Named(fmt.Sprintf("client-%s-%s", user.ID, user.Username))
 
 	downstreamPort, ok := downstreamPorts[resourceType]
@@ -242,7 +248,11 @@ func (c *Client) handleConnection(ctx context.Context, clientConn net.Conn, gat 
 	defer proxyTLSConn.Close()
 
 	// Create CONNECT request
-	connectReq, err := http.NewRequest(http.MethodConnect, "https://"+net.JoinHostPort(c.resourceHostname, strconv.Itoa(c.downstreamPort)), nil)
+	connectReq, err := http.NewRequest(
+		http.MethodConnect,
+		"https://"+net.JoinHostPort(c.resourceHostname, strconv.Itoa(c.downstreamPort)),
+		nil,
+	)
 	if err != nil {
 		c.logger.Error("Failed to create request", zap.Error(err))
 

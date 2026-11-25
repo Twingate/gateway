@@ -104,7 +104,11 @@ func TestHijacker_Hijack_Success(t *testing.T) {
 		err:  nil,
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/namespaces/default/pods/test-pod/exec?container=test-container&command=bash&tty=true", nil)
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/namespaces/default/pods/test-pod/exec?container=test-container&command=bash&tty=true",
+		nil,
+	)
 
 	hijacker := NewHijacker(req, mockResp, "testuser", mockNewRecorder, mockNewConn)
 
@@ -164,7 +168,9 @@ func TestHijacker_AsciicastHeaderCreation(t *testing.T) {
 
 	mockConn := &mockHijackerConn{}
 
-	u, _ := url.Parse("/namespaces/default/pods/test-pod/exec?container=test-container&command=cat&command=%2Fetc%2Fhostname&tty=true")
+	u, _ := url.Parse(
+		"/namespaces/default/pods/test-pod/exec?container=test-container&command=cat&command=%2Fetc%2Fhostname&tty=true",
+	)
 	req := &http.Request{
 		URL: u,
 	}

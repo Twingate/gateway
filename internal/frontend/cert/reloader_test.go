@@ -50,15 +50,24 @@ func TestReloader_load(t *testing.T) {
 		keyPair config.TLSCertificateFileKeyPair
 		wantErr bool
 	}{
-		{name: "valid cert and key", keyPair: keyPair},
 		{
-			name:    "mismatched cert and key",
-			keyPair: config.TLSCertificateFileKeyPair{CertificateFile: keyPair.CertificateFile, PrivateKeyFile: otherKeyPair.PrivateKeyFile},
+			name:    "valid cert and key",
+			keyPair: keyPair,
+		},
+		{
+			name: "mismatched cert and key",
+			keyPair: config.TLSCertificateFileKeyPair{
+				CertificateFile: keyPair.CertificateFile,
+				PrivateKeyFile:  otherKeyPair.PrivateKeyFile,
+			},
 			wantErr: true,
 		},
 		{
-			name:    "missing files",
-			keyPair: config.TLSCertificateFileKeyPair{CertificateFile: "nonexistent.crt", PrivateKeyFile: "nonexistent.key"},
+			name: "missing files",
+			keyPair: config.TLSCertificateFileKeyPair{
+				CertificateFile: "nonexistent.crt",
+				PrivateKeyFile:  "nonexistent.key",
+			},
 			wantErr: true,
 		},
 	}
@@ -221,7 +230,9 @@ func replaceKeyPair(t *testing.T, keyPair config.TLSCertificateFileKeyPair, newC
 	t.Helper()
 
 	certData := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: newCert.Certificate[0]})
-	keyData := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(newCert.PrivateKey.(*rsa.PrivateKey))})
+	keyData := pem.EncodeToMemory(
+		&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(newCert.PrivateKey.(*rsa.PrivateKey))},
+	)
 
 	require.NoError(t, os.WriteFile(keyPair.CertificateFile, certData, 0600))
 	require.NoError(t, os.WriteFile(keyPair.PrivateKeyFile, keyData, 0600))

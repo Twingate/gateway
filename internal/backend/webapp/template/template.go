@@ -58,7 +58,10 @@ func New(s string) (*Template, error) {
 
 	if match == nil {
 		if strings.Contains(s, "{{") || strings.Contains(s, "}}") {
-			return nil, fmt.Errorf("%w: unsupported syntax. Syntax must be <prefix> {{key}} <suffix>", ErrInvalidTemplate)
+			return nil, fmt.Errorf(
+				"%w: unsupported syntax. Syntax must be <prefix> {{key}} <suffix>",
+				ErrInvalidTemplate,
+			)
 		}
 
 		return &Template{prefix: strings.TrimSpace(s)}, nil

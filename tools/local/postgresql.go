@@ -26,7 +26,9 @@ const (
 )
 
 func setupPostgreSQLServer(logger *zap.Logger) error {
-	output, err := testutil.RunCommand(exec.Command("docker", "ps", "--filter", "name="+postgreSQLContainerName, "--format", "{{.Names}}"))
+	output, err := testutil.RunCommand(
+		exec.Command("docker", "ps", "--filter", "name="+postgreSQLContainerName, "--format", "{{.Names}}"),
+	)
 	if err != nil {
 		return fmt.Errorf("failed to check if PostgreSQL server exists: %w", err)
 	}
@@ -53,21 +55,30 @@ func setupPostgreSQLServer(logger *zap.Logger) error {
 		return fmt.Errorf("failed to create PostgreSQL docker container: %w", err)
 	}
 
-	err = wait.PollUntilContextTimeout(context.Background(), time.Second, 60*time.Second, true, func(_ context.Context) (bool, error) {
-		// The image first runs a temporary server on a Unix socket to initialise the database, so
-		// readiness is checked over TCP, which only the final server listens on.
-		_, err := testutil.RunCommand(exec.Command("docker", "exec", postgreSQLContainerName,
-			"pg_isready", "-h", "127.0.0.1", "-U", postgreSQLUsername, "-d", postgreSQLDatabase))
-		if err != nil {
-			logger.Info("Waiting for PostgreSQL server to be ready...")
+	err = wait.PollUntilContextTimeout(
+		context.Background(),
+		time.Second,
+		60*time.Second,
+		true,
+		func(_ context.Context) (bool, error) {
+			// The image first runs a temporary server on a Unix socket to initialise the database, so
+			// readiness is checked over TCP, which only the final server listens on.
+			_, err := testutil.RunCommand(exec.Command("docker", "exec", postgreSQLContainerName,
+				"pg_isready", "-h", "127.0.0.1", "-U", postgreSQLUsername, "-d", postgreSQLDatabase))
+			if err != nil {
+				logger.Info("Waiting for PostgreSQL server to be ready...")
 
-			return false, nil //nolint:nilerr
-		}
+				return false, nil //nolint:nilerr
+			}
 
-		logger.Info("PostgreSQL server is running", zap.String("address", fmt.Sprintf("127.0.0.1:%d", postgreSQLPort)))
+			logger.Info(
+				"PostgreSQL server is running",
+				zap.String("address", fmt.Sprintf("127.0.0.1:%d", postgreSQLPort)),
+			)
 
-		return true, nil
-	})
+			return true, nil
+		},
+	)
 	if err != nil {
 		return fmt.Errorf("failed to start PostgreSQL server: %w", err)
 	}

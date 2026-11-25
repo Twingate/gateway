@@ -41,7 +41,9 @@ var (
 var networkRegexp = regexp.MustCompile(`^[a-z0-9]{1,63}$`)
 
 // HostnameRegexp allows only valid DNS-label characters, permitting a single label (e.g. "test").
-var HostnameRegexp = regexp.MustCompile(`^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)*[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$`)
+var HostnameRegexp = regexp.MustCompile(
+	`^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)*[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$`,
+)
 
 var issuerByDomain = map[string]string{
 	"test":          "twingate-local",
@@ -529,7 +531,11 @@ func (c *Config) Validate() error {
 	}
 
 	if !networkRegexp.MatchString(c.Twingate.Network) {
-		return fmt.Errorf("%w: must be 1-63 lowercase alphanumeric characters: %q", ErrInvalidNetwork, c.Twingate.Network)
+		return fmt.Errorf(
+			"%w: must be 1-63 lowercase alphanumeric characters: %q",
+			ErrInvalidNetwork,
+			c.Twingate.Network,
+		)
 	}
 
 	if err := validateHost(c.Twingate.Host); err != nil {
@@ -576,7 +582,10 @@ func (c *Config) Validate() error {
 
 	// Check that at least one protocol is configured
 	if c.Kubernetes == nil && c.SSH == nil && c.WebApp == nil && c.PostgreSQL == nil {
-		return fmt.Errorf("%w: at least one protocol (Kubernetes, SSH, WebApp, or PostgreSQL) must be configured", ErrRequired)
+		return fmt.Errorf(
+			"%w: at least one protocol (Kubernetes, SSH, WebApp, or PostgreSQL) must be configured",
+			ErrRequired,
+		)
 	}
 
 	return nil
@@ -778,11 +787,15 @@ func (r *LogFileRotationConfig) GetCompression() string {
 }
 
 var (
-	ErrMissingTLSCertificateSource = errors.New("either 'certificates' or 'automation' must be specified for TLS config")
-	ErrMissingTLSIssuerConfig      = errors.New("at least one TLS issuer must be configured")
-	ErrConflictingTLSIssuerConfig  = errors.New("only one of 'local', 'vault' or 'gcpPrivateCA' can be specified for TLS issuer config")
-	ErrInvalidTLSKeyType           = errors.New("invalid TLS key type")
-	errShortTTL                    = errors.New("TTL is too short")
+	ErrMissingTLSCertificateSource = errors.New(
+		"either 'certificates' or 'automation' must be specified for TLS config",
+	)
+	ErrMissingTLSIssuerConfig     = errors.New("at least one TLS issuer must be configured")
+	ErrConflictingTLSIssuerConfig = errors.New(
+		"only one of 'local', 'vault' or 'gcpPrivateCA' can be specified for TLS issuer config",
+	)
+	ErrInvalidTLSKeyType = errors.New("invalid TLS key type")
+	errShortTTL          = errors.New("TTL is too short")
 )
 
 func (t *TLSConfig) Validate() error {
@@ -1136,7 +1149,9 @@ func (v *SSHCAVaultConfig) Validate() error {
 }
 
 var (
-	ErrConflictingAuthConfig     = errors.New("only one of 'token', 'appRole', 'gcp', or 'aws' can be specified for Vault auth")
+	ErrConflictingAuthConfig = errors.New(
+		"only one of 'token', 'appRole', 'gcp', or 'aws' can be specified for Vault auth",
+	)
 	ErrConflictingSecretIDConfig = errors.New("only one of 'secretID' or 'secretIDFile' can be specified")
 	ErrInvalidGCPType            = errors.New("gcp type must be 'gce' or 'iam'")
 	ErrInvalidAWSType            = errors.New("aws type must be 'iam' or 'ec2'")
@@ -1385,7 +1400,10 @@ func (c *PostgreSQLCredential) Validate() error {
 	}
 
 	if (c.ClientCertificateFile == "") != (c.ClientPrivateKeyFile == "") {
-		return fmt.Errorf("%w: both 'clientCertificateFile' and 'clientPrivateKeyFile' are required when either is set", ErrRequired)
+		return fmt.Errorf(
+			"%w: both 'clientCertificateFile' and 'clientPrivateKeyFile' are required when either is set",
+			ErrRequired,
+		)
 	}
 
 	return nil

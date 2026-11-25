@@ -129,8 +129,13 @@ func TestValidateCACertificate(t *testing.T) {
 		wantErr error
 	}{
 		{
-			name:   "CA with keyCertSign",
-			caCert: &x509.Certificate{Version: 3, BasicConstraintsValid: true, IsCA: true, KeyUsage: x509.KeyUsageCertSign},
+			name: "CA with keyCertSign",
+			caCert: &x509.Certificate{
+				Version:               3,
+				BasicConstraintsValid: true,
+				IsCA:                  true,
+				KeyUsage:              x509.KeyUsageCertSign,
+			},
 		},
 		{
 			name:   "CA without a keyUsage extension",
@@ -151,8 +156,13 @@ func TestValidateCACertificate(t *testing.T) {
 			wantErr: errNotCACertificate,
 		},
 		{
-			name:    "keyUsage without keyCertSign",
-			caCert:  &x509.Certificate{Version: 3, BasicConstraintsValid: true, IsCA: true, KeyUsage: x509.KeyUsageDigitalSignature},
+			name: "keyUsage without keyCertSign",
+			caCert: &x509.Certificate{
+				Version:               3,
+				BasicConstraintsValid: true,
+				IsCA:                  true,
+				KeyUsage:              x509.KeyUsageDigitalSignature,
+			},
 			wantErr: errCACannotSignCerts,
 		},
 	}
@@ -193,13 +203,19 @@ func TestLocalIssuer_load_Errors(t *testing.T) {
 			errContains: "failed to load CA key pair",
 		},
 		{
-			name:        "unparseable certificate",
-			cfg:         config.TLSLocalIssuerConfig{CertificateFile: corruptCert, PrivateKeyFile: valid.PrivateKeyFile},
+			name: "unparseable certificate",
+			cfg: config.TLSLocalIssuerConfig{
+				CertificateFile: corruptCert,
+				PrivateKeyFile:  valid.PrivateKeyFile,
+			},
 			errContains: "failed to load CA key pair",
 		},
 		{
-			name:        "mismatched certificate and key",
-			cfg:         config.TLSLocalIssuerConfig{CertificateFile: valid.CertificateFile, PrivateKeyFile: other.PrivateKeyFile},
+			name: "mismatched certificate and key",
+			cfg: config.TLSLocalIssuerConfig{
+				CertificateFile: valid.CertificateFile,
+				PrivateKeyFile:  other.PrivateKeyFile,
+			},
 			errContains: "failed to load CA key pair",
 		},
 		{
@@ -400,7 +416,10 @@ func TestVaultIssuer_sign(t *testing.T) {
 		}})
 	})
 
-	leaf, caChain, err := issuer.sign(t.Context(), newCertificateRequest(generateKey(t), "app.acme.int", "", defaultTTL))
+	leaf, caChain, err := issuer.sign(
+		t.Context(),
+		newCertificateRequest(generateKey(t), "app.acme.int", "", defaultTTL),
+	)
 	require.NoError(t, err)
 	assert.Empty(t, leaf.Subject.CommonName)
 	assert.Equal(t, []string{"app.acme.int"}, leaf.DNSNames)
@@ -418,7 +437,10 @@ func TestVaultIssuer_sign_LeafOnlyBundle(t *testing.T) {
 		}})
 	})
 
-	leaf, caChain, err := issuer.sign(t.Context(), newCertificateRequest(generateKey(t), "app.acme.int", "", defaultTTL))
+	leaf, caChain, err := issuer.sign(
+		t.Context(),
+		newCertificateRequest(generateKey(t), "app.acme.int", "", defaultTTL),
+	)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"app.acme.int"}, leaf.DNSNames)
 	assert.Empty(t, caChain)
@@ -432,11 +454,31 @@ func TestVaultIssuer_sign_Error(t *testing.T) {
 		responseData map[string]any // nil sends no response body
 		wantErr      error
 	}{
-		{name: "no response body", responseData: nil, wantErr: errVaultIssueFailed},
-		{name: "missing certificate", responseData: map[string]any{"expiration": 1}, wantErr: errVaultIssueFailed},
-		{name: "empty certificate", responseData: map[string]any{"certificate": ""}, wantErr: errVaultIssueFailed},
-		{name: "unparseable certificate", responseData: map[string]any{"certificate": "garbage"}, wantErr: errCertChainNotPEM},
-		{name: "blank certificate", responseData: map[string]any{"certificate": " \n "}, wantErr: errCertChainNotPEM},
+		{
+			name:         "no response body",
+			responseData: nil,
+			wantErr:      errVaultIssueFailed,
+		},
+		{
+			name:         "missing certificate",
+			responseData: map[string]any{"expiration": 1},
+			wantErr:      errVaultIssueFailed,
+		},
+		{
+			name:         "empty certificate",
+			responseData: map[string]any{"certificate": ""},
+			wantErr:      errVaultIssueFailed,
+		},
+		{
+			name:         "unparseable certificate",
+			responseData: map[string]any{"certificate": "garbage"},
+			wantErr:      errCertChainNotPEM,
+		},
+		{
+			name:         "blank certificate",
+			responseData: map[string]any{"certificate": " \n "},
+			wantErr:      errCertChainNotPEM,
+		},
 		{
 			name:         "certificate does not match the request",
 			responseData: map[string]any{"certificate": caPEM(ca)},
@@ -512,13 +554,19 @@ type fakeCAS struct {
 	createCertificate func(*privatecapb.CreateCertificateRequest) (*privatecapb.Certificate, error)
 }
 
-func (f *fakeCAS) CreateCertificate(_ context.Context, req *privatecapb.CreateCertificateRequest) (*privatecapb.Certificate, error) {
+func (f *fakeCAS) CreateCertificate(
+	_ context.Context,
+	req *privatecapb.CreateCertificateRequest,
+) (*privatecapb.Certificate, error) {
 	return f.createCertificate(req)
 }
 
 // newTestGCPPrivateIssuer returns a gcpPrivateIssuer whose client talks to a fake CA Service
 // running handler, wired the way run wires the real one.
-func newTestGCPPrivateIssuer(t *testing.T, handler func(*privatecapb.CreateCertificateRequest) (*privatecapb.Certificate, error)) *gcpPrivateIssuer {
+func newTestGCPPrivateIssuer(
+	t *testing.T,
+	handler func(*privatecapb.CreateCertificateRequest) (*privatecapb.Certificate, error),
+) *gcpPrivateIssuer {
 	t.Helper()
 
 	listener := bufconn.Listen(1 << 20)
@@ -529,8 +577,11 @@ func newTestGCPPrivateIssuer(t *testing.T, handler func(*privatecapb.CreateCerti
 
 	t.Cleanup(server.Stop)
 
-	conn, err := grpc.NewClient("passthrough:///bufconn",
-		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) { return listener.DialContext(ctx) }),
+	conn, err := grpc.NewClient(
+		"passthrough:///bufconn",
+		grpc.WithContextDialer(
+			func(ctx context.Context, _ string) (net.Conn, error) { return listener.DialContext(ctx) },
+		),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
 	require.NoError(t, err)
@@ -576,21 +627,27 @@ func writeServiceAccountFile(t *testing.T) string {
 func TestGCPPrivateIssuer_sign(t *testing.T) {
 	ca := generateCA(t)
 
-	issuer := newTestGCPPrivateIssuer(t, func(req *privatecapb.CreateCertificateRequest) (*privatecapb.Certificate, error) {
-		assert.Equal(t, "projects/acme/locations/us-east1/caPools/gateway", req.GetParent())
-		assert.Equal(t, defaultTTL, req.GetCertificate().GetLifetime().AsDuration())
-		// The certificate ID has to match GCP CA Service's `[a-zA-Z0-9_-]{1,63}` constraint.
-		assert.Regexp(t, "^[a-zA-Z0-9_-]{1,63}$", req.GetCertificateId())
-		assert.NotEmpty(t, req.GetRequestId())
-		assert.Empty(t, req.GetIssuingCertificateAuthorityId())
+	issuer := newTestGCPPrivateIssuer(
+		t,
+		func(req *privatecapb.CreateCertificateRequest) (*privatecapb.Certificate, error) {
+			assert.Equal(t, "projects/acme/locations/us-east1/caPools/gateway", req.GetParent())
+			assert.Equal(t, defaultTTL, req.GetCertificate().GetLifetime().AsDuration())
+			// The certificate ID has to match GCP CA Service's `[a-zA-Z0-9_-]{1,63}` constraint.
+			assert.Regexp(t, "^[a-zA-Z0-9_-]{1,63}$", req.GetCertificateId())
+			assert.NotEmpty(t, req.GetRequestId())
+			assert.Empty(t, req.GetIssuingCertificateAuthorityId())
 
-		return &privatecapb.Certificate{
-			PemCertificate:      signTestCSR(t, ca, req.GetCertificate().GetPemCsr()),
-			PemCertificateChain: []string{caPEM(ca)},
-		}, nil
-	})
+			return &privatecapb.Certificate{
+				PemCertificate:      signTestCSR(t, ca, req.GetCertificate().GetPemCsr()),
+				PemCertificateChain: []string{caPEM(ca)},
+			}, nil
+		},
+	)
 
-	leaf, caChain, err := issuer.sign(t.Context(), newCertificateRequest(generateKey(t), "app.acme.int", "test.acme.int", defaultTTL))
+	leaf, caChain, err := issuer.sign(
+		t.Context(),
+		newCertificateRequest(generateKey(t), "app.acme.int", "test.acme.int", defaultTTL),
+	)
 	require.NoError(t, err)
 	assert.Equal(t, "test.acme.int", leaf.Subject.CommonName)
 	assert.Equal(t, []string{"app.acme.int"}, leaf.DNSNames)
@@ -600,17 +657,23 @@ func TestGCPPrivateIssuer_sign(t *testing.T) {
 func TestGCPPrivateIssuer_sign_PinIssuingCA(t *testing.T) {
 	ca := generateCA(t)
 
-	issuer := newTestGCPPrivateIssuer(t, func(req *privatecapb.CreateCertificateRequest) (*privatecapb.Certificate, error) {
-		assert.Equal(t, "gateway-ca", req.GetIssuingCertificateAuthorityId())
+	issuer := newTestGCPPrivateIssuer(
+		t,
+		func(req *privatecapb.CreateCertificateRequest) (*privatecapb.Certificate, error) {
+			assert.Equal(t, "gateway-ca", req.GetIssuingCertificateAuthorityId())
 
-		return &privatecapb.Certificate{
-			PemCertificate:      signTestCSR(t, ca, req.GetCertificate().GetPemCsr()),
-			PemCertificateChain: []string{caPEM(ca)},
-		}, nil
-	})
+			return &privatecapb.Certificate{
+				PemCertificate:      signTestCSR(t, ca, req.GetCertificate().GetPemCsr()),
+				PemCertificateChain: []string{caPEM(ca)},
+			}, nil
+		},
+	)
 	issuer.issuingCA = "gateway-ca"
 
-	_, _, err := issuer.sign(t.Context(), newCertificateRequest(generateKey(t), "app.acme.int", "test.acme.int", defaultTTL))
+	_, _, err := issuer.sign(
+		t.Context(),
+		newCertificateRequest(generateKey(t), "app.acme.int", "test.acme.int", defaultTTL),
+	)
 	require.NoError(t, err)
 }
 
@@ -644,11 +707,17 @@ func TestGCPPrivateIssuer_sign_Error(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			issuer := newTestGCPPrivateIssuer(t, func(*privatecapb.CreateCertificateRequest) (*privatecapb.Certificate, error) {
-				return tt.issued, tt.issueErr
-			})
+			issuer := newTestGCPPrivateIssuer(
+				t,
+				func(*privatecapb.CreateCertificateRequest) (*privatecapb.Certificate, error) {
+					return tt.issued, tt.issueErr
+				},
+			)
 
-			_, _, err := issuer.sign(t.Context(), newCertificateRequest(generateKey(t), "app.acme.int", "test.acme.int", defaultTTL))
+			_, _, err := issuer.sign(
+				t.Context(),
+				newCertificateRequest(generateKey(t), "app.acme.int", "test.acme.int", defaultTTL),
+			)
 			require.Error(t, err)
 
 			if tt.wantErr != nil {

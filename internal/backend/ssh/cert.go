@@ -85,7 +85,13 @@ type cachedHostCert struct {
 	lastUsed      time.Time
 }
 
-func newHostCertManager(ca ca, publicKey ssh.PublicKey, keySigner ssh.Signer, ttl time.Duration, logger *zap.Logger) *hostCertManager {
+func newHostCertManager(
+	ca ca,
+	publicKey ssh.PublicKey,
+	keySigner ssh.Signer,
+	ttl time.Duration,
+	logger *zap.Logger,
+) *hostCertManager {
 	return &hostCertManager{
 		ca:               ca,
 		publicKey:        publicKey,
@@ -277,7 +283,13 @@ type autoRenewingCertSigner struct {
 	expiresAt  time.Time // Zero when the certificate never expires
 }
 
-func newAutoRenewingCertSigner(ctx context.Context, ca ca, certReq *certificateRequest, keySigner ssh.Signer, logger *zap.Logger) (*autoRenewingCertSigner, error) {
+func newAutoRenewingCertSigner(
+	ctx context.Context,
+	ca ca,
+	certReq *certificateRequest,
+	keySigner ssh.Signer,
+	logger *zap.Logger,
+) (*autoRenewingCertSigner, error) {
 	certSigner := &autoRenewingCertSigner{
 		ca:        ca,
 		certReq:   certReq,

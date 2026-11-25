@@ -70,7 +70,11 @@ type sshChannelContext struct {
 	extra map[string]any
 }
 
-func newSSHChannelContext(sshCtx *sshContext, channelType, sourceLabel, targetLabel string, extra map[string]any) *sshChannelContext {
+func newSSHChannelContext(
+	sshCtx *sshContext,
+	channelType, sourceLabel, targetLabel string,
+	extra map[string]any,
+) *sshChannelContext {
 	return &sshChannelContext{
 		sshContext:  sshCtx,
 		channelID:   uuid.New().String(),

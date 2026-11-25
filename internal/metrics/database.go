@@ -69,7 +69,13 @@ func RegisterDBMetrics(registry *prometheus.Registry) *DBMetrics {
 		}, []string{labelResourceType, labelAuthType, labelOutcome}),
 	}
 
-	registry.MustRegister(m.activeSessions, m.sessionsTotal, m.cancelTotal, m.credentialRetrievalDuration, m.upstreamConnectDuration)
+	registry.MustRegister(
+		m.activeSessions,
+		m.sessionsTotal,
+		m.cancelTotal,
+		m.credentialRetrievalDuration,
+		m.upstreamConnectDuration,
+	)
 
 	return m
 }

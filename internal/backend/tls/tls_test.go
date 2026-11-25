@@ -51,12 +51,45 @@ func TestNewUpstreamTLSConfig(t *testing.T) {
 		serverName string
 		wantErr    bool
 	}{
-		{name: "verify_full accepts a trusted certificate matching the hostname", mode: token.TLSClientModeVerifyFull, rootCAs: trustedPool, serverName: "localhost"},
-		{name: "verify_full rejects a hostname mismatch", mode: token.TLSClientModeVerifyFull, rootCAs: trustedPool, serverName: "corp.internal", wantErr: true},
-		{name: "verify_full rejects an untrusted certificate", mode: token.TLSClientModeVerifyFull, rootCAs: x509.NewCertPool(), serverName: "localhost", wantErr: true},
-		{name: "verify_ca accepts a hostname mismatch", mode: token.TLSClientModeVerifyCA, rootCAs: trustedPool, serverName: "corp.internal"},
-		{name: "verify_ca rejects an untrusted certificate", mode: token.TLSClientModeVerifyCA, rootCAs: x509.NewCertPool(), serverName: "corp.internal", wantErr: true},
-		{name: "insecure accepts an untrusted certificate with a hostname mismatch", mode: token.TLSClientModeInsecure, rootCAs: x509.NewCertPool(), serverName: "corp.internal"},
+		{
+			name:       "verify_full accepts a trusted certificate matching the hostname",
+			mode:       token.TLSClientModeVerifyFull,
+			rootCAs:    trustedPool,
+			serverName: "localhost",
+		},
+		{
+			name:       "verify_full rejects a hostname mismatch",
+			mode:       token.TLSClientModeVerifyFull,
+			rootCAs:    trustedPool,
+			serverName: "corp.internal",
+			wantErr:    true,
+		},
+		{
+			name:       "verify_full rejects an untrusted certificate",
+			mode:       token.TLSClientModeVerifyFull,
+			rootCAs:    x509.NewCertPool(),
+			serverName: "localhost",
+			wantErr:    true,
+		},
+		{
+			name:       "verify_ca accepts a hostname mismatch",
+			mode:       token.TLSClientModeVerifyCA,
+			rootCAs:    trustedPool,
+			serverName: "corp.internal",
+		},
+		{
+			name:       "verify_ca rejects an untrusted certificate",
+			mode:       token.TLSClientModeVerifyCA,
+			rootCAs:    x509.NewCertPool(),
+			serverName: "corp.internal",
+			wantErr:    true,
+		},
+		{
+			name:       "insecure accepts an untrusted certificate with a hostname mismatch",
+			mode:       token.TLSClientModeInsecure,
+			rootCAs:    x509.NewCertPool(),
+			serverName: "corp.internal",
+		},
 	}
 
 	for _, tt := range tests {

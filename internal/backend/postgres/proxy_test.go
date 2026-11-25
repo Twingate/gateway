@@ -32,7 +32,12 @@ import (
 
 // newProxyConn wraps conn in the frontend.ProxyConn the proxy serves, with test GAT claims and
 // the address of the upstream the proxy dials.
-func newProxyConn(conn net.Conn, upstreamAddr string, tlsMode token.TLSClientMode, auth token.Auth) *frontend.ProxyConn {
+func newProxyConn(
+	conn net.Conn,
+	upstreamAddr string,
+	tlsMode token.TLSClientMode,
+	auth token.Auth,
+) *frontend.ProxyConn {
 	upstreamHost, port, _ := net.SplitHostPort(upstreamAddr)
 	upstreamPort, _ := strconv.Atoi(port)
 
@@ -236,7 +241,12 @@ func connAuditLine(message string, fields map[string]any) auditLine {
 func sendStartup(t *testing.T, client *pgproto3.Frontend) {
 	t.Helper()
 
-	client.Send(&pgproto3.StartupMessage{ProtocolVersion: pgproto3.ProtocolVersion30, Parameters: map[string]string{"user": "alice"}})
+	client.Send(
+		&pgproto3.StartupMessage{
+			ProtocolVersion: pgproto3.ProtocolVersion30,
+			Parameters:      map[string]string{"user": "alice"},
+		},
+	)
 	require.NoError(t, client.Flush())
 }
 
@@ -263,7 +273,11 @@ func TestProxy_RejectsWhenShuttingDown(t *testing.T) {
 
 	clientConn, serverConn := net.Pipe()
 
-	require.ErrorIs(t, proxy.serveConn(t.Context(), newProxyConn(serverConn, "unused:5432", token.TLSClientModeNone, passwordAuth)), errShuttingDown)
+	require.ErrorIs(
+		t,
+		proxy.serveConn(t.Context(), newProxyConn(serverConn, "unused:5432", token.TLSClientModeNone, passwordAuth)),
+		errShuttingDown,
+	)
 	testutil.AssertEOF(t, clientConn)
 }
 
@@ -383,33 +397,62 @@ func TestProxy_ServeConn_StartupError(t *testing.T) {
 	err = waitServe(t, session.done)
 	require.ErrorIs(t, err, errUnsupportedStartupRequest)
 	assertRejected(t, session, err)
-	assert.Equal(t, []auditLine{connAuditLine("pg_connect", map[string]any{"error": "startup_failed"})}, takeLines(session.auditLogs))
+	assert.Equal(
+		t,
+		[]auditLine{connAuditLine("pg_connect", map[string]any{"error": "startup_failed"})},
+		takeLines(session.auditLogs),
+	)
 }
 
 func TestProxy_ServeConn_ReplicationRefused(t *testing.T) {
 	session := newSession(t, "unused:5432", token.TLSClientModeNone, passwordAuth)
 
-	session.client.Send(&pgproto3.StartupMessage{ProtocolVersion: pgproto3.ProtocolVersion30, Parameters: map[string]string{"user": "alice", "replication": "database"}})
+	session.client.Send(
+		&pgproto3.StartupMessage{
+			ProtocolVersion: pgproto3.ProtocolVersion30,
+			Parameters:      map[string]string{"user": "alice", "replication": "database"},
+		},
+	)
 	require.NoError(t, session.client.Flush())
 
 	err := waitServe(t, session.done)
 	require.ErrorIs(t, err, errReplicationNotSupported)
 	assertRejected(t, session, err)
-	assert.Equal(t, []auditLine{connAuditLine("pg_connect", map[string]any{"error": "replication_not_supported"})}, takeLines(session.auditLogs))
+	assert.Equal(
+		t,
+		[]auditLine{connAuditLine("pg_connect", map[string]any{"error": "replication_not_supported"})},
+		takeLines(session.auditLogs),
+	)
 }
 
 // TestProxy_ServeConn_NegotiatesProtocolFirst checks that the protocol version is negotiated
 // before any work is done upstream.
 func TestProxy_ServeConn_NegotiatesProtocolFirst(t *testing.T) {
-	auth := token.Auth{Type: token.AuthTypePassword, User: testDatabaseUser, Password: &token.PasswordAuth{Credential: "other"}}
+	auth := token.Auth{
+		Type:     token.AuthTypePassword,
+		User:     testDatabaseUser,
+		Password: &token.PasswordAuth{Credential: "other"},
+	}
 	session := newSession(t, "unused:5432", token.TLSClientModeNone, auth)
 
-	session.client.Send(&pgproto3.StartupMessage{ProtocolVersion: pgproto3.ProtocolVersion32, Parameters: map[string]string{"user": "alice"}})
+	session.client.Send(
+		&pgproto3.StartupMessage{
+			ProtocolVersion: pgproto3.ProtocolVersion32,
+			Parameters:      map[string]string{"user": "alice"},
+		},
+	)
 	require.NoError(t, session.client.Flush())
 
 	got, err := session.client.Receive()
 	require.NoError(t, err)
-	assert.Equal(t, &pgproto3.NegotiateProtocolVersion{NewestMinorProtocol: pgproto3.ProtocolVersion30, UnrecognizedOptions: []string{}}, got)
+	assert.Equal(
+		t,
+		&pgproto3.NegotiateProtocolVersion{
+			NewestMinorProtocol: pgproto3.ProtocolVersion30,
+			UnrecognizedOptions: []string{},
+		},
+		got,
+	)
 
 	err = waitServe(t, session.done)
 	require.ErrorIs(t, err, errFailedToGetCredential)
@@ -427,7 +470,12 @@ func TestProxy_ServeConn_NegotiateProtocolFails(t *testing.T) {
 	}()
 
 	client := pgproto3.NewFrontend(clientConn, clientConn)
-	client.Send(&pgproto3.StartupMessage{ProtocolVersion: pgproto3.ProtocolVersion32, Parameters: map[string]string{"user": "alice"}})
+	client.Send(
+		&pgproto3.StartupMessage{
+			ProtocolVersion: pgproto3.ProtocolVersion32,
+			Parameters:      map[string]string{"user": "alice"},
+		},
+	)
 	require.NoError(t, client.Flush())
 	require.NoError(t, clientConn.Close())
 
@@ -464,14 +512,22 @@ func TestProxy_ServeConn_CredentialError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			auth := token.Auth{Type: token.AuthTypePassword, User: testDatabaseUser, Password: &token.PasswordAuth{Credential: tt.credential}}
+			auth := token.Auth{
+				Type:     token.AuthTypePassword,
+				User:     testDatabaseUser,
+				Password: &token.PasswordAuth{Credential: tt.credential},
+			}
 			session := newSession(t, "unused:5432", token.TLSClientModeNone, auth)
 			sendStartup(t, session.client)
 
 			err := waitServe(t, session.done)
 			require.ErrorIs(t, err, errFailedToGetCredential)
 			assertRejected(t, session, err)
-			assert.Equal(t, []auditLine{connAuditLine("pg_connect", map[string]any{"error": "credential_failed"})}, takeLines(session.auditLogs))
+			assert.Equal(
+				t,
+				[]auditLine{connAuditLine("pg_connect", map[string]any{"error": "credential_failed"})},
+				takeLines(session.auditLogs),
+			)
 		})
 	}
 }
@@ -482,7 +538,11 @@ func TestProxy_ServeConn_UpstreamUnreachable(t *testing.T) {
 
 	require.ErrorIs(t, waitServe(t, session.done), errFailedToConnectUpstream)
 	assertRejected(t, session, errFailedToConnectUpstream)
-	assert.Equal(t, []auditLine{connAuditLine("pg_connect", map[string]any{"error": "unreachable_upstream"})}, takeLines(session.auditLogs))
+	assert.Equal(
+		t,
+		[]auditLine{connAuditLine("pg_connect", map[string]any{"error": "unreachable_upstream"})},
+		takeLines(session.auditLogs),
+	)
 }
 
 func TestProxy_ServeConn_UpstreamError(t *testing.T) {
@@ -543,7 +603,11 @@ func TestProxy_ServeConn_AuthenticationRefused(t *testing.T) {
 	require.ErrorAs(t, err, &pgErr)
 	assert.Equal(t, "28P01", pgErr.Code)
 	assertRejected(t, session, err)
-	assert.Equal(t, []auditLine{connAuditLine("pg_connect", map[string]any{"error": "login_rejected"})}, takeLines(session.auditLogs))
+	assert.Equal(
+		t,
+		[]auditLine{connAuditLine("pg_connect", map[string]any{"error": "login_rejected"})},
+		takeLines(session.auditLogs),
+	)
 }
 
 func TestProxy_ServeConn_Cancel(t *testing.T) {
@@ -607,7 +671,10 @@ func TestProxy_ServeConn_CancelUpstreamUnreachable(t *testing.T) {
 	require.ErrorIs(t, waitServe(t, session.done), errFailedToConnectUpstream)
 	testutil.AssertEOF(t, session.clientConn)
 
-	want := connAuditLine("pg_cancel", map[string]any{"db": map[string]any{"process_id": uint32(42)}, "error": "unreachable_upstream"})
+	want := connAuditLine(
+		"pg_cancel",
+		map[string]any{"db": map[string]any{"process_id": uint32(42)}, "error": "unreachable_upstream"},
+	)
 	assert.Equal(t, []auditLine{want}, takeLines(session.auditLogs))
 }
 

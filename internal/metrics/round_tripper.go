@@ -45,8 +45,15 @@ func RegisterRoundTripperMetrics(registry *prometheus.Registry) *RoundTripperMet
 	return c
 }
 
-func InstrumentRoundTripper(metrics *RoundTripperMetrics, resourceType ResourceType, next http.RoundTripper) promhttp.RoundTripperFunc {
-	resourceTypeOpt := promhttp.WithLabelFromCtx(labelResourceType, func(_ context.Context) string { return string(resourceType) })
+func InstrumentRoundTripper(
+	metrics *RoundTripperMetrics,
+	resourceType ResourceType,
+	next http.RoundTripper,
+) promhttp.RoundTripperFunc {
+	resourceTypeOpt := promhttp.WithLabelFromCtx(
+		labelResourceType,
+		func(_ context.Context) string { return string(resourceType) },
+	)
 	requestTypeOpt := promhttp.WithLabelFromCtx(labelRequestType, getRequestTypeFromContext)
 
 	base := promhttp.InstrumentRoundTripperCounter(
@@ -70,7 +77,11 @@ func InstrumentRoundTripper(metrics *RoundTripperMetrics, resourceType ResourceT
 	}
 }
 
-func instrumentRoundTripperInFlight(activeRequests *prometheus.GaugeVec, resourceType ResourceType, next http.RoundTripper) promhttp.RoundTripperFunc {
+func instrumentRoundTripperInFlight(
+	activeRequests *prometheus.GaugeVec,
+	resourceType ResourceType,
+	next http.RoundTripper,
+) promhttp.RoundTripperFunc {
 	return func(r *http.Request) (*http.Response, error) {
 		requestType := getRequestTypeFromContext(r.Context())
 

@@ -69,7 +69,11 @@ type Config struct {
 }
 
 // NewConfig creates an SSH handler config from the config package types.
-func NewConfig(sessionRecordingConfig *config.SessionRecordingConfig, sshCfg *config.SSHConfig, logger logging.Logger) (*Config, error) {
+func NewConfig(
+	sessionRecordingConfig *config.SessionRecordingConfig,
+	sshCfg *config.SSHConfig,
+	logger logging.Logger,
+) (*Config, error) {
 	caProvider, err := newCAFromConfig(sshCfg.CA, logger.System)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create ca: %w", err)
@@ -102,8 +106,14 @@ func NewConfig(sessionRecordingConfig *config.SessionRecordingConfig, sshCfg *co
 	}
 
 	return &Config{
-		caProvider:      caProvider,
-		hostCerts:       newHostCertManager(caProvider.gatewayHostCA(), hostPublicKey, hostSigner, hostCertTTL, logger.System),
+		caProvider: caProvider,
+		hostCerts: newHostCertManager(
+			caProvider.gatewayHostCA(),
+			hostPublicKey,
+			hostSigner,
+			hostCertTTL,
+			logger.System,
+		),
 		userSigner:      userSigner,
 		userPublicKey:   userPublicKey,
 		userCertTTL:     userCertTTL,
@@ -114,7 +124,11 @@ func NewConfig(sessionRecordingConfig *config.SessionRecordingConfig, sshCfg *co
 	}, nil
 }
 
-func (c *Config) GetDownstreamConfig(ctx context.Context, requestedHost string, resource token.Resource) (*ssh.ServerConfig, error) {
+func (c *Config) GetDownstreamConfig(
+	ctx context.Context,
+	requestedHost string,
+	resource token.Resource,
+) (*ssh.ServerConfig, error) {
 	hostCertSigner, err := c.hostCerts.signer(ctx, requestedHost, resource.Aliases)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign the Gateway's host certificate: %w", err)

@@ -193,8 +193,17 @@ func TestChannelPair_RequestLogLevelByType(t *testing.T) {
 		payload   []byte
 		wantLevel zapcore.Level
 	}{
-		{name: "unknown custom type", reqType: "probe@example.com", wantLevel: zap.InfoLevel},
-		{name: "terminal mechanic", reqType: requestTypeWindowChange, payload: ssh.Marshal(windowChangeReq{WidthColumns: 80, HeightRows: 24}), wantLevel: zap.DebugLevel},
+		{
+			name:      "unknown custom type",
+			reqType:   "probe@example.com",
+			wantLevel: zap.InfoLevel,
+		},
+		{
+			name:      "terminal mechanic",
+			reqType:   requestTypeWindowChange,
+			payload:   ssh.Marshal(windowChangeReq{WidthColumns: 80, HeightRows: 24}),
+			wantLevel: zap.DebugLevel,
+		},
 	}
 
 	for _, tt := range tests {
@@ -453,10 +462,27 @@ func TestChannelPair_SessionWaitsForStart(t *testing.T) {
 		payload   []byte
 		wantReply bool
 	}{
-		{name: "shell", reqType: requestTypeShell, wantReply: true},
-		{name: "exec", reqType: requestTypeExec, payload: ssh.Marshal(execReq{Command: "whoami"}), wantReply: true},
-		{name: "subsystem", reqType: requestTypeSubsystem, payload: ssh.Marshal(subsystemReq{Name: "sftp"}), wantReply: true},
-		{name: "shell without reply", reqType: requestTypeShell},
+		{
+			name:      "shell",
+			reqType:   requestTypeShell,
+			wantReply: true,
+		},
+		{
+			name:      "exec",
+			reqType:   requestTypeExec,
+			payload:   ssh.Marshal(execReq{Command: "whoami"}),
+			wantReply: true,
+		},
+		{
+			name:      "subsystem",
+			reqType:   requestTypeSubsystem,
+			payload:   ssh.Marshal(subsystemReq{Name: "sftp"}),
+			wantReply: true,
+		},
+		{
+			name:    "shell without reply",
+			reqType: requestTypeShell,
+		},
 	}
 
 	for _, tt := range tests {
@@ -604,7 +630,11 @@ func TestChannelPair_SessionShellRecording(t *testing.T) {
 	done := channels.serve(t)
 
 	// pty-req precedes shell by convention; its dimensions seed the asciinema header.
-	channels.sendRequestAwaitReply(t, requestTypePty, ssh.Marshal(ptyReq{Term: "xterm", WidthColumns: 80, HeightRows: 24}))
+	channels.sendRequestAwaitReply(
+		t,
+		requestTypePty,
+		ssh.Marshal(ptyReq{Term: "xterm", WidthColumns: 80, HeightRows: 24}),
+	)
 	channels.sendRequestAwaitReply(t, requestTypeShell, nil)
 
 	// Only target->source data (terminal output) is recorded: source keystrokes
@@ -636,7 +666,11 @@ func TestChannelPair_SessionShellRecording(t *testing.T) {
 	// The recording goes to the session category, carrying the channel's ssh fields.
 	require.NotNil(t, state.logger)
 	state.logger.Info("recording probe")
-	assert.Equal(t, channelTypeSession, observedSSHField(t, logs, "recording probe")["channel"].(map[string]any)["type"])
+	assert.Equal(
+		t,
+		channelTypeSession,
+		observedSSHField(t, logs, "recording probe")["channel"].(map[string]any)["type"],
+	)
 }
 
 func TestChannelPair_SessionNonShellNoRecording(t *testing.T) {
@@ -696,7 +730,11 @@ func TestChannelPair_SessionRecorderWriteErrors(t *testing.T) {
 	// channels.recorder.resizeErr = errors.New("resize write failed")
 	done := channels.serve(t)
 
-	channels.sendRequestAwaitReply(t, requestTypePty, ssh.Marshal(ptyReq{Term: "xterm", WidthColumns: 80, HeightRows: 24}))
+	channels.sendRequestAwaitReply(
+		t,
+		requestTypePty,
+		ssh.Marshal(ptyReq{Term: "xterm", WidthColumns: 80, HeightRows: 24}),
+	)
 	channels.sendRequestAwaitReply(t, requestTypeShell, nil)
 	// channels.sendWindowChange(t, 120, 40)
 
@@ -735,7 +773,9 @@ func TestChannelPair_CopyPanicClosesChannels(t *testing.T) {
 }
 
 func TestChannelPair_RequestPanicClosesChannels(t *testing.T) {
-	t.Skip("TODO(#460): flaky; the window-change can be handled before serve() creates the recorder, so no resize panic fires and the channel stays open")
+	t.Skip(
+		"TODO(#460): flaky; the window-change can be handled before serve() creates the recorder, so no resize panic fires and the channel stays open",
+	)
 
 	// A panic in a request handler (here from the recorder's resize write) must tear down the
 	// channel instead of leaving it open with nobody consuming its requests.

@@ -139,14 +139,20 @@ func createKindCluster(logger *zap.Logger, username string) error {
 	// It takes a while for KinD to create the `default` service account...
 	logger.Info("Waiting for default service account to be created...")
 
-	err = wait.PollUntilContextTimeout(context.Background(), time.Second, 30*time.Second, true, func(ctx context.Context) (bool, error) {
-		_, err = kubectl.CommandContext(ctx, "get", "serviceaccount", "default")
-		if err != nil {
-			return false, nil //nolint:nilerr
-		}
+	err = wait.PollUntilContextTimeout(
+		context.Background(),
+		time.Second,
+		30*time.Second,
+		true,
+		func(ctx context.Context) (bool, error) {
+			_, err = kubectl.CommandContext(ctx, "get", "serviceaccount", "default")
+			if err != nil {
+				return false, nil //nolint:nilerr
+			}
 
-		return true, nil
-	})
+			return true, nil
+		},
+	)
 	if err != nil {
 		logger.Fatal("Failed waiting for default service account", zap.Error(err))
 	}
@@ -171,7 +177,13 @@ func getKinDBearerToken() (string, error) {
 		},
 	}
 
-	b64BearerToken, err := kubectl.Command("get", "secret", "gateway-default-service-account", "-o", "jsonpath={.data.token}")
+	b64BearerToken, err := kubectl.Command(
+		"get",
+		"secret",
+		"gateway-default-service-account",
+		"-o",
+		"jsonpath={.data.token}",
+	)
 	if err != nil {
 		return "", err
 	}

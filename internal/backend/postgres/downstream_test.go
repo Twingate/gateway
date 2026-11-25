@@ -18,7 +18,10 @@ import (
 )
 
 func TestDownstreamConn_HandleStartupMessage(t *testing.T) {
-	startup := &pgproto3.StartupMessage{ProtocolVersion: pgproto3.ProtocolVersion30, Parameters: map[string]string{"user": "alice"}}
+	startup := &pgproto3.StartupMessage{
+		ProtocolVersion: pgproto3.ProtocolVersion30,
+		Parameters:      map[string]string{"user": "alice"},
+	}
 
 	tests := []struct {
 		name       string
@@ -26,13 +29,49 @@ func TestDownstreamConn_HandleStartupMessage(t *testing.T) {
 		wantAnswer string
 		wantErr    error
 	}{
-		{name: "startup", sends: []pgproto3.FrontendMessage{startup}},
-		{name: "SSL refused", sends: []pgproto3.FrontendMessage{&pgproto3.SSLRequest{}, startup}, wantAnswer: "N"},
-		{name: "GSS encryption refused", sends: []pgproto3.FrontendMessage{&pgproto3.GSSEncRequest{}, startup}, wantAnswer: "N"},
-		{name: "second SSLRequest", sends: []pgproto3.FrontendMessage{&pgproto3.SSLRequest{}, &pgproto3.SSLRequest{}}, wantAnswer: "N", wantErr: errUnsupportedStartupRequest},
-		{name: "second GSSENCRequest", sends: []pgproto3.FrontendMessage{&pgproto3.GSSEncRequest{}, &pgproto3.GSSEncRequest{}}, wantAnswer: "N", wantErr: errUnsupportedStartupRequest},
-		{name: "protocol 2.0", sends: []pgproto3.FrontendMessage{&pgproto3.StartupMessage{ProtocolVersion: 2 << 16, Parameters: map[string]string{}}}, wantErr: errFailedToReceiveStartup},
-		{name: "replication", sends: []pgproto3.FrontendMessage{&pgproto3.StartupMessage{ProtocolVersion: pgproto3.ProtocolVersion30, Parameters: map[string]string{"user": "alice", "replication": "database"}}}, wantErr: errReplicationNotSupported},
+		{
+			name:  "startup",
+			sends: []pgproto3.FrontendMessage{startup},
+		},
+		{
+			name:       "SSL refused",
+			sends:      []pgproto3.FrontendMessage{&pgproto3.SSLRequest{}, startup},
+			wantAnswer: "N",
+		},
+		{
+			name:       "GSS encryption refused",
+			sends:      []pgproto3.FrontendMessage{&pgproto3.GSSEncRequest{}, startup},
+			wantAnswer: "N",
+		},
+		{
+			name:       "second SSLRequest",
+			sends:      []pgproto3.FrontendMessage{&pgproto3.SSLRequest{}, &pgproto3.SSLRequest{}},
+			wantAnswer: "N",
+			wantErr:    errUnsupportedStartupRequest,
+		},
+		{
+			name:       "second GSSENCRequest",
+			sends:      []pgproto3.FrontendMessage{&pgproto3.GSSEncRequest{}, &pgproto3.GSSEncRequest{}},
+			wantAnswer: "N",
+			wantErr:    errUnsupportedStartupRequest,
+		},
+		{
+			name: "protocol 2.0",
+			sends: []pgproto3.FrontendMessage{
+				&pgproto3.StartupMessage{ProtocolVersion: 2 << 16, Parameters: map[string]string{}},
+			},
+			wantErr: errFailedToReceiveStartup,
+		},
+		{
+			name: "replication",
+			sends: []pgproto3.FrontendMessage{
+				&pgproto3.StartupMessage{
+					ProtocolVersion: pgproto3.ProtocolVersion30,
+					Parameters:      map[string]string{"user": "alice", "replication": "database"},
+				},
+			},
+			wantErr: errReplicationNotSupported,
+		},
 	}
 
 	for _, tt := range tests {
@@ -108,14 +147,23 @@ func TestDownstreamConn_NegotiateProtocolVersion(t *testing.T) {
 		wantParameters map[string]string
 	}{
 		{
-			name:           "protocol 3.0",
-			startup:        &pgproto3.StartupMessage{ProtocolVersion: pgproto3.ProtocolVersion30, Parameters: map[string]string{}},
+			name: "protocol 3.0",
+			startup: &pgproto3.StartupMessage{
+				ProtocolVersion: pgproto3.ProtocolVersion30,
+				Parameters:      map[string]string{},
+			},
 			wantParameters: map[string]string{},
 		},
 		{
-			name:           "protocol 3.2",
-			startup:        &pgproto3.StartupMessage{ProtocolVersion: pgproto3.ProtocolVersion32, Parameters: map[string]string{}},
-			want:           &pgproto3.NegotiateProtocolVersion{NewestMinorProtocol: pgproto3.ProtocolVersion30, UnrecognizedOptions: []string{}},
+			name: "protocol 3.2",
+			startup: &pgproto3.StartupMessage{
+				ProtocolVersion: pgproto3.ProtocolVersion32,
+				Parameters:      map[string]string{},
+			},
+			want: &pgproto3.NegotiateProtocolVersion{
+				NewestMinorProtocol: pgproto3.ProtocolVersion30,
+				UnrecognizedOptions: []string{},
+			},
 			wantParameters: map[string]string{},
 		},
 		{
@@ -124,7 +172,10 @@ func TestDownstreamConn_NegotiateProtocolVersion(t *testing.T) {
 				ProtocolVersion: pgproto3.ProtocolVersion30,
 				Parameters:      map[string]string{"application_name": "psql", "_pq_.test_option": "on"},
 			},
-			want:           &pgproto3.NegotiateProtocolVersion{NewestMinorProtocol: pgproto3.ProtocolVersion30, UnrecognizedOptions: []string{"_pq_.test_option"}},
+			want: &pgproto3.NegotiateProtocolVersion{
+				NewestMinorProtocol: pgproto3.ProtocolVersion30,
+				UnrecognizedOptions: []string{"_pq_.test_option"},
+			},
 			wantParameters: map[string]string{"application_name": "psql"},
 		},
 	}
@@ -235,7 +286,12 @@ func TestDownstreamConn_Reject(t *testing.T) {
 }
 
 func TestNewErrorResponse(t *testing.T) {
-	pgErr := &pgconn.PgError{Severity: "FATAL", Code: "3D000", Message: `database "app" does not exist`, Detail: "detail"}
+	pgErr := &pgconn.PgError{
+		Severity: "FATAL",
+		Code:     "3D000",
+		Message:  `database "app" does not exist`,
+		Detail:   "detail",
+	}
 
 	tests := []struct {
 		name string
@@ -245,12 +301,21 @@ func TestNewErrorResponse(t *testing.T) {
 		{
 			name: "database error",
 			err:  fmt.Errorf("%w: %w", errFailedToConnectUpstream, pgErr),
-			want: &pgproto3.ErrorResponse{Severity: "FATAL", Code: "3D000", Message: `database "app" does not exist`, Detail: "detail"},
+			want: &pgproto3.ErrorResponse{
+				Severity: "FATAL",
+				Code:     "3D000",
+				Message:  `database "app" does not exist`,
+				Detail:   "detail",
+			},
 		},
 		{
 			name: "gateway error",
 			err:  errUnknownCredential,
-			want: &pgproto3.ErrorResponse{Severity: "FATAL", SeverityUnlocalized: "FATAL", Message: "unknown credential"},
+			want: &pgproto3.ErrorResponse{
+				Severity:            "FATAL",
+				SeverityUnlocalized: "FATAL",
+				Message:             "unknown credential",
+			},
 		},
 	}
 

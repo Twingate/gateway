@@ -310,7 +310,11 @@ func TestConnectValidator_ParseConnect(t *testing.T) {
 		require.ErrorAs(t, err, &httpErr)
 		require.NoError(t, httpErr.Err)
 		assert.Equal(t, http.StatusBadRequest, httpErr.Code)
-		assert.Contains(t, httpErr.Error(), "CONNECT host website.com does not match resource address example.com or aliases []")
+		assert.Contains(
+			t,
+			httpErr.Error(),
+			"CONNECT host website.com does not match resource address example.com or aliases []",
+		)
 		assert.Equal(t, *connectInfo.Claims, gatClaims)
 		assert.Equal(t, "conn-id", connectInfo.ConnID)
 	})
@@ -401,23 +405,35 @@ func TestResolveUpstream(t *testing.T) {
 			wantUpstreamHost:  "example.com",
 		},
 		{
-			name:              "alias maps to upstream resource address",
-			address:           "second.internal:443",
-			resource:          token.Resource{Address: "10.0.0.5", Aliases: []string{"first.internal", "second.internal"}, GatewayMetadata: metadata},
+			name:    "alias maps to upstream resource address",
+			address: "second.internal:443",
+			resource: token.Resource{
+				Address:         "10.0.0.5",
+				Aliases:         []string{"first.internal", "second.internal"},
+				GatewayMetadata: metadata,
+			},
 			wantRequestedHost: "second.internal",
 			wantUpstreamHost:  "10.0.0.5",
 		},
 		{
-			name:        "host matches neither address nor alias",
-			address:     "other.com:443",
-			resource:    token.Resource{Address: "example.com", Aliases: []string{"app.internal"}, GatewayMetadata: metadata},
+			name:    "host matches neither address nor alias",
+			address: "other.com:443",
+			resource: token.Resource{
+				Address:         "example.com",
+				Aliases:         []string{"app.internal"},
+				GatewayMetadata: metadata,
+			},
 			wantCode:    http.StatusBadRequest,
 			wantMessage: "CONNECT host other.com does not match resource address example.com or aliases [app.internal]",
 		},
 		{
-			name:        "rejects wildcard upstream resource address",
-			address:     "app.internal:443",
-			resource:    token.Resource{Address: "*.example.com", Aliases: []string{"app.internal"}, GatewayMetadata: metadata},
+			name:    "rejects wildcard upstream resource address",
+			address: "app.internal:443",
+			resource: token.Resource{
+				Address:         "*.example.com",
+				Aliases:         []string{"app.internal"},
+				GatewayMetadata: metadata,
+			},
 			wantCode:    http.StatusBadRequest,
 			wantMessage: "CONNECT host resolves to an invalid host: *.example.com",
 		},

@@ -60,11 +60,15 @@ func TestAuditor_ClientMessages(t *testing.T) {
 		{
 			name: "parse with a statement name over the cap",
 			msgs: []pgproto3.FrontendMessage{&pgproto3.Parse{Name: overCap, Query: "SELECT 1"}},
-			want: []auditLine{{"pg_parse", map[string]any{"statement_name": atCap, "sql": "SELECT 1", "truncated": true}}},
+			want: []auditLine{
+				{"pg_parse", map[string]any{"statement_name": atCap, "sql": "SELECT 1", "truncated": true}},
+			},
 		},
 		{
 			name: "bind",
-			msgs: []pgproto3.FrontendMessage{&pgproto3.Bind{PreparedStatement: "stmtcache_3", Parameters: [][]byte{[]byte("42")}}},
+			msgs: []pgproto3.FrontendMessage{
+				&pgproto3.Bind{PreparedStatement: "stmtcache_3", Parameters: [][]byte{[]byte("42")}},
+			},
 			want: []auditLine{{"pg_bind", map[string]any{
 				"statement_name": "stmtcache_3", "portal_name": "", "parameters": []any{"42"},
 			}}},
@@ -78,7 +82,9 @@ func TestAuditor_ClientMessages(t *testing.T) {
 		},
 		{
 			name: "bind with parameters over the cap",
-			msgs: []pgproto3.FrontendMessage{&pgproto3.Bind{PreparedStatement: "stmtcache_3", Parameters: [][]byte{[]byte(overCap)}}},
+			msgs: []pgproto3.FrontendMessage{
+				&pgproto3.Bind{PreparedStatement: "stmtcache_3", Parameters: [][]byte{[]byte(overCap)}},
+			},
 			want: []auditLine{{"pg_bind", map[string]any{
 				"statement_name": "stmtcache_3", "portal_name": "", "parameters": []any{atCap}, "truncated": true,
 			}}},
@@ -91,12 +97,18 @@ func TestAuditor_ClientMessages(t *testing.T) {
 		{
 			name: "execute with a portal name over the cap",
 			msgs: []pgproto3.FrontendMessage{&pgproto3.Execute{Portal: overCap}},
-			want: []auditLine{{"pg_execute", map[string]any{"portal_name": atCap, "max_rows": uint32(0), "truncated": true}}},
+			want: []auditLine{
+				{"pg_execute", map[string]any{"portal_name": atCap, "max_rows": uint32(0), "truncated": true}},
+			},
 		},
 		{
 			name: "function call",
 			msgs: []pgproto3.FrontendMessage{
-				&pgproto3.FunctionCall{Function: 1234, ArgFormatCodes: []uint16{pgtype.BinaryFormatCode}, Arguments: [][]byte{{1}}},
+				&pgproto3.FunctionCall{
+					Function:       1234,
+					ArgFormatCodes: []uint16{pgtype.BinaryFormatCode},
+					Arguments:      [][]byte{{1}},
+				},
 			},
 			want: []auditLine{{"pg_function_call", map[string]any{
 				"function": uint32(1234), "arguments": []any{"AQ=="},
@@ -106,9 +118,15 @@ func TestAuditor_ClientMessages(t *testing.T) {
 			name: "never logged",
 			msgs: []pgproto3.FrontendMessage{
 				&pgproto3.Describe{ObjectType: 'S', Name: "s1"},
-				&pgproto3.Close{ObjectType: 'S', Name: "s1"}, &pgproto3.Close{ObjectType: 'P', Name: "p1"},
-				&pgproto3.Sync{}, &pgproto3.Flush{},
-				&pgproto3.CopyData{Data: []byte("1\tone\n")}, &pgproto3.CopyDone{}, &pgproto3.CopyFail{Message: "aborted"},
+				&pgproto3.Close{ObjectType: 'S', Name: "s1"},
+				&pgproto3.Close{ObjectType: 'P', Name: "p1"},
+				&pgproto3.Sync{},
+				&pgproto3.Flush{},
+				&pgproto3.CopyData{
+					Data: []byte("1\tone\n"),
+				},
+				&pgproto3.CopyDone{},
+				&pgproto3.CopyFail{Message: "aborted"},
 				&pgproto3.Terminate{},
 			},
 			want: []auditLine{},
@@ -157,7 +175,9 @@ func TestAuditor_ServerMessages(t *testing.T) {
 		},
 		{
 			name: "error",
-			msgs: []pgproto3.BackendMessage{&pgproto3.ErrorResponse{Code: "42501", Message: "permission denied for table users"}},
+			msgs: []pgproto3.BackendMessage{
+				&pgproto3.ErrorResponse{Code: "42501", Message: "permission denied for table users"},
+			},
 			want: []auditLine{{"pg_result", map[string]any{"error_code": "42501"}}},
 		},
 		{
@@ -173,13 +193,20 @@ func TestAuditor_ServerMessages(t *testing.T) {
 		{
 			name: "never logged",
 			msgs: []pgproto3.BackendMessage{
-				&pgproto3.ParseComplete{}, &pgproto3.BindComplete{}, &pgproto3.CloseComplete{},
+				&pgproto3.ParseComplete{},
+				&pgproto3.BindComplete{},
+				&pgproto3.CloseComplete{},
 				&pgproto3.ParameterDescription{ParameterOIDs: []uint32{23}},
-				&pgproto3.RowDescription{Fields: []pgproto3.FieldDescription{{Name: []byte("id")}}}, &pgproto3.NoData{},
+				&pgproto3.RowDescription{Fields: []pgproto3.FieldDescription{{Name: []byte("id")}}},
+				&pgproto3.NoData{},
 				&pgproto3.DataRow{Values: [][]byte{[]byte("1")}},
-				&pgproto3.NoticeResponse{Message: "notice"}, &pgproto3.NotificationResponse{Channel: "jobs"},
+				&pgproto3.NoticeResponse{Message: "notice"},
+				&pgproto3.NotificationResponse{Channel: "jobs"},
 				&pgproto3.ParameterStatus{Name: "TimeZone", Value: "UTC"},
-				&pgproto3.CopyInResponse{}, &pgproto3.CopyOutResponse{}, &pgproto3.CopyData{Data: []byte("1\n")}, &pgproto3.CopyDone{},
+				&pgproto3.CopyInResponse{},
+				&pgproto3.CopyOutResponse{},
+				&pgproto3.CopyData{Data: []byte("1\n")},
+				&pgproto3.CopyDone{},
 			},
 			want: []auditLine{},
 		},
@@ -292,9 +319,13 @@ func TestValueField(t *testing.T) {
 			want:   map[string]any{"parameters": []any{nil, strings.Repeat("a", maxAuditValueBytes), nil, nil}},
 		},
 		{
-			name:          "over the cap cuts the crossing value and drops the rest",
-			formatCodes:   []int16{pgtype.TextFormatCode, pgtype.BinaryFormatCode, pgtype.TextFormatCode},
-			values:        [][]byte{bytes.Repeat([]byte("a"), maxAuditValueBytes-4), {0xff, 0xff, 0xff, 0xff}, []byte("c")},
+			name:        "over the cap cuts the crossing value and drops the rest",
+			formatCodes: []int16{pgtype.TextFormatCode, pgtype.BinaryFormatCode, pgtype.TextFormatCode},
+			values: [][]byte{
+				bytes.Repeat([]byte("a"), maxAuditValueBytes-4),
+				{0xff, 0xff, 0xff, 0xff},
+				[]byte("c"),
+			},
 			want:          map[string]any{"parameters": []any{strings.Repeat("a", maxAuditValueBytes-4), "////"}},
 			wantTruncated: true,
 		},

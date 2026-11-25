@@ -110,7 +110,11 @@ func TestShouldSkipWebSocketRequest(t *testing.T) {
 		{
 			name: "WebSocket request with tar command",
 			newRequestFn: func() *http.Request {
-				return httptest.NewRequest(http.MethodGet, "/api/v1/namespaces/default/pods/pod-1/exec?command=tar", nil)
+				return httptest.NewRequest(
+					http.MethodGet,
+					"/api/v1/namespaces/default/pods/pod-1/exec?command=tar",
+					nil,
+				)
 			},
 			expected: true,
 		},

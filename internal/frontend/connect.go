@@ -162,9 +162,14 @@ func resolveUpstream(target string, resource token.Resource) (requestedHost, ups
 	upstreamHost, ok := resource.ResolveUpstreamHost(host)
 	if !ok {
 		return "", "", &HTTPError{
-			Code:    http.StatusBadRequest,
-			Message: fmt.Sprintf("CONNECT host %s does not match resource address %s or aliases %v", host, resource.Address, resource.Aliases),
-			Err:     nil,
+			Code: http.StatusBadRequest,
+			Message: fmt.Sprintf(
+				"CONNECT host %s does not match resource address %s or aliases %v",
+				host,
+				resource.Address,
+				resource.Aliases,
+			),
+			Err: nil,
 		}
 	}
 
@@ -187,9 +192,13 @@ func resolveUpstream(target string, resource token.Resource) (requestedHost, ups
 
 	if downstreamPort := resource.GatewayMetadata.Downstream.Port; requestedPort != downstreamPort {
 		return "", "", &HTTPError{
-			Code:    http.StatusBadRequest,
-			Message: fmt.Sprintf("CONNECT port %d does not match token downstream port %d", requestedPort, downstreamPort),
-			Err:     nil,
+			Code: http.StatusBadRequest,
+			Message: fmt.Sprintf(
+				"CONNECT port %d does not match token downstream port %d",
+				requestedPort,
+				downstreamPort,
+			),
+			Err: nil,
 		}
 	}
 

@@ -76,7 +76,13 @@ type ChannelPair struct {
 }
 
 // NewChannelPair creates a new ChannelPair with the default timeouts.
-func NewChannelPair(logger logging.Logger, sshChannelCtx *sshChannelContext, sshUsername string, source, target channel, recorderFactory sessionRecorderFactory) *ChannelPair {
+func NewChannelPair(
+	logger logging.Logger,
+	sshChannelCtx *sshChannelContext,
+	sshUsername string,
+	source, target channel,
+	recorderFactory sessionRecorderFactory,
+) *ChannelPair {
 	return &ChannelPair{
 		logger:              logger,
 		sshChannelCtx:       sshChannelCtx,

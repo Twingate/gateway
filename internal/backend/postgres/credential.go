@@ -46,7 +46,11 @@ type credentialProvider interface {
 
 // newCredentialProvider builds the provider for the auth entry's type, holding what it needs to
 // produce the database credential.
-func newCredentialProvider(upstreamAddress string, auth token.Auth, passwords passwordCredentials) (credentialProvider, error) {
+func newCredentialProvider(
+	upstreamAddress string,
+	auth token.Auth,
+	passwords passwordCredentials,
+) (credentialProvider, error) {
 	switch auth.Type {
 	case token.AuthTypePassword:
 		return newPasswordCredential(passwords, auth.User, auth.Password)

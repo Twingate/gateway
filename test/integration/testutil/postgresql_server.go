@@ -81,22 +81,28 @@ func SetupPostgreSQLServer(t *testing.T) (string, int) {
 	serverPort, err := strconv.Atoi(strings.Trim(string(output), "'\n"))
 	require.NoError(t, err, "failed to parse PostgreSQL server port")
 
-	err = wait.PollUntilContextTimeout(t.Context(), time.Second, 60*time.Second, true, func(_ context.Context) (bool, error) {
-		// The image first runs a temporary server on a Unix socket to initialize the database, so
-		// readiness is checked over TCP, which only the final server listens on.
-		// #nosec G204 -- output is a container ID returned by docker
-		_, err = RunCommand(exec.Command("docker", "exec", containerID,
-			"pg_isready", "-h", "127.0.0.1", "-U", PostgreSQLUsername, "-d", PostgreSQLDatabase))
-		if err != nil {
-			t.Log("Waiting for PostgreSQL server to be ready...")
+	err = wait.PollUntilContextTimeout(
+		t.Context(),
+		time.Second,
+		60*time.Second,
+		true,
+		func(_ context.Context) (bool, error) {
+			// The image first runs a temporary server on a Unix socket to initialize the database, so
+			// readiness is checked over TCP, which only the final server listens on.
+			// #nosec G204 -- output is a container ID returned by docker
+			_, err = RunCommand(exec.Command("docker", "exec", containerID,
+				"pg_isready", "-h", "127.0.0.1", "-U", PostgreSQLUsername, "-d", PostgreSQLDatabase))
+			if err != nil {
+				t.Log("Waiting for PostgreSQL server to be ready...")
 
-			return false, nil //nolint:nilerr
-		}
+				return false, nil //nolint:nilerr
+			}
 
-		t.Logf("PostgreSQL server is running at 127.0.0.1:%d", serverPort)
+			t.Logf("PostgreSQL server is running at 127.0.0.1:%d", serverPort)
 
-		return true, nil
-	})
+			return true, nil
+		},
+	)
 	require.NoError(t, err, "failed to start PostgreSQL server")
 
 	return containerID, serverPort

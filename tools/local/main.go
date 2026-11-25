@@ -32,8 +32,16 @@ const (
 func main() {
 	// Parse command line flags
 	username := flag.String("username", defaultUsername, "Username to use for authentication")
-	createKubeConfig := flag.Bool("create-kubeconfig", true, "Whether to create kubeConfig. If kubeConfig already exists, it will be overwritten")
-	createKnownHosts := flag.Bool("create-ssh-known-hosts", true, "Whether to create SSH known_hosts. If known_hosts already exists, it will be overwritten")
+	createKubeConfig := flag.Bool(
+		"create-kubeconfig",
+		true,
+		"Whether to create kubeConfig. If kubeConfig already exists, it will be overwritten",
+	)
+	createKnownHosts := flag.Bool(
+		"create-ssh-known-hosts",
+		true,
+		"Whether to create SSH known_hosts. If known_hosts already exists, it will be overwritten",
+	)
 
 	flag.Parse()
 
@@ -320,7 +328,15 @@ postgresql:
       password: %s
 `
 
-	config := fmt.Sprintf(configTemplate, network, gatewayPort, kindBearerToken, sshUsername, postgreSQLCredential, postgreSQLPassword)
+	config := fmt.Sprintf(
+		configTemplate,
+		network,
+		gatewayPort,
+		kindBearerToken,
+		sshUsername,
+		postgreSQLCredential,
+		postgreSQLPassword,
+	)
 
 	err := os.WriteFile(gatewayConfigFile, []byte(config), 0600)
 	if err != nil {

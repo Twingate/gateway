@@ -241,7 +241,10 @@ func (v *vaultIssuer) run(ctx context.Context) error {
 
 // sign has Vault sign the request through <mount>/sign/<role>.
 // If the context is canceled, the request is aborted and the connection closed.
-func (v *vaultIssuer) sign(ctx context.Context, req *certificateRequest) (*x509.Certificate, []*x509.Certificate, error) {
+func (v *vaultIssuer) sign(
+	ctx context.Context,
+	req *certificateRequest,
+) (*x509.Certificate, []*x509.Certificate, error) {
 	csr, err := req.csr()
 	if err != nil {
 		return nil, nil, err
@@ -326,7 +329,10 @@ func (g *gcpPrivateIssuer) closeOnShutdown(ctx context.Context) {
 
 // sign has the CA pool sign the request.
 // If the context is canceled, the request is aborted.
-func (g *gcpPrivateIssuer) sign(ctx context.Context, req *certificateRequest) (*x509.Certificate, []*x509.Certificate, error) {
+func (g *gcpPrivateIssuer) sign(
+	ctx context.Context,
+	req *certificateRequest,
+) (*x509.Certificate, []*x509.Certificate, error) {
 	csr, err := req.csr()
 	if err != nil {
 		return nil, nil, err
@@ -348,7 +354,9 @@ func (g *gcpPrivateIssuer) sign(ctx context.Context, req *certificateRequest) (*
 		return nil, nil, fmt.Errorf("failed to issue certificate: %w", err)
 	}
 
-	chain, err := parseCertificateChain(append([]string{issued.GetPemCertificate()}, issued.GetPemCertificateChain()...))
+	chain, err := parseCertificateChain(
+		append([]string{issued.GetPemCertificate()}, issued.GetPemCertificateChain()...),
+	)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -381,7 +389,12 @@ func verifyIssuedCertificate(leaf *x509.Certificate, req *certificateRequest) er
 
 	maxNotAfter := time.Now().Add(req.ttl).Add(clockSkewBuffer)
 	if leaf.NotAfter.After(maxNotAfter) {
-		return fmt.Errorf("%w: validity %s exceeds requested TTL (max %s)", errIssuedCertMismatch, leaf.NotAfter, maxNotAfter)
+		return fmt.Errorf(
+			"%w: validity %s exceeds requested TTL (max %s)",
+			errIssuedCertMismatch,
+			leaf.NotAfter,
+			maxNotAfter,
+		)
 	}
 
 	return nil

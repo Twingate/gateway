@@ -84,11 +84,13 @@ func (p GATClaims) Validate() error {
 		return fmt.Errorf("%w: %w %q", jwt.ErrTokenInvalidClaims, errUnsupportedVersion, p.Version)
 	}
 
-	if err := validatePort(p.Resource.GatewayMetadata.Downstream.Port, "resource.gateway_metadata.downstream.port"); err != nil {
+	err := validatePort(p.Resource.GatewayMetadata.Downstream.Port, "resource.gateway_metadata.downstream.port")
+	if err != nil {
 		return err
 	}
 
-	if err := validatePort(p.Resource.GatewayMetadata.Upstream.Port, "resource.gateway_metadata.upstream.port"); err != nil {
+	err = validatePort(p.Resource.GatewayMetadata.Upstream.Port, "resource.gateway_metadata.upstream.port")
+	if err != nil {
 		return err
 	}
 
@@ -98,11 +100,21 @@ func (p GATClaims) Validate() error {
 		return nil
 	}
 
-	if err := validateTLSMode(p.Resource.GatewayMetadata.Downstream.TLSMode, TLSServerModes, "resource.gateway_metadata.downstream.tls_mode"); err != nil {
+	err = validateTLSMode(
+		p.Resource.GatewayMetadata.Downstream.TLSMode,
+		TLSServerModes,
+		"resource.gateway_metadata.downstream.tls_mode",
+	)
+	if err != nil {
 		return err
 	}
 
-	if err := validateTLSMode(p.Resource.GatewayMetadata.Upstream.TLSMode, TLSClientModes, "resource.gateway_metadata.upstream.tls_mode"); err != nil {
+	err = validateTLSMode(
+		p.Resource.GatewayMetadata.Upstream.TLSMode,
+		TLSClientModes,
+		"resource.gateway_metadata.upstream.tls_mode",
+	)
+	if err != nil {
 		return err
 	}
 
@@ -139,7 +151,13 @@ func validateTLSMode[T ~string](mode T, validModes []T, fieldName string) error 
 
 func rejectDownstreamTLSMode(mode TLSServerMode) error {
 	if mode != TLSServerModeNone {
-		return fmt.Errorf("%w: %w %q: %q", jwt.ErrTokenInvalidClaims, errUnsupportedTLS, "resource.gateway_metadata.downstream.tls_mode", mode)
+		return fmt.Errorf(
+			"%w: %w %q: %q",
+			jwt.ErrTokenInvalidClaims,
+			errUnsupportedTLS,
+			"resource.gateway_metadata.downstream.tls_mode",
+			mode,
+		)
 	}
 
 	return nil
@@ -303,7 +321,12 @@ const (
 	TLSClientModeNone TLSClientMode = "NONE"
 )
 
-var TLSClientModes = []TLSClientMode{TLSClientModeVerifyFull, TLSClientModeVerifyCA, TLSClientModeInsecure, TLSClientModeNone}
+var TLSClientModes = []TLSClientMode{
+	TLSClientModeVerifyFull,
+	TLSClientModeVerifyCA,
+	TLSClientModeInsecure,
+	TLSClientModeNone,
+}
 
 type AuthType string
 
@@ -419,7 +442,12 @@ func (a Auth) Validate(upstreamTLSMode TLSClientMode) error {
 		}
 
 		if name, ok := strings.CutSuffix(a.GCPIAM.ImpersonateServiceAccount, serviceAccountSuffix); !ok || name == "" {
-			return fmt.Errorf("%w: %w %q", jwt.ErrTokenInvalidClaims, errInvalidServiceAccount, a.GCPIAM.ImpersonateServiceAccount)
+			return fmt.Errorf(
+				"%w: %w %q",
+				jwt.ErrTokenInvalidClaims,
+				errInvalidServiceAccount,
+				a.GCPIAM.ImpersonateServiceAccount,
+			)
 		}
 
 		return validateIAMUpstreamTLSMode(upstreamTLSMode)
@@ -430,7 +458,13 @@ func (a Auth) Validate(upstreamTLSMode TLSClientMode) error {
 
 func validateIAMUpstreamTLSMode(mode TLSClientMode) error {
 	if mode != TLSClientModeVerifyFull && mode != TLSClientModeVerifyCA {
-		return fmt.Errorf("%w: %w %q: %q", jwt.ErrTokenInvalidClaims, errUnverifiedIAMUpstream, "resource.gateway_metadata.upstream.tls_mode", mode)
+		return fmt.Errorf(
+			"%w: %w %q: %q",
+			jwt.ErrTokenInvalidClaims,
+			errUnverifiedIAMUpstream,
+			"resource.gateway_metadata.upstream.tls_mode",
+			mode,
+		)
 	}
 
 	return nil
