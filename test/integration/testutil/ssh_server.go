@@ -81,21 +81,27 @@ func SetupSSHServer(t *testing.T, userName string) (string, int) {
 	_, err = RunCommand(exec.Command("docker", "exec", containerID, "chmod", "0600", "/config/host/host"))
 	require.NoError(t, err, "failed to change permission for SSH host private key")
 
-	err = wait.PollUntilContextTimeout(t.Context(), time.Second, 10*time.Second, true, func(_ context.Context) (bool, error) {
-		// Get the sshd process ID to ensure it is already running in the docker container
-		// #nosec G204 -- inputs are from trusted operator configuration
-		output, err = RunCommand(exec.Command("docker", "exec", containerID, "pgrep", "sshd"))
+	err = wait.PollUntilContextTimeout(
+		t.Context(),
+		time.Second,
+		10*time.Second,
+		true,
+		func(_ context.Context) (bool, error) {
+			// Get the sshd process ID to ensure it is already running in the docker container
+			// #nosec G204 -- inputs are from trusted operator configuration
+			output, err = RunCommand(exec.Command("docker", "exec", containerID, "pgrep", "sshd"))
 
-		if err != nil || string(output) == "" {
-			t.Log("Waiting for SSH server to be ready...")
+			if err != nil || string(output) == "" {
+				t.Log("Waiting for SSH server to be ready...")
 
-			return false, nil //nolint:nilerr
-		}
+				return false, nil //nolint:nilerr
+			}
 
-		t.Logf("SSH server is running at %s", fmt.Sprintf("127.0.0.1:%d", serverPort))
+			t.Logf("SSH server is running at %s", fmt.Sprintf("127.0.0.1:%d", serverPort))
 
-		return true, nil
-	})
+			return true, nil
+		},
+	)
 	require.NoError(t, err, "failed to start SSH server")
 
 	return containerID, serverPort

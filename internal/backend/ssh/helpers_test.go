@@ -37,7 +37,11 @@ func newTestLogger(t *testing.T) logging.Logger {
 
 	logger := zaptest.NewLogger(t)
 
-	return logging.Logger{System: logger.Named(logging.SystemLoggerName), Audit: logger.Named(logging.AuditLoggerName), Session: logger.Named(logging.SessionLoggerName)}
+	return logging.Logger{
+		System:  logger.Named(logging.SystemLoggerName),
+		Audit:   logger.Named(logging.AuditLoggerName),
+		Session: logger.Named(logging.SessionLoggerName),
+	}
 }
 
 // testSigner generates an ed25519 host/user key for test SSH endpoints.
@@ -126,7 +130,12 @@ func (c *closeErrConn) Close() error {
 
 // openChannel opens a channel with the given type and extra data from opener to acceptor,
 // asserts they arrive intact, and returns both ends.
-func openChannel(t *testing.T, opener, acceptor *connection, channelType string, extraData []byte) (openerCh, acceptorCh channel) {
+func openChannel(
+	t *testing.T,
+	opener, acceptor *connection,
+	channelType string,
+	extraData []byte,
+) (openerCh, acceptorCh channel) {
 	t.Helper()
 
 	type openResult struct {
@@ -196,7 +205,12 @@ func acceptChannel(t *testing.T, conn *connection) <-chan channel {
 // sendGlobalRequest sends a global request from a background goroutine, since SendRequest with
 // WantReply blocks until the far end (the test itself) replies. It returns a function that blocks
 // for the (ok, replyPayload, err) result, failing the test if none arrives within testTimeout.
-func sendGlobalRequest(conn ssh.Conn, name string, wantReply bool, payload []byte) func(t *testing.T) (ok bool, replyPayload []byte, err error) {
+func sendGlobalRequest(
+	conn ssh.Conn,
+	name string,
+	wantReply bool,
+	payload []byte,
+) func(t *testing.T) (ok bool, replyPayload []byte, err error) {
 	type result struct {
 		ok      bool
 		payload []byte

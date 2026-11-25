@@ -178,8 +178,11 @@ func TestRewrite(t *testing.T) {
 			name:     "empty lat/lon with non-empty geo fields",
 			jwtToken: "test-token",
 			claims: &token.GATClaims{
-				User:   baseClaims.User,
-				Device: token.Device{ID: "device-1", Location: token.GeoIPLocation{Country: "US", Region: "CA", City: "San Mateo"}},
+				User: baseClaims.User,
+				Device: token.Device{
+					ID:       "device-1",
+					Location: token.GeoIPLocation{Country: "US", Region: "CA", City: "San Mateo"},
+				},
 			},
 			headers: map[string]string{
 				"X-LatLong": "{{clientGeoLatLong}}",
@@ -273,7 +276,11 @@ func TestRewrite_PreservesClientHost(t *testing.T) {
 	conn := frontend.NewProxyConn(nil, nil, nil, zap.NewNop(), connMetrics)
 	conn.UpstreamHost = "admin.example.int"
 	conn.Claims = &token.GATClaims{
-		Resource: token.Resource{GatewayMetadata: token.GatewayMetadata{Upstream: token.Upstream{Port: 80, TLSMode: token.TLSClientModeNone}}},
+		Resource: token.Resource{
+			GatewayMetadata: token.GatewayMetadata{
+				Upstream: token.Upstream{Port: 80, TLSMode: token.TLSClientModeNone},
+			},
+		},
 	}
 
 	proxyReq := &httputil.ProxyRequest{
@@ -295,7 +302,11 @@ func TestRewrite_UpstreamScheme(t *testing.T) {
 		wantScheme      string
 	}{
 		{name: "plain HTTP when TLS mode is none", upstreamTLSMode: token.TLSClientModeNone, wantScheme: "http"},
-		{name: "HTTPS when TLS mode is verify_full", upstreamTLSMode: token.TLSClientModeVerifyFull, wantScheme: "https"},
+		{
+			name:            "HTTPS when TLS mode is verify_full",
+			upstreamTLSMode: token.TLSClientModeVerifyFull,
+			wantScheme:      "https",
+		},
 		{name: "HTTPS when TLS mode is verify_ca", upstreamTLSMode: token.TLSClientModeVerifyCA, wantScheme: "https"},
 		{name: "HTTPS when TLS mode is insecure", upstreamTLSMode: token.TLSClientModeInsecure, wantScheme: "https"},
 	}
@@ -332,7 +343,11 @@ func TestRewrite_StripsClientIdentityHeaders(t *testing.T) {
 	conn := frontend.NewProxyConn(nil, nil, nil, zap.NewNop(), connMetrics)
 	conn.UpstreamHost = "admin.example.int"
 	conn.Claims = &token.GATClaims{
-		Resource: token.Resource{GatewayMetadata: token.GatewayMetadata{Upstream: token.Upstream{Port: 80, TLSMode: token.TLSClientModeNone}}},
+		Resource: token.Resource{
+			GatewayMetadata: token.GatewayMetadata{
+				Upstream: token.Upstream{Port: 80, TLSMode: token.TLSClientModeNone},
+			},
+		},
 	}
 
 	outReq := httptest.NewRequest(http.MethodGet, "http://admin.example.int/path", nil)

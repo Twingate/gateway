@@ -44,8 +44,12 @@ func NewHandler(cfg Config) *Handler {
 				panic(err)
 			}
 		},
-		Transport: metrics.InstrumentRoundTripper(cfg.roundTripperMetrics, metrics.ResourceTypeWebApp, createUpstreamRoundTripper(cfg.caPool)),
-		ErrorLog:  errorLog,
+		Transport: metrics.InstrumentRoundTripper(
+			cfg.roundTripperMetrics,
+			metrics.ResourceTypeWebApp,
+			createUpstreamRoundTripper(cfg.caPool),
+		),
+		ErrorLog: errorLog,
 	}
 
 	return &Handler{proxy: proxy}
@@ -118,7 +122,12 @@ func downstreamScheme(r *http.Request) string {
 	return "http"
 }
 
-func rewrite(r *httputil.ProxyRequest, conn *frontend.ProxyConn, headers map[string]*template.Template, logger *zap.Logger) error {
+func rewrite(
+	r *httputil.ProxyRequest,
+	conn *frontend.ProxyConn,
+	headers map[string]*template.Template,
+	logger *zap.Logger,
+) error {
 	scheme := "https"
 	if conn.GATClaims().Resource.GatewayMetadata.Upstream.TLSMode == token.TLSClientModeNone {
 		scheme = "http"

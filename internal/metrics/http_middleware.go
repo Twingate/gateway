@@ -83,7 +83,10 @@ func RegisterHTTPMetrics(registry *prometheus.Registry) *HTTPMetrics {
 }
 
 func HTTPMiddleware(metrics *HTTPMetrics, resourceType ResourceType, next http.Handler) http.HandlerFunc {
-	resourceTypeOpt := promhttp.WithLabelFromCtx(labelResourceType, func(_ context.Context) string { return string(resourceType) })
+	resourceTypeOpt := promhttp.WithLabelFromCtx(
+		labelResourceType,
+		func(_ context.Context) string { return string(resourceType) },
+	)
 	requestTypeOpt := promhttp.WithLabelFromCtx(labelRequestType, getRequestTypeFromContext)
 
 	base := promhttp.InstrumentHandlerCounter(
@@ -115,7 +118,11 @@ func HTTPMiddleware(metrics *HTTPMetrics, resourceType ResourceType, next http.H
 	}
 }
 
-func instrumentHandlerInFlight(activeRequests *prometheus.GaugeVec, resourceType string, next http.Handler) http.Handler {
+func instrumentHandlerInFlight(
+	activeRequests *prometheus.GaugeVec,
+	resourceType string,
+	next http.Handler,
+) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestType := getRequestTypeFromContext(r.Context())
 

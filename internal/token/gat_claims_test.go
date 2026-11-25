@@ -144,7 +144,9 @@ func TestGATTokenClaims_Validate(t *testing.T) {
 		claims.Resource.Type = ResourceTypePostgreSQL
 		claims.Resource.GatewayMetadata.Downstream.TLSMode = TLSServerModeNone
 		claims.Resource.GatewayMetadata.Upstream.TLSMode = TLSClientModeVerifyFull
-		claims.Resource.GatewayMetadata.Auths = []Auth{{Type: AuthTypePassword, User: "viewer", Password: &PasswordAuth{Credential: "prod-viewer"}}}
+		claims.Resource.GatewayMetadata.Auths = []Auth{
+			{Type: AuthTypePassword, User: "viewer", Password: &PasswordAuth{Credential: "prod-viewer"}},
+		}
 
 		assert.NoError(t, claims.Validate())
 	})
@@ -425,7 +427,11 @@ func TestAuth_Validate(t *testing.T) {
 		{
 			name:            "password with upstream NONE",
 			upstreamTLSMode: TLSClientModeNone,
-			auth:            Auth{Type: AuthTypePassword, User: "viewer", Password: &PasswordAuth{Credential: "prod-viewer"}},
+			auth: Auth{
+				Type:     AuthTypePassword,
+				User:     "viewer",
+				Password: &PasswordAuth{Credential: "prod-viewer"},
+			},
 		},
 		{
 			name:            "AWS IAM with upstream VERIFY_FULL",
@@ -435,7 +441,11 @@ func TestAuth_Validate(t *testing.T) {
 		{
 			name:            "GCP IAM with upstream VERIFY_CA",
 			upstreamTLSMode: TLSClientModeVerifyCA,
-			auth:            Auth{Type: AuthTypeGCPIAM, User: "db@my-project.iam", GCPIAM: &GCPIAMAuth{ImpersonateServiceAccount: "db@my-project.iam.gserviceaccount.com"}},
+			auth: Auth{
+				Type:   AuthTypeGCPIAM,
+				User:   "db@my-project.iam",
+				GCPIAM: &GCPIAMAuth{ImpersonateServiceAccount: "db@my-project.iam.gserviceaccount.com"},
+			},
 		},
 	}
 
@@ -481,9 +491,13 @@ func TestAuth_Validate(t *testing.T) {
 			expectedErrorMessage: "\"region\"",
 		},
 		{
-			name:                 "AWS IAM with upstream INSECURE",
-			upstreamTLSMode:      TLSClientModeInsecure,
-			auth:                 Auth{Type: AuthTypeAWSIAM, User: "analytics", AWSIAM: &AWSIAMAuth{Region: "us-east-1"}},
+			name:            "AWS IAM with upstream INSECURE",
+			upstreamTLSMode: TLSClientModeInsecure,
+			auth: Auth{
+				Type:   AuthTypeAWSIAM,
+				User:   "analytics",
+				AWSIAM: &AWSIAMAuth{Region: "us-east-1"},
+			},
 			expectedError:        errUnverifiedIAMUpstream,
 			expectedErrorMessage: "\"resource.gateway_metadata.upstream.tls_mode\": \"INSECURE\"",
 		},
@@ -495,23 +509,35 @@ func TestAuth_Validate(t *testing.T) {
 			expectedErrorMessage: "\"impersonate_service_account\"",
 		},
 		{
-			name:                 "GCP IAM with non-service-account email",
-			upstreamTLSMode:      TLSClientModeVerifyFull,
-			auth:                 Auth{Type: AuthTypeGCPIAM, User: "db@my-project.iam", GCPIAM: &GCPIAMAuth{ImpersonateServiceAccount: "db@my-project.iam"}},
+			name:            "GCP IAM with non-service-account email",
+			upstreamTLSMode: TLSClientModeVerifyFull,
+			auth: Auth{
+				Type:   AuthTypeGCPIAM,
+				User:   "db@my-project.iam",
+				GCPIAM: &GCPIAMAuth{ImpersonateServiceAccount: "db@my-project.iam"},
+			},
 			expectedError:        errInvalidServiceAccount,
 			expectedErrorMessage: "invalid GCP service account \"db@my-project.iam\"",
 		},
 		{
-			name:                 "GCP IAM with service account suffix only",
-			upstreamTLSMode:      TLSClientModeVerifyFull,
-			auth:                 Auth{Type: AuthTypeGCPIAM, User: "db@my-project.iam", GCPIAM: &GCPIAMAuth{ImpersonateServiceAccount: ".gserviceaccount.com"}},
+			name:            "GCP IAM with service account suffix only",
+			upstreamTLSMode: TLSClientModeVerifyFull,
+			auth: Auth{
+				Type:   AuthTypeGCPIAM,
+				User:   "db@my-project.iam",
+				GCPIAM: &GCPIAMAuth{ImpersonateServiceAccount: ".gserviceaccount.com"},
+			},
 			expectedError:        errInvalidServiceAccount,
 			expectedErrorMessage: "invalid GCP service account \".gserviceaccount.com\"",
 		},
 		{
-			name:                 "GCP IAM with upstream NONE",
-			upstreamTLSMode:      TLSClientModeNone,
-			auth:                 Auth{Type: AuthTypeGCPIAM, User: "db@my-project.iam", GCPIAM: &GCPIAMAuth{ImpersonateServiceAccount: "db@my-project.iam.gserviceaccount.com"}},
+			name:            "GCP IAM with upstream NONE",
+			upstreamTLSMode: TLSClientModeNone,
+			auth: Auth{
+				Type:   AuthTypeGCPIAM,
+				User:   "db@my-project.iam",
+				GCPIAM: &GCPIAMAuth{ImpersonateServiceAccount: "db@my-project.iam.gserviceaccount.com"},
+			},
 			expectedError:        errUnverifiedIAMUpstream,
 			expectedErrorMessage: "\"resource.gateway_metadata.upstream.tls_mode\": \"NONE\"",
 		},
@@ -744,7 +770,11 @@ func TestPublicKey_MarshalJSON(t *testing.T) {
 		jsonBytes, err := pubKey.MarshalJSON()
 
 		require.NoError(t, err)
-		require.JSONEq(t, "\"LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KTUZrd0V3WUhLb1pJemowQ0FRWUlLb1pJemowREFRY0RRZ0FFelBCVWRDUVRDTC85eWhPUzI3S1AyWTN1cjR5aApYd1N6enhZOGJhT3hESlIyVHYzL3pMOW1JWExZSld0NzlHeE5hL0h2MWFJRi9SS2hZdHRPc0JvaUZnPT0KLS0tLS1FTkQgUFVCTElDIEtFWS0tLS0tCg==\"", string(jsonBytes))
+		require.JSONEq(
+			t,
+			"\"LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KTUZrd0V3WUhLb1pJemowQ0FRWUlLb1pJemowREFRY0RRZ0FFelBCVWRDUVRDTC85eWhPUzI3S1AyWTN1cjR5aApYd1N6enhZOGJhT3hESlIyVHYzL3pMOW1JWExZSld0NzlHeE5hL0h2MWFJRi9SS2hZdHRPc0JvaUZnPT0KLS0tLS1FTkQgUFVCTElDIEtFWS0tLS0tCg==\"",
+			string(jsonBytes),
+		)
 	})
 
 	t.Run("Invalid public key", func(t *testing.T) {
@@ -762,7 +792,9 @@ func TestPublicKey_MarshalJSON(t *testing.T) {
 
 func TestPublicKey_UnmarshalJSON(t *testing.T) {
 	t.Run("Valid public key", func(t *testing.T) {
-		jsonBytes := []byte("\"LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KTUZrd0V3WUhLb1pJemowQ0FRWUlLb1pJemowREFRY0RRZ0FFelBCVWRDUVRDTC85eWhPUzI3S1AyWTN1cjR5aApYd1N6enhZOGJhT3hESlIyVHYzL3pMOW1JWExZSld0NzlHeE5hL0h2MWFJRi9SS2hZdHRPc0JvaUZnPT0KLS0tLS1FTkQgUFVCTElDIEtFWS0tLS0tCg==\"")
+		jsonBytes := []byte(
+			"\"LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KTUZrd0V3WUhLb1pJemowQ0FRWUlLb1pJemowREFRY0RRZ0FFelBCVWRDUVRDTC85eWhPUzI3S1AyWTN1cjR5aApYd1N6enhZOGJhT3hESlIyVHYzL3pMOW1JWExZSld0NzlHeE5hL0h2MWFJRi9SS2hZdHRPc0JvaUZnPT0KLS0tLS1FTkQgUFVCTElDIEtFWS0tLS0tCg==\"",
+		)
 
 		var publicKey PublicKey
 
@@ -770,8 +802,16 @@ func TestPublicKey_UnmarshalJSON(t *testing.T) {
 		require.NoError(t, err)
 
 		require.Equal(t, publicKey.Curve, elliptic.P256())
-		require.Equal(t, "ccf05474241308bffdca1392dbb28fd98deeaf8ca15f04b3cf163c6da3b10c94", fmt.Sprintf("%x", publicKey.X))
-		require.Equal(t, "764efdffccbf662172d8256b7bf46c4d6bf1efd5a205fd12a162db4eb01a2216", fmt.Sprintf("%x", publicKey.Y))
+		require.Equal(
+			t,
+			"ccf05474241308bffdca1392dbb28fd98deeaf8ca15f04b3cf163c6da3b10c94",
+			fmt.Sprintf("%x", publicKey.X),
+		)
+		require.Equal(
+			t,
+			"764efdffccbf662172d8256b7bf46c4d6bf1efd5a205fd12a162db4eb01a2216",
+			fmt.Sprintf("%x", publicKey.Y),
+		)
 	})
 
 	tests := []struct {
@@ -799,15 +839,19 @@ func TestPublicKey_UnmarshalJSON(t *testing.T) {
 			expectedErrorMessage: "failed to decode PEM block",
 		},
 		{
-			name:                 "Invalid public key",
-			json:                 []byte("\"LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KYVc1MllXeHBaQzFyWlhrPQotLS0tLUVORCBQVUJMSUMgS0VZLS0tLS0KCg==\""),
+			name: "Invalid public key",
+			json: []byte(
+				"\"LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KYVc1MllXeHBaQzFyWlhrPQotLS0tLUVORCBQVUJMSUMgS0VZLS0tLS0KCg==\"",
+			),
 			expectedError:        errInvalidPublicKey,
 			expectedErrorMessage: "failed to parse public key",
 		},
 		{
 			name: "Invalid ECDSA public key",
 			// This is a RSA public key
-			json:                 []byte("\"LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KTUlJQklqQU5CZ2txaGtpRzl3MEJBUUVGQUFPQ0FROEFNSUlCQ2dLQ0FRRUExaFQxNWdxdnhpeWFnTnBFNXJxNQowRm43akFhTnZmNG13S2FReTBtdThkcEV5bFNKNm5zeU9KVGgwSjZQY1RWQ2RLT21ySzB6YUloSTFmZi9jRWJHCkRZNFI1akh4TDg1R2RkTWp6VTZMUWxzaG85SS9UVWhRYkIrdmlUM3ZPQzVERDA3TnRGd25qMEl4RmovY1VwTWUKSGtoT1FZY0xIUVIvMkJ6OVZWZkRXUFpxMml0V2Z5dndYdGF5T205SUxWS1dSVDY3K0JQYTNyd0tLeDhxcjV6UwphUXNsV3dFeVByb0ZtZ3gzWU01ZWNVZjNhTTJBQ2JobjlaTXBRTTRJZ05TekpmVURGQTN0V1k5czJRRkkrWkRuCm1UZlhvVUtIR1NkYVZ1bEY0am5waFlQL1N2dGFlNFc2cVFSQkRrMEpsOGptT2o3S3ZPNEdtcnBRWVE2SnB2Q2MKSXdJREFRQUIKLS0tLS1FTkQgUFVCTElDIEtFWS0tLS0tCg==\""),
+			json: []byte(
+				"\"LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KTUlJQklqQU5CZ2txaGtpRzl3MEJBUUVGQUFPQ0FROEFNSUlCQ2dLQ0FRRUExaFQxNWdxdnhpeWFnTnBFNXJxNQowRm43akFhTnZmNG13S2FReTBtdThkcEV5bFNKNm5zeU9KVGgwSjZQY1RWQ2RLT21ySzB6YUloSTFmZi9jRWJHCkRZNFI1akh4TDg1R2RkTWp6VTZMUWxzaG85SS9UVWhRYkIrdmlUM3ZPQzVERDA3TnRGd25qMEl4RmovY1VwTWUKSGtoT1FZY0xIUVIvMkJ6OVZWZkRXUFpxMml0V2Z5dndYdGF5T205SUxWS1dSVDY3K0JQYTNyd0tLeDhxcjV6UwphUXNsV3dFeVByb0ZtZ3gzWU01ZWNVZjNhTTJBQ2JobjlaTXBRTTRJZ05TekpmVURGQTN0V1k5czJRRkkrWkRuCm1UZlhvVUtIR1NkYVZ1bEY0am5waFlQL1N2dGFlNFc2cVFSQkRrMEpsOGptT2o3S3ZPNEdtcnBRWVE2SnB2Q2MKSXdJREFRQUIKLS0tLS1FTkQgUFVCTElDIEtFWS0tLS0tCg==\"",
+			),
 			expectedError:        errInvalidPublicKey,
 			expectedErrorMessage: "not an ECDSA public key",
 		},
@@ -828,7 +872,12 @@ func TestPublicKey_UnmarshalJSON(t *testing.T) {
 func TestGatewayMetadata_UnmarshalTLSModes(t *testing.T) {
 	var metadata GatewayMetadata
 
-	err := json.Unmarshal([]byte(`{"downstream": {"port": 443, "tls_mode": "TLS13"}, "upstream": {"port": 5000, "tls_mode": "VERIFY_CA"}}`), &metadata)
+	err := json.Unmarshal(
+		[]byte(
+			`{"downstream": {"port": 443, "tls_mode": "TLS13"}, "upstream": {"port": 5000, "tls_mode": "VERIFY_CA"}}`,
+		),
+		&metadata,
+	)
 	require.NoError(t, err)
 
 	assert.Equal(t, TLSServerModeTLS13, metadata.Downstream.TLSMode)
@@ -849,12 +898,20 @@ func TestAuth_JSONRoundTrip(t *testing.T) {
 		{
 			name: "AWS IAM",
 			json: `{"type": "aws_iam", "user": "analytics", "region": "us-east-1", "assume_role_arn": "arn:aws:iam::123456789012:role/gateway-db"}`,
-			want: Auth{Type: AuthTypeAWSIAM, User: "analytics", AWSIAM: &AWSIAMAuth{Region: "us-east-1", AssumeRoleARN: "arn:aws:iam::123456789012:role/gateway-db"}},
+			want: Auth{
+				Type:   AuthTypeAWSIAM,
+				User:   "analytics",
+				AWSIAM: &AWSIAMAuth{Region: "us-east-1", AssumeRoleARN: "arn:aws:iam::123456789012:role/gateway-db"},
+			},
 		},
 		{
 			name: "GCP IAM",
 			json: `{"type": "gcp_iam", "user": "db@my-project.iam", "impersonate_service_account": "db@my-project.iam.gserviceaccount.com"}`,
-			want: Auth{Type: AuthTypeGCPIAM, User: "db@my-project.iam", GCPIAM: &GCPIAMAuth{ImpersonateServiceAccount: "db@my-project.iam.gserviceaccount.com"}},
+			want: Auth{
+				Type:   AuthTypeGCPIAM,
+				User:   "db@my-project.iam",
+				GCPIAM: &GCPIAMAuth{ImpersonateServiceAccount: "db@my-project.iam.gserviceaccount.com"},
+			},
 		},
 		{
 			name: "Unknown type",

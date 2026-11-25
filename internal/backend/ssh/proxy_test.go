@@ -754,7 +754,11 @@ func dialDownstream(t *testing.T, sshProxy *Proxy, clientConn net.Conn) (*ssh.Cl
 		HostKeyAlgorithms: []string{ssh.CertAlgoED25519v01},
 	}
 
-	conn, channels, requests, err := ssh.NewClientConn(clientConn, net.JoinHostPort(testRequestedHost, "22"), clientConfig)
+	conn, channels, requests, err := ssh.NewClientConn(
+		clientConn,
+		net.JoinHostPort(testRequestedHost, "22"),
+		clientConfig,
+	)
 	if err != nil {
 		return nil, err
 	}

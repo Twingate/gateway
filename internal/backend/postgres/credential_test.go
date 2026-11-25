@@ -23,7 +23,9 @@ import (
 )
 
 func TestNewCredentialProvider(t *testing.T) {
-	passwords := newPasswordCredentials([]gatewayconfig.PostgreSQLCredential{{Name: testCredential, Password: "secret"}})
+	passwords := newPasswordCredentials(
+		[]gatewayconfig.PostgreSQLCredential{{Name: testCredential, Password: "secret"}},
+	)
 	awsIAM := &token.AWSIAMAuth{Region: "eu-west-1"}
 
 	tests := []struct {
@@ -55,11 +57,20 @@ func TestNewCredentialProvider(t *testing.T) {
 	t.Run("GCP IAM", func(t *testing.T) {
 		// Any Application Default Credentials will do: the impersonated provider fetches no token until asked.
 		credentialsFile := filepath.Join(t.TempDir(), "application_default_credentials.json")
-		require.NoError(t, os.WriteFile(credentialsFile,
-			[]byte(`{"type": "authorized_user", "client_id": "id", "client_secret": "secret", "refresh_token": "token"}`), 0o600))
+		require.NoError(t, os.WriteFile(
+			credentialsFile,
+			[]byte(
+				`{"type": "authorized_user", "client_id": "id", "client_secret": "secret", "refresh_token": "token"}`,
+			),
+			0o600,
+		))
 		t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", credentialsFile)
 
-		auth := token.Auth{Type: token.AuthTypeGCPIAM, User: "db@acme-int.iam", GCPIAM: &token.GCPIAMAuth{ImpersonateServiceAccount: "db@acme-int.iam.gserviceaccount.com"}}
+		auth := token.Auth{
+			Type:   token.AuthTypeGCPIAM,
+			User:   "db@acme-int.iam",
+			GCPIAM: &token.GCPIAMAuth{ImpersonateServiceAccount: "db@acme-int.iam.gserviceaccount.com"},
+		}
 
 		got, err := newCredentialProvider("db.acme.int:5432", auth, passwords)
 		require.NoError(t, err)
@@ -68,7 +79,9 @@ func TestNewCredentialProvider(t *testing.T) {
 }
 
 func TestNewCredentialProvider_Error(t *testing.T) {
-	passwords := newPasswordCredentials([]gatewayconfig.PostgreSQLCredential{{Name: testCredential, Password: "secret"}})
+	passwords := newPasswordCredentials(
+		[]gatewayconfig.PostgreSQLCredential{{Name: testCredential, Password: "secret"}},
+	)
 
 	// Keeps the Application Default Credentials of the machine running the tests out of the lookup.
 	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", filepath.Join(t.TempDir(), "missing.json"))
@@ -89,8 +102,12 @@ func TestNewCredentialProvider_Error(t *testing.T) {
 			wantErr: errUnsupportedAuthType,
 		},
 		{
-			name:    "GCP credentials not found",
-			auth:    token.Auth{Type: token.AuthTypeGCPIAM, User: "db@acme-int.iam", GCPIAM: &token.GCPIAMAuth{ImpersonateServiceAccount: "db@acme-int.iam.gserviceaccount.com"}},
+			name: "GCP credentials not found",
+			auth: token.Auth{
+				Type:   token.AuthTypeGCPIAM,
+				User:   "db@acme-int.iam",
+				GCPIAM: &token.GCPIAMAuth{ImpersonateServiceAccount: "db@acme-int.iam.gserviceaccount.com"},
+			},
 			wantErr: errFailedToLoadGCPCredentials,
 		},
 	}
@@ -126,24 +143,42 @@ func TestPasswordCredential_Get(t *testing.T) {
 			wantPassword: "from file",
 		},
 		{
-			name:            "client certificate",
-			configured:      gatewayconfig.PostgreSQLCredential{Name: testCredential, Password: "secret", ClientCertificateFile: testCertificateFile, ClientPrivateKeyFile: testPrivateKeyFile},
+			name: "client certificate",
+			configured: gatewayconfig.PostgreSQLCredential{
+				Name:                  testCredential,
+				Password:              "secret",
+				ClientCertificateFile: testCertificateFile,
+				ClientPrivateKeyFile:  testPrivateKeyFile,
+			},
 			wantPassword:    "secret",
 			wantCertificate: true,
 		},
 		{
-			name:            "missing password file",
-			configured:      gatewayconfig.PostgreSQLCredential{Name: testCredential, PasswordFile: filepath.Join(t.TempDir(), "missing")},
+			name: "missing password file",
+			configured: gatewayconfig.PostgreSQLCredential{
+				Name:         testCredential,
+				PasswordFile: filepath.Join(t.TempDir(), "missing"),
+			},
 			wantErrContains: "failed to read password file",
 		},
 		{
-			name:            "unreadable client certificate",
-			configured:      gatewayconfig.PostgreSQLCredential{Name: testCredential, Password: "secret", ClientCertificateFile: filepath.Join(t.TempDir(), "missing.crt"), ClientPrivateKeyFile: testPrivateKeyFile},
+			name: "unreadable client certificate",
+			configured: gatewayconfig.PostgreSQLCredential{
+				Name:                  testCredential,
+				Password:              "secret",
+				ClientCertificateFile: filepath.Join(t.TempDir(), "missing.crt"),
+				ClientPrivateKeyFile:  testPrivateKeyFile,
+			},
 			wantErrContains: "failed to load client certificate",
 		},
 		{
-			name:            "invalid client certificate pair",
-			configured:      gatewayconfig.PostgreSQLCredential{Name: testCredential, Password: "secret", ClientCertificateFile: testCertificateFile, ClientPrivateKeyFile: testCertificateFile},
+			name: "invalid client certificate pair",
+			configured: gatewayconfig.PostgreSQLCredential{
+				Name:                  testCredential,
+				Password:              "secret",
+				ClientCertificateFile: testCertificateFile,
+				ClientPrivateKeyFile:  testCertificateFile,
+			},
 			wantErrContains: "failed to load client certificate",
 		},
 	}
@@ -186,7 +221,11 @@ func setStaticAWSCredentials(t *testing.T) {
 func TestAWSIAMCredential_Get(t *testing.T) {
 	setStaticAWSCredentials(t)
 
-	got, err := newAWSIAMCredential("db.acme.int:5432", testDatabaseUser, &token.AWSIAMAuth{Region: "eu-west-1"}).get(t.Context())
+	got, err := newAWSIAMCredential(
+		"db.acme.int:5432",
+		testDatabaseUser,
+		&token.AWSIAMAuth{Region: "eu-west-1"},
+	).get(t.Context())
 	require.NoError(t, err)
 
 	assert.Equal(t, testDatabaseUser, got.user)

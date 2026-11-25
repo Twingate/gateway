@@ -182,7 +182,12 @@ func TestHostCertManager_ResignsAtRenewTime(t *testing.T) {
 		time.Sleep(time.Second)
 		synctest.Wait()
 		assert.Equal(t, 2, ca.calls(), "at renewal time, without a connection asking for the certificate")
-		assert.NotEqual(t, original, signedCert(t, signer).Marshal(), "the signer should present the renewed certificate")
+		assert.NotEqual(
+			t,
+			original,
+			signedCert(t, signer).Marshal(),
+			"the signer should present the renewed certificate",
+		)
 	})
 }
 

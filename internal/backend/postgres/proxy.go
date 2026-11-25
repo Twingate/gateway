@@ -140,7 +140,11 @@ func (p *Proxy) serveConn(ctx context.Context, conn frontend.Conn) error {
 				reason = "unreachable_upstream"
 			}
 
-			logger.Audit.Error("pg_cancel", zap.Dict("db", zap.Uint32("process_id", cancel.ProcessID)), zap.String("error", reason))
+			logger.Audit.Error(
+				"pg_cancel",
+				zap.Dict("db", zap.Uint32("process_id", cancel.ProcessID)),
+				zap.String("error", reason),
+			)
 
 			// A failure caused by shutdown is not a failed cancel.
 			if ctx.Err() == nil {

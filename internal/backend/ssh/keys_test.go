@@ -128,9 +128,27 @@ func TestNewKeyConfig_InvalidInputs(t *testing.T) {
 		wantErr    error
 		wantErrMsg string
 	}{
-		{name: "unsupported key type", keyType: "nope", keyBits: 0, wantErr: errUnsupportedKeyType, wantErrMsg: "unsupported key type: nope"},
-		{name: "ECDSA invalid bits", keyType: "ecdsa", keyBits: 123, wantErr: errUnsupportedKeySize, wantErrMsg: "unsupported key size: ECDSA 123"},
-		{name: "RSA insecure bits", keyType: "rsa", keyBits: 1024, wantErr: errUnsupportedKeySize, wantErrMsg: "unsupported key size: RSA 1024"},
+		{
+			name:       "unsupported key type",
+			keyType:    "nope",
+			keyBits:    0,
+			wantErr:    errUnsupportedKeyType,
+			wantErrMsg: "unsupported key type: nope",
+		},
+		{
+			name:       "ECDSA invalid bits",
+			keyType:    "ecdsa",
+			keyBits:    123,
+			wantErr:    errUnsupportedKeySize,
+			wantErrMsg: "unsupported key size: ECDSA 123",
+		},
+		{
+			name:       "RSA insecure bits",
+			keyType:    "rsa",
+			keyBits:    1024,
+			wantErr:    errUnsupportedKeySize,
+			wantErrMsg: "unsupported key size: RSA 1024",
+		},
 	}
 
 	for _, tt := range tests {
@@ -196,8 +214,18 @@ func TestKeyConfigGenerate_InvalidInputs(t *testing.T) {
 		wantErr    error
 		wantErrMsg string
 	}{
-		{name: "unsupported key type", keyConfig: keyConfig{typ: "foo"}, wantErr: errUnsupportedKeyType, wantErrMsg: "unsupported key type: foo"},
-		{name: "ECDSA invalid bits", keyConfig: keyConfig{typ: keyTypeECDSA, bits: 123}, wantErr: errUnsupportedKeySize, wantErrMsg: "unsupported key size: ecdsa 123"},
+		{
+			name:       "unsupported key type",
+			keyConfig:  keyConfig{typ: "foo"},
+			wantErr:    errUnsupportedKeyType,
+			wantErrMsg: "unsupported key type: foo",
+		},
+		{
+			name:       "ECDSA invalid bits",
+			keyConfig:  keyConfig{typ: keyTypeECDSA, bits: 123},
+			wantErr:    errUnsupportedKeySize,
+			wantErrMsg: "unsupported key size: ecdsa 123",
+		},
 	}
 
 	for _, tt := range tests {

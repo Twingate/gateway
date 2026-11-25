@@ -376,7 +376,12 @@ func (ca *vaultCA) sign(ctx context.Context, req *certificateRequest) (*ssh.Cert
 // verifyCertificate rejects a CA-issued certificate that grants more than the request asked for.
 func verifyCertificate(cert *ssh.Certificate, req *certificateRequest) error {
 	if cert.CertType != uint32(req.certType) {
-		return fmt.Errorf("%w: cert type %q does not match requested %q", errCertPolicyViolation, certType(cert.CertType), req.certType)
+		return fmt.Errorf(
+			"%w: cert type %q does not match requested %q",
+			errCertPolicyViolation,
+			certType(cert.CertType),
+			req.certType,
+		)
 	}
 
 	if !keysEqual(cert.Key, req.publicKey) {
@@ -386,18 +391,33 @@ func verifyCertificate(cert *ssh.Certificate, req *certificateRequest) error {
 	// Require exact equality: an empty principals list grants every principal, and any extra
 	// principal grants access the request never asked for.
 	if !maps.Equal(principalSet(cert.ValidPrincipals), principalSet(req.principals)) {
-		return fmt.Errorf("%w: granted principals %q do not match requested %q", errCertPolicyViolation, cert.ValidPrincipals, req.principals)
+		return fmt.Errorf(
+			"%w: granted principals %q do not match requested %q",
+			errCertPolicyViolation,
+			cert.ValidPrincipals,
+			req.principals,
+		)
 	}
 
 	maxValidBefore := mustUint64(time.Now().Add(req.ttl).Add(clockSkewBuffer))
 	if cert.ValidBefore > maxValidBefore {
-		return fmt.Errorf("%w: validity %d exceeds requested TTL (max %d)", errCertPolicyViolation, cert.ValidBefore, maxValidBefore)
+		return fmt.Errorf(
+			"%w: validity %d exceeds requested TTL (max %d)",
+			errCertPolicyViolation,
+			cert.ValidBefore,
+			maxValidBefore,
+		)
 	}
 
 	// Critical options are restrictions, so dropping one widens privilege; require the
 	// cert's options to match the request exactly.
 	if !maps.Equal(cert.CriticalOptions, req.permissions.CriticalOptions) {
-		return fmt.Errorf("%w: granted critical options %q do not match requested %q", errCertPolicyViolation, cert.CriticalOptions, req.permissions.CriticalOptions)
+		return fmt.Errorf(
+			"%w: granted critical options %q do not match requested %q",
+			errCertPolicyViolation,
+			cert.CriticalOptions,
+			req.permissions.CriticalOptions,
+		)
 	}
 
 	// A missing extension only narrows privilege, so reject only unexpected extensions
@@ -409,7 +429,13 @@ func verifyCertificate(cert *ssh.Certificate, req *certificateRequest) error {
 		}
 
 		if granted != requested {
-			return fmt.Errorf("%w: extension %q granted value %q, requested %q", errCertPolicyViolation, ext, granted, requested)
+			return fmt.Errorf(
+				"%w: extension %q granted value %q, requested %q",
+				errCertPolicyViolation,
+				ext,
+				granted,
+				requested,
+			)
 		}
 	}
 

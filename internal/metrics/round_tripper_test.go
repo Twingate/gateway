@@ -23,9 +23,13 @@ func TestInstrumentRoundTripper(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 
-	transport := InstrumentRoundTripper(collectors, ResourceTypeKubernetes, promhttp.RoundTripperFunc(func(r *http.Request) (*http.Response, error) {
-		return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody, Request: r}, nil
-	}))
+	transport := InstrumentRoundTripper(
+		collectors,
+		ResourceTypeKubernetes,
+		promhttp.RoundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody, Request: r}, nil
+		}),
+	)
 
 	resp, err := transport.RoundTrip(req)
 	require.NoError(t, err)

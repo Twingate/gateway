@@ -102,7 +102,9 @@ func newAWSAuthMethod(awsConfig *config.VaultAWSConfig, logger *zap.Logger) (*aw
 	case "identity":
 		opts = append(opts, aws.WithIdentitySignature())
 	case "pkcs7":
-		logger.Warn("Vault AWS EC2 auth signatureType 'pkcs7' is deprecated as it relies on SHA-1; use 'rsa2048' instead")
+		logger.Warn(
+			"Vault AWS EC2 auth signatureType 'pkcs7' is deprecated as it relies on SHA-1; use 'rsa2048' instead",
+		)
 
 		opts = append(opts, aws.WithPKCS7Signature())
 	default:

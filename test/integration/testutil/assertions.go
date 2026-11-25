@@ -49,7 +49,13 @@ func AssertGetPods(t *testing.T, output []byte) {
 	assert.Equal(t, "test-pod", podList.Items[0].Name)
 }
 
-func AssertLogsForREST(t *testing.T, logs *observer.ObservedLogs, expectedURL string, expectedUser map[string]any, expectedStatusCode int) {
+func AssertLogsForREST(
+	t *testing.T,
+	logs *observer.ObservedLogs,
+	expectedURL string,
+	expectedUser map[string]any,
+	expectedStatusCode int,
+) {
 	t.Helper()
 
 	expectedLogs := logs.FilterField(zap.String("url", expectedURL)).All()
@@ -61,7 +67,14 @@ func AssertLogsForREST(t *testing.T, logs *observer.ObservedLogs, expectedURL st
 	assert.Subset(t, firstLog.ContextMap()["response"], map[string]any{"status_code": expectedStatusCode})
 }
 
-func AssertLogsForExecOrAttach(t *testing.T, logs *observer.ObservedLogs, expectedURL string, expectedUser map[string]any, expectedAsciicastHeader sessionrecorder.AsciicastHeader, expectedAsciicastEvents []string) {
+func AssertLogsForExecOrAttach(
+	t *testing.T,
+	logs *observer.ObservedLogs,
+	expectedURL string,
+	expectedUser map[string]any,
+	expectedAsciicastHeader sessionrecorder.AsciicastHeader,
+	expectedAsciicastEvents []string,
+) {
 	t.Helper()
 
 	expectedLogs := logs.FilterField(zap.String("url", expectedURL)).All()
@@ -94,7 +107,12 @@ type SSHChannelRequestLog struct {
 // expectedRequests, in the order the gateway logged them. Each direction is logged by its own
 // goroutine, so an order across directions holds only for causally ordered requests, such as an
 // exec request and the exit-status that follows it.
-func AssertLogsForSSHChannelRequests(t *testing.T, logs *observer.ObservedLogs, expectedUser map[string]any, expectedRequests []SSHChannelRequestLog) {
+func AssertLogsForSSHChannelRequests(
+	t *testing.T,
+	logs *observer.ObservedLogs,
+	expectedUser map[string]any,
+	expectedRequests []SSHChannelRequestLog,
+) {
 	t.Helper()
 
 	requestLogs := logs.FilterMessage("SSH channel request").All()
@@ -150,7 +168,11 @@ func AssertLogsForSSHChannel(t *testing.T, logs *observer.ObservedLogs, expected
 	t.Errorf("no 'SSH channel opened' log matching %v", expectedChannel)
 }
 
-func AssertLogsForSSHGlobalRequest(t *testing.T, logs *observer.ObservedLogs, expectedUser, expectedGlobalRequest map[string]any) {
+func AssertLogsForSSHGlobalRequest(
+	t *testing.T,
+	logs *observer.ObservedLogs,
+	expectedUser, expectedGlobalRequest map[string]any,
+) {
 	t.Helper()
 
 	globalRequestLogs := logs.FilterMessage("SSH global request").All()
@@ -190,7 +212,12 @@ type PostgreSQLAuditLog struct {
 	Fields  map[string]any
 }
 
-func AssertLogsForPostgreSQLSession(t *testing.T, entries []observer.LoggedEntry, expectedUser, expectedDatabase map[string]any, expectedLogs []PostgreSQLAuditLog) {
+func AssertLogsForPostgreSQLSession(
+	t *testing.T,
+	entries []observer.LoggedEntry,
+	expectedUser, expectedDatabase map[string]any,
+	expectedLogs []PostgreSQLAuditLog,
+) {
 	t.Helper()
 
 	auditLogs := []PostgreSQLAuditLog{}
@@ -220,7 +247,12 @@ func AssertLogsForPostgreSQLSession(t *testing.T, entries []observer.LoggedEntry
 	assert.Equal(t, expectedLogs, auditLogs)
 }
 
-func AssertLogsForPostgreSQLCancel(t *testing.T, entries []observer.LoggedEntry, expectedUser map[string]any, expectedProcessID uint32) {
+func AssertLogsForPostgreSQLCancel(
+	t *testing.T,
+	entries []observer.LoggedEntry,
+	expectedUser map[string]any,
+	expectedProcessID uint32,
+) {
 	t.Helper()
 
 	cancelLogs := []observer.LoggedEntry{}
@@ -246,7 +278,12 @@ func matchesExpected(actual, expected map[string]any) bool {
 	return true
 }
 
-func assertAsciicast(t *testing.T, asciicast string, expectedHeader sessionrecorder.AsciicastHeader, expectedEvents []string) {
+func assertAsciicast(
+	t *testing.T,
+	asciicast string,
+	expectedHeader sessionrecorder.AsciicastHeader,
+	expectedEvents []string,
+) {
 	t.Helper()
 
 	lines := strings.Split(strings.TrimSpace(asciicast), "\n")

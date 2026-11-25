@@ -102,8 +102,11 @@ func TestNewAutomation_Errors(t *testing.T) {
 			errContains: "failed to create Vault client",
 		},
 		{
-			name:    "unsupported key type",
-			local:   &config.TLSLocalIssuerConfig{CertificateFile: "../../../test/data/proxy/tls.crt", PrivateKeyFile: "../../../test/data/proxy/tls.key"},
+			name: "unsupported key type",
+			local: &config.TLSLocalIssuerConfig{
+				CertificateFile: "../../../test/data/proxy/tls.crt",
+				PrivateKeyFile:  "../../../test/data/proxy/tls.key",
+			},
 			key:     config.TLSCertificateKeyConfig{Type: "ed25519"},
 			wantErr: errUnsupportedKeyType,
 		},
@@ -173,7 +176,10 @@ func TestAutomation_run_ReissuesAfterCARotation(t *testing.T) {
 	cert, err := newAutomation(
 		&config.TLSAutomationConfig{
 			Issuer: config.TLSIssuerConfig{
-				Local: &config.TLSLocalIssuerConfig{CertificateFile: file.CertificateFile, PrivateKeyFile: file.PrivateKeyFile},
+				Local: &config.TLSLocalIssuerConfig{
+					CertificateFile: file.CertificateFile,
+					PrivateKeyFile:  file.PrivateKeyFile,
+				},
 			},
 		},
 		zap.NewNop(),
@@ -200,7 +206,12 @@ func TestAutomation_run_ReissuesAfterCARotation(t *testing.T) {
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		got, err := cert.getCertificate(t.Context(), "app.acme.int")
 		require.NoError(c, err)
-		require.NotEqual(c, issued.Leaf.SerialNumber, got.Leaf.SerialNumber, "the cached certificate should have been dropped")
+		require.NotEqual(
+			c,
+			issued.Leaf.SerialNumber,
+			got.Leaf.SerialNumber,
+			"the cached certificate should have been dropped",
+		)
 
 		_, verifyErr := got.Leaf.Verify(x509.VerifyOptions{
 			DNSName:   "app.acme.int",
@@ -217,7 +228,10 @@ func TestAutomation_issue(t *testing.T) {
 	cert, err := newAutomation(
 		&config.TLSAutomationConfig{
 			Issuer: config.TLSIssuerConfig{
-				Local: &config.TLSLocalIssuerConfig{CertificateFile: file.CertificateFile, PrivateKeyFile: file.PrivateKeyFile},
+				Local: &config.TLSLocalIssuerConfig{
+					CertificateFile: file.CertificateFile,
+					PrivateKeyFile:  file.PrivateKeyFile,
+				},
 			},
 		},
 		zap.NewNop(),
@@ -233,7 +247,11 @@ func TestAutomation_issue(t *testing.T) {
 
 	key, ok := issued.PrivateKey.(*ecdsa.PrivateKey)
 	require.True(t, ok, "expected an ECDSA leaf key")
-	assert.True(t, key.PublicKey.Equal(issued.Leaf.PublicKey), "the served key should be the one the leaf was signed for")
+	assert.True(
+		t,
+		key.PublicKey.Equal(issued.Leaf.PublicKey),
+		"the served key should be the one the leaf was signed for",
+	)
 }
 
 // A key config that generate rejects cannot come from newAutomation, which validates it first.

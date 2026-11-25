@@ -83,7 +83,12 @@ func (l Logger) Close() error {
 // Loggers configured with the same output share one writer.
 type writers map[string]zapcore.WriteSyncer
 
-func (w writers) newLogger(name string, output config.LogOutputConfig, level zapcore.Level, disableCaller bool) (*zap.Logger, error) {
+func (w writers) newLogger(
+	name string,
+	output config.LogOutputConfig,
+	level zapcore.Level,
+	disableCaller bool,
+) (*zap.Logger, error) {
 	encoderConfig := zapcore.EncoderConfig{
 		TimeKey:        "ts",
 		LevelKey:       "levelname",

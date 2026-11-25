@@ -22,7 +22,12 @@ type Config struct {
 	logger              logging.Logger
 }
 
-func NewConfig(configRequestHeaders map[string]string, caBundles []config.UpstreamTrustedCABundle, roundTripperMetrics *metrics.RoundTripperMetrics, logger logging.Logger) (*Config, error) {
+func NewConfig(
+	configRequestHeaders map[string]string,
+	caBundles []config.UpstreamTrustedCABundle,
+	roundTripperMetrics *metrics.RoundTripperMetrics,
+	logger logging.Logger,
+) (*Config, error) {
 	headers := make(map[string]*template.Template, len(configRequestHeaders))
 
 	for name, value := range configRequestHeaders {
@@ -43,5 +48,10 @@ func NewConfig(configRequestHeaders map[string]string, caBundles []config.Upstre
 		return nil, err
 	}
 
-	return &Config{requestHeaders: headers, caPool: caPool, roundTripperMetrics: roundTripperMetrics, logger: logger}, nil
+	return &Config{
+		requestHeaders:      headers,
+		caPool:              caPool,
+		roundTripperMetrics: roundTripperMetrics,
+		logger:              logger,
+	}, nil
 }

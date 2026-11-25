@@ -25,7 +25,9 @@ func SetupVaultSSHCA(t *testing.T) (string, int) {
 	containerName, serverPort := setupVaultServer(t)
 
 	// #nosec G204 -- inputs are from trusted operator configuration
-	_, err := RunCommand(exec.Command("docker", "exec", containerName, "vault", "secrets", "enable", "-path=ssh", "ssh"))
+	_, err := RunCommand(
+		exec.Command("docker", "exec", containerName, "vault", "secrets", "enable", "-path=ssh", "ssh"),
+	)
 	require.NoError(t, err, "failed to enable SSH secrets engine in Vault")
 
 	// #nosec G204 -- inputs are from trusted operator configuration
@@ -138,19 +140,25 @@ func setupVaultServer(t *testing.T) (string, int) {
 	serverPort, err := strconv.Atoi(strings.Trim(string(output), "'\n"))
 	require.NoError(t, err, "failed to parse Vault server port")
 
-	err = wait.PollUntilContextTimeout(t.Context(), time.Second, 10*time.Second, true, func(_ context.Context) (bool, error) {
-		// #nosec G204 -- inputs are from trusted operator configuration
-		_, err := RunCommand(exec.Command("docker", "exec", containerName, "vault", "status"))
-		if err != nil {
-			t.Log("Waiting for Vault server to be ready...")
+	err = wait.PollUntilContextTimeout(
+		t.Context(),
+		time.Second,
+		10*time.Second,
+		true,
+		func(_ context.Context) (bool, error) {
+			// #nosec G204 -- inputs are from trusted operator configuration
+			_, err := RunCommand(exec.Command("docker", "exec", containerName, "vault", "status"))
+			if err != nil {
+				t.Log("Waiting for Vault server to be ready...")
 
-			return false, nil //nolint:nilerr
-		}
+				return false, nil //nolint:nilerr
+			}
 
-		t.Logf("Vault server is running at http://127.0.0.1:%d", serverPort)
+			t.Logf("Vault server is running at http://127.0.0.1:%d", serverPort)
 
-		return true, nil
-	})
+			return true, nil
+		},
+	)
 	require.NoError(t, err, "failed to start Vault server")
 
 	return containerName, serverPort

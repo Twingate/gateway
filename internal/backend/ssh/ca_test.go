@@ -98,7 +98,12 @@ func TestNewLocalCA_Success(t *testing.T) {
 	require.NotNil(t, provider.tofuHostKeys, "tofuHostKeys should be initialized for TOFU mode")
 	require.NotNil(t, provider.keyReloader, "keyReloader should watch the local CA key file")
 
-	require.Same(t, provider.gatewayHostCA(), provider.gatewayUserCA(), "gatewayHostCA and gatewayUserCA should be the same instance")
+	require.Same(
+		t,
+		provider.gatewayHostCA(),
+		provider.gatewayUserCA(),
+		"gatewayHostCA and gatewayUserCA should be the same instance",
+	)
 
 	expectedPubKey, err := parsePublicKey(data.SSHCAPublicKey)
 	require.NoError(t, err)
@@ -550,7 +555,11 @@ func TestVaultCA_Sign_Error(t *testing.T) {
 		{name: "missing signed key", responseData: map[string]any{}, wantErr: errVaultSignFailed},
 		{name: "empty signed key", responseData: map[string]any{"signed_key": ""}, wantErr: errVaultSignFailed},
 		{name: "unparseable signed key", responseData: map[string]any{"signed_key": "not-a-certificate"}},
-		{name: "certificate violates policy", responseData: map[string]any{"signed_key": string(ssh.MarshalAuthorizedKey(overBroadCert))}, wantErr: errCertPolicyViolation},
+		{
+			name:         "certificate violates policy",
+			responseData: map[string]any{"signed_key": string(ssh.MarshalAuthorizedKey(overBroadCert))},
+			wantErr:      errCertPolicyViolation,
+		},
 	}
 
 	for _, tt := range tests {

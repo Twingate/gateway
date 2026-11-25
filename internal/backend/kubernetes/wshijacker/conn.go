@@ -25,7 +25,12 @@ var (
 	errFailedToWriteRecording = errors.New("failed to write recording")
 )
 
-func NewConn(c net.Conn, recorder sessionrecorder.Recorder, asciicastHeader sessionrecorder.AsciicastHeader, sessionHasTerminal bool) net.Conn {
+func NewConn(
+	c net.Conn,
+	recorder sessionrecorder.Recorder,
+	asciicastHeader sessionrecorder.AsciicastHeader,
+	sessionHasTerminal bool,
+) net.Conn {
 	return &conn{
 		Conn:               c,
 		readFirstResize:    make(chan struct{}, 1),

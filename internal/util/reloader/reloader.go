@@ -36,7 +36,10 @@ func New(files []string, load func() error, logger *zap.Logger) *Reloader {
 func (r *Reloader) Run(ctx context.Context) {
 	go wait.Until(func() {
 		if err := r.watch(ctx); err != nil {
-			r.logger.Error(fmt.Sprintf("Failed to watch %s, will retry later", strings.Join(r.files, ", ")), zap.Error(err))
+			r.logger.Error(
+				fmt.Sprintf("Failed to watch %s, will retry later", strings.Join(r.files, ", ")),
+				zap.Error(err),
+			)
 		}
 	}, time.Minute, ctx.Done())
 }

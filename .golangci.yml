@@ -125,7 +125,10 @@ linters:
 formatters:
   enable:
     - gci
+    - golines
   settings:
+    golines:
+      max-len: 120
     gci:
       sections:
         - standard # Standard section: captures all standard packages.

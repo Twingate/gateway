@@ -163,7 +163,11 @@ func TestAuditMiddleware(t *testing.T) {
 				"proto":       "HTTP/1.1",
 				"remote_addr": request.RemoteAddr,
 				"conn_id":     "conn-id-1",
-				"user":        map[string]any{"id": "user-id-1", "username": "user@acme.com", "groups": []any{"OnCall", "Engineering"}},
+				"user": map[string]any{
+					"id":       "user-id-1",
+					"username": "user@acme.com",
+					"groups":   []any{"OnCall", "Engineering"},
+				},
 				"request": map[string]any{
 					"headers": http.Header{
 						"Kubectl-Command":     {"kubectl exec"},

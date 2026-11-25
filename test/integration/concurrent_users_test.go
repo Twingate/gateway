@@ -138,7 +138,13 @@ func TestConcurrentUsers(t *testing.T) {
 					},
 					assertLogFn: func(t *testing.T, logs *observer.ObservedLogs) {
 						t.Helper()
-						testutil.AssertLogsForREST(t, logs, "/apis/authentication.k8s.io/v1/selfsubjectreviews", expectedUser, http.StatusCreated)
+						testutil.AssertLogsForREST(
+							t,
+							logs,
+							"/apis/authentication.k8s.io/v1/selfsubjectreviews",
+							expectedUser,
+							http.StatusCreated,
+						)
 					},
 				},
 				{
@@ -147,7 +153,13 @@ func TestConcurrentUsers(t *testing.T) {
 					assertOutputFn: testutil.AssertGetPods,
 					assertLogFn: func(t *testing.T, logs *observer.ObservedLogs) {
 						t.Helper()
-						testutil.AssertLogsForREST(t, logs, "/api/v1/namespaces/default/pods?limit=500", expectedUser, http.StatusOK)
+						testutil.AssertLogsForREST(
+							t,
+							logs,
+							"/api/v1/namespaces/default/pods?limit=500",
+							expectedUser,
+							http.StatusOK,
+						)
 					},
 				},
 				{
@@ -175,7 +187,11 @@ func TestConcurrentUsers(t *testing.T) {
 						testutil.AssertLogsForExecOrAttach(
 							t,
 							logs,
-							fmt.Sprintf("/api/v1/namespaces/default/pods/%s/exec?command=sleep&command=2&container=%s&stderr=true&stdout=true", testutil.TestPodName, testutil.TestPodName),
+							fmt.Sprintf(
+								"/api/v1/namespaces/default/pods/%s/exec?command=sleep&command=2&container=%s&stderr=true&stdout=true",
+								testutil.TestPodName,
+								testutil.TestPodName,
+							),
 							expectedUser,
 							expectedHeader,
 							expectedEvents,
@@ -206,7 +222,11 @@ func TestConcurrentUsers(t *testing.T) {
 						testutil.AssertLogsForExecOrAttach(
 							t,
 							logs,
-							fmt.Sprintf("/api/v1/namespaces/default/pods/%s/exec?command=cat&command=%%2Fetc%%2Fhostname&container=%s&stderr=true&stdout=true", testutil.TestPodName, testutil.TestPodName),
+							fmt.Sprintf(
+								"/api/v1/namespaces/default/pods/%s/exec?command=cat&command=%%2Fetc%%2Fhostname&container=%s&stderr=true&stdout=true",
+								testutil.TestPodName,
+								testutil.TestPodName,
+							),
 							expectedUser,
 							expectedHeader,
 							expectedEvents,
@@ -214,7 +234,8 @@ func TestConcurrentUsers(t *testing.T) {
 					},
 				},
 			}
-			rand.Shuffle(len(commands), func(i, j int) { //nolint:gosec // G404: shuffles command order in a test, not security-sensitive
+			//nolint:gosec // G404: shuffles command order in a test, not security-sensitive
+			rand.Shuffle(len(commands), func(i, j int) {
 				commands[i], commands[j] = commands[j], commands[i]
 			})
 

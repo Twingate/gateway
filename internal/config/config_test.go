@@ -35,7 +35,12 @@ func TestStripNetworkPrefix(t *testing.T) {
 		{name: "non-sharded host", hostname: "acme.test.com", network: "acme", expected: "test.com"},
 		{name: "no network prefix", hostname: "test.com", network: "acme", expected: "test.com"},
 		{name: "empty network", hostname: "us1.twingate.com", network: "", expected: "us1.twingate.com"},
-		{name: "uppercase host prefix", hostname: "ACME.us1.twingate.com", network: "acme", expected: "us1.twingate.com"},
+		{
+			name:     "uppercase host prefix",
+			hostname: "ACME.us1.twingate.com",
+			network:  "acme",
+			expected: "us1.twingate.com",
+		},
 		{name: "uppercase network", hostname: "acme.us1.twingate.com", network: "ACME", expected: "us1.twingate.com"},
 	}
 
@@ -146,7 +151,8 @@ func TestResolveTwingateHostname(t *testing.T) {
 		t.Cleanup(shardServer.Close)
 
 		redirectServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			http.Redirect(w, r, shardServer.URL+r.URL.Path, http.StatusPermanentRedirect) //nolint:gosec // G710: redirects to the test server, not a caller-supplied host
+			//nolint:gosec // G710: redirects to the test server, not a caller-supplied host
+			http.Redirect(w, r, shardServer.URL+r.URL.Path, http.StatusPermanentRedirect)
 		}))
 		t.Cleanup(redirectServer.Close)
 
@@ -249,7 +255,11 @@ webApp: {}
 	require.NotNil(t, cfg.TLS.Automation)
 	require.NotNil(t, cfg.TLS.Certificates)
 
-	assert.Equal(t, []TLSCertificateFileKeyPair{{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"}}, cfg.TLS.Certificates.Files)
+	assert.Equal(
+		t,
+		[]TLSCertificateFileKeyPair{{CertificateFile: "tls.crt", PrivateKeyFile: "tls.key"}},
+		cfg.TLS.Certificates.Files,
+	)
 
 	require.NotNil(t, cfg.TLS.Automation.Issuer.Local)
 	assert.Equal(t, "ca.crt", cfg.TLS.Automation.Issuer.Local.CertificateFile)
@@ -511,9 +521,19 @@ func TestDefaultTags(t *testing.T) {
 		{"twingate.host", TwingateConfig{}, "Host", defaults.Twingate.Host},
 		{"log.system.level", LogSystemConfig{}, "Level", defaults.Log.System.Level},
 		{"rotation.maxSize", LogFileRotationConfig{}, "MaxSize", yamlutil.ByteSize(defaultLogFileRotationMaxSize)},
-		{"rotation.maxBackupFiles", LogFileRotationConfig{}, "MaxBackupFiles", (&LogFileRotationConfig{}).GetMaxBackupFiles()},
+		{
+			"rotation.maxBackupFiles",
+			LogFileRotationConfig{},
+			"MaxBackupFiles",
+			(&LogFileRotationConfig{}).GetMaxBackupFiles(),
+		},
 		{"rotation.compression", LogFileRotationConfig{}, "Compression", (&LogFileRotationConfig{}).GetCompression()},
-		{"segment.maxDuration", SessionRecordingSegmentConfig{}, "MaxDuration", defaults.Log.SessionRecording.Segment.MaxDuration},
+		{
+			"segment.maxDuration",
+			SessionRecordingSegmentConfig{},
+			"MaxDuration",
+			defaults.Log.SessionRecording.Segment.MaxDuration,
+		},
 		{"segment.maxSize", SessionRecordingSegmentConfig{}, "MaxSize", defaults.Log.SessionRecording.Segment.MaxSize},
 		{"tls vault mount", TLSVaultIssuerConfig{}, "Mount", (&TLSVaultIssuerConfig{}).GetMount()},
 		{"ssh vault mount", SSHCAVaultConfig{}, "Mount", (&SSHCAVaultConfig{}).GetGatewayHostCAMount()},
@@ -1029,27 +1049,41 @@ func TestLogConfig_Validate(t *testing.T) {
 		{
 			name: "one output per category",
 			log: LogConfig{
-				System:           LogSystemConfig{Output: LogOutputConfig{Stdout: &LogStandardOutputConfig{}}},
-				Audit:            LogAuditConfig{Output: LogOutputConfig{Stderr: &LogStandardErrorConfig{}}},
-				SessionRecording: SessionRecordingConfig{Segment: segment, Output: LogOutputConfig{Stdout: &LogStandardOutputConfig{}}},
+				System: LogSystemConfig{Output: LogOutputConfig{Stdout: &LogStandardOutputConfig{}}},
+				Audit:  LogAuditConfig{Output: LogOutputConfig{Stderr: &LogStandardErrorConfig{}}},
+				SessionRecording: SessionRecordingConfig{
+					Segment: segment,
+					Output:  LogOutputConfig{Stdout: &LogStandardOutputConfig{}},
+				},
 			},
 		},
 		{
 			name: "one file path per category",
 			log: LogConfig{
-				Audit:            LogAuditConfig{Output: LogOutputConfig{File: &LogFileOutputConfig{Path: "/var/log/gateway/audit.log"}}},
-				SessionRecording: SessionRecordingConfig{Segment: segment, Output: LogOutputConfig{File: &LogFileOutputConfig{Path: "/var/log/gateway/sessions.log"}}},
+				Audit: LogAuditConfig{
+					Output: LogOutputConfig{File: &LogFileOutputConfig{Path: "/var/log/gateway/audit.log"}},
+				},
+				SessionRecording: SessionRecordingConfig{
+					Segment: segment,
+					Output:  LogOutputConfig{File: &LogFileOutputConfig{Path: "/var/log/gateway/sessions.log"}},
+				},
 			},
 		},
 		{
-			name:        "two system outputs",
-			log:         LogConfig{System: LogSystemConfig{Output: twoOutputs}, SessionRecording: SessionRecordingConfig{Segment: segment}},
+			name: "two system outputs",
+			log: LogConfig{
+				System:           LogSystemConfig{Output: twoOutputs},
+				SessionRecording: SessionRecordingConfig{Segment: segment},
+			},
 			wantErr:     errMultipleOutputs,
 			errContains: "system: output",
 		},
 		{
-			name:        "two audit outputs",
-			log:         LogConfig{Audit: LogAuditConfig{Output: twoOutputs}, SessionRecording: SessionRecordingConfig{Segment: segment}},
+			name: "two audit outputs",
+			log: LogConfig{
+				Audit:            LogAuditConfig{Output: twoOutputs},
+				SessionRecording: SessionRecordingConfig{Segment: segment},
+			},
 			wantErr:     errMultipleOutputs,
 			errContains: "audit: output",
 		},
@@ -1062,8 +1096,13 @@ func TestLogConfig_Validate(t *testing.T) {
 		{
 			name: "duplicate file output paths",
 			log: LogConfig{
-				Audit:            LogAuditConfig{Output: LogOutputConfig{File: &LogFileOutputConfig{Path: "/var/log/gateway/gateway.log"}}},
-				SessionRecording: SessionRecordingConfig{Segment: segment, Output: LogOutputConfig{File: &LogFileOutputConfig{Path: "/var/log/gateway/gateway.log"}}},
+				Audit: LogAuditConfig{
+					Output: LogOutputConfig{File: &LogFileOutputConfig{Path: "/var/log/gateway/gateway.log"}},
+				},
+				SessionRecording: SessionRecordingConfig{
+					Segment: segment,
+					Output:  LogOutputConfig{File: &LogFileOutputConfig{Path: "/var/log/gateway/gateway.log"}},
+				},
 			},
 			wantErr:     errDuplicateLogFilePath,
 			errContains: "/var/log/gateway/gateway.log",
@@ -1071,8 +1110,13 @@ func TestLogConfig_Validate(t *testing.T) {
 		{
 			name: "one file spelled as a relative and an absolute path",
 			log: LogConfig{
-				Audit:            LogAuditConfig{Output: LogOutputConfig{File: &LogFileOutputConfig{Path: "logs/gateway.log"}}},
-				SessionRecording: SessionRecordingConfig{Segment: segment, Output: LogOutputConfig{File: &LogFileOutputConfig{Path: filepath.Join(wd, "logs/gateway.log")}}},
+				Audit: LogAuditConfig{
+					Output: LogOutputConfig{File: &LogFileOutputConfig{Path: "logs/gateway.log"}},
+				},
+				SessionRecording: SessionRecordingConfig{
+					Segment: segment,
+					Output:  LogOutputConfig{File: &LogFileOutputConfig{Path: filepath.Join(wd, "logs/gateway.log")}},
+				},
 			},
 			wantErr:     errDuplicateLogFilePath,
 			errContains: filepath.Join(wd, "logs/gateway.log"),
@@ -1102,8 +1146,11 @@ func TestLogSystemConfig_Validate(t *testing.T) {
 		errContains string
 	}{
 		{
-			name:   "valid",
-			system: LogSystemConfig{Level: zapcore.DebugLevel, Output: LogOutputConfig{Stdout: &LogStandardOutputConfig{}}},
+			name: "valid",
+			system: LogSystemConfig{
+				Level:  zapcore.DebugLevel,
+				Output: LogOutputConfig{Stdout: &LogStandardOutputConfig{}},
+			},
 		},
 		{
 			name:   "level at the upper bound",
@@ -1116,8 +1163,10 @@ func TestLogSystemConfig_Validate(t *testing.T) {
 			errContains: "level",
 		},
 		{
-			name:        "two outputs",
-			system:      LogSystemConfig{Output: LogOutputConfig{Stderr: &LogStandardErrorConfig{}, Stdout: &LogStandardOutputConfig{}}},
+			name: "two outputs",
+			system: LogSystemConfig{
+				Output: LogOutputConfig{Stderr: &LogStandardErrorConfig{}, Stdout: &LogStandardOutputConfig{}},
+			},
 			wantErr:     errMultipleOutputs,
 			errContains: "output",
 		},
@@ -1150,8 +1199,10 @@ func TestLogAuditConfig_Validate(t *testing.T) {
 			audit: LogAuditConfig{Output: LogOutputConfig{Stderr: &LogStandardErrorConfig{}}},
 		},
 		{
-			name:        "two outputs",
-			audit:       LogAuditConfig{Output: LogOutputConfig{Stderr: &LogStandardErrorConfig{}, Stdout: &LogStandardOutputConfig{}}},
+			name: "two outputs",
+			audit: LogAuditConfig{
+				Output: LogOutputConfig{Stderr: &LogStandardErrorConfig{}, Stdout: &LogStandardOutputConfig{}},
+			},
 			wantErr:     errMultipleOutputs,
 			errContains: "output",
 		},
@@ -1188,8 +1239,11 @@ func TestSessionRecordingConfig_Validate(t *testing.T) {
 		errContains      string
 	}{
 		{
-			name:             "valid",
-			sessionRecording: SessionRecordingConfig{Segment: segment, Output: LogOutputConfig{Stdout: &LogStandardOutputConfig{}}},
+			name: "valid",
+			sessionRecording: SessionRecordingConfig{
+				Segment: segment,
+				Output:  LogOutputConfig{Stdout: &LogStandardOutputConfig{}},
+			},
 		},
 		{
 			name:             "invalid segment",
@@ -1198,10 +1252,13 @@ func TestSessionRecordingConfig_Validate(t *testing.T) {
 			errContains:      "segment",
 		},
 		{
-			name:             "two outputs",
-			sessionRecording: SessionRecordingConfig{Segment: segment, Output: LogOutputConfig{Stderr: &LogStandardErrorConfig{}, Stdout: &LogStandardOutputConfig{}}},
-			wantErr:          errMultipleOutputs,
-			errContains:      "output",
+			name: "two outputs",
+			sessionRecording: SessionRecordingConfig{
+				Segment: segment,
+				Output:  LogOutputConfig{Stderr: &LogStandardErrorConfig{}, Stdout: &LogStandardOutputConfig{}},
+			},
+			wantErr:     errMultipleOutputs,
+			errContains: "output",
 		},
 	}
 
@@ -1317,8 +1374,11 @@ func TestLogFileOutputConfig_Validate(t *testing.T) {
 			errContains: "path",
 		},
 		{
-			name:        "invalid rotation",
-			file:        LogFileOutputConfig{Path: "/var/log/gateway/audit.log", Rotation: LogFileRotationConfig{MaxBackupFiles: -1}},
+			name: "invalid rotation",
+			file: LogFileOutputConfig{
+				Path:     "/var/log/gateway/audit.log",
+				Rotation: LogFileRotationConfig{MaxBackupFiles: -1},
+			},
 			wantErr:     errNegativeCount,
 			errContains: "rotation: ",
 		},
@@ -1351,8 +1411,13 @@ func TestLogFileRotationConfig_Validate(t *testing.T) {
 			rotation: LogFileRotationConfig{},
 		},
 		{
-			name:     "valid",
-			rotation: LogFileRotationConfig{MaxSize: 100 * humanize.MiByte, MaxBackupFiles: 3, MaxBackupAge: yamlutil.Duration(7 * 24 * time.Hour), Compression: "none"},
+			name: "valid",
+			rotation: LogFileRotationConfig{
+				MaxSize:        100 * humanize.MiByte,
+				MaxBackupFiles: 3,
+				MaxBackupAge:   yamlutil.Duration(7 * 24 * time.Hour),
+				Compression:    "none",
+			},
 		},
 		{
 			name:     "gzip compression",
@@ -1672,9 +1737,13 @@ func TestTLSAutomationConfig_Validate(t *testing.T) {
 			name: "conflicting local, vault and gcpPrivateCA issuers",
 			automation: TLSAutomationConfig{
 				Issuer: TLSIssuerConfig{
-					Local:        localIssuer.Local,
-					Vault:        &TLSVaultIssuerConfig{Address: "https://vault:8200", Role: "gateway"},
-					GCPPrivateCA: &TLSGCPPrivateCAIssuerConfig{Project: "acme", Location: "us-east1", CAPoolID: "gateway"},
+					Local: localIssuer.Local,
+					Vault: &TLSVaultIssuerConfig{Address: "https://vault:8200", Role: "gateway"},
+					GCPPrivateCA: &TLSGCPPrivateCAIssuerConfig{
+						Project:  "acme",
+						Location: "us-east1",
+						CAPoolID: "gateway",
+					},
 				},
 			},
 			wantErr:     true,
@@ -1691,7 +1760,9 @@ func TestTLSAutomationConfig_Validate(t *testing.T) {
 		{
 			name: "invalid gcpPrivateCA issuer",
 			automation: TLSAutomationConfig{
-				Issuer: TLSIssuerConfig{GCPPrivateCA: &TLSGCPPrivateCAIssuerConfig{Location: "us-east1", CAPoolID: "gateway"}},
+				Issuer: TLSIssuerConfig{
+					GCPPrivateCA: &TLSGCPPrivateCAIssuerConfig{Location: "us-east1", CAPoolID: "gateway"},
+				},
 			},
 			wantErr:     true,
 			errContains: "issuer: gcpPrivateCA: required field is missing: project",
@@ -2497,8 +2568,12 @@ func TestVaultGCPConfig_Validate(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:    "valid IAM",
-			cfg:     &VaultGCPConfig{Role: "my-role", Type: "iam", ServiceAccountEmail: "gateway-sa@project.iam.gserviceaccount.com"},
+			name: "valid IAM",
+			cfg: &VaultGCPConfig{
+				Role:                "my-role",
+				Type:                "iam",
+				ServiceAccountEmail: "gateway-sa@project.iam.gserviceaccount.com",
+			},
 			wantErr: false,
 		},
 		{
@@ -2764,8 +2839,12 @@ func TestPostgreSQLCredential_Validate(t *testing.T) {
 			errContains: "either 'password' or 'passwordFile' is required",
 		},
 		{
-			name:        "conflicting password and password file",
-			credential:  PostgreSQLCredential{Name: "prod-viewer", Password: "viewer-password", PasswordFile: "/path/to/password"},
+			name: "conflicting password and password file",
+			credential: PostgreSQLCredential{
+				Name:         "prod-viewer",
+				Password:     "viewer-password",
+				PasswordFile: "/path/to/password",
+			},
 			wantErr:     true,
 			errContains: "only one of 'password' or 'passwordFile' can be specified",
 		},

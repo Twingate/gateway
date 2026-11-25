@@ -75,7 +75,12 @@ func TestNewConfig(t *testing.T) {
 }
 
 func TestNewConfig_CAPoolAddsCustomCA(t *testing.T) {
-	cfg, err := NewConfig(nil, []config.UpstreamTrustedCABundle{{File: "../../../test/data/proxy/tls.crt"}}, metrics.RegisterRoundTripperMetrics(prometheus.NewRegistry()), logging.NewNop())
+	cfg, err := NewConfig(
+		nil,
+		[]config.UpstreamTrustedCABundle{{File: "../../../test/data/proxy/tls.crt"}},
+		metrics.RegisterRoundTripperMetrics(prometheus.NewRegistry()),
+		logging.NewNop(),
+	)
 	require.NoError(t, err)
 
 	block, _ := pem.Decode(data.ProxyCert)
@@ -119,7 +124,12 @@ func TestNewConfig_CAPool(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cfg, err := NewConfig(nil, tt.caBundles, metrics.RegisterRoundTripperMetrics(prometheus.NewRegistry()), logging.NewNop())
+			cfg, err := NewConfig(
+				nil,
+				tt.caBundles,
+				metrics.RegisterRoundTripperMetrics(prometheus.NewRegistry()),
+				logging.NewNop(),
+			)
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.errContains)

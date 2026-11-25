@@ -25,7 +25,9 @@ const (
 )
 
 func setupSSHServer(logger *zap.Logger) error {
-	output, err := testutil.RunCommand(exec.Command("docker", "ps", "--filter", "name="+sshContainerName, "--format", "{{.Names}}"))
+	output, err := testutil.RunCommand(
+		exec.Command("docker", "ps", "--filter", "name="+sshContainerName, "--format", "{{.Names}}"),
+	)
 	if err != nil {
 		return fmt.Errorf("failed to check if SSH server exists: %w", err)
 	}
@@ -64,32 +66,41 @@ func setupSSHServer(logger *zap.Logger) error {
 		return fmt.Errorf("failed to create OpenSSH server docker container: %w", err)
 	}
 
-	if _, err := testutil.RunCommand(exec.Command("docker", "cp", "./test/data/ssh/ca", sshContainerName+":/config/ca")); err != nil {
+	copyCACmd := exec.Command("docker", "cp", "./test/data/ssh/ca", sshContainerName+":/config/ca")
+	if _, err = testutil.RunCommand(copyCACmd); err != nil {
 		return fmt.Errorf("failed to copy SSH CA public key: %w", err)
 	}
 
-	if _, err := testutil.RunCommand(exec.Command("docker", "cp", "./test/data/ssh/host", sshContainerName+":/config/host")); err != nil {
+	copyHostCmd := exec.Command("docker", "cp", "./test/data/ssh/host", sshContainerName+":/config/host")
+	if _, err = testutil.RunCommand(copyHostCmd); err != nil {
 		return fmt.Errorf("failed to copy SSH host private key: %w", err)
 	}
 
 	// Private key permission must be 0600. Otherwise, it will be ignored by SSH.
-	if _, err := testutil.RunCommand(exec.Command("docker", "exec", sshContainerName, "chmod", "0600", "/config/host/host")); err != nil {
+	chmodCmd := exec.Command("docker", "exec", sshContainerName, "chmod", "0600", "/config/host/host")
+	if _, err = testutil.RunCommand(chmodCmd); err != nil {
 		return fmt.Errorf("failed to change permission for SSH host private key: %w", err)
 	}
 
-	err = wait.PollUntilContextTimeout(context.Background(), time.Second, 10*time.Second, true, func(_ context.Context) (bool, error) {
-		output, err := testutil.RunCommand(exec.Command("docker", "exec", sshContainerName, "pgrep", "sshd"))
+	err = wait.PollUntilContextTimeout(
+		context.Background(),
+		time.Second,
+		10*time.Second,
+		true,
+		func(_ context.Context) (bool, error) {
+			output, err := testutil.RunCommand(exec.Command("docker", "exec", sshContainerName, "pgrep", "sshd"))
 
-		if err != nil || string(output) == "" {
-			logger.Info("Waiting for SSH server to be ready...")
+			if err != nil || string(output) == "" {
+				logger.Info("Waiting for SSH server to be ready...")
 
-			return false, nil //nolint:nilerr
-		}
+				return false, nil //nolint:nilerr
+			}
 
-		logger.Info("SSH server is running", zap.String("address", fmt.Sprintf("127.0.0.1:%d", sshPort)))
+			logger.Info("SSH server is running", zap.String("address", fmt.Sprintf("127.0.0.1:%d", sshPort)))
 
-		return true, nil
-	})
+			return true, nil
+		},
+	)
 	if err != nil {
 		return fmt.Errorf("failed to start SSH server: %w", err)
 	}

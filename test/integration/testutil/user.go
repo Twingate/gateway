@@ -55,7 +55,11 @@ type SSHUser struct {
 	client *fake.Client
 }
 
-func NewSSHUser(user *token.User, gatewayPort int, sshServerAddress, controllerURL, knownHostsFile string) (*SSHUser, error) {
+func NewSSHUser(
+	user *token.User,
+	gatewayPort int,
+	sshServerAddress, controllerURL, knownHostsFile string,
+) (*SSHUser, error) {
 	client := fake.NewClient(
 		user,
 		token.GeoIPLocation{},
@@ -89,7 +93,14 @@ type WebAppUser struct {
 	client *fake.Client
 }
 
-func NewWebAppUser(user *token.User, geoIPLocation token.GeoIPLocation, gatewayPort int, upstreamAddress, controllerURL string, requestHeaderRewrites map[string]string, opts ...fake.Option) *WebAppUser {
+func NewWebAppUser(
+	user *token.User,
+	geoIPLocation token.GeoIPLocation,
+	gatewayPort int,
+	upstreamAddress, controllerURL string,
+	requestHeaderRewrites map[string]string,
+	opts ...fake.Option,
+) *WebAppUser {
 	client := fake.NewClient(
 		user,
 		geoIPLocation,
@@ -118,7 +129,13 @@ type PostgreSQLUser struct {
 	client  *fake.Client
 }
 
-func NewPostgreSQLUser(user *token.User, gatewayPort int, upstreamAddress, controllerURL string, auths []token.Auth, opts ...fake.Option) *PostgreSQLUser {
+func NewPostgreSQLUser(
+	user *token.User,
+	gatewayPort int,
+	upstreamAddress, controllerURL string,
+	auths []token.Auth,
+	opts ...fake.Option,
+) *PostgreSQLUser {
 	client := fake.NewClient(
 		user,
 		token.GeoIPLocation{},

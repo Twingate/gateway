@@ -22,7 +22,12 @@ type Config struct {
 	logger logging.Logger
 }
 
-func NewConfig(sessionRecordingConfig *config.SessionRecordingConfig, k8sConfig *config.KubernetesConfig, roundTripperMetrics *metrics.RoundTripperMetrics, logger logging.Logger) (*Config, error) {
+func NewConfig(
+	sessionRecordingConfig *config.SessionRecordingConfig,
+	k8sConfig *config.KubernetesConfig,
+	roundTripperMetrics *metrics.RoundTripperMetrics,
+	logger logging.Logger,
+) (*Config, error) {
 	cfg := &Config{
 		sessionRecording:    sessionRecordingConfig,
 		roundTripperMetrics: roundTripperMetrics,

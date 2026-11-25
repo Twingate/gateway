@@ -169,8 +169,16 @@ func TestUpstream_ConnectConfig_TLS(t *testing.T) {
 		wantCertificates []tls.Certificate
 	}{
 		{name: "plaintext ignores the client certificate", certificate: certificate},
-		{name: "TLS, no client certificate", tlsConfig: &tls.Config{ServerName: "db.acme.int", MinVersion: tls.VersionTLS12}},
-		{name: "TLS, client certificate", tlsConfig: &tls.Config{ServerName: "db.acme.int", MinVersion: tls.VersionTLS12}, certificate: certificate, wantCertificates: []tls.Certificate{*certificate}},
+		{
+			name:      "TLS, no client certificate",
+			tlsConfig: &tls.Config{ServerName: "db.acme.int", MinVersion: tls.VersionTLS12},
+		},
+		{
+			name:             "TLS, client certificate",
+			tlsConfig:        &tls.Config{ServerName: "db.acme.int", MinVersion: tls.VersionTLS12},
+			certificate:      certificate,
+			wantCertificates: []tls.Certificate{*certificate},
+		},
 	}
 
 	for _, tt := range tests {
@@ -326,13 +334,25 @@ func TestUpstream_Connect_Error(t *testing.T) {
 		listener, address := newUpstreamListener(t)
 		require.NoError(t, listener.Close())
 
-		_, err := upstream{address: address}.connect(t.Context(), startup, credential{user: testDatabaseUser, password: "secret"})
+		_, err := upstream{
+			address: address,
+		}.connect(
+			t.Context(),
+			startup,
+			credential{user: testDatabaseUser, password: "secret"},
+		)
 
 		require.ErrorIs(t, err, errFailedToConnectUpstream)
 	})
 
 	t.Run("empty password", func(t *testing.T) {
-		_, err := upstream{address: "db.acme.int:5432"}.connect(t.Context(), startup, credential{user: testDatabaseUser})
+		_, err := upstream{
+			address: "db.acme.int:5432",
+		}.connect(
+			t.Context(),
+			startup,
+			credential{user: testDatabaseUser},
+		)
 
 		require.ErrorIs(t, err, errEmptyPassword)
 	})

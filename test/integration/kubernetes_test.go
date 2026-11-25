@@ -113,7 +113,13 @@ func TestKubernetes(t *testing.T) {
 		"username": "alex@acme.com",
 		"groups":   []any{"OnCall", "Engineering"},
 	}
-	testutil.AssertLogsForREST(t, logs, "/apis/authentication.k8s.io/v1/selfsubjectreviews", expectedUser, http.StatusCreated)
+	testutil.AssertLogsForREST(
+		t,
+		logs,
+		"/apis/authentication.k8s.io/v1/selfsubjectreviews",
+		expectedUser,
+		http.StatusCreated,
+	)
 
 	// Test `kubectl exec`
 	output, err = user.Kubectl.Command("exec", "test-pod", "--", "cat", "/etc/hostname")
@@ -130,7 +136,14 @@ func TestKubernetes(t *testing.T) {
 		User:      expectedUser["username"].(string),
 	}
 	expectedEvents := []string{"", "test-pod\n"}
-	testutil.AssertLogsForExecOrAttach(t, logs, "/api/v1/namespaces/default/pods/test-pod/exec?command=cat&command=%2Fetc%2Fhostname&container=test-pod&stderr=true&stdout=true", expectedUser, expectedHeader, expectedEvents)
+	testutil.AssertLogsForExecOrAttach(
+		t,
+		logs,
+		"/api/v1/namespaces/default/pods/test-pod/exec?command=cat&command=%2Fetc%2Fhostname&container=test-pod&stderr=true&stdout=true",
+		expectedUser,
+		expectedHeader,
+		expectedEvents,
+	)
 
 	// Test `kubectl attach`
 	expectedHeader = sessionrecorder.AsciicastHeader{
@@ -157,5 +170,12 @@ func TestKubernetes(t *testing.T) {
 	// Wait for the logs to be flushed
 	time.Sleep(100 * time.Millisecond)
 
-	testutil.AssertLogsForExecOrAttach(t, logs, "/api/v1/namespaces/default/pods/test-pod/attach?container=test-pod&stderr=true&stdout=true", expectedUser, expectedHeader, expectedEvents)
+	testutil.AssertLogsForExecOrAttach(
+		t,
+		logs,
+		"/api/v1/namespaces/default/pods/test-pod/attach?container=test-pod&stderr=true&stdout=true",
+		expectedUser,
+		expectedHeader,
+		expectedEvents,
+	)
 }

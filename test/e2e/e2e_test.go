@@ -108,7 +108,14 @@ func createCaddyCACertConfigMap(t *testing.T) {
 	caCert := downloadCaddyCACert(t)
 
 	// #nosec G204 -- Certificate comes from trusted local Caddy server
-	cmd := exec.Command("kubectl", "create", "configmap", "caddy-local-ca", "--from-literal", fmt.Sprintf("%s=%s", caddyCAConfigMapKey, caCert))
+	cmd := exec.Command(
+		"kubectl",
+		"create",
+		"configmap",
+		"caddy-local-ca",
+		"--from-literal",
+		fmt.Sprintf("%s=%s", caddyCAConfigMapKey, caCert),
+	)
 	_, err := testutil.RunCommand(cmd)
 	require.NoError(t, err, "failed to create ConfigMap for Caddy CA certificate")
 }
@@ -167,7 +174,8 @@ func getDockerImageTag(t *testing.T) string {
 func loadDockerImageToKinD(t *testing.T, clusterName, image string) {
 	t.Helper()
 
-	cmd := exec.Command("kind", "load", "docker-image", image, "-n", clusterName) //nolint:gosec // args are test-controlled
+	//nolint:gosec // args are test-controlled
+	cmd := exec.Command("kind", "load", "docker-image", image, "-n", clusterName)
 	_, err := testutil.RunCommand(cmd)
 	require.NoError(t, err, "failed to load docker image to KinD")
 }
@@ -226,7 +234,16 @@ func deployHelmChart(t *testing.T, clusterName, imageTag string) {
 	hostIP := getKindHostAccessIP(t, clusterName)
 	t.Log("Host IP from within KinD cluster:", hostIP)
 
-	helmValuesYaml := fmt.Sprintf(helmValuesYamlTemplate, imageTag, caddyCAConfigMapKey, hostIP, nodePort, tlsCertStr, tlsKeyStr, tlsCertStr)
+	helmValuesYaml := fmt.Sprintf(
+		helmValuesYamlTemplate,
+		imageTag,
+		caddyCAConfigMapKey,
+		hostIP,
+		nodePort,
+		tlsCertStr,
+		tlsKeyStr,
+		tlsCertStr,
+	)
 	t.Log("Deploying Helm chart using the following values:\n", helmValuesYaml)
 
 	// Collect Gateway logs for troubleshooting before tearing down the cluster.
@@ -255,7 +272,14 @@ func getKindHostAccessIP(t *testing.T, clusterName string) string {
 	// When running on macOS, find the host IP from `host.docker.internal` special hostname.
 
 	// #nosec G204 -- clusterName comes from a trusted source (KinD cluster name)
-	cmd := exec.Command("docker", "exec", clusterName+"-control-plane", "sh", "-c", "getent ahostsv4 host.docker.internal | awk '{ print $1; exit }'")
+	cmd := exec.Command(
+		"docker",
+		"exec",
+		clusterName+"-control-plane",
+		"sh",
+		"-c",
+		"getent ahostsv4 host.docker.internal | awk '{ print $1; exit }'",
+	)
 	output, err := testutil.RunCommand(cmd)
 	require.NoError(t, err, "failed to get host IP")
 

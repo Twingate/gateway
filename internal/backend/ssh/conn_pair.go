@@ -121,7 +121,12 @@ type ConnPair struct {
 	wg sync.WaitGroup
 }
 
-func NewConnPair(logger logging.Logger, sshCtx *sshContext, downstream, upstream connection, recorderFactory sessionRecorderFactory) *ConnPair {
+func NewConnPair(
+	logger logging.Logger,
+	sshCtx *sshContext,
+	downstream, upstream connection,
+	recorderFactory sessionRecorderFactory,
+) *ConnPair {
 	return &ConnPair{
 		logger:          logger,
 		sshCtx:          sshCtx,
@@ -161,32 +166,61 @@ func (c *ConnPair) serve() {
 	c.wg.Go(func() {
 		defer closeOnPanic(c.logger.Audit, c.close)
 
-		c.handleGlobalRequests(c.downstream.requests, c.upstream.conn, disallowedDownstreamGlobalRequests, labelDownstream, labelUpstream)
+		c.handleGlobalRequests(
+			c.downstream.requests,
+			c.upstream.conn,
+			disallowedDownstreamGlobalRequests,
+			labelDownstream,
+			labelUpstream,
+		)
 	})
 
 	c.wg.Go(func() {
 		defer closeOnPanic(c.logger.Audit, c.close)
 
-		c.handleGlobalRequests(c.upstream.requests, c.downstream.conn, disallowedUpstreamGlobalRequests, labelUpstream, labelDownstream)
+		c.handleGlobalRequests(
+			c.upstream.requests,
+			c.downstream.conn,
+			disallowedUpstreamGlobalRequests,
+			labelUpstream,
+			labelDownstream,
+		)
 	})
 
 	// Forward channels in both directions
 	c.wg.Go(func() {
 		defer closeOnPanic(c.logger.Audit, c.close)
 
-		c.forwardChannels(c.downstream.channels, c.upstream.conn, disallowedDownstreamChannelTypes, labelDownstream, labelUpstream)
+		c.forwardChannels(
+			c.downstream.channels,
+			c.upstream.conn,
+			disallowedDownstreamChannelTypes,
+			labelDownstream,
+			labelUpstream,
+		)
 	})
 
 	c.wg.Go(func() {
 		defer closeOnPanic(c.logger.Audit, c.close)
 
-		c.forwardChannels(c.upstream.channels, c.downstream.conn, disallowedUpstreamChannelTypes, labelUpstream, labelDownstream)
+		c.forwardChannels(
+			c.upstream.channels,
+			c.downstream.conn,
+			disallowedUpstreamChannelTypes,
+			labelUpstream,
+			labelDownstream,
+		)
 	})
 
 	c.wg.Wait()
 }
 
-func (c *ConnPair) forwardChannels(channels <-chan ssh.NewChannel, targetConn ssh.Conn, disallowedTypes map[string]bool, source, target string) {
+func (c *ConnPair) forwardChannels(
+	channels <-chan ssh.NewChannel,
+	targetConn ssh.Conn,
+	disallowedTypes map[string]bool,
+	source, target string,
+) {
 	for newChannel := range channels {
 		channelType := newChannel.ChannelType()
 
@@ -256,13 +290,23 @@ func (c *ConnPair) forwardChannels(channels <-chan ssh.NewChannel, targetConn ss
 	}
 }
 
-func (c *ConnPair) handleGlobalRequests(requests <-chan *ssh.Request, dst ssh.Conn, disallowedTypes map[string]bool, source, target string) {
+func (c *ConnPair) handleGlobalRequests(
+	requests <-chan *ssh.Request,
+	dst ssh.Conn,
+	disallowedTypes map[string]bool,
+	source, target string,
+) {
 	for req := range requests {
 		c.handleGlobalRequest(req, dst, disallowedTypes, source, target)
 	}
 }
 
-func (c *ConnPair) handleGlobalRequest(req *ssh.Request, dst ssh.Conn, disallowedTypes map[string]bool, source, target string) {
+func (c *ConnPair) handleGlobalRequest(
+	req *ssh.Request,
+	dst ssh.Conn,
+	disallowedTypes map[string]bool,
+	source, target string,
+) {
 	accepted, replyPayload := c.forwardGlobalRequest(req, dst, disallowedTypes, source, target)
 
 	if err := req.Reply(accepted, replyPayload); err != nil {
@@ -272,7 +316,12 @@ func (c *ConnPair) handleGlobalRequest(req *ssh.Request, dst ssh.Conn, disallowe
 }
 
 // forwardGlobalRequest forwards a global request to dst and returns the reply to send back.
-func (c *ConnPair) forwardGlobalRequest(req *ssh.Request, dst ssh.Conn, disallowedTypes map[string]bool, source, target string) (accepted bool, replyPayload []byte) {
+func (c *ConnPair) forwardGlobalRequest(
+	req *ssh.Request,
+	dst ssh.Conn,
+	disallowedTypes map[string]bool,
+	source, target string,
+) (accepted bool, replyPayload []byte) {
 	extra, parseErr := globalRequestLogFields(req.Type, req.Payload)
 
 	// logger derives the fields on each call so every log line carries the detail accumulated

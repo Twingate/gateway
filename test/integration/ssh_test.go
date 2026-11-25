@@ -38,7 +38,12 @@ type sshTestEnv struct {
 	logs        *observer.ObservedLogs
 }
 
-func setupSSHGateway(t *testing.T, user *token.User, sshCAConfig gatewayconfig.SSHCAConfig, gatewayPort int) *sshTestEnv {
+func setupSSHGateway(
+	t *testing.T,
+	user *token.User,
+	sshCAConfig gatewayconfig.SSHCAConfig,
+	gatewayPort int,
+) *sshTestEnv {
 	t.Helper()
 
 	containerID, sshServerPort := testutil.SetupSSHServer(t, sshUsername)
@@ -151,7 +156,9 @@ func TestSSH(t *testing.T) {
 	env.logs.TakeAll()
 
 	// #nosec G204 -- inputs are from trusted operator configuration
-	_, err = testutil.RunCommand(exec.Command("docker", "exec", env.containerID, "sh", "-c", "echo 'test file copy' > /tmp/test.txt"))
+	_, err = testutil.RunCommand(
+		exec.Command("docker", "exec", env.containerID, "sh", "-c", "echo 'test file copy' > /tmp/test.txt"),
+	)
 	require.NoError(t, err, "failed to create test file in docker container")
 
 	// Test `scp -P 2222 admin@127.0.0.1:/tmp/test.txt /tmp/dir/test.txt`
@@ -291,16 +298,22 @@ func TestSSHLocalPortForwarding(t *testing.T) {
 	// Wait for the tunnel to be established by polling the forwarded port
 	var conn net.Conn
 
-	err := wait.PollUntilContextTimeout(ctx, 500*time.Millisecond, 10*time.Second, true, func(_ context.Context) (bool, error) {
-		var dialErr error
+	err := wait.PollUntilContextTimeout(
+		ctx,
+		500*time.Millisecond,
+		10*time.Second,
+		true,
+		func(_ context.Context) (bool, error) {
+			var dialErr error
 
-		conn, dialErr = net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", localPort), time.Second)
-		if dialErr != nil {
-			return false, nil //nolint:nilerr
-		}
+			conn, dialErr = net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", localPort), time.Second)
+			if dialErr != nil {
+				return false, nil //nolint:nilerr
+			}
 
-		return true, nil
-	})
+			return true, nil
+		},
+	)
 	require.NoError(t, err, "failed to connect to local forwarded port")
 
 	defer conn.Close()
@@ -376,19 +389,27 @@ func TestSSHRemotePortForwarding(t *testing.T) {
 	// Wait for the remote tunnel to be established by polling from inside the container
 	var output []byte
 
-	err := wait.PollUntilContextTimeout(ctx, 500*time.Millisecond, 10*time.Second, true, func(_ context.Context) (bool, error) {
-		var cmdErr error
+	err := wait.PollUntilContextTimeout(
+		ctx,
+		500*time.Millisecond,
+		10*time.Second,
+		true,
+		func(_ context.Context) (bool, error) {
+			var cmdErr error
 
-		output, cmdErr = testutil.RunCommand(exec.Command( // #nosec G204 -- inputs are from trusted operator configuration
-			"docker", "exec", env.containerID, "sh", "-c",
-			fmt.Sprintf("echo 'hello remote port forwarding' | nc -w 2 127.0.0.1 %d", remotePort),
-		))
-		if cmdErr != nil {
-			return false, nil //nolint:nilerr
-		}
+			output, cmdErr = testutil.RunCommand(
+				exec.Command( // #nosec G204 -- inputs are from trusted operator configuration
+					"docker", "exec", env.containerID, "sh", "-c",
+					fmt.Sprintf("echo 'hello remote port forwarding' | nc -w 2 127.0.0.1 %d", remotePort),
+				),
+			)
+			if cmdErr != nil {
+				return false, nil //nolint:nilerr
+			}
 
-		return true, nil
-	})
+			return true, nil
+		},
+	)
 	require.NoError(t, err, "failed to connect to remote forwarded port from container")
 
 	assert.Equal(t, "hello remote port forwarding\n", string(output))

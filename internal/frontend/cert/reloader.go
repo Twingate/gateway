@@ -34,7 +34,10 @@ func newReloader(keyPairs []config.TLSCertificateFileKeyPair, logger *zap.Logger
 
 	for _, keyPair := range keyPairs {
 		load := func() error { return r.load(keyPair) }
-		r.reloaders = append(r.reloaders, filereloader.New([]string{keyPair.CertificateFile, keyPair.PrivateKeyFile}, load, logger))
+		r.reloaders = append(
+			r.reloaders,
+			filereloader.New([]string{keyPair.CertificateFile, keyPair.PrivateKeyFile}, load, logger),
+		)
 	}
 
 	return r

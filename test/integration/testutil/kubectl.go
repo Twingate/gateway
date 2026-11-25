@@ -47,7 +47,10 @@ func (k *Kubectl) executeKubectl(ctx context.Context, stdIn io.Reader, cmdOption
 		}
 	}
 
-	cmd := exec.CommandContext(ctx, "kubectl", append(options, cmdOptions...)...) // #nosec G204 -- kubectl is safe to use
+	cmd := exec.CommandContext(
+		ctx,
+		"kubectl",
+		append(options, cmdOptions...)...) // #nosec G204 -- kubectl is safe to use
 	cmd.Stdin = stdIn
 
 	return RunCommand(cmd)

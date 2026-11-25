@@ -260,7 +260,9 @@ func TestProxy_Start_UpgradesTLS(t *testing.T) {
 			})
 
 			client := &http.Client{
-				Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: rootCAs, MinVersion: tls.VersionTLS13}},
+				Transport: &http.Transport{
+					TLSClientConfig: &tls.Config{RootCAs: rootCAs, MinVersion: tls.VersionTLS13},
+				},
 			}
 
 			scheme := "http"

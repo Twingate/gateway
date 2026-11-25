@@ -92,7 +92,8 @@ func reflectSchema() (*jsonschema.Schema, error) {
 	// Comments are keyed by import path, which AddGoComments derives by joining the base with
 	// each parsed file's directory, so "../../internal/config" from this package resolves to
 	// package config.
-	if err := r.AddGoComments("gateway/tools/docgen", "../../internal/config", jsonschema.WithFullComment()); err != nil {
+	err := r.AddGoComments("gateway/tools/docgen", "../../internal/config", jsonschema.WithFullComment())
+	if err != nil {
 		return nil, fmt.Errorf("failed to parse config comments: %w", err)
 	}
 
