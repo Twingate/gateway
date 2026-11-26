@@ -6,6 +6,8 @@ package integration
 import (
 	"bytes"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -247,4 +249,92 @@ func TestPostgreSQL(t *testing.T) {
 			}, 5*time.Second, 10*time.Millisecond)
 		})
 	}
+}
+
+func TestPostgreSQL_AWSIAM(t *testing.T) {
+	const gatewayPort = 8455
+
+	flociContainerID, flociPort := testutil.SetupFlociServer(t)
+
+	certificateFile, serverPort := testutil.SetupFlociRDS(t, flociContainerID)
+
+	roleARN, accessKeyID, secretAccessKey := testutil.SetupFlociAssumeRole(t, flociContainerID)
+
+	emptyFile := filepath.Join(t.TempDir(), "empty")
+	require.NoError(t, os.WriteFile(emptyFile, nil, 0o600))
+
+	// Makes the AWS SDK in the test process sign as the IAM user and send STS requests to floci, and
+	// keeps the AWS profiles of the machine running the tests out of the default configuration.
+	t.Setenv("AWS_CONFIG_FILE", emptyFile)
+	t.Setenv("AWS_SHARED_CREDENTIALS_FILE", emptyFile)
+	t.Setenv("AWS_PROFILE", "")
+	t.Setenv("AWS_ACCESS_KEY_ID", accessKeyID)
+	t.Setenv("AWS_SECRET_ACCESS_KEY", secretAccessKey)
+	t.Setenv("AWS_SESSION_TOKEN", "")
+	t.Setenv("AWS_ENDPOINT_URL_STS", fmt.Sprintf("http://127.0.0.1:%d", flociPort))
+
+	controller := fake.NewController(network, 8080)
+
+	t.Cleanup(func() { controller.Close() })
+
+	config := gatewayconfig.Config{
+		Twingate: gatewayconfig.TwingateConfig{
+			Network: network,
+			Host:    host,
+		},
+		Port:        gatewayPort,
+		MetricsPort: 0,
+		TLS: gatewayconfig.TLSConfig{
+			Certificates: &gatewayconfig.TLSCertificateSources{
+				Files: []gatewayconfig.TLSCertificateFileKeyPair{
+					{
+						CertificateFile: "../data/proxy/tls.crt",
+						PrivateKeyFile:  "../data/proxy/tls.key",
+					},
+				},
+			},
+		},
+		PostgreSQL:               &gatewayconfig.PostgreSQLConfig{},
+		UpstreamTrustedCABundles: []gatewayconfig.UpstreamTrustedCABundle{{File: certificateFile}},
+	}
+
+	logger, _ := testutil.NewObservedLogger()
+
+	p, err := proxy.NewProxy(&config, prometheus.NewRegistry(), logger)
+	require.NoError(t, err, "failed to create proxy")
+
+	go func() {
+		err := p.Start()
+		t.Logf("Failed to start Gateway: %v", err)
+	}()
+
+	testutil.GatewayHealthCheck(t, gatewayPort)
+
+	user := testutil.NewPostgreSQLUser(
+		&token.User{ID: "user-postgresql-1", Username: "alex@acme.com", Groups: []string{"OnCall", "Engineering"}},
+		gatewayPort,
+		fmt.Sprintf("127.0.0.1:%d", serverPort),
+		controller.URL,
+		[]token.Auth{{
+			Type:   token.AuthTypeAWSIAM,
+			User:   testutil.PostgreSQLUsername,
+			AWSIAM: &token.AWSIAMAuth{Region: testutil.RDSRegion, AssumeRoleARN: roleARN},
+		}},
+		fake.WithUpstreamTLSMode(token.TLSClientModeVerifyFull),
+	)
+
+	t.Cleanup(func() { user.Close() })
+
+	conn, err := pgx.Connect(t.Context(), fmt.Sprintf("postgres://client:unused@%s/%s", user.Address, testutil.PostgreSQLDatabase))
+	require.NoError(t, err, "failed to connect to PostgreSQL through the Gateway")
+
+	t.Cleanup(func() { _ = conn.Close(t.Context()) })
+
+	var currentUser string
+
+	err = conn.QueryRow(t.Context(), "SELECT current_user").Scan(&currentUser)
+	require.NoError(t, err)
+	assert.Equal(t, testutil.PostgreSQLUsername, currentUser)
+
+	require.NoError(t, conn.Close(t.Context()))
 }
