@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -83,6 +84,24 @@ func AssertLogsForExecOrAttach(t *testing.T, logs *observer.ObservedLogs, expect
 
 	// Request and response logs must have the same request ID
 	assert.Equal(t, firstLog.ContextMap()["request_id"], secondLog.ContextMap()["request_id"])
+}
+
+func AssertLogsForExecWithoutRecording(t *testing.T, logs *observer.ObservedLogs, expectedURL string, expectedUser map[string]any) {
+	t.Helper()
+
+	// The audit log is written after the session recording, so once it is observed a recording
+	// of the same request would have been observed too.
+	var expectedLogs []observer.LoggedEntry
+
+	require.Eventually(t, func() bool {
+		expectedLogs = logs.FilterField(zap.String("url", expectedURL)).All()
+
+		return len(expectedLogs) > 0 && expectedLogs[len(expectedLogs)-1].Message == "API request completed"
+	}, time.Second, 10*time.Millisecond, "expected an audit log for URL %s, user %v", expectedURL, expectedUser)
+
+	require.Len(t, expectedLogs, 1, "expected 1 log for URL %s, user %v", expectedURL, expectedUser)
+
+	assert.Equal(t, expectedUser, expectedLogs[0].ContextMap()["user"])
 }
 
 type SSHChannelRequestLog struct {
