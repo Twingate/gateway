@@ -119,7 +119,7 @@ func NewProxy(config *gatewayconfig.Config, registry *prometheus.Registry, logge
 		postgresProxy = postgres.NewProxy(*postgresConfig)
 	}
 
-	sessionrecorder.RegisterRecordedSessionMetrics(metrics.Namespace, registry)
+	sessionrecorder.RegisterMetrics(registry)
 
 	metricsServer := metrics.NewServer(metrics.Config{
 		Registry: registry,
@@ -138,14 +138,9 @@ func NewProxy(config *gatewayconfig.Config, registry *prometheus.Registry, logge
 	}, nil
 }
 
-func (p *Proxy) Start() error {
+func (p *Proxy) Start(listener net.Listener) error {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer cancel()
-
-	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", p.config.Port))
-	if err != nil {
-		return err
-	}
 
 	p.listener = listener
 
@@ -190,7 +185,7 @@ func (p *Proxy) Start() error {
 	g, gCtx := errgroup.WithContext(ctx)
 
 	g.Go(func() error {
-		p.logger.System.Info("Starting connect proxy", zap.Int("port", p.config.Port))
+		p.logger.System.Info("Starting connect proxy", zap.String("addr", listener.Addr().String()))
 
 		err := connectListener.Serve(gCtx, listener)
 		if err != nil {

@@ -33,20 +33,16 @@ import (
 )
 
 func TestWebApp(t *testing.T) {
-	const gatewayPort = 8450
+	t.Parallel()
 
 	echoServer := testutil.SetupHTTPEchoServer(t)
 	upstreamAddress := echoServer.Listener.Addr().String()
-
-	controller := fake.NewController(network, 8080)
-	defer controller.Close()
 
 	config := gatewayconfig.Config{
 		Twingate: gatewayconfig.TwingateConfig{
 			Network: network,
 			Host:    host,
 		},
-		Port:        gatewayPort,
 		MetricsPort: 0,
 		TLS: gatewayconfig.TLSConfig{
 			Certificates: &gatewayconfig.TLSCertificateSources{
@@ -75,12 +71,16 @@ func TestWebApp(t *testing.T) {
 	p, err := proxy.NewProxy(&config, prometheus.NewRegistry(), logger)
 	require.NoError(t, err, "failed to create proxy")
 
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err, "failed to listen")
+
 	go func() {
-		err := p.Start()
+		err := p.Start(listener)
 		t.Logf("Failed to start Gateway: %v", err)
 	}()
 
-	testutil.GatewayHealthCheck(t, gatewayPort)
+	gatewayAddress := listener.Addr().String()
+	testutil.GatewayHealthCheck(t, gatewayAddress)
 
 	user := testutil.NewWebAppUser(
 		&token.User{
@@ -95,9 +95,9 @@ func TestWebApp(t *testing.T) {
 			Region:  "CA",
 			City:    "San Mateo",
 		},
-		gatewayPort,
+		gatewayAddress,
 		upstreamAddress,
-		controller.URL,
+		controllerURL,
 		map[string]string{
 			"X-Twingate-Username": "{{username}}",
 		},
@@ -156,20 +156,16 @@ func TestWebApp(t *testing.T) {
 	testutil.AssertLogsForREST(t, logs, "/", expectedUser, http.StatusOK)
 }
 
-func TestWebApp_HTTP2(t *testing.T) {
-	const gatewayPort = 8451
+func TestWebApp_HTTP2(t *testing.T) { //nolint:tparallel // subtests share a transport and context closed by the parent
+	t.Parallel()
 
 	echoServer := testutil.SetupHTTPEchoServer(t)
-
-	controller := fake.NewController(network, 8080)
-	defer controller.Close()
 
 	config := gatewayconfig.Config{
 		Twingate: gatewayconfig.TwingateConfig{
 			Network: network,
 			Host:    host,
 		},
-		Port:        gatewayPort,
 		MetricsPort: 0,
 		TLS: gatewayconfig.TLSConfig{
 			Certificates: &gatewayconfig.TLSCertificateSources{
@@ -189,12 +185,16 @@ func TestWebApp_HTTP2(t *testing.T) {
 	p, err := proxy.NewProxy(&config, prometheus.NewRegistry(), logger)
 	require.NoError(t, err, "failed to create proxy")
 
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err, "failed to listen")
+
 	go func() {
-		err := p.Start()
+		err := p.Start(listener)
 		t.Logf("Failed to start Gateway: %v", err)
 	}()
 
-	testutil.GatewayHealthCheck(t, gatewayPort)
+	gatewayAddress := listener.Addr().String()
+	testutil.GatewayHealthCheck(t, gatewayAddress)
 
 	user := testutil.NewWebAppUser(
 		&token.User{
@@ -203,9 +203,9 @@ func TestWebApp_HTTP2(t *testing.T) {
 			Groups:   []string{"Engineering"},
 		},
 		token.GeoIPLocation{},
-		gatewayPort,
+		gatewayAddress,
 		echoServer.Listener.Addr().String(),
-		controller.URL,
+		controllerURL,
 		nil,
 		fake.WithDownstreamTLS(),
 	)

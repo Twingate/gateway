@@ -6,6 +6,7 @@ package integration
 import (
 	"bytes"
 	"fmt"
+	"net"
 	"strings"
 	"testing"
 	"time"
@@ -26,21 +27,16 @@ import (
 
 const postgreSQLCredential = "integration-test"
 
-func TestPostgreSQL(t *testing.T) {
-	const gatewayPort = 8454
+func TestPostgreSQL(t *testing.T) { //nolint:tparallel // subtests share one connection and assert on log offsets
+	t.Parallel()
 
 	_, serverPort := testutil.SetupPostgreSQLServer(t)
-
-	controller := fake.NewController(network, 8080)
-
-	t.Cleanup(func() { controller.Close() })
 
 	config := gatewayconfig.Config{
 		Twingate: gatewayconfig.TwingateConfig{
 			Network: network,
 			Host:    host,
 		},
-		Port:        gatewayPort,
 		MetricsPort: 0,
 		TLS: gatewayconfig.TLSConfig{
 			Certificates: &gatewayconfig.TLSCertificateSources{
@@ -65,12 +61,16 @@ func TestPostgreSQL(t *testing.T) {
 	p, err := proxy.NewProxy(&config, prometheus.NewRegistry(), logger)
 	require.NoError(t, err, "failed to create proxy")
 
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err, "failed to listen")
+
 	go func() {
-		err := p.Start()
+		err := p.Start(listener)
 		t.Logf("Failed to start Gateway: %v", err)
 	}()
 
-	testutil.GatewayHealthCheck(t, gatewayPort)
+	gatewayAddress := listener.Addr().String()
+	testutil.GatewayHealthCheck(t, gatewayAddress)
 
 	auths := []token.Auth{{
 		Type:     token.AuthTypePassword,
@@ -94,9 +94,9 @@ func TestPostgreSQL(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			user := testutil.NewPostgreSQLUser(
 				&token.User{ID: "user-postgresql-1", Username: "alex@acme.com", Groups: []string{"OnCall", "Engineering"}},
-				gatewayPort,
+				gatewayAddress,
 				fmt.Sprintf("127.0.0.1:%d", serverPort),
-				controller.URL,
+				controllerURL,
 				auths,
 				fake.WithUpstreamTLSMode(tt.tlsMode),
 			)

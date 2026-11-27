@@ -70,7 +70,7 @@ func TestInCluster(t *testing.T) {
 			Username: "alex@acme.com",
 			Groups:   []string{"OnCall", "Engineering"},
 		},
-		nodePort,
+		fmt.Sprintf("127.0.0.1:%d", nodePort),
 		"kubernetes.default.svc.cluster.local:443",
 		controller.URL,
 	)
